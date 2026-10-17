@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { dateStr, evidenceDir } from "../src/config.ts";
 import { parseLine, type Fields } from "../src/logfmt.ts";
 import { resetState } from "../src/state.ts";
-import { SelfImprovement } from "../index.ts";
+import { loadPlugin } from "./harness.ts";
 
 let root: string;
 let liveRoot: string;
@@ -38,8 +38,8 @@ afterEach(() => {
 type AnyHook = (input: unknown, output: unknown) => Promise<void>;
 
 async function hooksFor(): Promise<Record<string, AnyHook | undefined>> {
-  const hooks = await SelfImprovement({ directory: liveRoot } as never);
-  return hooks as unknown as Record<string, AnyHook | undefined>;
+  const loaded = await loadPlugin(liveRoot);
+  return loaded as unknown as Record<string, AnyHook | undefined>;
 }
 
 function evidence(): Fields[] {

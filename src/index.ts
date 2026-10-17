@@ -2,9 +2,14 @@
 // 4-gate write pipeline, deterministic reflection triggers T1/T2/T4,
 // tiny-digest injection with deterministic memory-first context and
 // contextual pull, and snapshot/rollback.
+//
+// V2 port: registers tools via `ctx.tool.transform` (JSON Schema), mirrors the
+// V1 hooks onto the OpenCode V2 session/tool hook API, and registers the
+// /repo-init command via `ctx.command.transform`. The plugin contract is a
+// default export object `{ id, setup(ctx) }` (OpenCode >= 2.0). All business
+// logic still lives in the decoupled helper modules.
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { type Plugin, tool } from "@opencode-ai/plugin";
 import { evidenceDir, memoryRoot, dateStr } from "./config.ts";
 import { loadAll, isActive, markSuperseded, type Memory } from "./memory.ts";
 import { runWriteGate, type GateContext, type WriteCandidate } from "./gates.ts";
@@ -36,6 +41,20 @@ import { readLines } from "./logfmt.ts";
 const TYPES = ["decision", "learning", "preference", "blocker", "context", "pattern"] as const;
 const STATUSES = ["open", "settled"] as const;
 
+// --- minimal JSON Schema helpers (OpenCode V2 tools take JSON Schema) --------
+type JSONSchema = Record<string, unknown>;
+const str = (): JSONSchema => ({ type: "string" });
+const bool = (): JSONSchema => ({ type: "boolean" });
+const num = (): JSONSchema => ({ type: "number" });
+const strArray = (): JSONSchema => ({ type: "array", items: { type: "string" } });
+const en = (values: readonly string[]): JSONSchema => ({ type: "string", enum: [...values] });
+function obj(properties: Record<string, JSONSchema>, required: string[] = []): JSONSchema {
+  return { type: "object", properties, required, additionalProperties: false };
+}
+function withDesc(schema: JSONSchema, description: string): JSONSchema {
+  return { ...schema, description };
+}
+
 function scoreMemory(m: Memory, q: string): number {
   const hay = `${m.type} ${m.scope} ${m.content}`.toLowerCase();
   let score = 0;
@@ -47,314 +66,385 @@ function scoreMemory(m: Memory, q: string): number {
   return score;
 }
 
-export const SelfImprovement: Plugin = async (ctx) => {
-  const liveRoot = ctx?.directory ?? process.cwd();
-  await ensureInitCommand();
+// --- OpenCode V2 runtime shapes (loose: we only read a few fields) ----------
+interface ToolDef {
+  name: string;
+  description: string;
+  input: JSONSchema;
+  options?: { codemode?: boolean; namespace?: string };
+  execute: (args: any, context: any) => Promise<{ content: string }>;
+}
+interface ToolEditorLike {
+  add: (tool: ToolDef) => void;
+}
+interface HookReg {
+  dispose?: () => Promise<void> | void;
+}
+interface PluginCtx {
+  location?: { directory?: string };
+  tool?: {
+    transform: (cb: (editor: ToolEditorLike) => void) => Promise<unknown>;
+    hook: (name: string, cb: (event: any) => Promise<void> | void) => Promise<HookReg | void>;
+  };
+  command?: {
+    transform: (cb: (editor: { add: (cmd: Record<string, unknown>) => void }) => void) => Promise<unknown>;
+  };
+  session?: {
+    hook: (name: string, cb: (event: any) => Promise<void> | void) => Promise<HookReg | void>;
+    prompt: (input: {
+      sessionID: string;
+      text: string;
+      delivery?: "steer" | "queue";
+    }) => Promise<unknown>;
+  };
+}
 
-  const gateContext = (): GateContext => ({
-    liveRoot,
-    evidenceCalls: evidenceCalls(getCurrent().sid),
-    hasGateCheck: hasGateCheck(getCurrent().sid),
-    hasEngagement: hasEngagement(getCurrent().sid),
-  });
-
-  // Fail-closed hook guard: the plugin's own bookkeeping can never take down a
-  // tool call, the system transform, or compaction. The host surface must be
-  // safe even when the memory store is missing or corrupt (robustness contract:
-  // memory is a best-effort feature, the IDE/tool loop is not).
-  async function guarded(name: string, fn: () => Promise<void>): Promise<void> {
-    try {
-      await fn();
-    } catch (err) {
-      console.warn(`[opencode-self-improvement] ${name} hook failed (ignored):`, err);
-    }
+// Best-effort extraction of a tool's textual output + metadata from the V2
+// execute.after `result` payload, whose exact encoding varies by tool.
+function resultText(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (!result || typeof result !== "object") return "";
+  const r = result as Record<string, unknown>;
+  for (const k of ["output", "text", "content", "stdout"]) {
+    const v = r[k];
+    if (typeof v === "string") return v;
   }
+  if (Array.isArray(r.content)) {
+    return (r.content as Array<Record<string, unknown>>)
+      .map((c) => (typeof c?.text === "string" ? c.text : ""))
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+}
+function resultMeta(result: unknown): Record<string, unknown> {
+  if (result && typeof result === "object") {
+    const m = (result as Record<string, unknown>).metadata;
+    if (m && typeof m === "object") return m as Record<string, unknown>;
+  }
+  return {};
+}
 
-  const remember = tool({
-    description:
-      "Store a memory after the 4-gate write pipeline validates it (canonical graph, stale refs, dupes). Blocked writes record evidence instead of persisting.",
-    args: {
-      type: tool.schema.enum(TYPES).describe("Type of memory"),
-      scope: tool.schema.string().describe("Scope/area (e.g., auth, api, ctl)"),
-      content: tool.schema.string().describe("The memory content"),
-      issue: tool.schema.string().optional().describe("Related issue"),
-      tags: tool.schema.array(tool.schema.string()).optional(),
-      status: tool.schema
-        .enum(STATUSES)
-        .optional()
-        .describe('open = live planning thread / frontier (surfaced at session start); settled or omitted = durable knowledge'),
-    },
-    async execute(args) {
-      const candidate: WriteCandidate = {
-        type: args.type,
-        scope: args.scope,
-        content: args.content,
-        issue: args.issue,
-        tags: args.tags,
-        status: args.status,
-      };
-      const outcome = await runWriteGate(candidate, gateContext());
-      if (outcome.action === "promoted") {
-        return `Remembered: ${args.type} in ${args.scope}`;
-      }
-      if (outcome.action === "collapsed") {
-        return `Duplicate ignored: ${args.type}/${args.scope}`;
-      }
-      return `Write blocked at GATE (${outcome.reason}). ${
-        outcome.hint ?? "Evidence recorded; inspect with memory_evidence."
-      }`;
-    },
-  });
+const PLUGIN_ID = "opencode-self-improvement";
 
-  const init = tool({
-    description:
-      "Initialize repository memory and knowledge graph. Ensures the codebase-memory graph for this repo is indexed (one-shot `cli` spawn; no session MCP needed) and re-derives build/lint/test/typecheck command memories through the write gate, then stores an init stamp keyed on git HEAD. Idempotent: a no-op when the stamp matches HEAD, unless force=true (refresh after a refactor).",
-    args: {
-      force: tool.schema.boolean().optional().describe("Re-run even if initialized (refresh after drift)"),
-      mode: tool.schema
-        .enum(["fast", "moderate", "full"])
-        .optional()
-        .describe("codebase-memory index mode (default moderate)"),
-    },
-    async execute(args) {
-      const summary = await runInit({ liveRoot, force: args.force, mode: args.mode });
-      return formatInit(summary);
-    },
-  });
+const plugin = {
+  id: PLUGIN_ID,
+  async setup(ctx: PluginCtx): Promise<void> {
+    const liveRoot = ctx?.location?.directory ?? process.cwd();
 
-  const recall = tool({
-    description:
-      "Look up durable project knowledge — build/test/lint commands, decisions, patterns, preferences, blockers — BEFORE searching the repo or reading files. Use for 'how do I run X', conventions, and past decisions. By scope, type, or free-text query; with no filters it returns the most recent memories.",
-    args: {
-      scope: tool.schema.string().optional(),
-      type: tool.schema.enum(TYPES).optional(),
-      query: tool.schema.string().optional(),
-      limit: tool.schema.number().optional(),
-    },
-    async execute(args) {
-      let results = (await loadAll()).filter(isActive);
-      if (!results.length) return "No memories found";
-      const total = results.length;
-      if (args.scope) results = results.filter((m) => m.scope.includes(args.scope!));
-      if (args.type) results = results.filter((m) => m.type === args.type);
-      if (args.query) {
-        results = results
-          .map((m) => ({ m, score: scoreMemory(m, args.query!) }))
-          .filter((x) => x.score > 0)
-          .sort((a, b) => b.score - a.score)
-          .map((x) => x.m);
-      }
-      const limit = args.limit || 20;
-      const limited = args.query ? results.slice(0, limit) : results.slice(-limit);
-      if (!limited.length) return "No matching memories";
-      const openIn = limited.filter((m) => m.status === "open").length;
-      if (openIn > 0) {
-        // Time-to-frontier signal: the session surfaced an open thread on its
-        // first recall-to-frontier (deterministic — computed from data, not
-        // from any model judgment about its own behavior).
-        const cur = getCurrent();
-        markFrontierTap(cur.sid, cur.call);
-        await record("frontier_tapped", {
-          n_open: openIn,
-          in_results: limited.length,
-          turn: firstFrontierTap(cur.sid)?.turn,
-        });
-      }
-      return `Found ${results.length} (${total} total)\n\n${limited.map(formatMemory).join("\n")}`;
-    },
-  });
+    // Mirror the /repo-init slash command into opencode's global commands dir
+    // (idempotent, write-if-missing). OpenCode 2.x loads `*.md` from
+    // ~/.config/opencode/commands, so this is the canonical V2 install path.
+    await ensureInitCommand();
 
-  const update = tool({
-    description: "Update an existing memory (gated like remember; the prior entry is superseded, not erased).",
-    args: {
-      scope: tool.schema.string(),
-      type: tool.schema.enum(TYPES),
-      content: tool.schema.string(),
-      query: tool.schema.string().optional(),
-      status: tool.schema.enum(STATUSES).optional(),
-    },
-    async execute(args) {
-      const prior = (await loadAll()).filter(
-        (m) => m.scope === args.scope && m.type === args.type && isActive(m),
-      );
-      const target = prior[prior.length - 1];
-      const outcome = await runWriteGate(
-        { type: args.type, scope: args.scope, content: args.content, status: args.status },
-        gateContext(),
-      );
-      if (outcome.action === "promoted" && outcome.ts && target) {
-        await markSuperseded(target.ts, {
-          superseded_by: outcome.ts,
-          reason: "update",
-        });
-        return `Updated ${args.type} in ${args.scope}`;
-      }
-      if (outcome.action === "promoted") return `Remembered: ${args.type} in ${args.scope}`;
-      if (outcome.action === "collapsed") return `Duplicate ignored: ${args.type}/${args.scope}`;
-      return `Write blocked at GATE (${outcome.reason}). ${outcome.hint ?? ""}`.trimEnd();
-    },
-  });
-
-  const forget = tool({
-    description: "Delete memories by scope and type. Snapshots first, logs the reason for audit, never touches a repo.",
-    args: {
-      scope: tool.schema.string(),
-      type: tool.schema.enum(TYPES),
-      reason: tool.schema.string().describe("Why this is being deleted (audit)"),
-    },
-    async execute(args) {
-      const res = await pruneMemory(args.scope, args.type, args.reason);
-      if (!res.deleted.length) return `No memories found for ${args.type} in ${args.scope}`;
-      return `Deleted ${res.deleted.length} ${args.type} memory(s) from ${args.scope}. Audit: ${res.audit}`;
-    },
-  });
-
-  const list = tool({
-    description: "List memory scopes and types for discovery.",
-    args: {},
-    async execute() {
-      const mems = (await loadAll()).filter(isActive);
-      if (!mems.length) return "No memories found";
-      const scopes = new Map<string, number>();
-      const types = new Map<string, number>();
-      for (const m of mems) {
-        scopes.set(m.scope, (scopes.get(m.scope) ?? 0) + 1);
-        types.set(m.type, (types.get(m.type) ?? 0) + 1);
-      }
-      const fmt = (map: Map<string, number>) =>
-        [...map.entries()].sort((a, b) => b[1] - a[1]).map(([k, c]) => `  ${k}: ${c}`).join("\n");
-      return `Total: ${mems.length}\n\nScopes:\n${fmt(scopes)}\n\nTypes:\n${fmt(types)}`;
-    },
-  });
-
-  const undo = tool({
-    description: "List memory snapshots, or restore one by name (rollback).",
-    args: {
-      list: tool.schema.boolean().optional().describe("List snapshots"),
-      snapshot: tool.schema.string().optional().describe("Snapshot file to restore"),
-    },
-    async execute(args) {
-      if (args.snapshot) {
-        const target = await restoreSnapshot(args.snapshot, memoryRoot());
-        return `Restored ${args.snapshot} -> ${target}`;
-      }
-      const snaps = await listSnapshots();
-      if (!snaps.length) return "No snapshots";
-      return snaps.map((s) => `${s.name}  (${s.bytes} bytes)`).join("\n");
-    },
-  });
-
-  const evidence = tool({
-    description: "Read captured evidence (data only) for a date, optionally filtered by event.",
-    args: {
-      date: tool.schema.string().optional(),
-      ev: tool.schema.string().optional(),
-      limit: tool.schema.number().optional(),
-    },
-    async execute(args) {
-      const file = join(evidenceDir(), `${args.date || dateStr()}.logfmt`);
-      let lines = await readLines(file);
-      if (args.ev) lines = lines.filter((l) => l.includes(`ev=${args.ev}`));
-      if (!lines.length) return "No evidence";
-      const limit = args.limit || 50;
-      return lines.slice(-limit).join("\n");
-    },
-  });
-
-  const mergeReview = tool({
-    description: "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. Fails closed (no partial apply) when the reason or the survivor id is missing, or the loser is a canonical/settled/thin row that must not be superseded.",
-    args: {
-      loser: tool.schema.string().describe("Evidence id of the rival/overlap write to supersede"),
-      survivor: tool.schema.string().describe("Evidence id of the canonical winning write"),
-      reason: tool.schema.string().describe("Why the survivor is canonical over the loser (written to evidence)")
-    },
-    async execute(args) {
-      if (!args.loser || !args.survivor || !args.reason) {
-        return "merge_review blocked: loser, survivor, and reason are all required (fail-closed).";
-      }
-      const ok = await markSuperseded(args.loser, {
-        superseded_by: args.survivor,
-        reason: args.reason,
-        symbol: args.loser,
-        from: args.loser,
-        to: args.survivor,
-      });
-      if (!ok) {
-        return "merge_review: loser not found or already superseded — nothing to resolve. No evidence written.";
-      }
-      return `Resolved merge: ${args.survivor} is canonical; ${args.loser} superseded (recoverable via memory_undo). Evidence recorded for reason='${args.reason}'.`;
-    },
-  });
-
-  return {
-    tool: {
-      memory_init: init,
-      memory_remember: remember,
-      memory_recall: recall,
-      memory_update: update,
-      memory_forget: forget,
-      memory_list: list,
-      memory_undo: undo,
-      memory_evidence: evidence,
-      memory_merge_review: mergeReview,
-    },
-    // NOTE: the tool map above still lacks evidence/undo-mirroring entries for
-    // merge review lookup; memory_merge_review is the adjacent resolver. Keep
-    // this tool non-destructive (it only marksSuperseded; it never deletes).
-    "tool.execute.before": async (input) => {
-      await guarded("tool.execute.before", async () => setCurrent(input));
-    },
-    "tool.execute.after": async (input, output) => {
-      await guarded("tool.execute.after", async () => {
-        setCurrent(input);
-        await afterTool(input, output);
-        await contextualPull(input, output);
-      });
-    },
-    "experimental.chat.system.transform": async (_input, output) => {
-      await guarded("experimental.chat.system.transform", async () =>
-        systemDigest(_input, output),
-      );
-    },
-    "chat.message": async (input, output) => {
+    // Fail-closed hook guard: the plugin's own bookkeeping can never take down a
+    // tool call, the system transform, or compaction.
+    async function guarded(name: string, fn: () => Promise<void>): Promise<void> {
       try {
-        const messageID = input.messageID ?? output.message.id;
-        const id = `prt_${randomUUID()}`;
-        if (!messageID?.startsWith("msg")) {
-          console.warn("[opencode-self-improvement] chat.message: no message id, skipping injection");
-          return;
+        await fn();
+      } catch (err) {
+        console.warn(`[opencode-self-improvement] ${name} hook failed (ignored):`, err);
+      }
+    }
+
+    const gateContext = (): GateContext => ({
+      liveRoot,
+      evidenceCalls: evidenceCalls(getCurrent().sid),
+      hasGateCheck: hasGateCheck(getCurrent().sid),
+      hasEngagement: hasEngagement(getCurrent().sid),
+    });
+
+    // ---- tools --------------------------------------------------------------
+    await ctx.tool?.transform((editor) => {
+      const direct = { codemode: false } as const;
+
+      editor.add({
+        name: "memory_remember",
+        description:
+          "Store a memory after the 4-gate write pipeline validates it (canonical graph, stale refs, dupes). Blocked writes record evidence instead of persisting.",
+        options: direct,
+        input: obj(
+          {
+            type: withDesc(en(TYPES), "Type of memory"),
+            scope: withDesc(str(), "Scope/area (e.g., auth, api, ctl)"),
+            content: withDesc(str(), "The memory content"),
+            issue: withDesc(str(), "Related issue"),
+            tags: strArray(),
+            status: withDesc(
+              en(STATUSES),
+              "open = live planning thread / frontier (surfaced at session start); settled or omitted = durable knowledge",
+            ),
+          },
+          ["type", "scope", "content"],
+        ),
+        async execute(args: any): Promise<{ content: string }> {
+          const candidate: WriteCandidate = {
+            type: args.type,
+            scope: args.scope,
+            content: args.content,
+            issue: args.issue,
+            tags: args.tags,
+            status: args.status,
+          };
+          const outcome = await runWriteGate(candidate, gateContext());
+          if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
+          if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
+          return {
+            content: `Write blocked at GATE (${outcome.reason}). ${
+              outcome.hint ?? "Evidence recorded; inspect with memory_evidence."
+            }`,
+          };
+        },
+      });
+
+      editor.add({
+        name: "memory_init",
+        description:
+          "Initialize repository memory and knowledge graph. Ensures the codebase-memory graph for this repo is indexed (one-shot `cli` spawn; no session MCP needed) and re-derives build/lint/test/typecheck command memories through the write gate, then stores an init stamp keyed on git HEAD. Idempotent: a no-op when the stamp matches HEAD, unless force=true (refresh after a refactor).",
+        options: direct,
+        input: obj({
+          force: withDesc(bool(), "Re-run even if initialized (refresh after drift)"),
+          mode: withDesc(en(["fast", "moderate", "full"]), "codebase-memory index mode (default moderate)"),
+        }),
+        async execute(args: any): Promise<{ content: string }> {
+          const summary = await runInit({ liveRoot, force: args.force, mode: args.mode });
+          return { content: formatInit(summary) };
+        },
+      });
+
+      editor.add({
+        name: "memory_recall",
+        description:
+          "Look up durable project knowledge — build/test/lint commands, decisions, patterns, preferences, blockers — BEFORE searching the repo or reading files. Use for 'how do I run X', conventions, and past decisions. By scope, type, or free-text query; with no filters it returns the most recent memories.",
+        options: direct,
+        input: obj({ scope: str(), type: en(TYPES), query: str(), limit: num() }),
+        async execute(args: any): Promise<{ content: string }> {
+          let results = (await loadAll()).filter(isActive);
+          if (!results.length) return { content: "No memories found" };
+          const total = results.length;
+          if (args.scope) results = results.filter((m) => m.scope.includes(args.scope!));
+          if (args.type) results = results.filter((m) => m.type === args.type);
+          if (args.query) {
+            results = results
+              .map((m) => ({ m, score: scoreMemory(m, args.query!) }))
+              .filter((x) => x.score > 0)
+              .sort((a, b) => b.score - a.score)
+              .map((x) => x.m);
+          }
+          const limit = args.limit || 20;
+          const limited = args.query ? results.slice(0, limit) : results.slice(-limit);
+          if (!limited.length) return { content: "No matching memories" };
+          const openIn = limited.filter((m) => m.status === "open").length;
+          if (openIn > 0) {
+            const cur = getCurrent();
+            markFrontierTap(cur.sid, cur.call);
+            await record("frontier_tapped", {
+              n_open: openIn,
+              in_results: limited.length,
+              turn: firstFrontierTap(cur.sid)?.turn,
+            });
+          }
+          return { content: `Found ${results.length} (${total} total)\n\n${limited.map(formatMemory).join("\n")}` };
+        },
+      });
+
+      editor.add({
+        name: "memory_update",
+        description: "Update an existing memory (gated like remember; the prior entry is superseded, not erased).",
+        options: direct,
+        input: obj(
+          { scope: str(), type: en(TYPES), content: str(), query: str(), status: en(STATUSES) },
+          ["scope", "type", "content"],
+        ),
+        async execute(args: any): Promise<{ content: string }> {
+          const prior = (await loadAll()).filter(
+            (m) => m.scope === args.scope && m.type === args.type && isActive(m),
+          );
+          const target = prior[prior.length - 1];
+          const outcome = await runWriteGate(
+            { type: args.type, scope: args.scope, content: args.content, status: args.status },
+            gateContext(),
+          );
+          if (outcome.action === "promoted" && outcome.ts && target) {
+            await markSuperseded(target.ts, { superseded_by: outcome.ts, reason: "update" });
+            return { content: `Updated ${args.type} in ${args.scope}` };
+          }
+          if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
+          if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
+          return { content: `Write blocked at GATE (${outcome.reason}). ${outcome.hint ?? ""}`.trimEnd() };
+        },
+      });
+
+      editor.add({
+        name: "memory_forget",
+        description:
+          "Delete memories by scope and type. Snapshots first, logs the reason for audit, never touches a repo.",
+        options: direct,
+        input: obj({ scope: str(), type: en(TYPES), reason: withDesc(str(), "Why this is being deleted (audit)") }, [
+          "scope",
+          "type",
+          "reason",
+        ]),
+        async execute(args: any): Promise<{ content: string }> {
+          const res = await pruneMemory(args.scope, args.type, args.reason);
+          if (!res.deleted.length) return { content: `No memories found for ${args.type} in ${args.scope}` };
+          return { content: `Deleted ${res.deleted.length} ${args.type} memory(s) from ${args.scope}. Audit: ${res.audit}` };
+        },
+      });
+
+      editor.add({
+        name: "memory_list",
+        description: "List memory scopes and types for discovery.",
+        options: direct,
+        input: obj({}),
+        async execute(): Promise<{ content: string }> {
+          const mems = (await loadAll()).filter(isActive);
+          if (!mems.length) return { content: "No memories found" };
+          const scopes = new Map<string, number>();
+          const types = new Map<string, number>();
+          for (const m of mems) {
+            scopes.set(m.scope, (scopes.get(m.scope) ?? 0) + 1);
+            types.set(m.type, (types.get(m.type) ?? 0) + 1);
+          }
+          const fmt = (map: Map<string, number>) =>
+            [...map.entries()].sort((a, b) => b[1] - a[1]).map(([k, c]) => `  ${k}: ${c}`).join("\n");
+          return { content: `Total: ${mems.length}\n\nScopes:\n${fmt(scopes)}\n\nTypes:\n${fmt(types)}` };
+        },
+      });
+
+      editor.add({
+        name: "memory_undo",
+        description: "List memory snapshots, or restore one by name (rollback).",
+        options: direct,
+        input: obj({
+          list: withDesc(bool(), "List snapshots"),
+          snapshot: withDesc(str(), "Snapshot file to restore"),
+        }),
+        async execute(args: any): Promise<{ content: string }> {
+          if (args.snapshot) {
+            const target = await restoreSnapshot(args.snapshot, memoryRoot());
+            return { content: `Restored ${args.snapshot} -> ${target}` };
+          }
+          const snaps = await listSnapshots();
+          if (!snaps.length) return { content: "No snapshots" };
+          return { content: snaps.map((s) => `${s.name}  (${s.bytes} bytes)`).join("\n") };
+        },
+      });
+
+      editor.add({
+        name: "memory_evidence",
+        description: "Read captured evidence (data only) for a date, optionally filtered by event.",
+        options: direct,
+        input: obj({ date: str(), ev: str(), limit: num() }),
+        async execute(args: any): Promise<{ content: string }> {
+          const file = join(evidenceDir(), `${args.date || dateStr()}.logfmt`);
+          let lines = await readLines(file);
+          if (args.ev) lines = lines.filter((l) => l.includes(`ev=${args.ev}`));
+          if (!lines.length) return { content: "No evidence" };
+          const limit = args.limit || 50;
+          return { content: lines.slice(-limit).join("\n") };
+        },
+      });
+
+      editor.add({
+        name: "memory_merge_review",
+        description:
+          "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. Fails closed (no partial apply) when the reason or the survivor id is missing, or the loser is a canonical/settled/thin row that must not be superseded.",
+        options: direct,
+        input: obj(
+          {
+            loser: withDesc(str(), "Evidence id of the rival/overlap write to supersede"),
+            survivor: withDesc(str(), "Evidence id of the canonical winning write"),
+            reason: withDesc(str(), "Why the survivor is canonical over the loser (written to evidence)"),
+          },
+          ["loser", "survivor", "reason"],
+        ),
+        async execute(args: any): Promise<{ content: string }> {
+          if (!args.loser || !args.survivor || !args.reason) {
+            return { content: "merge_review blocked: loser, survivor, and reason are all required (fail-closed)." };
+          }
+          const ok = await markSuperseded(args.loser, {
+            superseded_by: args.survivor,
+            reason: args.reason,
+            symbol: args.loser,
+            from: args.loser,
+            to: args.survivor,
+          });
+          if (!ok) {
+            return { content: "merge_review: loser not found or already superseded — nothing to resolve. No evidence written." };
+          }
+          return {
+            content: `Resolved merge: ${args.survivor} is canonical; ${args.loser} superseded (recoverable via memory_undo). Evidence recorded for reason='${args.reason}'.`,
+          };
+        },
+      });
+    });
+
+    // ---- hooks (all fail-closed) -------------------------------------------
+    // Bookkeeping: track the active session/tool/call before a tool runs.
+    await ctx.tool?.hook("execute.before", (event: any) =>
+      guarded("tool.execute.before", async () => {
+        setCurrent({
+          sessionID: event?.sessionID,
+          callID: event?.callID ?? event?.id,
+          tool: event?.tool,
+        });
+      }),
+    );
+
+    await ctx.tool?.hook("execute.after", (event: any) =>
+      guarded("tool.execute.after", async () => {
+        const input = {
+          tool: event?.tool,
+          sessionID: event?.sessionID,
+          callID: event?.callID ?? event?.id,
+          args: event?.input,
+        };
+        setCurrent(input);
+        const out = { output: resultText(event?.result), metadata: resultMeta(event?.result) };
+        await afterTool(input, out);
+        await contextualPull(input, out as { output?: unknown });
+        // Write a contextual-pull append back when the tool result is text we own.
+        if (event?.result && typeof event.result === "object" && typeof event.result.content === "string") {
+          const text = resultText(event.result);
+          if (out.output && out.output !== text) event.result.content = out.output;
         }
-        // Time-to-frontier bookkeeping rides real messages only (compaction
-        // model calls never reach here because their message id is absent).
-        if (typeof input.sessionID === "string") {
-          markTurn(input.sessionID);
-          await checkNewSession(input.sessionID);
+      }),
+    );
+
+    // Tiny system digest + open-thread frontier block, injected into the system prompt.
+    await ctx.session?.hook("context", (event: any) =>
+      guarded("session.context (systemDigest)", async () => {
+        const parts: string[] = [];
+        await systemDigest({ sessionID: event?.sessionID }, { system: parts });
+        for (const text of parts) event?.system?.push?.({ type: "text", text });
+      }),
+    );
+
+    // Memory-first injection on each user prompt + convergence bookkeeping.
+    await ctx.session?.hook("prompt", (event: any) =>
+      guarded("session.prompt (inject)", async () => {
+        const sid = event?.sessionID;
+        if (typeof sid === "string") {
+          markTurn(sid);
+          await checkNewSession(sid);
         }
-        const text = output.parts
-          .filter((p) => p.type === "text")
-          .map((p) => p.text)
-          .join("\n");
+        const text = event?.prompt?.text ?? "";
         const block = await relevantKnowledge(text);
         if (!block) return;
-        output.parts.push({
-          type: "text",
-          id,
-          sessionID: input.sessionID,
-          messageID,
-          time: { start: Date.now() },
-          text: block,
-          synthetic: true,
-        });
-      } catch (err) {
-        console.error("[opencode-self-improvement] chat.message hook failed:", err);
-      }
-    },
-    "experimental.session.compacting": async (input) => {
-      await guarded("experimental.session.compacting", async () =>
-        onCompacting(input),
-      );
-    },
-  };
+        const id = `prt_${randomUUID()}`;
+        event.prompt.text = `${text}\n\n<system-note id="${id}">\n${block}\n</system-note>`;
+      }),
+    );
+
+    // Session-convergence rollup at compaction.
+    await ctx.session?.hook("compaction", (event: any) =>
+      guarded("session.compaction (onCompacting)", async () => {
+        await onCompacting({ sessionID: event?.sessionID });
+      }),
+    );
+  },
 };
 
-export default SelfImprovement;
+export const SelfImprovement = plugin;
+export default plugin;

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SelfImprovement } from "../index.ts";
+import { loadPlugin } from "./harness.ts";
 import { resetState } from "../src/state.ts";
 import { loadAll, isActive } from "../src/memory.ts";
 import type { InitSummary } from "../src/init.ts";
@@ -28,7 +28,7 @@ beforeEach(async () => {
     JSON.stringify({ name: "fixture-app", scripts: { test: "vitest run", lint: "eslint .", deploy: "x" } }),
   );
   resetState();
-  const hooks = await SelfImprovement({ directory: fixture } as never);
+  const hooks = await loadPlugin(fixture);
   init = hooks.tool!.memory_init as never;
 });
 
