@@ -28,7 +28,7 @@ import {
   recentConvergenceSummary,
 } from "../src/triggers.ts";
 import { resetState, setCurrent } from "../src/state.ts";
-import { SelfImprovement } from "../index.ts";
+import { loadPlugin } from "./harness.ts";
 
 let root: string;
 let liveRoot: string;
@@ -140,7 +140,7 @@ describe("session rollup (session_convergence evidence)", () => {
       content: "frontier: late-tap race",
       status: "open",
     });
-    const hooks = await SelfImprovement({ directory: liveRoot } as never) as unknown as {
+    const hooks = await loadPlugin(liveRoot) as unknown as {
       tool: Record<string, { execute(args: unknown): Promise<string> }>;
     };
     markTurn(sid); // turn 1
@@ -182,7 +182,7 @@ describe("measurement through the real plugin surface", () => {
       content: "frontier: prove convergence measurement",
       status: "open",
     });
-    const hooks = await SelfImprovement({ directory: liveRoot } as never) as unknown as {
+    const hooks = await loadPlugin(liveRoot) as unknown as {
       tool: Record<string, { execute(args: unknown): Promise<string> }>;
     };
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_recall" });
@@ -203,7 +203,7 @@ describe("measurement through the real plugin surface", () => {
   test("memory_recall with no open threads does not mark a tap", async () => {
     const sid = "conv-norecall";
     await appendMemory({ type: "pattern", scope: "poc", content: "run tests with vitest" });
-    const hooks = await SelfImprovement({ directory: liveRoot } as never) as unknown as {
+    const hooks = await loadPlugin(liveRoot) as unknown as {
       tool: Record<string, { execute(args: unknown): Promise<string> }>;
     };
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_recall" });

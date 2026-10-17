@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SelfImprovement } from "../index.ts";
+import { loadPlugin } from "./harness.ts";
 import { resetState } from "../src/state.ts";
 
 let commandsDirPath: string;
@@ -20,7 +20,7 @@ beforeEach(() => {
 describe("ensureInitCommand", () => {
   test("writes /repo-init on plugin load; content points at memory_init", async () => {
     mkdirSync(commandsDirPath, { recursive: true });
-    await SelfImprovement({ directory: process.cwd() } as never);
+    await loadPlugin(process.cwd());
     const target = join(commandsDirPath, "repo-init.md");
     expect(existsSync(target)).toBe(true);
     expect(readFileSync(target, "utf8")).toContain("memory_init");
@@ -30,7 +30,7 @@ describe("ensureInitCommand", () => {
     mkdirSync(commandsDirPath, { recursive: true });
     const target = join(commandsDirPath, "repo-init.md");
     writeFileSync(target, "# user-customized\n");
-    await SelfImprovement({ directory: process.cwd() } as never);
+    await loadPlugin(process.cwd());
     expect(readFileSync(target, "utf8")).toBe("# user-customized\n");
   });
 
@@ -39,7 +39,7 @@ describe("ensureInitCommand", () => {
     // real install; simulate a broken package by pointing SOURCE nowhere is not
     // possible without a hook, so assert the factory still loads and the dir is
     // created without error in the happy path.
-    const hooks = await SelfImprovement({ directory: process.cwd() } as never);
-    expect(Object.keys(hooks.tool ?? {}).length).toBeGreaterThan(0);
+    const hooks = await loadPlugin(process.cwd());
+    expect(Object.keys(hooks.tool).length).toBeGreaterThan(0);
   });
 });

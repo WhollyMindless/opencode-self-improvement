@@ -1,5 +1,6 @@
-// Smoke test: the plugin factory is loadable and exposes the full surface.
-// This is what "install from scratch as an opencode extension" depends on.
+// Smoke test: the V2 plugin's setup registers the full surface (tools, tool &
+// session hooks) and the memory-first prompt injection works. This is what
+// "install from scratch as an opencode extension" depends on.
 import { beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +9,7 @@ import pluginDefault, { SelfImprovement } from "../index.ts";
 import { memoryRoot } from "../src/config.ts";
 import { formatLine } from "../src/logfmt.ts";
 import { resetState } from "../src/state.ts";
+import { loadPlugin } from "./harness.ts";
 
 beforeEach(() => {
   const root = mkdtempSync(join(tmpdir(), "osi-plugin-"));
@@ -17,14 +19,17 @@ beforeEach(() => {
   resetState();
 });
 
-describe("plugin wiring", () => {
-  test("default export is the factory and returns tools + hooks", async () => {
-    expect(pluginDefault).toBe(SelfImprovement);
-    const hooks = await SelfImprovement({
-      directory: join(process.env.OPENCODE_MEMORY_DIR!, "..", "repo"),
-    } as never);
+const dir = () => join(process.env.OPENCODE_MEMORY_DIR!, "..", "repo");
 
-    expect(Object.keys(hooks.tool ?? {}).sort()).toEqual(
+describe("plugin wiring (OpenCode V2)", () => {
+  test("default export is the plugin and setup registers tools + hooks", async () => {
+    expect(pluginDefault).toBe(SelfImprovement);
+    expect(pluginDefault.id).toBe("opencode-self-improvement");
+    expect(typeof pluginDefault.setup).toBe("function");
+
+    const loaded = await loadPlugin(dir());
+
+    expect(Object.keys(loaded.tools).sort()).toEqual(
       [
         "memory_evidence",
         "memory_forget",
@@ -37,14 +42,15 @@ describe("plugin wiring", () => {
         "memory_update",
       ].sort(),
     );
-    expect(typeof hooks["tool.execute.before"]).toBe("function");
-    expect(typeof hooks["tool.execute.after"]).toBe("function");
-    expect(typeof hooks["chat.message"]).toBe("function");
-    expect(typeof hooks["experimental.chat.system.transform"]).toBe("function");
-    expect(typeof hooks["experimental.session.compacting"]).toBe("function");
+    // tool hooks (execute.before/after) and session hooks (context/prompt/compaction)
+    expect(typeof loaded.toolHooks["execute.before"]).toBe("function");
+    expect(typeof loaded.toolHooks["execute.after"]).toBe("function");
+    expect(typeof loaded.sessionHooks["context"]).toBe("function");
+    expect(typeof loaded.sessionHooks["prompt"]).toBe("function");
+    expect(typeof loaded.sessionHooks["compaction"]).toBe("function");
   });
 
-  test("chat.message pushes a schema-valid synthetic part for a matching message", async () => {
+  test("session.prompt injects relevant durable memory into the admitted text", async () => {
     const mem = join(memoryRoot(), "2026-09-18.logfmt");
     mkdirSync(memoryRoot(), { recursive: true });
     appendFileSync(
@@ -56,38 +62,42 @@ describe("plugin wiring", () => {
         content: "Run Babylon.js unit tests with npx vitest run from the repo root.",
       }) + "\n",
     );
-    const hooks = await SelfImprovement({
-      directory: join(process.env.OPENCODE_MEMORY_DIR!, "..", "repo"),
-    } as never);
+    const loaded = await loadPlugin(dir());
 
-    const parts = [{ type: "text", id: "prt_user", sessionID: "ses_x", messageID: "msg_1", text: "run the unit test for multiTexture" }] as never[];
-    const output = {
-      message: { id: "msg_new" },
-      parts,
-    } as never;
-    await hooks["chat.message"]!(
-      { sessionID: "ses_x", messageID: undefined },
-      output,
-    );
+    const event: { sessionID: string; prompt: { text: string } } = {
+      sessionID: "ses_x",
+      prompt: { text: "run the unit test for multiTexture" },
+    };
+    await loaded.sessionHooks["prompt"]!(event);
 
-    const injected = (output as unknown as { parts: { type: string; synthetic?: boolean; text: string; id: string; messageID: string }[] }).parts.find(
-      (p) => p.type === "text" && p.synthetic,
-    );
-    expect(injected).toBeTruthy();
-    expect(injected!.text).toContain("npx vitest run");
-    expect(injected!.id).toMatch(/^prt_/);
-    expect(injected!.messageID).toBe("msg_new");
+    expect(event.prompt.text).toContain("run the unit test for multiTexture"); // original preserved
+    expect(event.prompt.text).toContain("npx vitest run"); // relevant memory injected
   });
 
-  test("chat.message fails closed (no crash, no push) when the message id is unavailable", async () => {
-    const hooks = await SelfImprovement({
-      directory: join(process.env.OPENCODE_MEMORY_DIR!, "..", "repo"),
-    } as never);
-    const parts = [{ type: "text", id: "prt_user", sessionID: "ses_x", messageID: "msg_1", text: "run the unit test" }] as never[];
-    const output = { message: { id: "ses_no-msg-id" }, parts } as never;
-    await expect(
-      hooks["chat.message"]!.call(hooks, { sessionID: "ses_x", messageID: undefined }, output),
-    ).resolves.toBeUndefined();
-    expect((output as unknown as { parts: unknown[] }).parts.length).toBe(1);
+  test("session.prompt fails closed (text untouched) when nothing matches", async () => {
+    const loaded = await loadPlugin(dir());
+    const event: { sessionID: string; prompt: { text: string } } = {
+      sessionID: "ses_x",
+      prompt: { text: "zzz nothing relevant here" },
+    };
+    await loaded.sessionHooks["prompt"]!(event);
+    expect(event.prompt.text).toBe("zzz nothing relevant here");
+  });
+
+  test("session.context pushes the memory digest as a system text part", async () => {
+    mkdirSync(memoryRoot(), { recursive: true });
+    appendFileSync(
+      join(memoryRoot(), "2026-09-18.logfmt"),
+      formatLine({ ts: new Date().toISOString(), type: "pattern", scope: "engine", content: "build with npm run build:source" }) + "\n",
+    );
+    const loaded = await loadPlugin(dir());
+    const event: { sessionID: string; system: Array<{ type: string; text: string }> } = {
+      sessionID: "ses_ctx",
+      system: [],
+    };
+    await loaded.sessionHooks["context"]!(event);
+    expect(event.system.length).toBeGreaterThan(0);
+    expect(event.system[0].type).toBe("text");
+    expect(event.system[0].text).toContain("## Persistent memory");
   });
 });

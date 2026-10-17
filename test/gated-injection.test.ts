@@ -23,7 +23,7 @@ import { runWriteGate, type GateContext } from "../src/gates.ts";
 import { afterTool, evidenceCalls, hasEngagement, hasGateCheck } from "../src/triggers.ts";
 import { systemDigest } from "../src/inject.ts";
 import { resetState, setCurrent } from "../src/state.ts";
-import { SelfImprovement } from "../index.ts";
+import { loadPlugin } from "./harness.ts";
 
 let root: string;
 let liveRoot: string;
@@ -157,7 +157,7 @@ describe("gate injection — engagement grounds settled claims", () => {
 
 describe("gate injection — real plugin tool path", () => {
   test("an engaged session persists a settled fact through memory_remember (full wiring)", async () => {
-    const hooks = await SelfImprovement({ directory: liveRoot } as never) as unknown as {
+    const hooks = await loadPlugin(liveRoot) as unknown as {
       tool: Record<string, { execute(args: unknown): Promise<string> }>;
       "tool.execute.before": (i: unknown) => Promise<void>;
       "tool.execute.after": (i: unknown, o: unknown) => Promise<void>;
@@ -192,7 +192,7 @@ describe("hook robustness — fail closed on a corrupt store", () => {
     writeFileSync(badRoot, "not a directory");
     process.env.OPENCODE_MEMORY_DIR = badRoot;
 
-    const hooks = await SelfImprovement({ directory: liveRoot } as never) as unknown as {
+    const hooks = await loadPlugin(liveRoot) as unknown as {
       "experimental.chat.system.transform": (i: unknown, o: unknown) => Promise<void>;
       "tool.execute.after": (i: unknown, o: unknown) => Promise<void>;
       "experimental.session.compacting": (i: unknown, o: unknown) => Promise<void>;
@@ -217,7 +217,7 @@ describe("hook robustness — fail closed on a corrupt store", () => {
   });
 
   test("the digest still reaches the hook surface when the store is healthy (guards actually run)", async () => {
-    const hooks = await SelfImprovement({ directory: liveRoot } as never) as unknown as {
+    const hooks = await loadPlugin(liveRoot) as unknown as {
       "experimental.chat.system.transform": (i: unknown, o: unknown) => Promise<void>;
     };
     await appendMemory({ type: "pattern", scope: "engine", content: "run the engine tests with vitest" });
