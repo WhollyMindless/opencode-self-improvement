@@ -140,6 +140,18 @@ export interface SupersedeFields {
   entity?: string;
 }
 
+// Copy `file` into snapshots/ before a mutation. Names follow
+// `<stamp>-<original>` because /undo strips the stamp to find its target, so a
+// same-millisecond collision would clobber an earlier, still-undoable snapshot
+// (supersede + clear in one merge_review can land in the same millisecond).
+async function snapshotBefore(file: string): Promise<void> {
+  await ensureDir(snapshotDir());
+  let stamp = Date.now();
+  let snap = join(snapshotDir(), `${stamp}-${basename(file)}`);
+  while (await Bun.file(snap).exists()) snap = join(snapshotDir(), `${++stamp}-${basename(file)}`);
+  await Bun.write(snap, (await Bun.file(file).text()) || "");
+}
+
 // Mark an existing memory as superseded IN PLACE (entry retained, recoverable).
 // Idempotent: a second call is a no-op, so no double `superseded_by`.
 export async function markSuperseded(ts: string, fields: SupersedeFields): Promise<boolean> {
@@ -161,13 +173,85 @@ export async function markSuperseded(ts: string, fields: SupersedeFields): Promi
       entity: fields.entity,
     });
     lines[idx] = `${lines[idx]} ${extra}`;
-    await ensureDir(snapshotDir());
-    const snap = join(snapshotDir(), `${Date.now()}-${basename(file)}`);
-    await Bun.write(snap, (await Bun.file(file).text()) || "");
+    await snapshotBefore(file);
     await Bun.write(file, lines.join("\n") + "\n");
     return true;
   }
   return false;
+}
+
+// Drop a row's supersession markers IN PLACE (snapshot-first), making it active
+// again. Used by memory_merge_review: a declared survivor must be recallable
+// even when an earlier row — now the loser — had superseded it first.
+export async function clearSuperseded(ts: string): Promise<boolean> {
+  for (const file of await memoryFiles()) {
+    const lines = await readLines(file);
+    const idx = lines.findIndex((l) => {
+      const f = parseLine(l);
+      return f && f.ts === ts;
+    });
+    if (idx === -1) continue;
+    const parsed = parseLine(lines[idx]);
+    if (!parsed || typeof parsed.superseded_by !== "string") return false;
+    // These five keys are written only by markSuperseded (drift, canonical,
+    // update and merge_review), never by appendMemory, so they are all part of
+    // the marker and go with it. Field order round-trips because parseLine
+    // inserts keys in source order.
+    for (const key of ["superseded_by", "reason", "symbol", "from", "to", "entity"]) {
+      delete parsed[key];
+    }
+    lines[idx] = formatLine(parsed);
+    await snapshotBefore(file);
+    await Bun.write(file, lines.join("\n") + "\n");
+    return true;
+  }
+  return false;
+}
+
+export type TargetResolution =
+  | { status: "ok"; target: Memory }
+  | { status: "not_found" }
+  | { status: "ambiguous"; candidates: Memory[] };
+
+// Score one row against a query: exact row id first, then content.
+function targetScore(m: Memory, query: string): number {
+  const ts = m.ts.toLowerCase();
+  if (ts === query) return 100;
+  // A clock fragment ("00:11:25.867") is unique enough to identify a row.
+  if (query.length >= 8 && ts.includes(query)) return 95;
+  const content = m.content.toLowerCase();
+  if (content === query) return 90;
+  if (content.includes(query)) return 80;
+  if (query.includes(content)) return 70;
+  return 0;
+}
+
+// Pick the row an update/merge call means. Without a query the caller keeps the
+// legacy "most recent active row of this scope+type" behaviour; with one, a
+// miss or a tie fails CLOSED rather than silently rewriting a different row.
+export function resolveMemoryTarget(rows: Memory[], query?: string): TargetResolution {
+  if (!query || !query.trim()) {
+    const last = rows[rows.length - 1];
+    return last ? { status: "ok", target: last } : { status: "not_found" };
+  }
+  const q = query.trim().toLowerCase();
+  let best: Memory | undefined;
+  let bestScore = 0;
+  const tied: Memory[] = [];
+  for (const m of rows) {
+    const score = targetScore(m, q);
+    if (score > bestScore) {
+      best = m;
+      bestScore = score;
+      tied.length = 0;
+      tied.push(m);
+    } else if (score === bestScore && score > 0) {
+      tied.push(m);
+    }
+  }
+  if (!best) return { status: "not_found" };
+  if (tied.length > 1) return { status: "ambiguous", candidates: tied };
+  return { status: "ok", target: best };
 }
 
 export interface DeletedMemory {
