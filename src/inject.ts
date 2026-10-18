@@ -162,6 +162,38 @@ export function capToBudget(block: string, budget: number): string {
   return kept.join("\n");
 }
 
+// Memory-aware compaction (Phase 3): a durable-memory block pushed onto the
+// V2 compaction hook's `system` parts, where the summarizer model can see it
+// (OpenCode appends its own summary prompt AFTER hooks). Deterministic, zero
+// extra model calls; fixes "compaction amnesia". Composition: up to 10 open
+// threads newest-first, then up to 5 newest settled memories, total rows
+// capped by `limit`; the whole block capped at 2500 chars at whole-line
+// boundaries. "" when the store has no active memories.
+const ANCHOR_OPEN_LIMIT = 10;
+const ANCHOR_SETTLED_LIMIT = 5;
+const ANCHOR_BUDGET = 2500;
+
+export async function compactionAnchor(limit = 12): Promise<string> {
+  const mems = (await loadAll()).filter(isActive);
+  if (!mems.length) return "";
+  const byNewest = (a: Memory, b: Memory) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0);
+  const open = mems
+    .filter((m) => m.status === "open")
+    .sort(byNewest)
+    .slice(0, Math.min(ANCHOR_OPEN_LIMIT, Math.max(0, limit)));
+  const settled = mems
+    .filter((m) => m.status !== "open")
+    .sort(byNewest)
+    .slice(0, Math.min(ANCHOR_SETTLED_LIMIT, Math.max(0, limit - open.length)));
+  const rows = [...open, ...settled];
+  if (!rows.length) return "";
+  const block =
+    "## Durable memory to preserve in this summary\n" +
+    "Preserve these facts verbatim (dates, commands, ids) in the compaction summary:\n" +
+    rows.map(formatMemory).join("\n");
+  return capToBudget(block, ANCHOR_BUDGET);
+}
+
 export async function contextualPull(input: PullInput, output: PullOutput): Promise<void> {
   const tool = typeof input.tool === "string" ? input.tool : "";
   if (!["grep", "glob", "read"].includes(tool)) return;

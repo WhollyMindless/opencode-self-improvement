@@ -11,11 +11,11 @@
 // Hermetic: OPENCODE_MEMORY_DIR points at a temp dir and the "live" source tree
 // is a throwaway, so nothing here touches this repo or the real memory store (I2).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { dateStr, evidenceDir } from "../src/config.ts";
-import { parseLine, type Fields } from "../src/logfmt.ts";
+import { dirname, join } from "node:path";
+import { dateStr, evidenceDir, memoryRoot } from "../src/config.ts";
+import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { resetState } from "../src/state.ts";
 import { loadPlugin } from "./harness.ts";
 
@@ -140,5 +140,69 @@ describe("compaction-time hook surface is total (never throws)", () => {
     const hooks = await hooksFor();
     expect(hooks["experimental.chat.messages.transform"]).toBeUndefined();
     expect(hooks["experimental.compaction.autocontinue"]).toBeUndefined();
+  });
+});
+
+// --- Phase 3: memory-aware compaction anchor ---------------------------------
+// The hook pushes a durable-memory block onto the V2 compaction event's
+// `system` parts (visible to the summarizer model). The harness adapter copies
+// pushed part texts onto `output.system`.
+
+function seed(status: "open" | "settled" | undefined, type: string, scope: string, content: string): void {
+  const file = join(memoryRoot(), `${new Date().toISOString().split("T")[0]}.logfmt`);
+  mkdirSync(dirname(file), { recursive: true });
+  appendFileSync(file, formatLine({ ts: new Date().toISOString(), type, scope, content, status }) + "\n");
+}
+
+describe("memory-aware compaction anchor", () => {
+  test("open + settled memories are pushed as a system part the summarizer sees", async () => {
+    seed("open", "context", "plan", "Open thread: finish the flurb widget migration before Friday.");
+    seed(undefined, "pattern", "build", "Build the widget with make all and test it with bun test.");
+
+    const hooks = await hooksFor();
+    const output = {
+      context: [] as string[],
+      prompt: undefined as string | undefined,
+      system: [] as string[],
+    };
+    await hooks["experimental.session.compacting"]!({ sessionID: "ses_anchor" }, output);
+
+    expect(output.system.length).toBe(1);
+    const anchor = output.system[0];
+    expect(anchor.toLowerCase()).toContain("preserve");
+    expect(anchor).toContain("flurb widget migration"); // open thread content
+    expect(anchor).toContain("make all"); // settled content
+    // The V1 contract still holds: the plugin never touches context/prompt.
+    expect(output.context).toEqual([]);
+    expect(output.prompt).toBeUndefined();
+  });
+
+  test("no active memories -> no anchor pushed; T2 bookkeeping still runs", async () => {
+    const hooks = await hooksFor();
+    const output = { context: [] as string[], system: [] as string[] };
+    await hooks["experimental.session.compacting"]!({ sessionID: "ses_anchor_empty" }, output);
+
+    expect(output.system).toEqual([]);
+    const t2 = evidence().filter((l) => l.ev === "t2_compaction");
+    expect(t2.length).toBe(1);
+    expect(field(t2[0], "session")).toBe("ses_anchor_empty");
+  });
+
+  test("anchor is capped at 2500 chars and never cut mid-line", async () => {
+    for (let i = 0; i < 40; i++) {
+      seed(i % 2 === 0 ? "open" : "settled", "learning", "bench",
+        `flurb benchmark note ${i}: ` + "x".repeat(200));
+    }
+    const hooks = await hooksFor();
+    const output = { context: [] as string[], system: [] as string[] };
+    await hooks["experimental.session.compacting"]!({ sessionID: "ses_anchor_cap" }, output);
+
+    expect(output.system.length).toBe(1);
+    const anchor = output.system[0];
+    expect(anchor.length).toBeGreaterThan(0);
+    expect(anchor.length).toBeLessThanOrEqual(2500);
+    for (const line of anchor.split("\n")) {
+      expect(["##", "Pr", "- "].some((p) => line.startsWith(p))).toBe(true);
+    }
   });
 });

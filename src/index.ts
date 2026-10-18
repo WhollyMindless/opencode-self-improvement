@@ -27,6 +27,7 @@ import { listSnapshots, restoreSnapshot } from "./undo.ts";
 import { record } from "./evidence.ts";
 import {
   capToBudget,
+  compactionAnchor,
   contextualPull,
   formatMemory,
   relevantKnowledge,
@@ -526,11 +527,17 @@ const impl = {
     );
 
     // Session-convergence rollup at compaction. The epoch is dropped so the
-    // next prompt re-scores against the post-compaction store.
+    // next prompt re-scores against the post-compaction store. Memory-aware
+    // compaction: the durable-memory anchor is pushed onto the hook's system
+    // parts (visible to the summarizer model, which runs AFTER hooks) so the
+    // summary preserves the facts. Never sets event.result — that would skip
+    // the summarizer call entirely.
     await ctx.session?.hook("compaction", (event: any) =>
       guarded("session.compaction (onCompacting)", async () => {
         await onCompacting({ sessionID: event?.sessionID });
         if (typeof event?.sessionID === "string") epoch.delete(event.sessionID);
+        const anchor = await compactionAnchor();
+        if (anchor) event?.system?.push?.({ type: "text", text: anchor });
       }),
     );
   },

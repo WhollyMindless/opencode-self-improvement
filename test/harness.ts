@@ -85,8 +85,13 @@ export async function loadPlugin(directory = process.cwd()): Promise<LoadedPlugi
       await sessionHooks["context"]?.({ sessionID: input?.sessionID, system: parts });
       if (Array.isArray(output?.system)) for (const p of parts) output.system.push(p.text);
     },
-    "experimental.session.compacting": async (input: any) => {
-      await sessionHooks["compaction"]?.({ sessionID: input?.sessionID });
+    // Drive the real session.compaction hook (guarded), mirroring the context
+    // adapter: the hook sees a `system` parts array and pushed part texts are
+    // copied back onto `output.system` when the caller provided one.
+    "experimental.session.compacting": async (input: any, output: any) => {
+      const parts: Array<{ type: string; text: string }> = [];
+      await sessionHooks["compaction"]?.({ sessionID: input?.sessionID, system: parts });
+      if (Array.isArray(output?.system)) for (const p of parts) output.system.push(p.text);
     },
   };
 }
