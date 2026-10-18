@@ -49,6 +49,7 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "bench": "bun bench/inject-cost.ts",
     "memory-view": "bun run src/viewer/server.ts"
   }
 }
