@@ -105,6 +105,11 @@ Ongoing use is just the memory tools. Ask the agent to remember something and it
 sticks across sessions; check what's stored with `memory_list`, refine with
 `memory_update`, retract with `memory_forget`, roll back with `memory_undo`.
 
+`memory_update` takes a `query` that picks the row: its id, a clock fragment such
+as `00:11:25.867`, or a unique substring of its text. Omit it to update the newest
+entry of that scope and type. A `query` matching nothing, or matching several rows,
+writes nothing and says so rather than updating the wrong memory.
+
 ## Admin Tool
 
 Editing and deleting memories is easy!
