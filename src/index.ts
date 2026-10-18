@@ -6,8 +6,11 @@
 // V2 port: registers tools via `ctx.tool.transform` (JSON Schema), mirrors the
 // V1 hooks onto the OpenCode V2 session/tool hook API, and registers the
 // /repo-init command via `ctx.command.transform`. The plugin contract is a
-// default export object `{ id, setup(ctx) }` (OpenCode >= 2.0). All business
-// logic still lives in the decoupled helper modules.
+// default export object `{ id, setup(ctx) }` (OpenCode >= 2.0), pinned at
+// compile time against the real SDK type (`@opencode/plugin`, type-only — see
+// the note on `plugin` below). All business logic still lives in the decoupled
+// helper modules.
+import type { Plugin } from "@opencode/plugin/promise/plugin";
 import { join } from "node:path";
 import { evidenceDir, memoryRoot, dateStr } from "./config.ts";
 import {
@@ -133,8 +136,9 @@ function resultMeta(result: unknown): Record<string, unknown> {
 
 const PLUGIN_ID = "opencode-self-improvement";
 
-const plugin = {
-  id: PLUGIN_ID,
+// The real setup implementation, written against the loose local PluginCtx
+// (the only members of the V2 context this plugin actually touches).
+const impl = {
   async setup(ctx: PluginCtx): Promise<void> {
     const liveRoot = ctx?.location?.directory ?? process.cwd();
 
@@ -503,6 +507,20 @@ const plugin = {
       }),
     );
   },
+};
+
+// The plain object IS the V2 contract ({ id, setup }); the SDK's `Plugin` type
+// pins its shape at compile time. The import is deliberately type-only:
+// opencode installs npm plugins with runtime dependencies only (verified in
+// ~/.cache/opencode/npm/<pkg>@<ver>/), so a value import of @opencode/plugin —
+// a devDependency here — would fail to resolve at load time for published
+// consumers, and making it a runtime dependency would pull effect +
+// @opencode/client into every install, the exact dead-weight problem dropping
+// the V1 SDK fixes. `Plugin.define` is an identity function at runtime, so this
+// annotation buys the same compile-time contract for zero runtime cost.
+const plugin: Plugin = {
+  id: PLUGIN_ID,
+  setup: async (ctx) => impl.setup(ctx as unknown as PluginCtx),
 };
 
 export const SelfImprovement = plugin;

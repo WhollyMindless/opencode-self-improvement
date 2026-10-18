@@ -33,13 +33,11 @@
     "README.md",
     "LICENSE"
   ],
-  "dependencies": {
-    "@opencode-ai/plugin": "1.18.31"
-  },
   "optionalDependencies": {
     "codebase-memory-mcp": "0.11.0"
   },
   "devDependencies": {
+    "@opencode/plugin": "^2.0.32",
     "@semantic-release/git": "^11.0.1",
     "@types/bun": "latest",
     "semantic-release": "^25.0.9",
