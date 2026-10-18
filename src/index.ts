@@ -577,7 +577,12 @@ const impl = {
         const lastRun = new Map<string, number>();
         const eventApi = ctx.event;
         const generateApi = ctx.generate;
-        const contextFn = ctx.session.context;
+        // Arrow wrapper: keep the receiver bound. The harness fakes are closures,
+        // but a real client method that reads `this` would break if detached —
+        // and the fail-closed catch below would hide it. Optional call: the
+        // setup guard proves it exists, but property narrowing does not survive
+        // into the closure, and undefined degrades safely (empty transcript).
+        const contextFn = (input: { sessionID: string }) => ctx.session?.context?.(input);
         void (async () => {
           try {
             for await (const raw of eventApi.subscribe({ signal: controller.signal })) {
