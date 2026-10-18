@@ -10,13 +10,52 @@ LLMs waste a lot of tokens reading and re-reading your code and asking you for c
 - **`memory_*` tools** — remember facts, decisions, and commands the agent should
   keep across sessions (`memory_init`, `memory_remember`, `memory_recall`,
   `memory_update`, `memory_forget`, `memory_list`, `memory_undo`,
-  `memory_evidence`).
+  `memory_evidence`, `memory_export`, `memory_import`, `memory_decay`).
 - **`/repo-init`** — for each repo: indexes the code graph and remembers the
   test/build commands, keyed to the git head. The command installs itself; no
   setup beyond the plugin.
+- **Memory-aware compaction** — durable memories are handed to the compaction
+  summarizer, so a long session doesn't get an amnesia wipe exactly when it
+  needs its memory most.
+- **Export / import (JSONL)** — `memory_export` / `memory_import` back the store
+  up or move it between machines. Every imported row re-enters through the same
+  write gates, so an export can't smuggle junk in.
+- **Decay** — `memory_decay` retires stale open threads. Dry run by default;
+  supersede-not-delete, snapshot-first, undoable.
 - Automatically de-dupes similar memories and avoids contradictions by searching for existing memories before saving new ones.
 - Automatically looks for insights when you complete the verification gates (tests, linting, etc)
 - Always defaults to memories first before sending a prompt to the LLM, which saves tokens! 
+
+## Token cost, on purpose
+
+Memory plugins have a reputation for burning tokens and busting the provider's
+prompt cache on every message. This one is built the other way around:
+
+- **Epoch-frozen injection.** The "Relevant durable memory" block is computed
+  once per epoch — first prompt of a session, a change to the memory store, or
+  a compaction — and stays byte-identical in between. A stable system prefix
+  means the provider's prompt cache survives ordinary turns instead of being
+  invalidated on every message.
+- **Hard character budget.** The block is capped at 1200 characters by default
+  (see Options) and trimmed at whole-memory boundaries — never cut mid-sentence.
+- **Evidence is never injected**, and the standing system digest is two lines.
+
+Measured on a deterministic workload (50 memories, 20 prompts, 3 mid-session
+store writes) using the plugin's real injection code:
+
+| Policy | Recomputes | Injected chars (20 turns) | Avg/turn | Worst block |
+| --- | ---: | ---: | ---: | ---: |
+| A — recompute per prompt, uncapped (pre-0.2) | 20 | 27748 | 1387.4 | 1575 |
+| B — epoch freeze + 1200-char cap (0.2) | 4 | 20654 | 1032.7 | 1157 |
+
+Policy B injects 25.6% fewer characters — and the bigger saving isn't even in
+the character count: B's block is byte-identical between store changes, so the
+prompt cache stays warm across ordinary turns. Reproduce (byte-identical
+output):
+
+```sh
+bun bench/inject-cost.ts
+```
 
 ## Quick start
 
@@ -76,6 +115,35 @@ Then point the `plugin` entry at the local file instead:
 After changes, `git pull` and restart opencode.
 
 </details>
+
+## Options
+
+Zero configuration is the default. To tune the plugin, use the object form of
+the plugin entry in `opencode.json(c)` instead of the plain string:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [
+    {
+      "package": "opencode-self-improvement@0.1.1",
+      "options": {
+        "injectBudget": 1200,
+        "autoCapture": false,
+        "captureModel": "provider/model-id",
+        "captureMax": 3
+      }
+    }
+  ]
+}
+```
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `injectBudget` | `1200` | Character cap on the injected relevance block, trimmed at whole-memory boundaries. Env fallback: `OPENCODE_MEMORY_INJECT_BUDGET`. |
+| `autoCapture` | `false` (off) | When on, each session-idle event makes one cheap model pass that proposes memory candidates. Every candidate still goes through the 4-gate write pipeline — capture can never bypass the gates. Off by default: the zero-token install stays zero-token. |
+| `captureModel` | — | `"provider/id"` model used for auto-capture. Required when `autoCapture` is on; a missing or invalid value disables capture with a startup warning. |
+| `captureMax` | `3` | Maximum candidates proposed per idle event. |
 
 ## Code graph (optional)
 
