@@ -9,9 +9,15 @@
 // default export object `{ id, setup(ctx) }` (OpenCode >= 2.0). All business
 // logic still lives in the decoupled helper modules.
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import { evidenceDir, memoryRoot, dateStr } from "./config.ts";
-import { loadAll, isActive, markSuperseded, type Memory } from "./memory.ts";
+import {
+  clearSuperseded,
+  isActive,
+  loadAll,
+  markSuperseded,
+  resolveMemoryTarget,
+  type Memory,
+} from "./memory.ts";
 import { runWriteGate, type GateContext, type WriteCandidate } from "./gates.ts";
 import { pruneMemory } from "./prune.ts";
 import { listSnapshots, restoreSnapshot } from "./undo.ts";
@@ -250,24 +256,58 @@ const plugin = {
 
       editor.add({
         name: "memory_update",
-        description: "Update an existing memory (gated like remember; the prior entry is superseded, not erased).",
+        description:
+          "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing.",
         options: direct,
         input: obj(
-          { scope: str(), type: en(TYPES), content: str(), query: str(), status: en(STATUSES) },
+          {
+            scope: str(),
+            type: en(TYPES),
+            content: str(),
+            query: withDesc(
+              str(),
+              "Row selector: id (ts), clock fragment, or unique content substring. Omit to target the newest active row of scope+type.",
+            ),
+            status: en(STATUSES),
+          },
           ["scope", "type", "content"],
         ),
         async execute(args: any): Promise<{ content: string }> {
           const prior = (await loadAll()).filter(
             (m) => m.scope === args.scope && m.type === args.type && isActive(m),
           );
-          const target = prior[prior.length - 1];
+          // Resolve the row BEFORE the gate: an update that cannot identify its
+          // target must write nothing, rather than silently superseding whichever
+          // row happened to be newest in this scope+type.
+          const resolved = resolveMemoryTarget(prior, args.query);
+          if (resolved.status === "not_found") {
+            const where = args.query ? ` matches ${JSON.stringify(args.query)}` : "";
+            return {
+              content: `memory_update blocked: no active ${args.type} row in ${args.scope}${where}. Nothing was written.`,
+            };
+          }
+          if (resolved.status === "ambiguous") {
+            return {
+              content:
+                `memory_update blocked: ${JSON.stringify(args.query)} matches ${resolved.candidates.length} active ` +
+                `${args.type} rows in ${args.scope} (${resolved.candidates.map((m) => m.ts).join(", ")}). ` +
+                "Pass a row id or a unique content substring. Nothing was written.",
+            };
+          }
+          const target = resolved.target;
           const outcome = await runWriteGate(
             { type: args.type, scope: args.scope, content: args.content, status: args.status },
             gateContext(),
           );
           if (outcome.action === "promoted" && outcome.ts && target) {
-            await markSuperseded(target.ts, { superseded_by: outcome.ts, reason: "update" });
-            return { content: `Updated ${args.type} in ${args.scope}` };
+            await markSuperseded(target.ts, {
+              superseded_by: outcome.ts,
+              reason: "update",
+              symbol: target.ts,
+              from: target.ts,
+              to: outcome.ts,
+            });
+            return { content: `Updated ${args.type} in ${args.scope} (superseded ${target.ts})` };
           }
           if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
           if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
@@ -349,7 +389,7 @@ const plugin = {
       editor.add({
         name: "memory_merge_review",
         description:
-          "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. Fails closed (no partial apply) when the reason or the survivor id is missing, or the loser is a canonical/settled/thin row that must not be superseded.",
+          "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor, and clear any supersession the survivor itself carries so the canonical row stays recallable. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. Fails closed (no partial apply) when the reason or the survivor id is missing, or the loser is already superseded.",
         options: direct,
         input: obj(
           {
@@ -373,12 +413,23 @@ const plugin = {
           if (!ok) {
             return { content: "merge_review: loser not found or already superseded — nothing to resolve. No evidence written." };
           }
+          // The survivor may itself have been superseded earlier (e.g. by a row
+          // this very call just made the loser). Declaring it canonical has to
+          // make it recallable, so clear its own marker too.
+          const revived = await clearSuperseded(args.survivor);
           return {
-            content: `Resolved merge: ${args.survivor} is canonical; ${args.loser} superseded (recoverable via memory_undo). Evidence recorded for reason='${args.reason}'.`,
+            content:
+              `Resolved merge: ${args.survivor} is canonical; ${args.loser} superseded (recoverable via memory_undo). ` +
+              (revived ? `Survivor's own supersession cleared, it is active again. ` : "") +
+              `Evidence recorded for reason='${args.reason}'.`,
           };
         },
       });
     });
+
+    // Per-session durable-memory blocks stashed by the prompt hook and pushed
+    // onto the system prompt by the context hook (invisible to the user).
+    const pendingKnowledge = new Map<string, string>();
 
     // ---- hooks (all fail-closed) -------------------------------------------
     // Bookkeeping: track the active session/tool/call before a tool runs.
@@ -418,10 +469,17 @@ const plugin = {
         const parts: string[] = [];
         await systemDigest({ sessionID: event?.sessionID }, { system: parts });
         for (const text of parts) event?.system?.push?.({ type: "text", text });
+        // Deliver this turn's relevance-ranked memory via the system channel.
+        // The UI never renders system parts, unlike appended prompt text.
+        const sid = event?.sessionID;
+        const knowledge = typeof sid === "string" ? pendingKnowledge.get(sid) : undefined;
+        if (knowledge) event?.system?.push?.({ type: "text", text: knowledge });
       }),
     );
 
-    // Memory-first injection on each user prompt + convergence bookkeeping.
+    // Memory-first injection: compute relevance against each user prompt and
+    // stash the block for invisible delivery via the context hook. Never mutate
+    // event.prompt.text — it is stored verbatim and rendered in the UI.
     await ctx.session?.hook("prompt", (event: any) =>
       guarded("session.prompt (inject)", async () => {
         const sid = event?.sessionID;
@@ -431,9 +489,10 @@ const plugin = {
         }
         const text = event?.prompt?.text ?? "";
         const block = await relevantKnowledge(text);
-        if (!block) return;
-        const id = `prt_${randomUUID()}`;
-        event.prompt.text = `${text}\n\n<system-note id="${id}">\n${block}\n</system-note>`;
+        if (typeof sid === "string") {
+          if (block) pendingKnowledge.set(sid, block);
+          else pendingKnowledge.delete(sid);
+        }
       }),
     );
 

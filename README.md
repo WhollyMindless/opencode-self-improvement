@@ -20,7 +20,7 @@ LLMs waste a lot of tokens reading and re-reading your code and asking you for c
 
 ## Quick start
 
-1. Clone the repo and restart Opencode (see install below).
+1. Add the plugin to your Opencode config (see install below) and restart Opencode.
 2. In any repo, run:
 
    ```
@@ -31,33 +31,58 @@ That's it. Rerun `/repo-init force` after a refactor to refresh.
 
 ## How to install
 
-1. Clone this repo:
+Add a `plugin` entry to your opencode config —
+`~/.config/opencode/opencode.json` (global) or any project `opencode.json`:
 
-   ```sh
-   git clone https://github.com/abogartz/opencode-self-improvement.git
-   cd opencode-self-improvement
-   bun install
-   ```
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-self-improvement@0.1.0"]
+}
+```
 
-2. Point opencode at the plugin. Add a `plugin` entry to your opencode config —
-   `~/.config/opencode/opencode.json` (global) or any project `opencode.json`:
+Opencode installs the package (and its dependencies) automatically with Bun at
+startup. Quit and restart opencode; the plugin loads and `/repo-init` installs
+itself. Nothing else to do.
 
-   ```json
-   {
-     "$schema": "https://opencode.ai/config.json",
-     "plugin": ["/full/path/to/opencode-self-improvement/index.ts"]
-   }
-   ```
+Pin the exact version (as above). An unpinned entry resolves `@latest` exactly
+once and is never re-resolved afterwards, so it silently sticks. To update,
+bump the version in the config and restart. On Opencode v2 you can also manage
+it with the CLI:
 
-3. Quit and restart opencode. The plugin loads and `/repo-init` installs itself.
-   Nothing else to do.
+```sh
+opencode plugin add opencode-self-improvement@0.1.0
+opencode plugin update opencode-self-improvement
+```
+
+<details>
+<summary>Install from a clone (development)</summary>
+
+```sh
+git clone https://github.com/abogartz/opencode-self-improvement.git
+cd opencode-self-improvement
+bun install
+```
+
+Then point the `plugin` entry at the local file instead:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["/full/path/to/opencode-self-improvement/index.ts"]
+}
+```
+
+After changes, `git pull` and restart opencode.
+
+</details>
 
 ## Code graph (optional)
 
 `/repo-init` also indexes the repo into a queryable knowledge graph via
 [`codebase-memory-mcp`](https://github.com/DeusData/codebase-memory-mcp),
-pinned to `0.11.0` as an optional dependency, so it comes in with the
-`bun install` above. If a copy is already on your `PATH`, that one is used
+pinned to `0.11.0` as an optional dependency, so opencode's auto-install at
+startup brings it in. If a copy is already on your `PATH`, that one is used
 instead; override explicitly with `OPENCODE_CBM_BIN=/path/to/codebase-memory-mcp`.
 When no graph binary is available, `/repo-init` still records scripts and the
 init stamp — the graph is a lookup bonus, not a requirement (see below).
@@ -80,6 +105,11 @@ Ongoing use is just the memory tools. Ask the agent to remember something and it
 sticks across sessions; check what's stored with `memory_list`, refine with
 `memory_update`, retract with `memory_forget`, roll back with `memory_undo`.
 
+`memory_update` takes a `query` that picks the row: its id, a clock fragment such
+as `00:11:25.867`, or a unique substring of its text. Omit it to update the newest
+entry of that scope and type. A `query` matching nothing, or matching several rows,
+writes nothing and says so rather than updating the wrong memory.
+
 ## Admin Tool
 
 Editing and deleting memories is easy!
@@ -90,9 +120,9 @@ Run `bun memory-view` in your terminal and visit  http://127.0.0.1:8787 in your 
 
 | Problem | Fix |
 | --- | --- |
-| `memory_*` tools not available | The plugin didn't load. Restart opencode and check the `plugin` entry points at `<clone>/index.ts`. |
+| `memory_*` tools not available | The plugin didn't load. Restart opencode and check the `plugin` entry in your config. |
 | `/repo-init` missing from the command list | The self-install couldn't write to `~/.config/opencode/commands/` (e.g. read-only config dir). Create it, restart, or just ask the model to "init memory for this repo" — it calls the same tool. |
 | Init says `Graph: unavailable` | `codebase-memory-mcp` couldn't start (not installed, or its once-only download is blocked). Install pinned `0.11.0` via the one-liner above, or point `OPENCODE_CBM_BIN` at the binary. Scripts are still remembered without it. |
-| Stale plugin after an update | `git pull` the clone and restart opencode. |
+| Stale plugin after an update | Bump the pinned version in the `plugin` entry (or `opencode plugin update opencode-self-improvement` on v2) and restart opencode. |
 | Reset all memories | Delete `~/.config/opencode/memory/`. |
 
