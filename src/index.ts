@@ -9,7 +9,6 @@
 // default export object `{ id, setup(ctx) }` (OpenCode >= 2.0). All business
 // logic still lives in the decoupled helper modules.
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import { evidenceDir, memoryRoot, dateStr } from "./config.ts";
 import { loadAll, isActive, markSuperseded, type Memory } from "./memory.ts";
 import { runWriteGate, type GateContext, type WriteCandidate } from "./gates.ts";
@@ -380,6 +379,10 @@ const plugin = {
       });
     });
 
+    // Per-session durable-memory blocks stashed by the prompt hook and pushed
+    // onto the system prompt by the context hook (invisible to the user).
+    const pendingKnowledge = new Map<string, string>();
+
     // ---- hooks (all fail-closed) -------------------------------------------
     // Bookkeeping: track the active session/tool/call before a tool runs.
     await ctx.tool?.hook("execute.before", (event: any) =>
@@ -418,10 +421,17 @@ const plugin = {
         const parts: string[] = [];
         await systemDigest({ sessionID: event?.sessionID }, { system: parts });
         for (const text of parts) event?.system?.push?.({ type: "text", text });
+        // Deliver this turn's relevance-ranked memory via the system channel.
+        // The UI never renders system parts, unlike appended prompt text.
+        const sid = event?.sessionID;
+        const knowledge = typeof sid === "string" ? pendingKnowledge.get(sid) : undefined;
+        if (knowledge) event?.system?.push?.({ type: "text", text: knowledge });
       }),
     );
 
-    // Memory-first injection on each user prompt + convergence bookkeeping.
+    // Memory-first injection: compute relevance against each user prompt and
+    // stash the block for invisible delivery via the context hook. Never mutate
+    // event.prompt.text — it is stored verbatim and rendered in the UI.
     await ctx.session?.hook("prompt", (event: any) =>
       guarded("session.prompt (inject)", async () => {
         const sid = event?.sessionID;
@@ -431,9 +441,10 @@ const plugin = {
         }
         const text = event?.prompt?.text ?? "";
         const block = await relevantKnowledge(text);
-        if (!block) return;
-        const id = `prt_${randomUUID()}`;
-        event.prompt.text = `${text}\n\n<system-note id="${id}">\n${block}\n</system-note>`;
+        if (typeof sid === "string") {
+          if (block) pendingKnowledge.set(sid, block);
+          else pendingKnowledge.delete(sid);
+        }
       }),
     );
 

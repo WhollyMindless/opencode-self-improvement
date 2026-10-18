@@ -50,7 +50,7 @@ describe("plugin wiring (OpenCode V2)", () => {
     expect(typeof loaded.sessionHooks["compaction"]).toBe("function");
   });
 
-  test("session.prompt injects relevant durable memory into the admitted text", async () => {
+  test("session.prompt leaves admitted text untouched; session.context delivers memory invisibly", async () => {
     const mem = join(memoryRoot(), "2026-09-18.logfmt");
     mkdirSync(memoryRoot(), { recursive: true });
     appendFileSync(
@@ -70,11 +70,18 @@ describe("plugin wiring (OpenCode V2)", () => {
     };
     await loaded.sessionHooks["prompt"]!(event);
 
-    expect(event.prompt.text).toContain("run the unit test for multiTexture"); // original preserved
-    expect(event.prompt.text).toContain("npx vitest run"); // relevant memory injected
+    // Prompt text is stored verbatim and rendered in the UI — it must never carry injected memory.
+    expect(event.prompt.text).toBe("run the unit test for multiTexture");
+
+    const delivered: { sessionID: string; system: Array<{ type: string; text: string }> } = {
+      sessionID: "ses_x",
+      system: [],
+    };
+    await loaded.sessionHooks["context"]!(delivered);
+    expect(delivered.system.map((part) => part.text).join("\n")).toContain("npx vitest run"); // relevant memory via system channel
   });
 
-  test("session.prompt fails closed (text untouched) when nothing matches", async () => {
+  test("session.prompt fails closed (text untouched, nothing stashed) when nothing matches", async () => {
     const loaded = await loadPlugin(dir());
     const event: { sessionID: string; prompt: { text: string } } = {
       sessionID: "ses_x",
@@ -82,6 +89,12 @@ describe("plugin wiring (OpenCode V2)", () => {
     };
     await loaded.sessionHooks["prompt"]!(event);
     expect(event.prompt.text).toBe("zzz nothing relevant here");
+    const delivered: { sessionID: string; system: Array<{ type: string; text: string }> } = {
+      sessionID: "ses_x",
+      system: [],
+    };
+    await loaded.sessionHooks["context"]!(delivered);
+    expect(delivered.system.map((part) => part.text).join("\n")).not.toContain("zzz");
   });
 
   test("session.context pushes the memory digest as a system text part", async () => {
