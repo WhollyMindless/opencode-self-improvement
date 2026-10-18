@@ -3,8 +3,17 @@
 // tools/hooks and commands. Also exposes a V1-shaped `hooks` adapter so tests
 // written against the old `await SelfImprovement(ctx)` contract keep working
 // while exercising the real V2 registrations (including the fail-closed guards).
+//
+// Phase 4 fakes (all inert by default, backward compatible):
+//   - `options`: passed through to the plugin (autoCapture etc.)
+//   - `capture.events`: a push-queue async iterable backing event.subscribe.
+//     The test calls push(event) to feed the plugin's `for await` loop; the
+//     loop parks between events and wakes on push, on abort, or on close().
+//     subscribeCalls proves "default OFF never subscribes".
+//   - `capture.generate`: canned generate.text reply + call log.
+//   - `capture.context`: canned session.context messages + call log.
+//   - `cleanup`: whatever setup() returned (no-op when it returned nothing).
 import plugin from "../index.ts";
-import { systemDigest } from "../src/inject.ts";
 
 type ToolRecord = {
   name: string;
@@ -13,11 +22,30 @@ type ToolRecord = {
   execute: (args: any, ctx?: any) => Promise<{ content: string }>;
 };
 
+export interface CaptureFakes {
+  events: {
+    subscribeCalls: number;
+    signals: AbortSignal[];
+    push: (event: unknown) => void;
+    close: () => void;
+  };
+  generate: {
+    calls: Array<{ prompt: string; model: unknown }>;
+    response: string;
+  };
+  context: {
+    calls: string[];
+    messages: unknown;
+  };
+}
+
 export interface LoadedPlugin {
   tools: Record<string, ToolRecord>;
   toolHooks: Record<string, (event: any) => Promise<void>>;
   sessionHooks: Record<string, (event: any) => Promise<void>>;
   commands: Record<string, { name: string; execute: (input: any) => Promise<void> }>;
+  capture: CaptureFakes;
+  cleanup: () => void | Promise<void>;
   // V1-shaped adapter (delegates to the real V2 registrations)
   tool: Record<string, { execute: (args: any) => Promise<string> }>;
   "tool.execute.before": (input: any) => Promise<void>;
@@ -26,14 +54,60 @@ export interface LoadedPlugin {
   "experimental.session.compacting": (input: any, output: any) => Promise<void>;
 }
 
-export async function loadPlugin(directory = process.cwd()): Promise<LoadedPlugin> {
+export async function loadPlugin(
+  directory = process.cwd(),
+  options?: Record<string, unknown>,
+): Promise<LoadedPlugin> {
   const tools: Record<string, ToolRecord> = {};
   const toolHooks: Record<string, (event: any) => Promise<void>> = {};
   const sessionHooks: Record<string, (event: any) => Promise<void>> = {};
   const commands: Record<string, { name: string; execute: (input: any) => Promise<void> }> = {};
 
+  // --- Phase 4 fakes ---------------------------------------------------------
+  const queue: unknown[] = [];
+  let notify: (() => void) | null = null;
+  let queueClosed = false;
+  // Push-queue async iterable: parks between events and wakes on push(),
+  // close(), or the plugin's abort. (An async GENERATOR, not an object-literal
+  // [Symbol.asyncIterator] async method — Bun 1.4.3 drops the latter's method
+  // from the transpiled object literal.)
+  async function* iterateEvents(signal?: AbortSignal): AsyncGenerator<unknown> {
+    for (;;) {
+      if (queue.length) yield queue.shift();
+      else if (queueClosed || signal?.aborted) return;
+      else {
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            notify = null;
+            signal?.removeEventListener("abort", done);
+            resolve();
+          };
+          notify = done;
+          signal?.addEventListener("abort", done, { once: true });
+        });
+      }
+    }
+  }
+  const capture: CaptureFakes = {
+    events: {
+      subscribeCalls: 0,
+      signals: [],
+      push: (event) => {
+        queue.push(event);
+        notify?.();
+      },
+      close: () => {
+        queueClosed = true;
+        notify?.();
+      },
+    },
+    generate: { calls: [], response: "" },
+    context: { calls: [], messages: [] },
+  };
+
   const ctx = {
     location: { directory },
+    options: options ?? {},
     tool: {
       transform: async (cb: (editor: { add: (t: ToolRecord) => void }) => void) =>
         cb({ add: (t) => void (tools[t.name] = t) }),
@@ -46,10 +120,30 @@ export async function loadPlugin(directory = process.cwd()): Promise<LoadedPlugi
     session: {
       hook: async (n: string, cb: (event: any) => Promise<void>) => void (sessionHooks[n] = cb),
       prompt: async (input: any) => ({ ok: true, input }),
+      context: async (input: any) => {
+        capture.context.calls.push(String(input?.sessionID ?? ""));
+        return capture.context.messages;
+      },
+    },
+    event: {
+      subscribe: (o?: { signal?: AbortSignal }) => {
+        capture.events.subscribeCalls++;
+        if (o?.signal) capture.events.signals.push(o.signal);
+        return iterateEvents(o?.signal);
+      },
+    },
+    generate: {
+      text: async (input: any) => {
+        capture.generate.calls.push({
+          prompt: String(input?.prompt ?? ""),
+          model: input?.model,
+        });
+        return { text: capture.generate.response };
+      },
     },
   };
 
-  await plugin.setup(ctx as never);
+  const cleanup = await plugin.setup(ctx as never);
 
   const tool: LoadedPlugin["tool"] = {};
   for (const [name, t] of Object.entries(tools)) {
@@ -61,6 +155,8 @@ export async function loadPlugin(directory = process.cwd()): Promise<LoadedPlugi
     toolHooks,
     sessionHooks,
     commands,
+    capture,
+    cleanup: typeof cleanup === "function" ? (cleanup as () => void | Promise<void>) : () => {},
     tool,
     "tool.execute.before": async (input: any) => {
       await toolHooks["execute.before"]?.({

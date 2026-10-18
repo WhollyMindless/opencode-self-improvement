@@ -10,9 +10,10 @@
 // compile time against the real SDK type (`@opencode/plugin`, type-only — see
 // the note on `plugin` below). All business logic still lives in the decoupled
 // helper modules.
-import type { Plugin } from "@opencode/plugin/promise/plugin";
+import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { join } from "node:path";
 import { evidenceDir, injectBudget, memoryRoot, dateStr } from "./config.ts";
+import { STATUSES, TYPES } from "./types.ts";
 import {
   clearSuperseded,
   isActive,
@@ -49,9 +50,7 @@ import {
 } from "./triggers.ts";
 import { getCurrent, setCurrent } from "./state.ts";
 import { readLines } from "./logfmt.ts";
-
-const TYPES = ["decision", "learning", "preference", "blocker", "context", "pattern"] as const;
-const STATUSES = ["open", "settled"] as const;
+import { buildCapturePrompt, flattenTranscript, parseCandidates, parseModelRef } from "./capture.ts";
 
 // --- minimal JSON Schema helpers (OpenCode V2 tools take JSON Schema) --------
 type JSONSchema = Record<string, unknown>;
@@ -109,6 +108,13 @@ interface PluginCtx {
       text: string;
       delivery?: "steer" | "queue";
     }) => Promise<unknown>;
+    context?: (input: { sessionID: string }) => Promise<unknown>;
+  };
+  event?: {
+    subscribe: (o?: { signal?: AbortSignal }) => AsyncIterable<unknown>;
+  };
+  generate?: {
+    text: (input: unknown) => Promise<{ text?: string } | string>;
   };
 }
 
@@ -143,7 +149,7 @@ const PLUGIN_ID = "opencode-self-improvement";
 // The real setup implementation, written against the loose local PluginCtx
 // (the only members of the V2 context this plugin actually touches).
 const impl = {
-  async setup(ctx: PluginCtx): Promise<void> {
+  async setup(ctx: PluginCtx): Promise<Cleanup | void> {
     const liveRoot = ctx?.location?.directory ?? process.cwd();
 
     // Character budget for the epoch-frozen injection block: plugin options
@@ -540,6 +546,82 @@ const impl = {
         if (anchor) event?.system?.push?.({ type: "text", text: anchor });
       }),
     );
+
+    // ---- opt-in auto-capture on session idle --------------------------------
+    // Default OFF: zero-token installs never subscribe to anything. When
+    // enabled (options.autoCapture === true AND a valid captureModel), each
+    // session.idle event runs ONE cheap ctx.generate.text call whose reply is
+    // parsed into candidates that go through the SAME runWriteGate as
+    // model-authored writes — capture can never bypass the moat, and it only
+    // ever writes through the gate. A per-session cooldown bounds the cost.
+    // Every failure inside the loop is swallowed: capture must never be able
+    // to break a session.
+    let captureCleanup: Cleanup | undefined;
+    if (ctx.options?.autoCapture === true) {
+      const captureModel =
+        typeof ctx.options.captureModel === "string" ? ctx.options.captureModel : "";
+      const captureMax = Number(ctx.options.captureMax) || 3;
+      const modelRef = parseModelRef(captureModel);
+      if (!modelRef) {
+        // Invalid/missing model: skip registering the whole subscription
+        // rather than guess (and warn once, at setup).
+        console.warn(
+          `[opencode-self-improvement] autoCapture is on but captureModel ${JSON.stringify(captureModel)} is invalid (expected "provider/id"); auto-capture disabled.`,
+        );
+      } else if (!ctx.event?.subscribe || !ctx.generate?.text || !ctx.session?.context) {
+        console.warn(
+          "[opencode-self-improvement] autoCapture is on but this OpenCode context lacks event.subscribe/generate.text/session.context; auto-capture disabled.",
+        );
+      } else {
+        const controller = new AbortController();
+        const lastRun = new Map<string, number>();
+        const eventApi = ctx.event;
+        const generateApi = ctx.generate;
+        const contextFn = ctx.session.context;
+        void (async () => {
+          try {
+            for await (const raw of eventApi.subscribe({ signal: controller.signal })) {
+              const event = raw as Record<string, any>;
+              if (event?.type !== "session.idle") continue;
+              const sid = event.sessionID ?? event.properties?.sessionID;
+              if (typeof sid !== "string") continue;
+              const now = Date.now();
+              if (now - (lastRun.get(sid) ?? 0) < 5 * 60_000) continue; // 5-min cooldown
+              lastRun.set(sid, now);
+              try {
+                const msgs = await contextFn({ sessionID: sid });
+                const transcript = flattenTranscript(msgs);
+                if (transcript.length < 200) continue; // too thin to mine reliably
+                const out = await generateApi.text({
+                  model: modelRef,
+                  prompt: buildCapturePrompt(transcript.slice(-8000), captureMax),
+                });
+                const text = typeof out === "string" ? out : out?.text ?? "";
+                for (const c of parseCandidates(text, captureMax)) {
+                  const outcome = await runWriteGate(
+                    { ...c, tags: ["auto-capture"] },
+                    gateContext(),
+                  );
+                  await record(
+                    `auto_capture_${outcome.action}`,
+                    { session: sid, type: c.type, scope: c.scope, reason: outcome.reason ?? "" },
+                    false,
+                  );
+                }
+              } catch {
+                // fail-closed: a broken capture attempt is invisible to the session
+              }
+            }
+          } catch {
+            // the subscription itself ended (abort or host error); nothing to do
+          }
+        })();
+        captureCleanup = () => controller.abort();
+      }
+    }
+    // Single cleanup returned by setup: tears down the capture subscription.
+    // Future teardowns merge into this same function.
+    return captureCleanup;
   },
 };
 
