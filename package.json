@@ -9,6 +9,22 @@
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
+  "author": "Alex Bogartz",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abogartz/opencode-self-improvement.git"
+  },
+  "bugs": {
+    "url": "https://github.com/abogartz/opencode-self-improvement/issues"
+  },
+  "homepage": "https://github.com/abogartz/opencode-self-improvement#readme",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "plugin",
+    "memory",
+    "ai-agent"
+  ],
   "files": [
     "index.ts",
     "src",
