@@ -41,6 +41,19 @@ export function dateStr(d: Date = new Date()): string {
   return d.toISOString().split("T")[0];
 }
 
+// Character budget for the injected "Relevant durable memory" block (Phase 2:
+// cache-safe epoch injection). Overridable via OPENCODE_MEMORY_INJECT_BUDGET
+// (plugin options take precedence — see src/index.ts); falls back to 1200 on
+// missing or invalid values.
+export function injectBudget(): number {
+  const raw = process.env.OPENCODE_MEMORY_INJECT_BUDGET;
+  if (raw) {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 1200;
+}
+
 // Optional live-graph binary. When present the resolver cross-checks the local
 // source scan against the codebase-memory-mcp file graph; when absent the local
 // scan alone is authoritative (install-from-scratch requirement).

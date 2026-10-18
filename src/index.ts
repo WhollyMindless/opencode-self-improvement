@@ -12,7 +12,7 @@
 // helper modules.
 import type { Plugin } from "@opencode/plugin/promise/plugin";
 import { join } from "node:path";
-import { evidenceDir, memoryRoot, dateStr } from "./config.ts";
+import { evidenceDir, injectBudget, memoryRoot, dateStr } from "./config.ts";
 import {
   clearSuperseded,
   isActive,
@@ -26,9 +26,11 @@ import { pruneMemory } from "./prune.ts";
 import { listSnapshots, restoreSnapshot } from "./undo.ts";
 import { record } from "./evidence.ts";
 import {
+  capToBudget,
   contextualPull,
   formatMemory,
   relevantKnowledge,
+  storeVersion,
   systemDigest,
 } from "./inject.ts";
 import { formatInit, runInit } from "./init.ts";
@@ -91,6 +93,7 @@ interface HookReg {
 }
 interface PluginCtx {
   location?: { directory?: string };
+  options?: Record<string, unknown>;
   tool?: {
     transform: (cb: (editor: ToolEditorLike) => void) => Promise<unknown>;
     hook: (name: string, cb: (event: any) => Promise<void> | void) => Promise<HookReg | void>;
@@ -141,6 +144,11 @@ const PLUGIN_ID = "opencode-self-improvement";
 const impl = {
   async setup(ctx: PluginCtx): Promise<void> {
     const liveRoot = ctx?.location?.directory ?? process.cwd();
+
+    // Character budget for the epoch-frozen injection block: plugin options
+    // (object form in opencode.json(c)) win, then OPENCODE_MEMORY_INJECT_BUDGET,
+    // then the 1200 default.
+    const budget = Number(ctx.options?.injectBudget) || injectBudget();
 
     // Mirror the /repo-init slash command into opencode's global commands dir
     // (idempotent, write-if-missing). OpenCode 2.x loads `*.md` from
@@ -431,9 +439,12 @@ const impl = {
       });
     });
 
-    // Per-session durable-memory blocks stashed by the prompt hook and pushed
-    // onto the system prompt by the context hook (invisible to the user).
-    const pendingKnowledge = new Map<string, string>();
+    // Per-session frozen injection epochs: the relevance block plus the store
+    // fingerprint it was computed against. Recomputed ONLY on the first prompt
+    // of a session, when the store changes, or after a compaction (see the
+    // prompt/compaction hooks) — so the system prefix, and with it the
+    // provider prompt cache, survives ordinary turns.
+    const epoch = new Map<string, { version: string; block: string }>();
 
     // ---- hooks (all fail-closed) -------------------------------------------
     // Bookkeeping: track the active session/tool/call before a tool runs.
@@ -473,37 +484,53 @@ const impl = {
         const parts: string[] = [];
         await systemDigest({ sessionID: event?.sessionID }, { system: parts });
         for (const text of parts) event?.system?.push?.({ type: "text", text });
-        // Deliver this turn's relevance-ranked memory via the system channel.
+        // Deliver this epoch's relevance-ranked memory via the system channel.
         // The UI never renders system parts, unlike appended prompt text.
         const sid = event?.sessionID;
-        const knowledge = typeof sid === "string" ? pendingKnowledge.get(sid) : undefined;
+        const knowledge = typeof sid === "string" ? epoch.get(sid)?.block : undefined;
         if (knowledge) event?.system?.push?.({ type: "text", text: knowledge });
       }),
     );
 
-    // Memory-first injection: compute relevance against each user prompt and
-    // stash the block for invisible delivery via the context hook. Never mutate
-    // event.prompt.text — it is stored verbatim and rendered in the UI.
+    // Memory-first injection, frozen per epoch (cache-safe). The block is
+    // relevance-scored against the prompt that STARTED the epoch — accepted
+    // staleness, traded for a stable system prefix across ordinary turns. An
+    // epoch is invalidated only on first prompt, store change, or compaction.
+    // Never mutate event.prompt.text — it is stored verbatim and rendered in
+    // the UI.
     await ctx.session?.hook("prompt", (event: any) =>
       guarded("session.prompt (inject)", async () => {
         const sid = event?.sessionID;
         if (typeof sid === "string") {
           markTurn(sid);
           await checkNewSession(sid);
-        }
-        const text = event?.prompt?.text ?? "";
-        const block = await relevantKnowledge(text);
-        if (typeof sid === "string") {
-          if (block) pendingKnowledge.set(sid, block);
-          else pendingKnowledge.delete(sid);
+          const version = await storeVersion();
+          const cached = epoch.get(sid);
+          if (!cached || cached.version !== version) {
+            const text = event?.prompt?.text ?? "";
+            const raw = await relevantKnowledge(text, 5); // widen candidate pool
+            const block = raw ? capToBudget(raw, budget) : "";
+            epoch.set(sid, { version, block });
+            await record(
+              "epoch_recompute",
+              {
+                session: sid,
+                reason: cached ? "store_changed" : "first",
+                chars: block.length,
+              },
+              false,
+            );
+          }
         }
       }),
     );
 
-    // Session-convergence rollup at compaction.
+    // Session-convergence rollup at compaction. The epoch is dropped so the
+    // next prompt re-scores against the post-compaction store.
     await ctx.session?.hook("compaction", (event: any) =>
       guarded("session.compaction (onCompacting)", async () => {
         await onCompacting({ sessionID: event?.sessionID });
+        if (typeof event?.sessionID === "string") epoch.delete(event.sessionID);
       }),
     );
   },

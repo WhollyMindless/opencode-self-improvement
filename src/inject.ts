@@ -135,6 +135,33 @@ export async function relevantKnowledge(message: string, limit = 3): Promise<str
   return `## Relevant durable memory\n${top.map(formatMemory).join("\n")}`;
 }
 
+// Deterministic fingerprint of the active store: `${activeCount}:${maxActiveTs}`.
+// Cheap change detector for the per-session epoch cache in index.ts: the frozen
+// injection block is recomputed only when this string changes (or after a
+// compaction). Evidence and superseded rows never affect it (I3, memory.ts).
+export async function storeVersion(): Promise<string> {
+  const mems = (await loadAll()).filter(isActive);
+  let max = "";
+  for (const m of mems) if (m.ts > max) max = m.ts;
+  return `${mems.length}:${max}`;
+}
+
+// Trim an injection block to `budget` characters at WHOLE-line boundaries:
+// keep lines while the joined length stays <= budget, drop the rest, never cut
+// mid-line. Returns "" when even the header line exceeds the budget (the block
+// is not worth injecting).
+export function capToBudget(block: string, budget: number): string {
+  const kept: string[] = [];
+  let len = 0;
+  for (const line of block.split("\n")) {
+    const add = kept.length ? line.length + 1 : line.length;
+    if (len + add > budget) break;
+    kept.push(line);
+    len += add;
+  }
+  return kept.join("\n");
+}
+
 export async function contextualPull(input: PullInput, output: PullOutput): Promise<void> {
   const tool = typeof input.tool === "string" ? input.tool : "";
   if (!["grep", "glob", "read"].includes(tool)) return;
