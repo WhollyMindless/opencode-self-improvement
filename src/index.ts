@@ -20,10 +20,12 @@ import {
   loadAll,
   markSuperseded,
   resolveMemoryTarget,
+  snapshotFiles,
   type Memory,
 } from "./memory.ts";
 import { runWriteGate, type GateContext, type WriteCandidate } from "./gates.ts";
 import { pruneMemory } from "./prune.ts";
+import { exportMemories, findStaleOpen, importMemories } from "./portable.ts";
 import { listSnapshots, restoreSnapshot } from "./undo.ts";
 import { record } from "./evidence.ts";
 import {
@@ -441,6 +443,116 @@ const impl = {
               `Resolved merge: ${args.survivor} is canonical; ${args.loser} superseded (recoverable via memory_undo). ` +
               (revived ? `Survivor's own supersession cleared, it is active again. ` : "") +
               `Evidence recorded for reason='${args.reason}'.`,
+          };
+        },
+      });
+
+      editor.add({
+        name: "memory_export",
+        description:
+          "Export active memories as a JSONL file (one JSON object per line: {ts,type,scope,content,status,tags,issue}) for backup or transfer to another machine. Defaults to <memory-root>/exports/<timestamp>.jsonl; pass `file` to choose the path, `scope` to export one scope. Superseded rows are not exported (history stays in the store).",
+        options: direct,
+        input: obj({
+          scope: withDesc(str(), "Only export memories in this exact scope"),
+          file: withDesc(str(), "Destination path (default: <memory-root>/exports/)"),
+        }),
+        async execute(args: any): Promise<{ content: string }> {
+          const res = await exportMemories({ scope: args.scope, file: args.file });
+          return { content: `Exported ${res.count} memories -> ${res.path}` };
+        },
+      });
+
+      editor.add({
+        name: "memory_import",
+        description:
+          "Import memories from a JSONL export (see memory_export). Every row goes through the same 4-gate write pipeline as memory_remember (tagged `import`, original tags preserved), so duplicates collapse and ungrounded rows are blocked exactly as usual — those are normal tallied outcomes, not errors. Malformed lines are skipped and counted.",
+        options: direct,
+        input: obj({ file: withDesc(str(), "Path to a .jsonl export file") }, ["file"]),
+        async execute(args: any): Promise<{ content: string }> {
+          try {
+            const t = await importMemories(args.file, (c) =>
+              runWriteGate(
+                { ...c, tags: [...new Set([...(c.tags ?? []), "import"])] },
+                gateContext(),
+              ),
+            );
+            return {
+              content:
+                `Imported ${args.file}: ${t.promoted} promoted, ${t.collapsed} duplicates collapsed, ` +
+                `${t.blocked} blocked by the gate, ${t.skipped} malformed lines skipped.`,
+            };
+          } catch (err) {
+            return {
+              content: `memory_import failed: ${err instanceof Error ? err.message : String(err)}`,
+            };
+          }
+        },
+      });
+
+      editor.add({
+        name: "memory_decay",
+        description:
+          "Retire stale open threads (status=open older than olderThanDays) by superseding them — never deleting; rows stay recoverable via memory_undo. DRY RUN BY DEFAULT: without an explicit dryRun=false this only LISTS what would retire and mutates nothing (fail-closed). A real run snapshots every affected file before the first mutation.",
+        options: direct,
+        input: obj({
+          olderThanDays: withDesc(
+            { type: "number", default: 14 },
+            "Age threshold in days (default 14)",
+          ),
+          dryRun: withDesc(
+            { type: "boolean", default: true },
+            "Preview only (default true). Set false to actually supersede.",
+          ),
+        }),
+        async execute(args: any): Promise<{ content: string }> {
+          const days = Number(args.olderThanDays) > 0 ? Number(args.olderThanDays) : 14;
+          const dryRun = args.dryRun !== false; // only an explicit false mutates
+          const stale = await findStaleOpen(days);
+          if (!stale.length) {
+            return { content: `No active open threads older than ${days} days.` };
+          }
+          const listing = stale
+            .map((m) => `  ${m.ts} ${m.type}/${m.scope}: ${m.content.slice(0, 100)}`)
+            .join("\n");
+          if (dryRun) {
+            await record(
+              "decay_dry_run",
+              { days, stale: stale.length, mem: stale.map((m) => m.ts).join(",") },
+              false,
+            );
+            return {
+              content:
+                `Dry run: ${stale.length} open thread(s) older than ${days} days:\n${listing}\n` +
+                "Re-run with dryRun=false to supersede them (snapshot first; recoverable via memory_undo).",
+            };
+          }
+          // Snapshot-before-mutate: the SAME helper prune() uses in memory.ts,
+          // one whole-file copy per affected file, taken before the first
+          // mutation. markSuperseded also snapshots internally per row; this
+          // pass guarantees a pre-decay copy exists even if a later row fails.
+          const snapshot = await snapshotFiles([...new Set(stale.map((m) => m.file))]);
+          const retiredTs: string[] = [];
+          for (const m of stale) {
+            // Idempotent (a no-op on already-superseded rows), so a re-run
+            // cannot double-mark. No successor row exists — decay retires.
+            const ok = await markSuperseded(m.ts, { superseded_by: "decay", reason: "decay" });
+            if (ok) retiredTs.push(m.ts);
+          }
+          await record(
+            "decay_applied",
+            {
+              days,
+              retired: retiredTs.length,
+              mem: retiredTs.join(",") || "-",
+              snapshot: snapshot.join(",") || "-",
+            },
+            false,
+          );
+          return {
+            content:
+              `Decayed ${retiredTs.length} open thread(s) older than ${days} days ` +
+              `(superseded, not deleted; snapshot: ${snapshot[0] ?? "-"}). ` +
+              "Recover with memory_undo.",
           };
         },
       });
