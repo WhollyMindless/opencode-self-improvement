@@ -1,36 +1,50 @@
 name: Release
 
-# Publishes to npm via Trusted Publishing (OIDC) when a GitHub Release is
-# published. No NPM_TOKEN secret: the id-token permission lets npm verify the
-# workflow's OIDC identity against the trusted publisher configured on
-# npmjs.com (package -> Settings -> Trusted publishing). Provenance is
-# generated automatically.
+# semantic-release runs on every push to main: it analyzes Conventional Commits
+# since the last v{version} tag, decides the semver bump (fix -> patch,
+# feat -> minor, BREAKING CHANGE -> major), updates package.json, pushes the
+# tag, creates the GitHub Release with generated notes, and publishes to npm
+# via Trusted Publishing (OIDC) — no NPM_TOKEN anywhere. Provenance is
+# automatic. Pushes with no releasable commits are a no-op (doubles as CI).
+#
+# Requires the trusted publisher on npmjs.com to point at THIS workflow file
+# (owner abogartz / repo opencode-self-improvement / release.yml) with
+# "npm publish" allowed.
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
-  contents: read
-  id-token: write # required for npm Trusted Publishing
+  contents: write # version-bump commit, tag, GitHub release
+  issues: write # comment on released issues
+  pull-requests: write # comment on released pull requests
+  id-token: write # npm Trusted Publishing (OIDC) + provenance
+
+concurrency:
+  group: release
+  cancel-in-progress: false # never abort a half-finished publish
 
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # semantic-release needs full history and tags
 
       # Bun-native repo (bun.lock, no package-lock.json): install and test with Bun.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      # Only for the npm CLI used to publish; registry-url writes the .npmrc
-      # the OIDC token exchange needs. No token here on purpose.
+      # Provides Node + the npm CLI that semantic-release drives. Do NOT set
+      # registry-url here: the .npmrc it writes conflicts with semantic-release's
+      # OIDC authentication (EINVALIDNPMTOKEN).
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
 
       - run: bun install --frozen-lockfile
 
@@ -38,14 +52,9 @@ jobs:
 
       - run: bunx tsc --noEmit -p tsconfig.json
 
-      - name: Check package version matches release tag
-        run: |
-          pkg_version=$(node -p "require('./package.json').version")
-          tag="${GITHUB_REF_NAME}"
-          if [ "${tag#v}" != "$pkg_version" ]; then
-            echo "::error::Release tag '$tag' does not match package.json version '$pkg_version'"
-            exit 1
-          fi
-
-      # Provenance attestation is automatic with a trusted publisher.
-      - run: npm publish
+      # Analyze -> bump -> commit -> tag -> GitHub release -> npm publish (OIDC).
+      # The version-bump commit carries [skip ci], so it does not re-trigger this
+      # workflow. If the npm step fails, no tag or GitHub release is created.
+      - run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
