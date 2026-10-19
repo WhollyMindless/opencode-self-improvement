@@ -26,6 +26,11 @@ LLMs waste a lot of tokens reading and re-reading your code and asking you for c
   cheap model pass that proposes memory candidates; every candidate still faces
   the same write gates. Off by default, so the install stays zero-token.
 - Automatically de-dupes similar memories and avoids contradictions by searching for existing memories before saving new ones.
+- **Write gates** — every memory passes 4 checks before it sticks: code references are
+  verified against your actual repo, near-duplicates are collapsed, contradictions with
+  superseded memories are rejected. Blocked writes are logged with a reason
+  (`memory_evidence`), and nothing is ever deleted — updates supersede the old row and
+  `memory_undo` rolls back.
 - Automatically looks for insights when you complete the verification gates (tests, linting, etc)
 - Always defaults to memories first before sending a prompt to the LLM, which saves tokens! 
 
@@ -73,13 +78,13 @@ That's it. Rerun `/repo-init force` after a refactor to refresh.
 
 ## How to install
 
-Add a `plugin` entry to your opencode config —
-`~/.config/opencode/opencode.json` (global) or any project `opencode.json`:
+Add a `plugins` entry to your opencode config —
+`~/.config/opencode/opencode.jsonc` (global) or any project `opencode.jsonc`:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-self-improvement@0.2.1"]
+  "plugins": ["opencode-self-improvement@0.2.1"]
 }
 ```
 
@@ -106,12 +111,12 @@ cd opencode-self-improvement
 bun install
 ```
 
-Then point the `plugin` entry at the local file instead:
+Then point the `plugins` entry at the local file instead:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["/full/path/to/opencode-self-improvement/index.ts"]
+  "plugins": ["/full/path/to/opencode-self-improvement/index.ts"]
 }
 ```
 
@@ -180,7 +185,8 @@ Run `bun memory-view` in your terminal and visit  http://127.0.0.1:8787 in your 
 
 | Problem | Fix |
 | --- | --- |
-| `memory_*` tools not available | The plugin didn't load. Restart opencode and check the `plugin` entry in your config. |
+| `memory_*` tools not available | The plugin didn't load. Restart opencode and check the `plugins` entry in your config. |
+| `memory_remember` says blocked | A gate rejected the write (stale code reference, overlap with a superseded memory, or an ambiguous claim). The reason is logged — check `memory_evidence`, then rephrase against current code and retry. |
 | `/repo-init` missing from the command list | The self-install couldn't write to `~/.config/opencode/commands/` (e.g. read-only config dir). Create it, restart, or just ask the model to "init memory for this repo" — it calls the same tool. |
 | Init says `Graph: unavailable` | `codebase-memory-mcp` couldn't start (not installed, or its once-only download is blocked). Install pinned `0.11.0` via the one-liner above, or point `OPENCODE_CBM_BIN` at the binary. Scripts are still remembered without it. |
 | Stale plugin after an update | Bump the pinned version in the `plugin` entry (or `opencode plugin update opencode-self-improvement` on v2) and restart opencode. |
