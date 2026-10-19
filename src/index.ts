@@ -6,26 +6,35 @@
 // V2 port: registers tools via `ctx.tool.transform` (JSON Schema), mirrors the
 // V1 hooks onto the OpenCode V2 session/tool hook API, and registers the
 // /repo-init command via `ctx.command.transform`. The plugin contract is a
-// default export object `{ id, setup(ctx) }` (OpenCode >= 2.0). All business
-// logic still lives in the decoupled helper modules.
+// default export object `{ id, setup(ctx) }` (OpenCode >= 2.0), pinned at
+// compile time against the real SDK type (`@opencode/plugin`, type-only — see
+// the note on `plugin` below). All business logic still lives in the decoupled
+// helper modules.
+import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { join } from "node:path";
-import { evidenceDir, memoryRoot, dateStr } from "./config.ts";
+import { evidenceDir, injectBudget, memoryRoot, dateStr } from "./config.ts";
+import { STATUSES, TYPES } from "./types.ts";
 import {
   clearSuperseded,
   isActive,
   loadAll,
   markSuperseded,
   resolveMemoryTarget,
+  snapshotFiles,
   type Memory,
 } from "./memory.ts";
 import { runWriteGate, type GateContext, type WriteCandidate } from "./gates.ts";
 import { pruneMemory } from "./prune.ts";
+import { exportMemories, findStaleOpen, importMemories } from "./portable.ts";
 import { listSnapshots, restoreSnapshot } from "./undo.ts";
 import { record } from "./evidence.ts";
 import {
+  capToBudget,
+  compactionAnchor,
   contextualPull,
   formatMemory,
   relevantKnowledge,
+  storeVersion,
   systemDigest,
 } from "./inject.ts";
 import { formatInit, runInit } from "./init.ts";
@@ -43,9 +52,7 @@ import {
 } from "./triggers.ts";
 import { getCurrent, setCurrent } from "./state.ts";
 import { readLines } from "./logfmt.ts";
-
-const TYPES = ["decision", "learning", "preference", "blocker", "context", "pattern"] as const;
-const STATUSES = ["open", "settled"] as const;
+import { buildCapturePrompt, flattenTranscript, parseCandidates, parseModelRef } from "./capture.ts";
 
 // --- minimal JSON Schema helpers (OpenCode V2 tools take JSON Schema) --------
 type JSONSchema = Record<string, unknown>;
@@ -88,6 +95,7 @@ interface HookReg {
 }
 interface PluginCtx {
   location?: { directory?: string };
+  options?: Record<string, unknown>;
   tool?: {
     transform: (cb: (editor: ToolEditorLike) => void) => Promise<unknown>;
     hook: (name: string, cb: (event: any) => Promise<void> | void) => Promise<HookReg | void>;
@@ -102,6 +110,13 @@ interface PluginCtx {
       text: string;
       delivery?: "steer" | "queue";
     }) => Promise<unknown>;
+    context?: (input: { sessionID: string }) => Promise<unknown>;
+  };
+  event?: {
+    subscribe: (o?: { signal?: AbortSignal }) => AsyncIterable<unknown>;
+  };
+  generate?: {
+    text: (input: unknown) => Promise<{ text?: string } | string>;
   };
 }
 
@@ -133,10 +148,16 @@ function resultMeta(result: unknown): Record<string, unknown> {
 
 const PLUGIN_ID = "opencode-self-improvement";
 
-const plugin = {
-  id: PLUGIN_ID,
-  async setup(ctx: PluginCtx): Promise<void> {
+// The real setup implementation, written against the loose local PluginCtx
+// (the only members of the V2 context this plugin actually touches).
+const impl = {
+  async setup(ctx: PluginCtx): Promise<Cleanup | void> {
     const liveRoot = ctx?.location?.directory ?? process.cwd();
+
+    // Character budget for the epoch-frozen injection block: plugin options
+    // (object form in opencode.json(c)) win, then OPENCODE_MEMORY_INJECT_BUDGET,
+    // then the 1200 default.
+    const budget = Number(ctx.options?.injectBudget) || injectBudget();
 
     // Mirror the /repo-init slash command into opencode's global commands dir
     // (idempotent, write-if-missing). OpenCode 2.x loads `*.md` from
@@ -425,11 +446,124 @@ const plugin = {
           };
         },
       });
+
+      editor.add({
+        name: "memory_export",
+        description:
+          "Export active memories as a JSONL file (one JSON object per line: {ts,type,scope,content,status,tags,issue}) for backup or transfer to another machine. Defaults to <memory-root>/exports/<timestamp>.jsonl; pass `file` to choose the path, `scope` to export one scope. Superseded rows are not exported (history stays in the store).",
+        options: direct,
+        input: obj({
+          scope: withDesc(str(), "Only export memories in this exact scope"),
+          file: withDesc(str(), "Destination path (default: <memory-root>/exports/)"),
+        }),
+        async execute(args: any): Promise<{ content: string }> {
+          const res = await exportMemories({ scope: args.scope, file: args.file });
+          return { content: `Exported ${res.count} memories -> ${res.path}` };
+        },
+      });
+
+      editor.add({
+        name: "memory_import",
+        description:
+          "Import memories from a JSONL export (see memory_export). Every row goes through the same 4-gate write pipeline as memory_remember (tagged `import`, original tags preserved), so duplicates collapse and ungrounded rows are blocked exactly as usual — those are normal tallied outcomes, not errors. Malformed lines are skipped and counted.",
+        options: direct,
+        input: obj({ file: withDesc(str(), "Path to a .jsonl export file") }, ["file"]),
+        async execute(args: any): Promise<{ content: string }> {
+          try {
+            const t = await importMemories(args.file, (c) =>
+              runWriteGate(
+                { ...c, tags: [...new Set([...(c.tags ?? []), "import"])] },
+                gateContext(),
+              ),
+            );
+            return {
+              content:
+                `Imported ${args.file}: ${t.promoted} promoted, ${t.collapsed} duplicates collapsed, ` +
+                `${t.blocked} blocked by the gate, ${t.skipped} malformed lines skipped.`,
+            };
+          } catch (err) {
+            return {
+              content: `memory_import failed: ${err instanceof Error ? err.message : String(err)}`,
+            };
+          }
+        },
+      });
+
+      editor.add({
+        name: "memory_decay",
+        description:
+          "Retire stale open threads (status=open older than olderThanDays) by superseding them — never deleting; rows stay recoverable via memory_undo. DRY RUN BY DEFAULT: without an explicit dryRun=false this only LISTS what would retire and mutates nothing (fail-closed). A real run snapshots every affected file before the first mutation.",
+        options: direct,
+        input: obj({
+          olderThanDays: withDesc(
+            { type: "number", default: 14 },
+            "Age threshold in days (default 14)",
+          ),
+          dryRun: withDesc(
+            { type: "boolean", default: true },
+            "Preview only (default true). Set false to actually supersede.",
+          ),
+        }),
+        async execute(args: any): Promise<{ content: string }> {
+          const days = Number(args.olderThanDays) > 0 ? Number(args.olderThanDays) : 14;
+          const dryRun = args.dryRun !== false; // only an explicit false mutates
+          const stale = await findStaleOpen(days);
+          if (!stale.length) {
+            return { content: `No active open threads older than ${days} days.` };
+          }
+          const listing = stale
+            .map((m) => `  ${m.ts} ${m.type}/${m.scope}: ${m.content.slice(0, 100)}`)
+            .join("\n");
+          if (dryRun) {
+            await record(
+              "decay_dry_run",
+              { days, stale: stale.length, mem: stale.map((m) => m.ts).join(",") },
+              false,
+            );
+            return {
+              content:
+                `Dry run: ${stale.length} open thread(s) older than ${days} days:\n${listing}\n` +
+                "Re-run with dryRun=false to supersede them (snapshot first; recoverable via memory_undo).",
+            };
+          }
+          // Snapshot-before-mutate: the SAME helper prune() uses in memory.ts,
+          // one whole-file copy per affected file, taken before the first
+          // mutation. markSuperseded also snapshots internally per row; this
+          // pass guarantees a pre-decay copy exists even if a later row fails.
+          const snapshot = await snapshotFiles([...new Set(stale.map((m) => m.file))]);
+          const retiredTs: string[] = [];
+          for (const m of stale) {
+            // Idempotent (a no-op on already-superseded rows), so a re-run
+            // cannot double-mark. No successor row exists — decay retires.
+            const ok = await markSuperseded(m.ts, { superseded_by: "decay", reason: "decay" });
+            if (ok) retiredTs.push(m.ts);
+          }
+          await record(
+            "decay_applied",
+            {
+              days,
+              retired: retiredTs.length,
+              mem: retiredTs.join(",") || "-",
+              snapshot: snapshot.join(",") || "-",
+            },
+            false,
+          );
+          return {
+            content:
+              `Decayed ${retiredTs.length} open thread(s) older than ${days} days ` +
+              `(superseded, not deleted; snapshot: ${snapshot[0] ?? "-"}). ` +
+              "Recover with memory_undo.",
+          };
+        },
+      });
     });
 
-    // Per-session durable-memory blocks stashed by the prompt hook and pushed
-    // onto the system prompt by the context hook (invisible to the user).
-    const pendingKnowledge = new Map<string, string>();
+    // Per-session frozen injection epochs: the relevance block plus the store
+    // fingerprint it was computed against. Recomputed ONLY on the first prompt
+    // of a session, when the store changes, or after a compaction (see the
+    // prompt/compaction hooks) — so the system prefix, and with it the
+    // provider prompt cache, survives ordinary turns.
+    const epoch = new Map<string, { version: string; block: string }>();
 
     // ---- hooks (all fail-closed) -------------------------------------------
     // Bookkeeping: track the active session/tool/call before a tool runs.
@@ -469,40 +603,157 @@ const plugin = {
         const parts: string[] = [];
         await systemDigest({ sessionID: event?.sessionID }, { system: parts });
         for (const text of parts) event?.system?.push?.({ type: "text", text });
-        // Deliver this turn's relevance-ranked memory via the system channel.
+        // Deliver this epoch's relevance-ranked memory via the system channel.
         // The UI never renders system parts, unlike appended prompt text.
         const sid = event?.sessionID;
-        const knowledge = typeof sid === "string" ? pendingKnowledge.get(sid) : undefined;
+        const knowledge = typeof sid === "string" ? epoch.get(sid)?.block : undefined;
         if (knowledge) event?.system?.push?.({ type: "text", text: knowledge });
       }),
     );
 
-    // Memory-first injection: compute relevance against each user prompt and
-    // stash the block for invisible delivery via the context hook. Never mutate
-    // event.prompt.text — it is stored verbatim and rendered in the UI.
+    // Memory-first injection, frozen per epoch (cache-safe). The block is
+    // relevance-scored against the prompt that STARTED the epoch — accepted
+    // staleness, traded for a stable system prefix across ordinary turns. An
+    // epoch is invalidated only on first prompt, store change, or compaction.
+    // Never mutate event.prompt.text — it is stored verbatim and rendered in
+    // the UI.
     await ctx.session?.hook("prompt", (event: any) =>
       guarded("session.prompt (inject)", async () => {
         const sid = event?.sessionID;
         if (typeof sid === "string") {
           markTurn(sid);
           await checkNewSession(sid);
-        }
-        const text = event?.prompt?.text ?? "";
-        const block = await relevantKnowledge(text);
-        if (typeof sid === "string") {
-          if (block) pendingKnowledge.set(sid, block);
-          else pendingKnowledge.delete(sid);
+          const version = await storeVersion();
+          const cached = epoch.get(sid);
+          if (!cached || cached.version !== version) {
+            const text = event?.prompt?.text ?? "";
+            const raw = await relevantKnowledge(text, 5); // widen candidate pool
+            const block = raw ? capToBudget(raw, budget) : "";
+            epoch.set(sid, { version, block });
+            await record(
+              "epoch_recompute",
+              {
+                session: sid,
+                reason: cached ? "store_changed" : "first",
+                chars: block.length,
+              },
+              false,
+            );
+          }
         }
       }),
     );
 
-    // Session-convergence rollup at compaction.
+    // Session-convergence rollup at compaction. The epoch is dropped so the
+    // next prompt re-scores against the post-compaction store. Memory-aware
+    // compaction: the durable-memory anchor is pushed onto the hook's system
+    // parts (visible to the summarizer model, which runs AFTER hooks) so the
+    // summary preserves the facts. Never sets event.result — that would skip
+    // the summarizer call entirely.
     await ctx.session?.hook("compaction", (event: any) =>
       guarded("session.compaction (onCompacting)", async () => {
         await onCompacting({ sessionID: event?.sessionID });
+        if (typeof event?.sessionID === "string") epoch.delete(event.sessionID);
+        const anchor = await compactionAnchor();
+        if (anchor) event?.system?.push?.({ type: "text", text: anchor });
       }),
     );
+
+    // ---- opt-in auto-capture on session idle --------------------------------
+    // Default OFF: zero-token installs never subscribe to anything. When
+    // enabled (options.autoCapture === true AND a valid captureModel), each
+    // session.idle event runs ONE cheap ctx.generate.text call whose reply is
+    // parsed into candidates that go through the SAME runWriteGate as
+    // model-authored writes — capture can never bypass the moat, and it only
+    // ever writes through the gate. A per-session cooldown bounds the cost.
+    // Every failure inside the loop is swallowed: capture must never be able
+    // to break a session.
+    let captureCleanup: Cleanup | undefined;
+    if (ctx.options?.autoCapture === true) {
+      const captureModel =
+        typeof ctx.options.captureModel === "string" ? ctx.options.captureModel : "";
+      const captureMax = Number(ctx.options.captureMax) || 3;
+      const modelRef = parseModelRef(captureModel);
+      if (!modelRef) {
+        // Invalid/missing model: skip registering the whole subscription
+        // rather than guess (and warn once, at setup).
+        console.warn(
+          `[opencode-self-improvement] autoCapture is on but captureModel ${JSON.stringify(captureModel)} is invalid (expected "provider/id"); auto-capture disabled.`,
+        );
+      } else if (!ctx.event?.subscribe || !ctx.generate?.text || !ctx.session?.context) {
+        console.warn(
+          "[opencode-self-improvement] autoCapture is on but this OpenCode context lacks event.subscribe/generate.text/session.context; auto-capture disabled.",
+        );
+      } else {
+        const controller = new AbortController();
+        const lastRun = new Map<string, number>();
+        const eventApi = ctx.event;
+        const generateApi = ctx.generate;
+        // Arrow wrapper: keep the receiver bound. The harness fakes are closures,
+        // but a real client method that reads `this` would break if detached —
+        // and the fail-closed catch below would hide it. Optional call: the
+        // setup guard proves it exists, but property narrowing does not survive
+        // into the closure, and undefined degrades safely (empty transcript).
+        const contextFn = (input: { sessionID: string }) => ctx.session?.context?.(input);
+        void (async () => {
+          try {
+            for await (const raw of eventApi.subscribe({ signal: controller.signal })) {
+              const event = raw as Record<string, any>;
+              if (event?.type !== "session.idle") continue;
+              const sid = event.sessionID ?? event.properties?.sessionID;
+              if (typeof sid !== "string") continue;
+              const now = Date.now();
+              if (now - (lastRun.get(sid) ?? 0) < 5 * 60_000) continue; // 5-min cooldown
+              lastRun.set(sid, now);
+              try {
+                const msgs = await contextFn({ sessionID: sid });
+                const transcript = flattenTranscript(msgs);
+                if (transcript.length < 200) continue; // too thin to mine reliably
+                const out = await generateApi.text({
+                  model: modelRef,
+                  prompt: buildCapturePrompt(transcript.slice(-8000), captureMax),
+                });
+                const text = typeof out === "string" ? out : out?.text ?? "";
+                for (const c of parseCandidates(text, captureMax)) {
+                  const outcome = await runWriteGate(
+                    { ...c, tags: ["auto-capture"] },
+                    gateContext(),
+                  );
+                  await record(
+                    `auto_capture_${outcome.action}`,
+                    { session: sid, type: c.type, scope: c.scope, reason: outcome.reason ?? "" },
+                    false,
+                  );
+                }
+              } catch {
+                // fail-closed: a broken capture attempt is invisible to the session
+              }
+            }
+          } catch {
+            // the subscription itself ended (abort or host error); nothing to do
+          }
+        })();
+        captureCleanup = () => controller.abort();
+      }
+    }
+    // Single cleanup returned by setup: tears down the capture subscription.
+    // Future teardowns merge into this same function.
+    return captureCleanup;
   },
+};
+
+// The plain object IS the V2 contract ({ id, setup }); the SDK's `Plugin` type
+// pins its shape at compile time. The import is deliberately type-only:
+// opencode installs npm plugins with runtime dependencies only (verified in
+// ~/.cache/opencode/npm/<pkg>@<ver>/), so a value import of @opencode/plugin —
+// a devDependency here — would fail to resolve at load time for published
+// consumers, and making it a runtime dependency would pull effect +
+// @opencode/client into every install, the exact dead-weight problem dropping
+// the V1 SDK fixes. `Plugin.define` is an identity function at runtime, so this
+// annotation buys the same compile-time contract for zero runtime cost.
+const plugin: Plugin = {
+  id: PLUGIN_ID,
+  setup: async (ctx) => impl.setup(ctx as unknown as PluginCtx),
 };
 
 export const SelfImprovement = plugin;
