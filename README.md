@@ -22,6 +22,9 @@ LLMs waste a lot of tokens reading and re-reading your code and asking you for c
   write gates, so an export can't smuggle junk in.
 - **Decay** — `memory_decay` retires stale open threads. Dry run by default;
   supersede-not-delete, snapshot-first, undoable.
+- **Auto-capture (opt-in)** — with `autoCapture` on, session-idle events get one
+  cheap model pass that proposes memory candidates; every candidate still faces
+  the same write gates. Off by default, so the install stays zero-token.
 - Automatically de-dupes similar memories and avoids contradictions by searching for existing memories before saving new ones.
 - Automatically looks for insights when you complete the verification gates (tests, linting, etc)
 - Always defaults to memories first before sending a prompt to the LLM, which saves tokens! 
@@ -123,18 +126,7 @@ the plugin entry in `opencode.json(c)` instead of the plain string:
 
 ```json
 {
-  "$schema": "https://opencode.ai/config.json",
-  "plugins": [
-    {
-      "package": "opencode-self-improvement@0.1.1",
-      "options": {
-        "injectBudget": 1200,
-        "autoCapture": false,
-        "captureModel": "provider/model-id",
-        "captureMax": 3
-      }
-    }
-  ]
+  "plugins": [{ "package": "opencode-self-improvement", "options": { "injectBudget": 1200 } }]
 }
 ```
 
@@ -192,5 +184,6 @@ Run `bun memory-view` in your terminal and visit  http://127.0.0.1:8787 in your 
 | `/repo-init` missing from the command list | The self-install couldn't write to `~/.config/opencode/commands/` (e.g. read-only config dir). Create it, restart, or just ask the model to "init memory for this repo" — it calls the same tool. |
 | Init says `Graph: unavailable` | `codebase-memory-mcp` couldn't start (not installed, or its once-only download is blocked). Install pinned `0.11.0` via the one-liner above, or point `OPENCODE_CBM_BIN` at the binary. Scripts are still remembered without it. |
 | Stale plugin after an update | Bump the pinned version in the `plugin` entry (or `opencode plugin update opencode-self-improvement` on v2) and restart opencode. |
+| Auto-capture does nothing | `autoCapture` needs a valid `captureModel` in `provider/id` form — a bad one disables capture with a startup warning. Candidates rejected by the write gates are logged as evidence, not errors; check `memory_evidence`. |
 | Reset all memories | Delete `~/.config/opencode/memory/`. |
 
