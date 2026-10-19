@@ -54,6 +54,30 @@ export function balancedParen(text: string, openIdx: number): { inner: string; e
 
 const CALL_RE = /([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\s*\(/g;
 
+// Last dotted segment is a known file extension: `package.json(committed by…)`
+// is a file reference followed by parenthetical prose, not a call to a method
+// named `json`. This class produced 9 false drift_ref_stale_incoming blocks in
+// live use before the guard existed.
+const FILE_EXT = new Set([
+  "json", "jsonc", "jsonl", "logfmt", "md", "mdx", "ts", "tsx", "js", "jsx",
+  "mjs", "cjs", "py", "go", "rs", "rb", "java", "kt", "sh", "bash", "zsh",
+  "yaml", "yml", "toml", "ini", "conf", "cfg", "txt", "csv", "html", "htm",
+  "css", "scss", "xml", "sql", "tf", "lock", "log", "env",
+]);
+
+// Parenthetical PROSE is not a code call signature. A code-like arg list is
+// empty or contains code punctuation ({ } ( ) : = , . < > quotes); the markers
+// [ ] @ / never appear in the arg snippets drift detection cares about, and
+// bare multi-word English with no code punctuation ("main-agent review fix")
+// is prose.
+function looksProseArgs(inner: string): boolean {
+  const s = inner.trim();
+  if (!s) return false;
+  if (/[[\]@/]/.test(s)) return true;
+  if (/[{}():=",.<>'"`]/.test(s)) return false;
+  return s.split(/\s+/).length >= 2;
+}
+
 export function extractCallForms(content: string): CallForm[] {
   const forms: CallForm[] = [];
   CALL_RE.lastIndex = 0;
@@ -65,6 +89,8 @@ export function extractCallForms(content: string): CallForm[] {
     if (!paren) continue;
     const parts = symbol.split(".");
     const name = parts[parts.length - 1];
+    if (FILE_EXT.has(name.toLowerCase())) continue;
+    if (looksProseArgs(paren.inner)) continue;
     const ownerPath = parts.slice(0, -1).join(".");
     forms.push({
       symbol,
