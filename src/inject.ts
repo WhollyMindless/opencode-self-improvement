@@ -147,18 +147,23 @@ export async function storeVersion(): Promise<string> {
 }
 
 // Trim an injection block to `budget` characters at WHOLE-line boundaries:
-// keep lines while the joined length stays <= budget, drop the rest, never cut
-// mid-line. Returns "" when even the header line exceeds the budget (the block
-// is not worth injecting).
+// keep every line that still fits (skipping over-long ones), never cut
+// mid-line. Returns "" when even the header line exceeds the budget, and ""
+// when NOTHING but header lines survived — a dangling "## Relevant durable
+// memory" over zero memories is noise, not memory (bug seen live: a store
+// whose top matches all exceed the budget injected exactly the 26-char header).
 export function capToBudget(block: string, budget: number): string {
-  const kept: string[] = [];
-  let len = 0;
-  for (const line of block.split("\n")) {
-    const add = kept.length ? line.length + 1 : line.length;
-    if (len + add > budget) break;
+  const lines = block.split("\n");
+  // The header gives the block its meaning; if it does not fit, nothing does.
+  if (lines[0].length > budget) return "";
+  const kept: string[] = [lines[0]];
+  let len = lines[0].length;
+  for (const line of lines.slice(1)) {
+    if (len + line.length + 1 > budget) continue; // skip over-long lines, keep scanning
     kept.push(line);
-    len += add;
+    len += line.length + 1;
   }
+  if (kept.every((l) => l.startsWith("## "))) return "";
   return kept.join("\n");
 }
 

@@ -167,6 +167,17 @@ describe("capToBudget", () => {
   test("returns empty string when even the header line exceeds the budget", () => {
     expect(capToBudget("## Relevant durable memory\n- x", 10)).toBe("");
   });
+
+  test("returns empty string when only header lines survive (no dangling header)", () => {
+    const long = "- pattern/s: " + "x".repeat(2000);
+    expect(capToBudget("## Relevant durable memory\n" + long, 1200)).toBe("");
+    expect(capToBudget("## A\n## B\n" + long, 1200)).toBe("");
+  });
+
+  test("skips an over-long line and keeps later lines that fit", () => {
+    const block = ["## H", "- " + "x".repeat(500), "- short fact"].join("\n");
+    expect(capToBudget(block, 60)).toBe("## H\n- short fact");
+  });
 });
 
 describe("injectBudget", () => {
