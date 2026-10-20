@@ -130,7 +130,7 @@ Add a `plugins` entry to your opencode config —
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["opencode-self-improvement@0.2.1"]
+  "plugins": ["opencode-self-improvement@0.2.2"]
 }
 ```
 
@@ -144,7 +144,7 @@ bump the version in the config and restart. On Opencode v2 you can also manage
 it with the CLI:
 
 ```sh
-opencode plugin add opencode-self-improvement@0.2.1
+opencode plugin add opencode-self-improvement@0.2.2
 opencode plugin update opencode-self-improvement
 ```
 
