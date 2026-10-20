@@ -62,4 +62,16 @@ describe("relevantKnowledge (memory-first injection)", () => {
     const block = await relevantKnowledge("run the benchmark suite daily");
     expect(block.split("\n").filter((l) => l.startsWith("- [")).length).toBe(3);
   });
+
+  test("stopword-only overlap abstains: no block, no noise (recall bench 2026-10-20)", async () => {
+    // Every memory contains "the"; a query sharing ONLY function words must
+    // inject nothing rather than surface a confident wrong memory.
+    seed("learning", "ops", "the pager rota rotates weekly and pages route to the alerting channel");
+    expect(await relevantKnowledge("what is the thing and how does the it go")).toBe("");
+  });
+
+  test("a single shared CONTENT token still injects (abstention is not amnesia)", async () => {
+    seed("learning", "ops", "pager rota rotates weekly");
+    expect(await relevantKnowledge("who holds the pager tonight")).toContain("pager rota");
+  });
 });
