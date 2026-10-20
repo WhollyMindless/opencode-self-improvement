@@ -263,12 +263,20 @@ export interface DeletedMemory {
 // restore it. Returns the snapshot paths keyed by original file.
 export async function snapshotFiles(files: string[]): Promise<string[]> {
   await ensureDir(snapshotDir());
-  const stamp = Date.now();
+  let stamp = Date.now();
   const snaps: string[] = [];
   for (const file of files) {
     const f = Bun.file(file);
     if (!(await f.exists())) continue;
-    const snap = join(snapshotDir(), `${stamp}-${basename(file)}`);
+    // Names must be unique. A `${Date.now()}-` stamp collides whenever two
+    // mutations happen in the same millisecond — live CI proved a viewer
+    // restore's backup overwrote the very snapshot it was about to read,
+    // restoring post-edit content. Bump until free; never clobber a snapshot.
+    let snap = join(snapshotDir(), `${stamp}-${basename(file)}`);
+    while (await Bun.file(snap).exists()) {
+      stamp++;
+      snap = join(snapshotDir(), `${stamp}-${basename(file)}`);
+    }
     await Bun.write(snap, await f.text());
     snaps.push(snap);
   }
