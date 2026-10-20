@@ -175,6 +175,36 @@ as `00:11:25.867`, or a unique substring of its text. Omit it to update the newe
 entry of that scope and type. A `query` matching nothing, or matching several rows,
 writes nothing and says so rather than updating the wrong memory.
 
+## Backup & move between machines
+
+`memory_export` writes the live store as JSONL — one JSON object per line
+(`{ts,type,scope,content,status,tags,issue}`), active rows only (superseded
+history stays in the store). `memory_import` reads such a file back. Defaults
+to `<memory-root>/exports/<timestamp>.jsonl`; pass `file` to choose the path
+and `scope` to export just one scope.
+
+In practice you just ask the agent:
+
+```
+Export my memories to ~/memories.jsonl        # memory_export
+# …copy the file to the other machine…
+Import ~/memories.jsonl                       # memory_import
+```
+
+Import is safe by construction: every row re-enters through the same 4-gate
+write pipeline as `memory_remember` (tagged `import`, original tags preserved),
+and the tool reports a tally of four outcomes per line —
+
+| Outcome | Meaning |
+| --- | --- |
+| `promoted` | passed the gates and was stored |
+| `collapsed` | near-duplicate of an existing memory; nothing written |
+| `blocked` | rejected by a gate; reason is in `memory_evidence` |
+| `skipped` | malformed line; never reaches the gates |
+
+so re-running the same import is a no-op (everything collapses). Copying an
+export to a fresh machine is how you seed a new laptop from an old one.
+
 ## Admin Tool
 
 Editing and deleting memories is easy!
