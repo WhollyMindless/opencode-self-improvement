@@ -43,15 +43,29 @@ function argText(args: unknown): string {
   return "";
 }
 
-function words(text: string): string[] {
+export function words(text: string): string[] {
   return text
     .toLowerCase()
     .split(/[^a-z0-9_]+/)
     .filter((t) => t.length > 2);
 }
 
-function scoreMemories(term: string, mems: Memory[], limit: number): Memory[] {
-  const query = new Set(words(term));
+// Query-side stopwords: bag-of-words scoring has no IDF, so "the/what/how"
+// match a large share of every memory and let a query with ZERO content
+// overlap rank (recall bench 2026-10-20 measured 49% wrong-top-1). Dropping
+// them makes the matcher abstain — inject nothing — when the vocabulary
+// genuinely has nothing in common, instead of injecting confident noise.
+// Memory-side tokens are never filtered: a memory stating "the" must not
+// gain or lose rank from it, only queries drive matching.
+const QUERY_STOPWORDS = new Set(
+  "a an and are at be but by can did do does for from had has have how i in into is it its me my no not of on or our so than that the their them then there these they this to us was we were what when where which who why will with you your run runs getting want needs right back yet also just still ever".split(" "),
+);
+
+// Production relevance ranking: score = number of distinct query tokens the
+// memory's (scope+type+content) token set contains. Exported for
+// bench/recall-quality.ts — the benchmark must measure the shipped matcher.
+export function scoreMemories(term: string, mems: Memory[], limit: number): Memory[] {
+  const query = new Set(words(term).filter((t) => !QUERY_STOPWORDS.has(t)));
   if (!query.size) return [];
   return mems
     .map((m) => {

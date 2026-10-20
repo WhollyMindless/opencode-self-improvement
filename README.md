@@ -65,6 +65,52 @@ output):
 bun bench/inject-cost.ts
 ```
 
+## Recall quality — no models required
+
+Memory plugins get told "keyword matching isn't good enough," and the usual
+prescription is a vector database or a local embedding model. This plugin ships
+neither — no model, no download, no API key, ever. The question is what that
+actually costs you, so we measured it:
+
+```sh
+bun bench:recall
+```
+
+A deterministic, auditable eval of the **shipped** matcher against classic
+BM25, on query classes assigned by *measured* vocabulary overlap with the
+right memory (store of 200; k=3 = the production injection limit):
+
+| Query, vs. the stored memory | share | R@1 | R@3 |
+| --- | ---: | ---: | ---: |
+| lexical — reuses your project's words | 46% | 100% | 100% |
+| near — reworded, one overlap | 17% | 44% | 83% |
+| strict — zero shared words | 37% | 0% | 0% |
+
+What the benchmark bought us:
+
+- **In-project prompts are overwhelmingly lexical** — you keep saying
+  `bun test`, "the rate limiter", "staging deploys". The shipped matcher
+  nails those: 100% R@3, flat from store size 50 to 500.
+- **It caught a real bug.** Function words ("the", "what", "how") counted as
+  matches, so nearly half the time the top memory was the wrong one. The
+  matcher now ignores them on the query side: wrong-first rate fell 49% → 34%,
+  and classic BM25 — a tuned scoring algorithm — no longer beats the shipped
+  matcher on any class except the hopeless one.
+- **Strict paraphrase is the real lexical wall**, and we won't pretend
+  otherwise. Nothing keyword-side crosses it. So instead of confident noise the
+  matcher now goes *silent* when the vocabulary shares nothing (a third of
+  strict queries inject nothing at all), and the agent's `memory_recall` loop
+  remains as the pull path. Embeddings are the only known crossing — the bench
+  exposes a scorer seam if you want to measure them — but requiring an
+  inference engine just to remember things is a non-starter for a zero-dependency
+  plugin.
+- Caveats, honestly: the dataset is synthetic (52 memories / 105 queries, a
+  fictional project), its class mix is deliberately adversarial (far richer in
+  zero-overlap paraphrases than real prompts), and scoring is single-gold.
+
+Full methodology, all store sizes: `bench/recall-results.md`
+(regenerate with `bun bench:recall`).
+
 ## Quick start
 
 1. Add the plugin to your Opencode config (see install below) and restart Opencode.
