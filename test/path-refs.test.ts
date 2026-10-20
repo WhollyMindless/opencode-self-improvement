@@ -1,0 +1,151 @@
+// Path-ref existence gate (live demo 2026-10-20: a settled memory citing
+// src/ghost_pipeline_removed.ts — a file that never existed — was PROMOTED,
+// because gate1 only drift-compares call signatures and counted path refs for
+// the ambiguity check without ever checking existence). Contract: repo-relative
+// path refs in a SETTLED write must exist under liveRoot or the write blocks
+// with ref_path_missing; open planning threads are exempt; paths outside the
+// repo's jurisdiction (bare names, absolute, ~, $VAR, URLs, `..`) are trusted
+// as before and never produce a block.
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { checkablePathRefs, gate1 } from "../src/resolver.ts";
+import { runWriteGate, type GateContext } from "../src/gates.ts";
+
+describe("checkablePathRefs — which refs are policed", () => {
+  test("repo-qualified paths are checkable; line suffix stripped", () => {
+    expect(checkablePathRefs("see src/resolver.ts and ./a/b.ts:108")).toEqual([
+      "src/resolver.ts",
+      "./a/b.ts",
+    ]);
+  });
+
+  test("bare names are not checkable (may live anywhere)", () => {
+    expect(checkablePathRefs("undo.ts rewrites the daily file")).toEqual([]);
+  });
+
+  test("absolute, home, env-var, parent-escaping, and URL refs are skipped", () => {
+    expect(
+      checkablePathRefs(
+        "config at /etc/passwd.ts, key at ~/src/a.ts, build at $ROOT/src/b.ts, " +
+          "escape at ../outside/c.ts, site at https://example.com/p/index.ts",
+      ),
+    ).toEqual([]);
+  });
+
+  test("dotted first segment reads as a hostname, not a directory", () => {
+    expect(checkablePathRefs("listed on opencode.ai/docs/index.ts and awesome.dev/x.ts")).toEqual([]);
+  });
+
+  test("dedupes repeated refs", () => {
+    expect(checkablePathRefs("src/a.ts ... src/a.ts again")).toEqual(["src/a.ts"]);
+  });
+});
+
+describe("gate1 — existence check against liveRoot", () => {
+  let root: string;
+  let liveRoot: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "osi-pr-"));
+    liveRoot = join(root, "repo");
+    mkdirSync(join(liveRoot, "src"), { recursive: true });
+    mkdirSync(join(liveRoot, ".git"), { recursive: true });
+  });
+
+  const run = (content: string) =>
+    gate1({ content, scope: "demo", liveRoot, scopeMemories: [] });
+
+  test("live path refs pass; ghost path refs are reported missing", async () => {
+    await Bun.write(join(liveRoot, "src", "real.ts"), "export const x = 1;\n");
+    const ok = await run("gate1 lives in src/real.ts");
+    expect(ok.missingPaths).toEqual([]);
+    expect(ok.refs).toBeGreaterThan(0);
+
+    const ghost = await run("the viewer in src/ghost_pipeline_removed.ts uses redis");
+    expect(ghost.missingPaths).toEqual(["src/ghost_pipeline_removed.ts"]);
+  });
+
+  test("line-number refs and relative ./ refs resolve", async () => {
+    await Bun.write(join(liveRoot, "src", "real.ts"), "export const x = 1;\n");
+    expect((await run("see src/real.ts:42 and ./src/real.ts")).missingPaths).toEqual([]);
+  });
+
+  test("no refs at all short-circuits with empty missingPaths", async () => {
+    const r = await run("no code references here whatsoever");
+    expect(r.refs).toBe(0);
+    expect(r.missingPaths).toEqual([]);
+  });
+
+  test("unverifiable liveRoot (no tree) never flags missing paths", async () => {
+    const r = await gate1({
+      content: "see src/whatever.ts",
+      scope: "demo",
+      liveRoot: join(root, "does-not-exist"),
+      scopeMemories: [],
+    });
+    expect(r.missingPaths).toEqual([]);
+  });
+});
+
+describe("runWriteGate — ref_path_missing block", () => {
+  let root: string;
+  let liveRoot: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "osi-prg-"));
+    process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
+    liveRoot = join(root, "repo");
+    mkdirSync(join(liveRoot, "src"), { recursive: true });
+    mkdirSync(join(liveRoot, ".git"), { recursive: true });
+  });
+
+  afterEach(() => {
+    delete process.env.OPENCODE_MEMORY_DIR;
+  });
+
+  const ctx = (): GateContext => ({
+    liveRoot,
+    evidenceCalls: [],
+    hasGateCheck: false,
+    hasEngagement: true, // engagement would have promoted the ghost before this fix
+  });
+
+  test("settled write citing a nonexistent repo path is blocked with a hint", async () => {
+    await Bun.write(join(liveRoot, "src", "real.ts"), "export const x = 1;\n");
+    const outcome = await runWriteGate(
+      {
+        type: "learning",
+        scope: "demo",
+        content: "The viewer server in src/ghost_pipeline_removed.ts runs on port 9999.",
+      },
+      ctx(),
+    );
+    expect(outcome.action).toBe("blocked");
+    expect(outcome.reason).toBe("ref_path_missing");
+    expect(outcome.hint).toContain("src/ghost_pipeline_removed.ts");
+  });
+
+  test("settled write citing a real repo path promotes", async () => {
+    await Bun.write(join(liveRoot, "src", "real.ts"), "export const x = 1;\n");
+    const outcome = await runWriteGate(
+      { type: "learning", scope: "demo", content: "The gate lives in src/real.ts and exports x." },
+      ctx(),
+    );
+    expect(outcome.action).toBe("promoted");
+  });
+
+  test("open planning thread may cite a not-yet-existing file", async () => {
+    const outcome = await runWriteGate(
+      {
+        type: "context",
+        scope: "demo",
+        content: "Plan: add retry logic in src/retry_planned.ts next sprint.",
+        status: "open",
+      },
+      ctx(),
+    );
+    expect(outcome.reason).not.toBe("ref_path_missing");
+  });
+});

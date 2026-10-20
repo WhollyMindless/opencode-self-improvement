@@ -440,6 +440,14 @@ export async function runWriteGate(
   if (g1.candidateStale) {
     blockReason = "drift_ref_stale_incoming";
     blockFlags = ["incoming_embeds_pre_drift_ref"];
+  } else if (g1.missingPaths.length && !planningObject) {
+    // A settled claim about code must point at files that exist. Live demo
+    // 2026-10-20: a memory citing src/ghost_pipeline_removed.ts (never existed)
+    // was promoted on trust. Open planning threads are exempt — plans routinely
+    // cite files not yet created.
+    blockReason = "ref_path_missing";
+    blockFlags = [`missing=${g1.missingPaths.join(",")}`];
+    hint = `Path ref(s) not found in the repo: ${g1.missingPaths.join(", ")}. Rephrase against the current tree (drop the path or fix it) and retry; use status="open" if the file is planned, not existing.`;
   } else if (canon && !canon.aligns) {
     blockReason = "conflicts_with_canonical";
     blockFlags = [

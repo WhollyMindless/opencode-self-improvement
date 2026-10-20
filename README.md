@@ -175,6 +175,36 @@ as `00:11:25.867`, or a unique substring of its text. Omit it to update the newe
 entry of that scope and type. A `query` matching nothing, or matching several rows,
 writes nothing and says so rather than updating the wrong memory.
 
+## Backup & move between machines
+
+`memory_export` writes the live store as JSONL — one JSON object per line
+(`{ts,type,scope,content,status,tags,issue}`), active rows only (superseded
+history stays in the store). `memory_import` reads such a file back. Defaults
+to `<memory-root>/exports/<timestamp>.jsonl`; pass `file` to choose the path
+and `scope` to export just one scope.
+
+In practice you just ask the agent:
+
+```
+Export my memories to ~/memories.jsonl        # memory_export
+# …copy the file to the other machine…
+Import ~/memories.jsonl                       # memory_import
+```
+
+Import is safe by construction: every row re-enters through the same 4-gate
+write pipeline as `memory_remember` (tagged `import`, original tags preserved),
+and the tool reports a tally of four outcomes per line —
+
+| Outcome | Meaning |
+| --- | --- |
+| `promoted` | passed the gates and was stored |
+| `collapsed` | near-duplicate of an existing memory; nothing written |
+| `blocked` | rejected by a gate; reason is in `memory_evidence` |
+| `skipped` | malformed line; never reaches the gates |
+
+so re-running the same import is a no-op (everything collapses). Copying an
+export to a fresh machine is how you seed a new laptop from an old one.
+
 ## Admin Tool
 
 Editing and deleting memories is easy!
@@ -186,7 +216,7 @@ Run `bun memory-view` in your terminal and visit  http://127.0.0.1:8787 in your 
 | Problem | Fix |
 | --- | --- |
 | `memory_*` tools not available | The plugin didn't load. Restart opencode and check the `plugins` entry in your config. |
-| `memory_remember` says blocked | A gate rejected the write (stale code reference, overlap with a superseded memory, or an ambiguous claim). The reason is logged — check `memory_evidence`, then rephrase against current code and retry. |
+| `memory_remember` says blocked | A gate rejected the write (stale code reference, a cited `path/to/file.ts` that doesn't exist in the repo, overlap with a superseded memory, or an ambiguous claim). The reason is logged — check `memory_evidence`, then rephrase against current code and retry. |
 | `/repo-init` missing from the command list | The self-install couldn't write to `~/.config/opencode/commands/` (e.g. read-only config dir). Create it, restart, or just ask the model to "init memory for this repo" — it calls the same tool. |
 | Init says `Graph: unavailable` | `codebase-memory-mcp` couldn't start (not installed, or its once-only download is blocked). Install pinned `0.11.0` via the one-liner above, or point `OPENCODE_CBM_BIN` at the binary. Scripts are still remembered without it. |
 | Stale plugin after an update | Bump the pinned version in the `plugin` entry (or `opencode plugin update opencode-self-improvement` on v2) and restart opencode. |

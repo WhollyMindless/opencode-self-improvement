@@ -11,7 +11,7 @@
 // the note on `plugin` below). All business logic still lives in the decoupled
 // helper modules.
 import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { evidenceDir, injectBudget, memoryRoot, dateStr } from "./config.ts";
 import { STATUSES, TYPES } from "./types.ts";
 import {
@@ -375,16 +375,34 @@ const impl = {
 
       editor.add({
         name: "memory_undo",
-        description: "List memory snapshots, or restore one by name (rollback).",
+        description:
+          "List memory snapshots, or restore one (rollback). SAFE BY DEFAULT: daily store files are shared across sessions, so if the current file has rows added or edited since the snapshot, restore REFUSES and lists them — re-run with merge=true to restore AND keep those rows, or force=true for the exact rollback. `snapshot` accepts a bare name from the list or a full path.",
         options: direct,
         input: obj({
           list: withDesc(bool(), "List snapshots"),
-          snapshot: withDesc(str(), "Snapshot file to restore"),
+          snapshot: withDesc(str(), "Snapshot to restore (bare name from list, or a full path)"),
+          merge: withDesc(bool(), "With snapshot: keep rows written after the snapshot instead of refusing"),
+          force: withDesc(bool(), "With snapshot: exact rollback even if the file changed since"),
         }),
         async execute(args: any): Promise<{ content: string }> {
           if (args.snapshot) {
-            const target = await restoreSnapshot(args.snapshot, memoryRoot());
-            return { content: `Restored ${args.snapshot} -> ${target}` };
+            const mode = args.force ? "force" : args.merge ? "merge" : "check";
+            const res = await restoreSnapshot(args.snapshot, memoryRoot(), mode);
+            if (!res.restored) {
+              const parts = [...res.concurrentAdded, ...res.concurrentChanged];
+              return {
+                content:
+                  `Undo refused: ${res.concurrentAdded.length} row(s) added and ` +
+                  `${res.concurrentChanged.length} changed since this snapshot — restoring it ` +
+                  `would clobber them. Divergent rows (ts): ${parts.join(", ")}. ` +
+                  `If those belong to another session, re-run with merge=true (restore the file ` +
+                  `AND keep them); if they are the writes you are undoing, use force=true.`,
+              };
+            }
+            const kept = res.mode === "merge" && (res.concurrentAdded.length || res.concurrentChanged.length)
+              ? ` Kept ${res.concurrentAdded.length} added / ${res.concurrentChanged.length} changed row(s) written after the snapshot.`
+              : "";
+            return { content: `Restored ${basename(res.target)} from ${res.mode} snapshot -> ${res.target}.${kept}` };
           }
           const snaps = await listSnapshots();
           if (!snaps.length) return { content: "No snapshots" };
