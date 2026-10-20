@@ -216,7 +216,7 @@ Run `bun memory-view` in your terminal and visit  http://127.0.0.1:8787 in your 
 | Problem | Fix |
 | --- | --- |
 | `memory_*` tools not available | The plugin didn't load. Restart opencode and check the `plugins` entry in your config. |
-| `memory_remember` says blocked | A gate rejected the write (stale code reference, overlap with a superseded memory, or an ambiguous claim). The reason is logged — check `memory_evidence`, then rephrase against current code and retry. |
+| `memory_remember` says blocked | A gate rejected the write (stale code reference, a cited `path/to/file.ts` that doesn't exist in the repo, overlap with a superseded memory, or an ambiguous claim). The reason is logged — check `memory_evidence`, then rephrase against current code and retry. |
 | `/repo-init` missing from the command list | The self-install couldn't write to `~/.config/opencode/commands/` (e.g. read-only config dir). Create it, restart, or just ask the model to "init memory for this repo" — it calls the same tool. |
 | Init says `Graph: unavailable` | `codebase-memory-mcp` couldn't start (not installed, or its once-only download is blocked). Install pinned `0.11.0` via the one-liner above, or point `OPENCODE_CBM_BIN` at the binary. Scripts are still remembered without it. |
 | Stale plugin after an update | Bump the pinned version in the `plugin` entry (or `opencode plugin update opencode-self-improvement` on v2) and restart opencode. |

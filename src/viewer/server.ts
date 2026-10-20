@@ -9,7 +9,7 @@ import { serve, type Server } from "bun";
 import { deletionsFile, memoryRoot, snapshotDir } from "../config.ts";
 import { blockedEntries } from "../blocklist.ts";
 import { listSnapshots, restoreSnapshot } from "../undo.ts";
-import { appendMemory, loadAll, memoryFiles } from "../memory.ts";
+import { appendMemory, loadAll, memoryFiles, snapshotFiles } from "../memory.ts";
 import { parseLine, readLines } from "../logfmt.ts";
 import { deleteMemory, editMemory, addBlock, removeBlock, type MutationResult } from "./mutate.ts";
 
@@ -180,8 +180,17 @@ async function restoreEntryRoute(body: Record<string, unknown>): Promise<Respons
 }
 
 async function restoreRoute(body: Record<string, unknown>): Promise<Response> {
-  const target = await restoreSnapshot(join(snapshotDir(), String(body.name ?? "")), memoryRoot());
-  return json({ restored: target });
+  const name = String(body.name ?? "");
+  const original = name.replace(/^\d+-/, "");
+  // Explicit human admin action: exact rollback — but the rollback is itself
+  // rollback-able. Snapshot the current file first so concurrent-session rows
+  // lost here stay recoverable, and report how many rows were rolled back.
+  await snapshotFiles([join(memoryRoot(), original)]);
+  const res = await restoreSnapshot(join(snapshotDir(), name), memoryRoot(), "force");
+  return json({
+    restored: res.target,
+    rolledBack: res.concurrentAdded.length + res.concurrentChanged.length,
+  });
 }
 
 if (import.meta.main) {
