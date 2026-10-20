@@ -26,6 +26,10 @@ export interface Gate1Result {
   resolved: string[];
   drift: DriftInfo | null;
   candidateStale: boolean;
+  // Directory-qualified path refs that do NOT exist under liveRoot. A settled
+  // claim citing one is hallucinated or machine-specific data (live demo
+  // 2026-10-20: src/ghost_pipeline_removed.ts passed on trust).
+  missingPaths: string[];
 }
 
 export function balancedParen(text: string, openIdx: number): { inner: string; end: number } | null {
@@ -107,6 +111,43 @@ const PATH_RE = /[A-Za-z0-9_@./-]+\.(?:ts|tsx|js|jsx|mjs|cjs)(?::\d+)?/g;
 
 export function extractPathRefs(content: string): string[] {
   return [...content.matchAll(PATH_RE)].map((m) => m[0]);
+}
+
+// Directory-qualified, repo-relative path refs whose existence gate1 can check
+// against liveRoot. Skipped: bare names (`undo.ts` may live anywhere),
+// absolute paths and `..` (another checkout's truth), URLs (`//`), and refs
+// whose match starts just after `$` or `~` — env vars and home paths describe
+// another machine, e.g. in `$BUILD_ROOT/src/a.ts` the regex match is
+// `BUILD_ROOT/src/a.ts`, which the preceding-char check drops.
+export function checkablePathRefs(content: string): string[] {
+  const out: string[] = [];
+  for (const m of content.matchAll(PATH_RE)) {
+    const ref = m[0].replace(/:\d+$/, "");
+    const prev = m.index && m.index > 0 ? content[m.index - 1] : "";
+    if (prev === "$" || prev === "~" || prev === "/") continue;
+    if (!ref.includes("/")) continue;
+    if (ref.includes("//") || ref.startsWith("/") || ref.split("/").includes("..")) continue;
+    // A dotted first segment reads as a hostname (opencode.ai/x/index.ts), not
+    // a repo directory. `.` itself is the legitimate relative root prefix.
+    const first = ref.split("/")[0];
+    if (first.includes(".") && first !== ".") continue;
+    if (!out.includes(ref)) out.push(ref);
+  }
+  return out;
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    // A listing that yields even one entry proves liveRoot is a real tree;
+    // a missing path throws ENOENT/ENOTDIR and fails open (nothing verifiable).
+    for (const _ of new Bun.Glob("*").scanSync({ onlyFiles: false, cwd: path })) {
+      void _;
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 function splitTopLevel(argsText: string): string[] {
@@ -284,10 +325,20 @@ export async function gate1(input: ResolveInput): Promise<Gate1Result> {
   const forms = extractCallForms(input.content);
   const pathRefs = extractPathRefs(input.content);
   const refs = forms.length + pathRefs.length;
-  if (refs === 0) return { refs: 0, resolved: [], drift: null, candidateStale: false };
+  if (refs === 0) return { refs: 0, resolved: [], drift: null, candidateStale: false, missingPaths: [] };
 
   let drift: DriftInfo | null = null;
   const resolved: string[] = [];
+
+  // Existence check for repo-relative path refs. When liveRoot is not a real
+  // tree (unit tests, deleted worktree) nothing is verifiable, so report no
+  // missing paths rather than flagging everything.
+  const missingPaths: string[] = [];
+  if (await isDirectory(input.liveRoot)) {
+    for (const ref of checkablePathRefs(input.content)) {
+      if (!(await Bun.file(join(input.liveRoot, ref)).exists())) missingPaths.push(ref);
+    }
+  }
 
   for (const form of forms) {
     resolved.push(form.symbol);
@@ -320,5 +371,6 @@ export async function gate1(input: ResolveInput): Promise<Gate1Result> {
     resolved,
     drift,
     candidateStale: drift?.source === "candidate",
+    missingPaths,
   };
 }
