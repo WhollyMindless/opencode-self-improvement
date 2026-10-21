@@ -38,7 +38,8 @@ import {
   systemDigest,
 } from "./inject.ts";
 import { formatInit, runInit } from "./init.ts";
-import { ensureInitCommand } from "./command.ts";
+import { ensureInitCommand, ensureMemoryReportCommand } from "./command.ts";
+import { blockedRecent, renderMemoryReport, writeStatus } from "./status.ts";
 import {
   afterTool,
   checkNewSession,
@@ -163,6 +164,7 @@ const impl = {
     // (idempotent, write-if-missing). OpenCode 2.x loads `*.md` from
     // ~/.config/opencode/commands, so this is the canonical V2 install path.
     await ensureInitCommand();
+    await ensureMemoryReportCommand();
 
     // Fail-closed hook guard: the plugin's own bookkeeping can never take down a
     // tool call, the system transform, or compaction.
@@ -574,6 +576,45 @@ const impl = {
           };
         },
       });
+
+      editor.add({
+        name: "memory_status",
+        description:
+          "Plain-text memory report for chat clients (desktop/web/IDE), same sections as the terminal /memory panel: the block injected for THIS session's epoch (or the abstention), recent blocked writes with their gate reasons, live store stats, and the recompute/budget ledger. Reads only — no model call.",
+        options: direct,
+        input: obj({}),
+        async execute(): Promise<{ content: string }> {
+          const sid = getCurrent().sid;
+          const ep = epoch.get(sid);
+          const all = await loadAll();
+          const act = all.filter(isActive);
+          const store = {
+            active: act.length,
+            superseded: all.length - act.length,
+            open: act.filter((m) => m.status === "open").length,
+            scopes: new Set(act.map((m) => m.scope)).size,
+          };
+          return {
+            content: renderMemoryReport({
+              status: ep
+                ? {
+                    at: ep.at,
+                    sessionID: sid,
+                    storeVersion: ep.version,
+                    reason: ep.reason,
+                    recomputes: epochRecomputes,
+                    block: ep.block,
+                    blockChars: ep.block.length,
+                    budget,
+                    store,
+                  }
+                : null,
+              store,
+              blocked: await blockedRecent(6),
+            }),
+          };
+        },
+      });
     });
 
     // Per-session frozen injection epochs: the relevance block plus the store
@@ -581,7 +622,10 @@ const impl = {
     // of a session, when the store changes, or after a compaction (see the
     // prompt/compaction hooks) — so the system prefix, and with it the
     // provider prompt cache, survives ordinary turns.
-    const epoch = new Map<string, { version: string; block: string }>();
+    const epoch = new Map<string, { version: string; block: string; at: string; reason: "first" | "store_changed" }>();
+    // Recomputes since server start: every one invalidated a prompt cache, so
+    // it is the honest cost number the surfaces show (status.json / tools).
+    let epochRecomputes = 0;
 
     // ---- hooks (all fail-closed) -------------------------------------------
     // Bookkeeping: track the active session/tool/call before a tool runs.
@@ -647,16 +691,39 @@ const impl = {
             const text = event?.prompt?.text ?? "";
             const raw = await relevantKnowledge(text, 5); // widen candidate pool
             const block = raw ? capToBudget(raw, budget) : "";
-            epoch.set(sid, { version, block });
+            const at = new Date().toISOString();
+            const reason: "first" | "store_changed" = cached ? "store_changed" : "first";
+            epoch.set(sid, { version, block, at, reason });
             await record(
               "epoch_recompute",
               {
                 session: sid,
-                reason: cached ? "store_changed" : "first",
+                reason,
                 chars: block.length,
               },
               false,
             );
+            // Status hand-off for the terminal panel (src/tui.tsx) and any
+            // out-of-process surface. Best-effort; never breaks injection.
+            epochRecomputes++;
+            const all = await loadAll();
+            const act = all.filter(isActive);
+            await writeStatus({
+              at,
+              sessionID: sid,
+              storeVersion: version,
+              reason,
+              recomputes: epochRecomputes,
+              block,
+              blockChars: block.length,
+              budget,
+              store: {
+                active: act.length,
+                superseded: all.length - act.length,
+                open: act.filter((m) => m.status === "open").length,
+                scopes: new Set(act.map((m) => m.scope)).size,
+              },
+            });
           }
         }
       }),
