@@ -25,6 +25,7 @@ import {
   writeStatus,
   type StatusPayload,
 } from "../src/status.ts";
+import { setRepoScope } from "../src/repokey.ts";
 import { loadPlugin } from "./harness.ts";
 import { resetState } from "../src/state.ts";
 
@@ -33,6 +34,7 @@ let root: string;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "osi-status-"));
   process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
+  setRepoScope(null);
   process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
   mkdirSync(memoryRoot(), { recursive: true });
   resetState();

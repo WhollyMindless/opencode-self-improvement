@@ -24,6 +24,7 @@ import {
   type Memory,
 } from "../src/memory.ts";
 import { resetState, setCurrent } from "../src/state.ts";
+import { setRepoScope } from "../src/repokey.ts";
 import { loadPlugin } from "./harness.ts";
 
 let root: string;
@@ -31,6 +32,10 @@ let liveRoot: string;
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "osi-upd-"));
+  // Tests seed rows via appendMemory BEFORE loading the plugin; null scope
+  // keeps those seeds unstamped (legacy = global visibility) so each test's
+  // freshly loaded plugin (its own liveRoot) sees them.
+  setRepoScope(null);
   process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
   process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
   liveRoot = join(root, "repo");
