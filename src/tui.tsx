@@ -65,6 +65,14 @@ export default Plugin.define({
       unknown: col(th.text?.muted, col(th.text?.base, "#9ca3af")),
     };
 
+    // Inline color inside <text> must be a <span> (a nested <text> crashes:
+    // add() only accepts strings / TextNodeRenderable / StyledText), and the
+    // reconciler's setProperty only honors `style` on text nodes — a direct
+    // fg attribute is silently dropped. SpanProps types style as {} (upstream
+    // gap), so pass a pre-typed object: assignment skips the excess-prop
+    // check, and runtime reads style.fg/style.bg.
+    const spanStyle = (fg: string): { fg?: string } => ({ fg });
+
     const refresh = async (sid?: string): Promise<void> => {
       if (sid !== undefined) activeSid = sid;
       setStatus(await readStatus(activeSid));
@@ -103,7 +111,7 @@ export default Plugin.define({
         const rate = cacheRate(s.measured);
         return (
           <text fg={context.theme.text.base}>
-            <text fg={DOT[cacheHealth(s)]}>●</text>
+            <span style={spanStyle(DOT[cacheHealth(s)])}>●</span>
             {` mem ${s.blockChars}/${s.budget}c · cache ${rate ? `${rate.pct}%` : "—"}`}
           </text>
         );
