@@ -17,10 +17,20 @@ const PAGE = join(import.meta.dir, "page.html");
 const HOST = process.env.OPENCODE_VIEWER_HOST || "127.0.0.1";
 const PORT = Number(process.env.OPENCODE_VIEWER_PORT || 8787);
 
+// Defense-in-depth headers on every response. CSP: the page uses only inline
+// script/style and same-origin fetch, so everything else is off — a stored-XSS
+// payload (see issue #11) gains no exfil channel and no framing.
+const SECURITY_HEADERS: Record<string, string> = {
+  "x-content-type-options": "nosniff",
+  "content-security-policy":
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
+    "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+};
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { ...SECURITY_HEADERS, "content-type": "application/json" },
   });
 }
 
@@ -116,13 +126,21 @@ export async function startViewer(port: number = PORT): Promise<ViewerServer> {
     hostname: HOST,
     port,
     fetch(req, srv) {
-      // Bun builds req.url from the request's Host header.
-      const url = new URL(req.url);
+      // Bun builds req.url from the request's Host header. A malformed Host
+      // makes the URL parse THROW — before rejectRequest could answer. Letting
+      // that escape hands the caller Bun's dev error page (stack + absolute
+      // paths), so the parse itself is the first guarded step (issue #12).
+      let url: URL;
+      try {
+        url = new URL(req.url);
+      } catch {
+        return error("malformed request URL (bad Host header?)", 400);
+      }
       const rejected = rejectRequest(req, url, server.port ?? port);
       if (rejected) return rejected;
       if (url.pathname === "/") {
         return new Response(page, {
-          headers: { "content-type": "text/html; charset=utf-8" },
+          headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8" },
         });
       }
       if (req.method === "GET" && url.pathname === "/api/data") {
