@@ -9,7 +9,7 @@
 // must survive" — that call belongs to the caller, so the default mode CHECK
 // refuses and lists the divergent rows; MERGE replays them on top of the
 // snapshot; FORCE is the old exact rollback.
-import { join, basename } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { snapshotDir } from "./config.ts";
 import { ensureDir } from "./logfmt.ts";
 
@@ -78,7 +78,14 @@ export async function restoreSnapshot(
   if (!(await f.exists())) throw new Error(`snapshot not found: ${snapshot}`);
 
   const original = name.replace(/^\d+-/, "");
-  const target = join(memoryRootDir, original);
+  // Defense in depth (issue #21): `name` is basenamed above, so `original`
+  // carries no separators — but a restore must never write outside the memory
+  // root no matter what a future caller passes.
+  const rootAbs = resolve(memoryRootDir);
+  const target = resolve(rootAbs, original);
+  if (!target.startsWith(rootAbs + sep)) {
+    throw new Error(`snapshot target escapes the memory root: ${original}`);
+  }
   const snapLines = rows(await f.text());
   const cur = Bun.file(target);
   const curLines = (await cur.exists()) ? rows(await cur.text()) : [];
