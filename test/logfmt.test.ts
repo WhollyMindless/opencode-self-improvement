@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { formatLine, parseLine } from "../src/logfmt.ts";
+import { appendLog, formatLine, parseLine, readLines } from "../src/logfmt.ts";
 import { appendMemory, loadAll } from "../src/memory.ts";
 
 describe("formatLine/parseLine round-trip", () => {
@@ -51,5 +51,19 @@ describe("store rows cannot be forged through content", () => {
     expect(all).toHaveLength(1);
     expect(all[0].scope).toBe("build");
     expect(all[0].content).toBe(content);
+  });
+
+  test("concurrent appends lose nothing (issue #23)", async () => {
+    // Pre-fix appendLog was read-modify-write: 20 concurrent appends to one
+    // file left 2 rows. O_APPEND must survive the same storm.
+    const file = join(process.env.OPENCODE_MEMORY_DIR!, "race.logfmt");
+    await Promise.all(
+      Array.from({ length: 50 }, (_, i) => appendLog(file, formatLine({ ts: `t${i}`, n: i }))),
+    );
+    const lines = await readLines(file);
+    expect(lines).toHaveLength(50);
+    for (let i = 0; i < 50; i++) {
+      expect(lines.some((l) => l.includes(`ts=t${i}`))).toBe(true);
+    }
   });
 });
