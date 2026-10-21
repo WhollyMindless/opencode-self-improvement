@@ -307,4 +307,25 @@ describe("request checks — other websites", () => {
     const port = new URL(vm.url).port;
     expect((await raw("/api/data", {}, `http://localhost:${port}/`)).status).toBe(200);
   });
+
+  test("a malformed Host fails closed with 400 — no dev error page, no stack", async () => {
+    // Over the real socket, exactly like the wire-level repro: Bun builds
+    // req.url from the Host header, and the malformed value must hit the
+    // guarded parse, not Bun's dev error page (stack + absolute paths).
+    const res = await fetch(new URL("/", vm.url), { headers: { host: "exa mple" } });
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).not.toContain("Internal Server Error");
+    expect(body).not.toContain("server.ts");
+    expect(body).toContain("malformed request URL");
+  });
+
+  test("every response carries nosniff and a restrictive CSP", async () => {
+    const page = await vm.server.fetch(new Request(new URL("/", vm.url)));
+    expect(page.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(page.headers.get("content-security-policy")).toContain("default-src 'none'");
+    const api = await vm.server.fetch(new Request(new URL("/api/data", vm.url)));
+    expect(api.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(api.headers.get("content-security-policy")).toContain("connect-src 'self'");
+  });
 });
