@@ -125,20 +125,20 @@
     <textarea id="eContent" placeholder="content"></textarea>
     <input id="eReason" placeholder="reason (required, e.g. corrected after human review)" style="width:100%" title="Reason">
     <div class="btns">
-      <button id="eCancel" class="btn">Cancel</button>
-      <button id="eSave" class="btn primary" title="Saves a new entry and marks this one superseded">Save (snapshot + supersede)</button>
+      <button type="button" id="eCancel" class="btn">Cancel</button>
+      <button type="button" id="eSave" class="btn primary" title="Saves a new entry and marks this one superseded">Save (snapshot + supersede)</button>
     </div>
   </div>
 </div>
 
 <div id="promptModal" class="modal">
   <div class="box card">
-    <h2 id="promptTitle"></h2>
+    <h2 id="promptTitle">Confirm</h2>
     <p id="promptHint" class="muted"></p>
     <textarea id="promptReason" rows="2" placeholder="reason (required)" title="Reason"></textarea>
     <div class="btns">
-      <button id="promptCancel" class="btn">Cancel</button>
-      <button id="promptOk" class="btn primary"></button>
+      <button type="button" id="promptCancel" class="btn">Cancel</button>
+      <button type="button" id="promptOk" class="btn primary">OK</button>
     </div>
   </div>
 </div>

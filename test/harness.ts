@@ -94,15 +94,27 @@ export async function loadPlugin(
     options: options ?? {},
     tool: {
       transform: async (cb: (editor: { add: (t: ToolRecord) => void }) => void) =>
-        cb({ add: (t) => void (tools[t.name] = t) }),
-      hook: async (n: string, cb: (event: any) => Promise<void>) => void (toolHooks[n] = cb),
+        cb({
+          add: (t) => {
+            tools[t.name] = t;
+          },
+        }),
+      hook: async (n: string, cb: (event: any) => Promise<void>) => {
+        toolHooks[n] = cb;
+      },
     },
     command: {
       transform: async (cb: (editor: { add: (c: any) => void }) => void) =>
-        cb({ add: (c) => void (commands[c.name] = c) }),
+        cb({
+          add: (c) => {
+            commands[c.name] = c;
+          },
+        }),
     },
     session: {
-      hook: async (n: string, cb: (event: any) => Promise<void>) => void (sessionHooks[n] = cb),
+      hook: async (n: string, cb: (event: any) => Promise<void>) => {
+        sessionHooks[n] = cb;
+      },
       prompt: async (input: any) => ({ ok: true, input }),
       context: async (input: any) => {
         capture.context.calls.push(String(input?.sessionID ?? ""));

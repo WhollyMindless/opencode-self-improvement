@@ -628,7 +628,10 @@ const impl = {
     const measuredTurns = new Map<string, Measured>();
     const statsFor = (sid: string): SessionStats => {
       let st = sessionStats.get(sid);
-      if (!st) sessionStats.set(sid, (st = emptyStats()));
+      if (!st) {
+        st = emptyStats();
+        sessionStats.set(sid, st);
+      }
       return st;
     };
 

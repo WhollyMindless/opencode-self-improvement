@@ -85,8 +85,9 @@ function looksProseArgs(inner: string): boolean {
 export function extractCallForms(content: string): CallForm[] {
   const forms: CallForm[] = [];
   CALL_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = CALL_RE.exec(content)) !== null) {
+  for (;;) {
+    const m = CALL_RE.exec(content);
+    if (!m) break;
     const symbol = m[1];
     const openIdx = content.indexOf("(", m.index + symbol.length);
     const paren = openIdx >= 0 ? balancedParen(content, openIdx) : null;
