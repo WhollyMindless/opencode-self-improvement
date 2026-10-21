@@ -4,7 +4,7 @@
 // through the same loadAll() used by recall/inject (so blocked entries are
 // hidden), and all mutations are non-destructive (snapshot + audit + supersede).
 // I2: serves only file data; never writes into any repo.
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { serve, type Server } from "bun";
 import { deletionsFile, memoryRoot, snapshotDir } from "../config.ts";
 import { blockedEntries } from "../blocklist.ts";
@@ -17,10 +17,20 @@ const PAGE = join(import.meta.dir, "page.html");
 const HOST = process.env.OPENCODE_VIEWER_HOST || "127.0.0.1";
 const PORT = Number(process.env.OPENCODE_VIEWER_PORT || 8787);
 
+// Defense-in-depth headers on every response. CSP: the page uses only inline
+// script/style and same-origin fetch, so everything else is off — a stored-XSS
+// payload (see issue #11) gains no exfil channel and no framing.
+const SECURITY_HEADERS: Record<string, string> = {
+  "x-content-type-options": "nosniff",
+  "content-security-policy":
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
+    "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+};
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { ...SECURITY_HEADERS, "content-type": "application/json" },
   });
 }
 
@@ -123,19 +133,23 @@ export async function startViewer(port: number = PORT): Promise<ViewerServer> {
       return error("internal error", 500);
     },
     fetch(req, srv) {
-      // Bun builds req.url from the request's Host header, so a malformed Host
-      // (`127.0.0.1.8787`, an out-of-range port) makes it unparseable.
+      // Bun builds req.url from the request's Host header. A malformed Host
+      // (`127.0.0.1.8787`, an out-of-range port, `exa mple`) makes it
+      // unparseable, and the URL parse THROWs — before rejectRequest could
+      // answer. Letting that escape hands the caller Bun's dev error page
+      // (stack + absolute paths), so the parse itself is the first guarded
+      // step (issue #12).
       let url: URL;
       try {
         url = new URL(req.url);
       } catch {
-        return error("malformed request", 400);
+        return error("malformed request URL (bad Host header?)", 400);
       }
       const rejected = rejectRequest(req, url, server.port ?? port);
       if (rejected) return rejected;
       if (url.pathname === "/") {
         return new Response(page, {
-          headers: { "content-type": "text/html; charset=utf-8" },
+          headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8" },
         });
       }
       if (req.method === "GET" && url.pathname === "/api/data") {
@@ -226,7 +240,14 @@ async function restoreEntryRoute(body: Record<string, unknown>): Promise<Respons
 }
 
 async function restoreRoute(body: Record<string, unknown>): Promise<Response> {
-  const name = String(body.name ?? "");
+  // Path containment (issue #21): name arrives raw from the wire. Basename it,
+  // then pin it to the real snapshot-name grammar — `<epoch-ms>-<YYYY-MM-DD>.logfmt`
+  // — so neither path join below can be steered outside snapshots/ and the
+  // store root with a `..` or absolute name.
+  const name = basename(String(body.name ?? ""));
+  if (!/^\d+-\d{4}-\d{2}-\d{2}\.logfmt$/.test(name)) {
+    return error("invalid snapshot name", 400);
+  }
   const original = name.replace(/^\d+-/, "");
   // Explicit human admin action: exact rollback — but the rollback is itself
   // rollback-able. Snapshot the current file first so concurrent-session rows

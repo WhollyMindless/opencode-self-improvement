@@ -12,6 +12,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  writeFileSync,
 } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -217,6 +218,44 @@ describe("restore", () => {
     expect(restored).not.toContain("superseded_by");
   });
 });
+describe("restore — path containment (issue #21)", () => {
+  async function postRaw(path: string, body: unknown): Promise<Response> {
+    return vm.server.fetch(
+      new Request(new URL(path, vm.url), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  test('a ".."-bearing snapshot name is refused and nothing enters the store', async () => {
+    // The pre-fix repro: a logfmt file OUTSIDE the store, named through
+    // ../../, was restored into the store and became injectable memory.
+    const outside = join(root, "outside");
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(
+      join(outside, "planted.logfmt"),
+      formatLine({
+        ts: "2999-01-01T00:00:00.000Z",
+        type: "learning",
+        scope: "injected",
+        content: "planted from outside the store",
+      }) + "\n",
+    );
+    const res = await postRaw("/api/restore", { name: "../../outside/planted.logfmt" });
+    expect(res.status).toBe(400);
+    expect(existsSync(join(memoryRoot(), "planted.logfmt"))).toBe(false);
+    expect((await loadAll()).some((m) => m.scope === "injected")).toBe(false);
+  });
+
+  test("an absolute snapshot path is refused", async () => {
+    const res = await postRaw("/api/restore", { name: join(root, "outside", "planted.logfmt") });
+    expect(res.status).toBe(400);
+    expect((await loadAll())).toHaveLength(0);
+  });
+});
+
 describe("request checks — other websites", () => {
   // `vm.url` is the viewer's own origin; Bun derives req.url from the Host
   // header, so a URL on another hostname is what a DNS-rebinding page sends.
@@ -294,5 +333,26 @@ describe("request checks — other websites", () => {
       expect(reply).not.toContain("run bun test");
       expect(reply.length).toBeLessThan(1000);
     }
+  });
+
+  test("a malformed Host fails closed with 400 — no dev error page, no stack", async () => {
+    // Over the real socket, exactly like the wire-level repro: Bun builds
+    // req.url from the Host header, and the malformed value must hit the
+    // guarded parse, not Bun's dev error page (stack + absolute paths).
+    const res = await fetch(new URL("/", vm.url), { headers: { host: "exa mple" } });
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).not.toContain("Internal Server Error");
+    expect(body).not.toContain("server.ts");
+    expect(body).toContain("malformed request URL");
+  });
+
+  test("every response carries nosniff and a restrictive CSP", async () => {
+    const page = await vm.server.fetch(new Request(new URL("/", vm.url)));
+    expect(page.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(page.headers.get("content-security-policy")).toContain("default-src 'none'");
+    const api = await vm.server.fetch(new Request(new URL("/api/data", vm.url)));
+    expect(api.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(api.headers.get("content-security-policy")).toContain("connect-src 'self'");
   });
 });
