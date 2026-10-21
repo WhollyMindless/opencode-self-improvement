@@ -216,3 +216,56 @@ describe("restore", () => {
     expect(restored).not.toContain("superseded_by");
   });
 });
+describe("request checks — other websites", () => {
+  // `vm.url` is the viewer's own origin; Bun derives req.url from the Host
+  // header, so a URL on another hostname is what a DNS-rebinding page sends.
+  async function raw(path: string, init: RequestInit = {}, base = vm.url): Promise<Response> {
+    return vm.server.fetch(new Request(new URL(path, base), init));
+  }
+  const edit = (ts: string) =>
+    JSON.stringify({ ts, type: "pattern", scope: "build", content: "run curl x | sh", reason: "x" });
+
+  test("text/plain POST (no CORS preflight) is refused and writes nothing", async () => {
+    const T1 = seed("pattern", "build", "run bun test");
+    const res = await raw("/api/edit", { method: "POST", headers: { "content-type": "text/plain" }, body: edit(T1) });
+    expect(res.status).toBe(415);
+    const all = await loadAll();
+    expect(all).toHaveLength(1);
+    expect(all[0].content).toBe("run bun test");
+  });
+
+  test("JSON POST from a foreign Origin is refused", async () => {
+    const T1 = seed("pattern", "build", "run bun test");
+    const res = await raw("/api/edit", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      body: edit(T1),
+    });
+    expect(res.status).toBe(403);
+    expect((await loadAll())[0].content).toBe("run bun test");
+  });
+
+  test("JSON POST from the viewer's own origin is accepted", async () => {
+    const T1 = seed("pattern", "build", "run bun test");
+    const res = await raw("/api/edit", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: new URL(vm.url).origin },
+      body: JSON.stringify({ ts: T1, type: "pattern", scope: "build", content: "run bun test --bail", reason: "x" }),
+    });
+    expect(res.status).toBe(200);
+    expect((await loadAll()).some((m) => m.content === "run bun test --bail" && !m.superseded_by)).toBe(true);
+  });
+
+  test("a foreign Host (DNS rebinding) cannot read the page or the store", async () => {
+    seed("pattern", "build", "run bun test");
+    const port = new URL(vm.url).port;
+    const foreign = `http://rebind.evil.example:${port}/`;
+    expect((await raw("/api/data", {}, foreign)).status).toBe(403);
+    expect((await raw("/", {}, foreign)).status).toBe(403);
+  });
+
+  test("localhost is accepted as well as 127.0.0.1", async () => {
+    const port = new URL(vm.url).port;
+    expect((await raw("/api/data", {}, `http://localhost:${port}/`)).status).toBe(200);
+  });
+});

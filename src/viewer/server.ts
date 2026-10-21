@@ -28,6 +28,36 @@ function error(msg: string, status = 400): Response {
   return json({ error: msg }, status);
 }
 
+// Binding 127.0.0.1 keeps other machines out, but not other websites open in
+// the user's browser. Two checks close that:
+// - Host must name this viewer. A DNS-rebinding page reaches 127.0.0.1 under
+//   its own hostname, so its requests arrive with a foreign Host.
+// - Writes must be JSON from this viewer's own origin. A cross-site form or
+//   no-cors fetch can POST text/plain without a CORS preflight, and every
+//   memory edited here is injected into the agent's system prompt.
+// A viewer deliberately exposed under another name (OPENCODE_VIEWER_HOST set
+// to a LAN address, a hostname) can list it in OPENCODE_VIEWER_ALLOWED_HOSTS.
+function allowedHostnames(): Set<string> {
+  const extra = (process.env.OPENCODE_VIEWER_ALLOWED_HOSTS ?? "").split(",");
+  const names = ["127.0.0.1", "localhost", "::1", HOST, ...extra]
+    .map((n) => n.trim().toLowerCase())
+    .filter(Boolean)
+    .map((n) => (n.includes(":") && !n.startsWith("[") ? `[${n}]` : n));
+  return new Set(names);
+}
+
+function rejectRequest(req: Request, url: URL, port: number): Response | null {
+  if (!allowedHostnames().has(url.hostname) || (url.port || "80") !== String(port)) {
+    return error("unexpected Host header", 403);
+  }
+  if (req.method === "GET" || req.method === "HEAD") return null;
+  const origin = req.headers.get("origin");
+  if (origin !== null && origin !== url.origin) return error("cross-origin request refused", 403);
+  const type = (req.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (type !== "application/json") return error("content-type must be application/json", 415);
+  return null;
+}
+
 interface Row {
   ts: string;
   type: string;
@@ -86,7 +116,10 @@ export async function startViewer(port: number = PORT): Promise<ViewerServer> {
     hostname: HOST,
     port,
     fetch(req, srv) {
+      // Bun builds req.url from the request's Host header.
       const url = new URL(req.url);
+      const rejected = rejectRequest(req, url, server.port ?? port);
+      if (rejected) return rejected;
       if (url.pathname === "/") {
         return new Response(page, {
           headers: { "content-type": "text/html; charset=utf-8" },
