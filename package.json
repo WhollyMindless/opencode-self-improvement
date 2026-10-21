@@ -39,6 +39,7 @@
     "codebase-memory-mcp": "0.11.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.6.2",
     "@opencode/plugin": "^2.0.32",
     "@opentui/core": ">=0.6.6",
     "@opentui/solid": ">=0.6.6",
@@ -59,6 +60,7 @@
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "bench": "bun bench/inject-cost.ts",
     "bench:recall": "bun bench/recall-quality.ts",
-    "memory-view": "bun run src/viewer/server.ts"
+    "memory-view": "bun run src/viewer/server.ts",
+    "lint": "biome lint"
   }
 }

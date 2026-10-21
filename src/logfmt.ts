@@ -38,8 +38,9 @@ export function parseLine(line: string): Fields | null {
   if (!trimmed || !trimmed.includes("=")) return null;
   const fields: Fields = {};
   const re = /([A-Za-z0-9_.-]+)=("(?:[^"\\]|\\.)*"|[^\s]*)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(trimmed)) !== null) {
+  for (;;) {
+    const m = re.exec(trimmed);
+    if (!m) break;
     const key = m[1];
     let raw = m[2];
     if (raw.startsWith('"') && raw.endsWith('"')) {

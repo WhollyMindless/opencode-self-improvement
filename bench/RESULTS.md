@@ -9,10 +9,10 @@ a seeded store of 50 memories, a simulated session of
 
 | Policy | Recomputes | Injected chars (20 turns) | Avg/turn | Worst block |
 | --- | ---: | ---: | ---: | ---: |
-| A — recompute per prompt, uncapped (pre-0.2) | 20 | 27748 | 1387.4 | 1575 |
+| A — recompute per prompt, uncapped (pre-0.2) | 20 | 28360 | 1418.0 | 1710 |
 | B — epoch freeze + 1200-char cap (0.2) | 4 | 20654 | 1032.7 | 1157 |
 
-Policy B injects 25.6% fewer characters on this workload. The bigger
+Policy B injects 27.2% fewer characters on this workload. The bigger
 saving is invisible in this table: B's block is byte-identical between store
 changes, so the system prefix — and with it the provider prompt cache —
 survives ordinary turns instead of being invalidated on every prompt.

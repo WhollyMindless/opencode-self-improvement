@@ -40,7 +40,10 @@ import { formatLine } from "../src/logfmt.ts";
 // is that every run produces the same store, the same prompts, the same table.
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
-  return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
 }
 const rand = lcg(20261018);
 const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)];
