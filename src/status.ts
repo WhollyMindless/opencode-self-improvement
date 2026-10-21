@@ -59,7 +59,6 @@ export function emptyStats(): SessionStats {
  */
 export interface Measured {
   at: string;
-  messageID: string;
   input: number;
   read: number;
   write: number;
@@ -69,8 +68,6 @@ export interface StatusPayload {
   /** ISO instant of the epoch recompute that produced this snapshot. */
   at: string;
   sessionID: string;
-  /** storeVersion() fingerprint the block was frozen against. */
-  storeVersion: string;
   reason: "first" | "store_changed";
   /** epoch recomputes since the server process started, ALL sessions. */
   recomputes: number;

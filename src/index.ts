@@ -642,7 +642,6 @@ const impl = {
       return {
         at: ep.at,
         sessionID: sid,
-        storeVersion: ep.version,
         reason: ep.reason,
         recomputes: epochRecomputes,
         block: ep.block,
@@ -804,7 +803,6 @@ const impl = {
             if (typeof sid !== "string" || !t) continue;
             measuredTurns.set(sid, {
               at: new Date().toISOString(),
-              messageID: String(info.id ?? "?"),
               input: Number(t.input) || 0,
               read: Number(t.cache?.read) || 0,
               write: Number(t.cache?.write) || 0,

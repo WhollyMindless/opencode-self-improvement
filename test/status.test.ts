@@ -46,7 +46,6 @@ afterEach(() => {
 const payload = (over: Partial<StatusPayload> = {}): StatusPayload => ({
   at: "2026-10-20T12:00:00.000Z",
   sessionID: "ses_x",
-  storeVersion: "3:2026-10-20T11:59:00.000Z",
   reason: "first",
   recomputes: 1,
   block: "## Relevant durable memory\n- [2026-10-20] pattern/build: run bun test",
@@ -61,7 +60,7 @@ const payload = (over: Partial<StatusPayload> = {}): StatusPayload => ({
     invalidations: 1,
     lastInvalidation: { at: "2026-10-20T11:47:00.000Z", reason: "store_changed" },
   },
-  measured: { at: "2026-10-20T11:58:00.000Z", messageID: "msg_9", input: 300, read: 41200, write: 1400 },
+  measured: { at: "2026-10-20T11:58:00.000Z", input: 300, read: 41200, write: 1400 },
   ...over,
 });
 
@@ -139,11 +138,11 @@ describe("blockedRecent", () => {
 
 describe("cache math", () => {
   test("cacheRate: reads over total prompt tokens; null when nothing measured", () => {
-    const r = cacheRate({ at: "x", messageID: "m", input: 300, read: 41200, write: 1400 });
+    const r = cacheRate({ at: "x", input: 300, read: 41200, write: 1400 });
     expect(r?.prompt).toBe(42900);
     expect(r?.pct).toBe(96);
     expect(cacheRate(null)).toBeNull();
-    expect(cacheRate({ at: "x", messageID: "m", input: 0, read: 0, write: 0 })).toBeNull(); // never 0% for no data
+    expect(cacheRate({ at: "x", input: 0, read: 0, write: 0 })).toBeNull(); // never 0% for no data
   });
 
   test("estTok is an estimate, fmtCount compresses only >=10k", () => {
@@ -168,10 +167,10 @@ describe("cache math", () => {
       ),
     ).toBe("recent"); // invalidation after the last measurement outranks a 96% rate
     const noInv = { ...payload().stats!, invalidations: 0, lastInvalidation: null };
-    expect(cacheHealth(payload({ stats: noInv, measured: { at: "x", messageID: "m", input: 400, read: 600, write: 100 } }))).toBe(
+    expect(cacheHealth(payload({ stats: noInv, measured: { at: "x", input: 400, read: 600, write: 100 } }))).toBe(
       "amber",
     ); // 55%
-    expect(cacheHealth(payload({ stats: noInv, measured: { at: "x", messageID: "m", input: 24000, read: 100, write: 0 } }))).toBe(
+    expect(cacheHealth(payload({ stats: noInv, measured: { at: "x", input: 24000, read: 100, write: 0 } }))).toBe(
       "red",
     ); // 0%
   });
