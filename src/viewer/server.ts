@@ -125,11 +125,20 @@ export async function startViewer(port: number = PORT): Promise<ViewerServer> {
   const server = serve({
     hostname: HOST,
     port,
+    // Without this, an uncaught throw gets Bun's development error page, which
+    // includes the stack trace and local file paths. The stack still goes to
+    // the terminal.
+    error: (e) => {
+      console.error(e);
+      return error("internal error", 500);
+    },
     fetch(req, srv) {
       // Bun builds req.url from the request's Host header. A malformed Host
-      // makes the URL parse THROW — before rejectRequest could answer. Letting
-      // that escape hands the caller Bun's dev error page (stack + absolute
-      // paths), so the parse itself is the first guarded step (issue #12).
+      // (`127.0.0.1.8787`, an out-of-range port, `exa mple`) makes it
+      // unparseable, and the URL parse THROWs — before rejectRequest could
+      // answer. Letting that escape hands the caller Bun's dev error page
+      // (stack + absolute paths), so the parse itself is the first guarded
+      // step (issue #12).
       let url: URL;
       try {
         url = new URL(req.url);
