@@ -179,7 +179,10 @@ export async function markSuperseded(ts: string, fields: SupersedeFields): Promi
     if (idx === -1) continue;
     const parsed = parseLine(lines[idx]);
     if (parsed && typeof parsed.superseded_by === "string") return false;
-    const extra = formatLine({
+    // Rewrite the whole line rather than appending to it, so an old-format line
+    // comes out in the current format with its values unchanged.
+    lines[idx] = formatLine({
+      ...parsed,
       superseded_by: fields.superseded_by,
       reason: fields.reason,
       symbol: fields.symbol,
@@ -187,7 +190,6 @@ export async function markSuperseded(ts: string, fields: SupersedeFields): Promi
       to: fields.to,
       entity: fields.entity,
     });
-    lines[idx] = `${lines[idx]} ${extra}`;
     await snapshotBefore(file);
     await Bun.write(file, lines.join("\n") + "\n");
     return true;
