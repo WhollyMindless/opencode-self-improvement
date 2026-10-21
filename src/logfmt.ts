@@ -5,10 +5,17 @@ import { mkdir } from "node:fs/promises";
 
 export type Fields = Record<string, unknown>;
 
+// Escapes for quoted values. One record is one line, so a raw newline inside a
+// value would end the record early and the rest of the value would be read
+// back as a separate line of fields. Backslash is escaped too, so a value
+// ending in `\` cannot swallow its closing quote.
+const ESCAPE: Record<string, string> = { "\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t" };
+const UNESCAPE: Record<string, string> = { "\\": "\\", '"': '"', n: "\n", r: "\r", t: "\t" };
+
 export function quote(value: unknown): string {
   const s = String(value);
   if (s === "") return '""';
-  return /[\s"=]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s;
+  return /[\s"=]/.test(s) ? `"${s.replace(/[\\"\n\r\t]/g, (c) => ESCAPE[c])}"` : s;
 }
 
 export function formatLine(fields: Fields): string {
@@ -20,9 +27,10 @@ export function formatLine(fields: Fields): string {
   return parts.join(" ");
 }
 
-// Unescape a quoted logfmt value and read it back.
+// Unescape a quoted logfmt value and read it back. Unknown sequences are kept
+// as written: older files stored backslashes unescaped (`C:\Program Files`).
 function unquote(s: string): string {
-  return s.replace(/\\"/g, '"');
+  return s.replace(/\\(.)/g, (seq, c: string) => UNESCAPE[c] ?? seq);
 }
 
 export function parseLine(line: string): Fields | null {
