@@ -41,6 +41,7 @@ describe("plugin wiring (OpenCode V2)", () => {
         "memory_merge_review",
         "memory_recall",
         "memory_remember",
+        "memory_status",
         "memory_undo",
         "memory_update",
       ].sort(),

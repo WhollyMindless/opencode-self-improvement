@@ -9,7 +9,9 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid"
   },
   "include": ["index.ts", "src", "test", "bench"]
 }

@@ -196,23 +196,25 @@ async function loadCapturePlugin(options: Record<string, unknown>) {
 }
 
 describe("auto-capture end-to-end (session.idle -> gate)", () => {
-  test("default options: event.subscribe is NEVER called", async () => {
+  test("default options: only the zero-model measured listener subscribes", async () => {
     const loaded = await loadCapturePlugin({});
-    expect(loaded.capture.events.subscribeCalls).toBe(0);
+    // The measured-usage listener subscribes by default (no model calls);
+    // auto-capture itself never does.
+    expect(loaded.capture.events.subscribeCalls).toBe(1);
     loaded.capture.events.push({ type: "session.idle", sessionID: "ses-off" });
     await sleep(50);
     expect(loaded.capture.generate.calls.length).toBe(0);
     expect(loaded.capture.context.calls.length).toBe(0);
   });
 
-  test("autoCapture on but invalid captureModel: subscription is not registered", async () => {
+  test("autoCapture on but invalid captureModel: capture subscription is not registered", async () => {
     const loaded = await loadCapturePlugin({ autoCapture: true, captureModel: "no-slash-model" });
-    expect(loaded.capture.events.subscribeCalls).toBe(0);
+    expect(loaded.capture.events.subscribeCalls).toBe(1); // measured listener only
   });
 
   test("non-idle events are ignored", async () => {
     const loaded = await loadCapturePlugin({ autoCapture: true, captureModel: "fake/model" });
-    await waitFor(() => loaded.capture.events.subscribeCalls === 1);
+    await waitFor(() => loaded.capture.events.subscribeCalls === 2);
     loaded.capture.events.push({ type: "session.updated", sessionID: "ses-x" });
     await sleep(50);
     expect(loaded.capture.context.calls.length).toBe(0);
@@ -297,12 +299,12 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
 
   test("setup cleanup aborts the subscription; later events are not processed", async () => {
     const loaded = await loadCapturePlugin({ autoCapture: true, captureModel: "fake/model" });
-    await waitFor(() => loaded.capture.events.subscribeCalls === 1);
-    expect(loaded.capture.events.signals.length).toBe(1);
-    expect(loaded.capture.events.signals[0].aborted).toBe(false);
+    await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+    expect(loaded.capture.events.signals.length).toBe(2); // measured + capture
+    expect(loaded.capture.events.signals.every((s) => !s.aborted)).toBe(true);
 
     await loaded.cleanup();
-    expect(loaded.capture.events.signals[0].aborted).toBe(true);
+    expect(loaded.capture.events.signals.every((s) => s.aborted)).toBe(true);
 
     loaded.capture.context.messages = [
       { role: "user", content: "x".repeat(300) },
