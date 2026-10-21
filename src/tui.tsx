@@ -7,9 +7,11 @@
 // reads ONLY its own session's file: a missing file renders "mem -" rather
 // than another session's epoch. Against a REMOTE server the panel reports that
 // status is local-only (the RPC surface is the follow-up).
+import { watch, type FSWatcher } from "node:fs";
 import { For, Show, createSignal } from "solid-js";
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import type { PanelInput } from "@opencode/plugin/tui/context";
+import { memoryRoot, evidenceDir } from "./config.ts";
 import {
   blockedRecent,
   cacheHealth,
@@ -17,6 +19,7 @@ import {
   cacheLines,
   contextLines,
   readStatus,
+  statusDir,
   type BlockedRow,
   type CacheHealth,
   type StatusPayload,
@@ -94,7 +97,51 @@ export default Plugin.define({
       seenBlockKeys = keys;
     };
     void refresh();
-    const timer = setInterval(() => void refresh(), POLL_MS);
+
+    // ---- live updates ---------------------------------------------------------
+    // The server rewrites the status files the moment an epoch recomputes or a
+    // measured turn lands; polling made the badge lag up to POLL_MS behind its
+    // own data. Directories watched (TUI and server share this machine by
+    // design; against a remote server there are no files and the badge shows
+    // "mem -" regardless). The poll survives as a fallback: it refreshes the
+    // age display, reattaches watchers after failures, and attaches the
+    // status/ watcher once the server's FIRST write creates the directory.
+    // Debounced because Bun.write can surface as several fs events per write
+    // and prune touches the directory too.
+    let pendingTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleRefresh = () => {
+      if (pendingTimer) clearTimeout(pendingTimer);
+      pendingTimer = setTimeout(() => void refresh(), 150);
+    };
+    let rootWatcher: FSWatcher | null = null;
+    let dirWatcher: FSWatcher | null = null;
+    let evWatcher: FSWatcher | null = null;
+    const attach = (make: () => FSWatcher): FSWatcher | null => {
+      try {
+        const w = make();
+        w.on("error", () => {
+          try {
+            w.close();
+          } catch {}
+          if (rootWatcher === w) rootWatcher = null;
+          if (dirWatcher === w) dirWatcher = null;
+          if (evWatcher === w) evWatcher = null;
+        });
+        return w;
+      } catch {
+        return null; // path missing (fresh install) — the poll retries
+      }
+    };
+    const ensureWatchers = () => {
+      if (!rootWatcher) rootWatcher = attach(() => watch(memoryRoot(), scheduleRefresh));
+      if (!dirWatcher) dirWatcher = attach(() => watch(statusDir(), scheduleRefresh));
+      if (!evWatcher) evWatcher = attach(() => watch(evidenceDir(), scheduleRefresh));
+    };
+    ensureWatchers();
+    const timer = setInterval(() => {
+      ensureWatchers();
+      void refresh();
+    }, POLL_MS);
 
     // ---- badge: budget use + cache health; home footer keeps store size ----
     context.ui.slot({
@@ -161,7 +208,15 @@ export default Plugin.define({
       },
     });
 
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      if (pendingTimer) clearTimeout(pendingTimer);
+      for (const w of [rootWatcher, dirWatcher, evWatcher]) {
+        try {
+          w?.close();
+        } catch {}
+      }
+    };
   },
 });
 
