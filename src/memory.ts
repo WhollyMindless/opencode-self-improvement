@@ -10,6 +10,14 @@ import { blockedTs } from "./blocklist.ts";
 
 export type MemoryStatus = "open" | "settled";
 
+// Hard ceiling on stored content (issue #20). No entry point may persist a
+// line longer than this: injection ever shows ~1200 chars, the gate runs on
+// the shared service event loop, and regex scanning over megabyte-scale
+// strings froze every session (measured: 100KB write = 6s, 2MB = hang).
+// Enforced twice — politely in runWriteGate (blocked outcome + evidence),
+// absolutely in appendMemory (throws, covering gate-bypassing callers).
+export const MAX_CONTENT_CHARS = 4000;
+
 export interface Memory {
   ts: string;
   type: string;
@@ -109,6 +117,13 @@ async function existingTs(): Promise<Set<string>> {
 
 // Append a durable memory. Only the gate's GATE-4 promotion step calls this.
 export async function appendMemory(input: AppendMemoryInput): Promise<string> {
+  // Absolute floor (issue #20): every write SHOULD arrive through the gate,
+  // which rejects oversized content politely; the viewer's restore/edit paths
+  // do not, so nothing oversized leaves this function either.
+  if (typeof input.content !== "string") throw new Error("memory content must be a string");
+  if (input.content.length > MAX_CONTENT_CHARS) {
+    throw new Error(`memory content exceeds ${MAX_CONTENT_CHARS} chars (${input.content.length})`);
+  }
   const taken = await existingTs();
   let ts = new Date().toISOString();
   let guard = 0;

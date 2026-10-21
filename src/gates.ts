@@ -10,6 +10,7 @@ import {
   loadScope,
   markSuperseded,
   snapshotFiles,
+  MAX_CONTENT_CHARS,
   type Memory,
 } from "./memory.ts";
 import { chainId, contentHash, record, recordWriteBlocked } from "./evidence.ts";
@@ -196,6 +197,24 @@ export async function runWriteGate(
   ctx: GateContext,
 ): Promise<GateOutcome> {
   const chain = chainId();
+
+  // Size/type floor BEFORE any scanning (issue #20): gate analysis regexes
+  // over megabyte content backtracked super-linearly and froze the service
+  // event loop. Measured pre-fix: 100KB write = 6s, 2MB = never returned.
+  if (typeof candidate.content !== "string") {
+    await recordWriteBlocked(4, "invalid_content", [`content_type=${typeof candidate.content}`], chain);
+    return { action: "blocked", reason: "invalid_content", chain, hint: "content must be a string." };
+  }
+  if (candidate.content.length > MAX_CONTENT_CHARS) {
+    await recordWriteBlocked(4, "content_too_long", [`len=${candidate.content.length}`, `max=${MAX_CONTENT_CHARS}`], chain);
+    return {
+      action: "blocked",
+      reason: "content_too_long",
+      chain,
+      hint: `content is ${candidate.content.length} chars (max ${MAX_CONTENT_CHARS}). Distill the memory to its durable core and retry.`,
+    };
+  }
+
   const ch = contentHash(candidate.content);
   await record("gate_start", {
     chain,

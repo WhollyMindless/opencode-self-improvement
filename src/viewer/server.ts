@@ -4,7 +4,7 @@
 // through the same loadAll() used by recall/inject (so blocked entries are
 // hidden), and all mutations are non-destructive (snapshot + audit + supersede).
 // I2: serves only file data; never writes into any repo.
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { serve, type Server } from "bun";
 import { deletionsFile, memoryRoot, snapshotDir } from "../config.ts";
 import { blockedEntries } from "../blocklist.ts";
@@ -231,7 +231,14 @@ async function restoreEntryRoute(body: Record<string, unknown>): Promise<Respons
 }
 
 async function restoreRoute(body: Record<string, unknown>): Promise<Response> {
-  const name = String(body.name ?? "");
+  // Path containment (issue #21): name arrives raw from the wire. Basename it,
+  // then pin it to the real snapshot-name grammar — `<epoch-ms>-<YYYY-MM-DD>.logfmt`
+  // — so neither path join below can be steered outside snapshots/ and the
+  // store root with a `..` or absolute name.
+  const name = basename(String(body.name ?? ""));
+  if (!/^\d+-\d{4}-\d{2}-\d{2}\.logfmt$/.test(name)) {
+    return error("invalid snapshot name", 400);
+  }
   const original = name.replace(/^\d+-/, "");
   // Explicit human admin action: exact rollback — but the rollback is itself
   // rollback-able. Snapshot the current file first so concurrent-session rows

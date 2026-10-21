@@ -82,7 +82,15 @@ function looksProseArgs(inner: string): boolean {
   return s.split(/\s+/).length >= 2;
 }
 
+// Regex scanning ceiling (issue #20): PATH_RE backtracks super-linearly on
+// long word-character runs (200KB of base64 as memory content hung the gate
+// on the service event loop; ~6s already at 100KB). The write gate rejects
+// content far above this ceiling upstream; the bails protect every scanner
+// from legacy oversized rows and any direct caller.
+export const REGEX_SCAN_MAX_CHARS = 10_000;
+
 export function extractCallForms(content: string): CallForm[] {
+  if (content.length > REGEX_SCAN_MAX_CHARS) return [];
   const forms: CallForm[] = [];
   CALL_RE.lastIndex = 0;
   for (;;) {
@@ -111,6 +119,7 @@ export function extractCallForms(content: string): CallForm[] {
 const PATH_RE = /[A-Za-z0-9_@./-]+\.(?:ts|tsx|js|jsx|mjs|cjs)(?::\d+)?/g;
 
 export function extractPathRefs(content: string): string[] {
+  if (content.length > REGEX_SCAN_MAX_CHARS) return [];
   return [...content.matchAll(PATH_RE)].map((m) => m[0]);
 }
 
@@ -121,6 +130,7 @@ export function extractPathRefs(content: string): string[] {
 // another machine, e.g. in `$BUILD_ROOT/src/a.ts` the regex match is
 // `BUILD_ROOT/src/a.ts`, which the preceding-char check drops.
 export function checkablePathRefs(content: string): string[] {
+  if (content.length > REGEX_SCAN_MAX_CHARS) return [];
   const out: string[] = [];
   for (const m of content.matchAll(PATH_RE)) {
     const ref = m[0].replace(/:\d+$/, "");
