@@ -13,6 +13,7 @@ import {
   mkdtempSync,
   readFileSync,
 } from "node:fs";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryRoot, snapshotDir } from "../src/config.ts";
@@ -267,5 +268,31 @@ describe("request checks — other websites", () => {
   test("localhost is accepted as well as 127.0.0.1", async () => {
     const port = new URL(vm.url).port;
     expect((await raw("/api/data", {}, `http://localhost:${port}/`)).status).toBe(200);
+  });
+
+  // fetch() won't send a Host it can't parse, so write the request by hand.
+  function rawHttp(host: string): Promise<string> {
+    const port = Number(new URL(vm.url).port);
+    return new Promise((resolve, reject) => {
+      const sock = connect(port, "127.0.0.1", () =>
+        sock.write(`GET /api/data HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`),
+      );
+      let reply = "";
+      sock.on("data", (d) => (reply += d));
+      sock.on("end", () => resolve(reply));
+      sock.on("error", reject);
+    });
+  }
+
+  test("a malformed Host gets a plain 400, not Bun's error page", async () => {
+    seed("pattern", "build", "run bun test");
+    const port = new URL(vm.url).port;
+    for (const host of [`127.0.0.1.${port}`, "127.0.0.1:99999", "[::1"]) {
+      const reply = await rawHttp(host);
+      expect(reply.split("\r\n")[0]).toBe("HTTP/1.1 400 Bad Request");
+      expect(reply).toContain("malformed request");
+      expect(reply).not.toContain("run bun test");
+      expect(reply.length).toBeLessThan(1000);
+    }
   });
 });
