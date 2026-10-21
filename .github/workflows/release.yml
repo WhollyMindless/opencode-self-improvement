@@ -5,11 +5,20 @@ name: Release
 # feat -> minor, BREAKING CHANGE -> major), updates package.json, pushes the
 # tag, creates the GitHub Release with generated notes, and publishes to npm
 # via Trusted Publishing (OIDC) — no NPM_TOKEN anywhere. Provenance is
-# automatic. Pushes with no releasable commits are a no-op (doubles as CI).
+# automatic. Pushes with no releasable commits are a no-op.
 #
 # Requires the trusted publisher on npmjs.com to point at THIS workflow file
 # (owner abogartz / repo opencode-self-improvement / release.yml) with
 # "npm publish" allowed.
+#
+# WHY NOT GITHUB_TOKEN: the Main branch ruleset requires a pull request, and
+# GitHub gives the default workflow token no bypass — the version-bump push
+# dies with GH013 "Changes must be made through a pull request". Release
+# pushes therefore run as a dedicated GitHub App, installed on this repo alone
+# and listed in the ruleset's bypass list. App needs repository permissions
+# Contents / Issues / Pull requests (read & write) and no webhook. Tests and
+# typecheck are NOT re-run here: every commit reaching main passed the ci.yml
+# checks on its PR (required status checks, strict up-to-date policy).
 
 on:
   push:
@@ -30,11 +39,25 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # Short-lived (1 h) installation token for the release App — the actor
+      # the ruleset bypasses for. Secrets: SEMANTIC_RELEASE_APP_PRIVATE_KEY,
+      # variable: SEMANTIC_RELEASE_APP_ID.
+      - name: Mint release-App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.SEMANTIC_RELEASE_APP_ID }}
+          private-key: ${{ secrets.SEMANTIC_RELEASE_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # semantic-release needs full history and tags
+          # Origin credentials must be the App (push needs the bypass),
+          # not GITHUB_TOKEN:
+          token: ${{ steps.app-token.outputs.token }}
 
-      # Bun-native repo (bun.lock, no package-lock.json): install and test with Bun.
+      # Bun-native repo (bun.lock, no package-lock.json): the semantic-release
+      # plugins are devDependencies, so the release needs an install.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -48,13 +71,12 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - run: bun test
-
-      - run: bunx tsc --noEmit -p tsconfig.json
-
       # Analyze -> bump -> commit -> tag -> GitHub release -> npm publish (OIDC).
       # The version-bump commit carries [skip ci], so it does not re-trigger this
       # workflow. If the npm step fails, no tag or GitHub release is created.
       - run: npx semantic-release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # @semantic-release/git pushes through origin (App credentials from
+          # checkout); @semantic-release/github's release + PR/issue comments
+          # use this same App token. npm publishing stays OIDC — unaffected.
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
