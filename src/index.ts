@@ -39,7 +39,15 @@ import {
 } from "./inject.ts";
 import { formatInit, runInit } from "./init.ts";
 import { ensureInitCommand, ensureMemoryReportCommand } from "./command.ts";
-import { blockedRecent, renderMemoryReport, writeStatus } from "./status.ts";
+import {
+  blockedRecent,
+  emptyStats,
+  renderMemoryReport,
+  writeStatus,
+  type Measured,
+  type SessionStats,
+  type StatusPayload,
+} from "./status.ts";
 import {
   afterTool,
   checkNewSession,
@@ -580,12 +588,13 @@ const impl = {
       editor.add({
         name: "memory_status",
         description:
-          "Plain-text memory report for chat clients (desktop/web/IDE), same sections as the terminal /memory panel: the block injected for THIS session's epoch (or the abstention), recent blocked writes with their gate reasons, live store stats, and the recompute/budget ledger. Reads only — no model call.",
+          "Plain-text memory report for chat clients (desktop/web/IDE), same sections as the terminal /memory panel: CONTEXT (this session's injected block, budget use, cumulative ride and abstentions), CACHE (epoch invalidations plus the measured session prompt-cache read rate), the block verbatim, recent blocked writes with gate reasons, and store stats. Reads only — no model call.",
         options: direct,
         input: obj({}),
         async execute(): Promise<{ content: string }> {
+          // In-process truth: the live epoch + ledger, fresher than any file.
           const sid = getCurrent().sid;
-          const ep = epoch.get(sid);
+          const status = sid === "?" ? null : await buildPayload(sid);
           const all = await loadAll();
           const act = all.filter(isActive);
           const store = {
@@ -595,23 +604,7 @@ const impl = {
             scopes: new Set(act.map((m) => m.scope)).size,
           };
           return {
-            content: renderMemoryReport({
-              status: ep
-                ? {
-                    at: ep.at,
-                    sessionID: sid,
-                    storeVersion: ep.version,
-                    reason: ep.reason,
-                    recomputes: epochRecomputes,
-                    block: ep.block,
-                    blockChars: ep.block.length,
-                    budget,
-                    store,
-                  }
-                : null,
-              store,
-              blocked: await blockedRecent(6),
-            }),
+            content: renderMemoryReport({ status, store, blocked: await blockedRecent(6) }),
           };
         },
       });
@@ -624,8 +617,49 @@ const impl = {
     // provider prompt cache, survives ordinary turns.
     const epoch = new Map<string, { version: string; block: string; at: string; reason: "first" | "store_changed" }>();
     // Recomputes since server start: every one invalidated a prompt cache, so
-    // it is the honest cost number the surfaces show (status.json / tools).
+    // it is the honest cost number the surfaces show (status files / tools).
     let epochRecomputes = 0;
+
+    // Per-session ledger, incremented at the injection decision below, and the
+    // last measured prompt-cache usage per session (message.updated). The
+    // surfaces read these through flushed status files (TUI) or directly
+    // (memory_status, in-process).
+    const sessionStats = new Map<string, SessionStats>();
+    const measuredTurns = new Map<string, Measured>();
+    const statsFor = (sid: string): SessionStats => {
+      let st = sessionStats.get(sid);
+      if (!st) sessionStats.set(sid, (st = emptyStats()));
+      return st;
+    };
+
+    // Build the full status snapshot for one session, or null before its first
+    // epoch. Store counts are computed fresh so every flush is current.
+    const buildPayload = async (sid: string): Promise<StatusPayload | null> => {
+      const ep = epoch.get(sid);
+      if (!ep) return null;
+      const all = await loadAll();
+      const act = all.filter(isActive);
+      return {
+        at: ep.at,
+        sessionID: sid,
+        storeVersion: ep.version,
+        reason: ep.reason,
+        recomputes: epochRecomputes,
+        block: ep.block,
+        blockChars: ep.block.length,
+        budget,
+        store: {
+          active: act.length,
+          superseded: all.length - act.length,
+          open: act.filter((m) => m.status === "open").length,
+          scopes: new Set(act.map((m) => m.scope)).size,
+        },
+        stats: statsFor(sid),
+        measured: measuredTurns.get(sid) ?? null,
+      };
+    };
+    const flushStatus = (sid: string): Promise<void> =>
+      buildPayload(sid).then((p) => (p ? writeStatus(p) : undefined));
 
     // ---- hooks (all fail-closed) -------------------------------------------
     // Bookkeeping: track the active session/tool/call before a tool runs.
@@ -670,6 +704,16 @@ const impl = {
         const sid = event?.sessionID;
         const knowledge = typeof sid === "string" ? epoch.get(sid)?.block : undefined;
         if (knowledge) event?.system?.push?.({ type: "text", text: knowledge });
+        // Count AT THE INJECTION DECISION so badge/panel numbers match exactly
+        // what rode this request (a later abort still rode the bytes — known
+        // and documented). Abstained = the epoch exists but its block is empty.
+        if (typeof sid === "string") {
+          const st = statsFor(sid);
+          st.requests++;
+          st.epochRequests++;
+          if (knowledge) st.cumChars += knowledge.length;
+          else if (epoch.has(sid)) st.abstained++;
+        }
       }),
     );
 
@@ -703,27 +747,19 @@ const impl = {
               },
               false,
             );
+            epochRecomputes++;
+            // Ledger: a store_changed recompute of a live epoch is an
+            // invalidation (the first epoch of a session busts nothing). The
+            // epoch request count restarts with the new block.
+            const st = statsFor(sid);
+            st.epochRequests = 0;
+            if (reason === "store_changed") {
+              st.invalidations++;
+              st.lastInvalidation = { at, reason };
+            }
             // Status hand-off for the terminal panel (src/tui.tsx) and any
             // out-of-process surface. Best-effort; never breaks injection.
-            epochRecomputes++;
-            const all = await loadAll();
-            const act = all.filter(isActive);
-            await writeStatus({
-              at,
-              sessionID: sid,
-              storeVersion: version,
-              reason,
-              recomputes: epochRecomputes,
-              block,
-              blockChars: block.length,
-              budget,
-              store: {
-                active: act.length,
-                superseded: all.length - act.length,
-                open: act.filter((m) => m.status === "open").length,
-                scopes: new Set(act.map((m) => m.scope)).size,
-              },
-            });
+            await flushStatus(sid);
           }
         }
       }),
@@ -744,8 +780,47 @@ const impl = {
       }),
     );
 
+    // ---- measured prompt-cache health (message.updated usage) --------------
+    // Zero-model by design: assistant messages carry tokens {input, output,
+    // reasoning, cache.read/write}; the session-wide read/(read+input+write)
+    // share is the honest receipt behind the byte-stability proxy. Streaming
+    // updates for one message arrive repeatedly — overwriting with the latest
+    // is correct because the final update carries the complete usage. Flushes
+    // the per-session status file so the TUI badge refreshes once per turn
+    // instead of per step. Degrades to "not measured" when the host exposes
+    // no event stream.
+    const measuredController = new AbortController();
+    if (ctx.event?.subscribe) {
+      const eventApi = ctx.event;
+      void (async () => {
+        try {
+          for await (const raw of eventApi.subscribe({ signal: measuredController.signal })) {
+            const ev = raw as Record<string, any>;
+            if (ev?.type !== "message.updated") continue;
+            const info = ev.properties?.info ?? ev.info;
+            if (!info || info.role !== "assistant") continue;
+            const sid = info.sessionID;
+            const t = info.tokens;
+            if (typeof sid !== "string" || !t) continue;
+            measuredTurns.set(sid, {
+              at: new Date().toISOString(),
+              messageID: String(info.id ?? "?"),
+              input: Number(t.input) || 0,
+              read: Number(t.cache?.read) || 0,
+              write: Number(t.cache?.write) || 0,
+            });
+            await guarded("status flush (measured)", () => flushStatus(sid));
+          }
+        } catch {
+          // the subscription ended (abort or host error); nothing to do
+        }
+      })();
+    }
+
     // ---- opt-in auto-capture on session idle --------------------------------
-    // Default OFF: zero-token installs never subscribe to anything. When
+    // Default OFF: capture never reads sessions and never calls a model. (The
+    // measured-cache listener above does subscribe to the event stream by
+    // default, but it is zero-model: pure bookkeeping of message usage.) When
     // enabled (options.autoCapture === true AND a valid captureModel), each
     // session.idle event runs ONE cheap ctx.generate.text call whose reply is
     // parsed into candidates that go through the SAME runWriteGate as
@@ -821,9 +896,12 @@ const impl = {
         captureCleanup = () => controller.abort();
       }
     }
-    // Single cleanup returned by setup: tears down the capture subscription.
-    // Future teardowns merge into this same function.
-    return captureCleanup;
+    // Single cleanup returned by setup: tears down the measured listener and,
+    // when enabled, the capture subscription. Future teardowns merge in here.
+    return () => {
+      measuredController.abort();
+      if (captureCleanup) return captureCleanup();
+    };
   },
 };
 

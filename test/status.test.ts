@@ -1,14 +1,30 @@
-// The status hand-off: server epoch -> status.json -> surfaces (memory_status
-// tool now; the /memory TUI panel reads the same file). Also /memory-report
-// command install parity.
+// The status hand-off: server epoch + per-session ledger + measured usage ->
+// status/<sessionID>.json (+ global latest) -> surfaces (memory_status tool;
+// the /memory TUI panel reads the same files). Also /memory-report command
+// install parity.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dateStr, evidenceDir, memoryRoot } from "../src/config.ts";
 import { formatLine } from "../src/logfmt.ts";
 import { appendMemory } from "../src/memory.ts";
-import { blockedRecent, readStatus, renderMemoryReport, statusFile, writeStatus, type StatusPayload } from "../src/status.ts";
+import {
+  blockedRecent,
+  cacheHealth,
+  cacheRate,
+  contextLines,
+  estTok,
+  fmtCount,
+  readStatus,
+  renderMemoryReport,
+  sessionStatusFile,
+  statusDir,
+  statusFile,
+  writeStatus,
+  type StatusPayload,
+} from "../src/status.ts";
 import { loadPlugin } from "./harness.ts";
 import { resetState } from "../src/state.ts";
 
@@ -37,16 +53,27 @@ const payload = (over: Partial<StatusPayload> = {}): StatusPayload => ({
   blockChars: 70,
   budget: 1200,
   store: { active: 3, superseded: 1, open: 1, scopes: 2 },
+  stats: {
+    requests: 14,
+    abstained: 3,
+    cumChars: 11400,
+    epochRequests: 11,
+    invalidations: 1,
+    lastInvalidation: { at: "2026-10-20T11:47:00.000Z", reason: "store_changed" },
+  },
+  measured: { at: "2026-10-20T11:58:00.000Z", messageID: "msg_9", input: 300, read: 41200, write: 1400 },
   ...over,
 });
 
-describe("status file", () => {
-  test("round-trip write/read", async () => {
+describe("status files", () => {
+  test("round-trip write/read (global latest + per-session)", async () => {
     await writeStatus(payload());
     const got = await readStatus();
     expect(got?.blockChars).toBe(70);
     expect(got?.store.active).toBe(3);
     expect(statusFile()).toContain("status.json");
+    expect(await readStatus("ses_x")).not.toBeNull();
+    expect(sessionStatusFile("ses_x")).toContain("ses_x.json");
   });
 
   test("missing or corrupt file reads as null (never throws)", async () => {
@@ -57,6 +84,11 @@ describe("status file", () => {
     expect(await readStatus()).toBeNull();
   });
 
+  test("a session with no file gets null — never another session's epoch", async () => {
+    await writeStatus(payload());
+    expect(await readStatus("ses_different")).toBeNull();
+  });
+
   test("write failure is swallowed (surfaces degrade, injection survives)", async () => {
     // memory root is a FILE -> every write under it fails
     delete process.env.OPENCODE_MEMORY_DIR;
@@ -64,19 +96,18 @@ describe("status file", () => {
     writeFileSync(join(root, "a-file"), "blocked");
     await writeStatus(payload()); // must not throw
   });
-});
 
-function seedEvidence(day: string, rows: { ts: string; sid: string; reason: string; noise?: boolean }[]) {
-  mkdirSync(evidenceDir(), { recursive: true });
-  const lines = rows.map((r) =>
-    formatLine(
-      r.noise
-        ? { ev: "write_promoted", ts: r.ts, sid: r.sid }
-        : { ev: "write_blocked", ts: r.ts, sid: r.sid, gate: 4, reason: r.reason, chain: "c" },
-    ),
-  );
-  writeFileSync(join(evidenceDir(), `${day}.logfmt`), lines.join("\n") + "\n");
-}
+  test("LRU cap prunes the oldest per-session files", async () => {
+    for (let i = 0; i < 35; i++) {
+      await writeStatus(payload({ sessionID: `ses_${i}` }));
+      await Bun.sleep(2); // distinct mtimes so the prune order is deterministic
+    }
+    const files = (await readdir(statusDir())).filter((n) => n.endsWith(".json"));
+    expect(files.length).toBe(32);
+    expect(await readStatus("ses_34")).not.toBeNull(); // newest survives
+    expect(await readStatus("ses_0")).toBeNull(); // oldest pruned
+  });
+});
 
 describe("blockedRecent", () => {
   test("filters to write_blocked, newest-first, respects limit", async () => {
@@ -106,6 +137,52 @@ describe("blockedRecent", () => {
   });
 });
 
+describe("cache math", () => {
+  test("cacheRate: reads over total prompt tokens; null when nothing measured", () => {
+    const r = cacheRate({ at: "x", messageID: "m", input: 300, read: 41200, write: 1400 });
+    expect(r?.prompt).toBe(42900);
+    expect(r?.pct).toBe(96);
+    expect(cacheRate(null)).toBeNull();
+    expect(cacheRate({ at: "x", messageID: "m", input: 0, read: 0, write: 0 })).toBeNull(); // never 0% for no data
+  });
+
+  test("estTok is an estimate, fmtCount compresses only >=10k", () => {
+    expect(estTok(812)).toBe(203);
+    expect(fmtCount(9999)).toBe("9999");
+    expect(fmtCount(11400)).toBe("11.4k");
+    expect(fmtCount(41234)).toBe("41.2k");
+  });
+
+  test("cacheHealth: dot rules — recent invalidation outranks the last rate", () => {
+    expect(cacheHealth(payload())).toBe("green"); // 96%, invalidation BEFORE last measurement
+    expect(cacheHealth(payload({ measured: null }))).toBe("recent"); // busted, not yet re-warmed
+    expect(
+      cacheHealth(
+        payload({
+          stats: {
+            ...payload().stats!,
+            invalidations: 2,
+            lastInvalidation: { at: "2026-10-20T12:30:00.000Z", reason: "store_changed" },
+          },
+        }),
+      ),
+    ).toBe("recent"); // invalidation after the last measurement outranks a 96% rate
+    const noInv = { ...payload().stats!, invalidations: 0, lastInvalidation: null };
+    expect(cacheHealth(payload({ stats: noInv, measured: { at: "x", messageID: "m", input: 400, read: 600, write: 100 } }))).toBe(
+      "amber",
+    ); // 55%
+    expect(cacheHealth(payload({ stats: noInv, measured: { at: "x", messageID: "m", input: 24000, read: 100, write: 0 } }))).toBe(
+      "red",
+    ); // 0%
+  });
+
+  test("cacheHealth unknown: nothing measured, no invalidation", () => {
+    expect(
+      cacheHealth(payload({ stats: { ...payload().stats!, invalidations: 0, lastInvalidation: null }, measured: null })),
+    ).toBe("unknown");
+  });
+});
+
 describe("renderMemoryReport", () => {
   test("no epoch: says so plainly", () => {
     const text = renderMemoryReport({ status: null, store: payload().store, blocked: [] });
@@ -113,17 +190,39 @@ describe("renderMemoryReport", () => {
     expect(text).toContain("MEMORY STATUS");
   });
 
-  test("epoch with block: renders the verbatim block and the ledger line", () => {
+  test("epoch: CONTEXT + CACHE receipts + verbatim block", () => {
     const text = renderMemoryReport({ status: payload(), store: payload().store, blocked: [] });
     expect(text).toContain("run bun test");
-    expect(text).toContain("70/1200 chars");
-    expect(text).toContain("1 recompute(s) since server start");
+    expect(text).toContain("INJECTED BLOCK (verbatim)");
+    expect(text).toContain("CONTEXT");
+    expect(text).toContain("70c ≈ 18 tok · 6% of 1200c budget");
+    expect(text).toContain("rode 11 request(s)");
+    expect(text).toContain("14 request(s) · 11.4kc ≈ 2850 tok rode · abstained 3");
+    expect(text).toContain("CACHE");
+    expect(text).toContain("invalidations  1 this session");
+    expect(text).toContain("1 since server start (all sessions)");
+    expect(text).toContain("41.2k/42.9k prompt tok cache-read (96%)");
     expect(text).toContain("3 active · 1 superseded · 1 open · 2 scopes");
   });
 
   test("abstention is explained, not shown as empty silence", () => {
     const text = renderMemoryReport({ status: payload({ block: "", blockChars: 0 }), store: payload().store, blocked: [] });
     expect(text).toContain("abstained");
+  });
+
+  test("no measurement yet says so, never 0%", () => {
+    const text = renderMemoryReport({ status: payload({ measured: null }), store: payload().store, blocked: [] });
+    expect(text).toContain("not measured yet");
+    expect(text).not.toContain("cache-read (0%)");
+  });
+
+  test("pre-v2 payloads without stats/measured still render", () => {
+    const bare = payload();
+    delete (bare as Partial<StatusPayload>).stats;
+    delete (bare as Partial<StatusPayload>).measured;
+    const text = renderMemoryReport({ status: bare, store: bare.store, blocked: [] });
+    expect(text).toContain("0 request(s)");
+    expect(text).toContain("not measured yet");
   });
 
   test("blocked rows render with reasons", () => {
@@ -135,6 +234,27 @@ describe("renderMemoryReport", () => {
     expect(text).toContain("ref_path_missing");
   });
 });
+
+function seedEvidence(day: string, rows: { ts: string; sid: string; reason: string; noise?: boolean }[]) {
+  mkdirSync(evidenceDir(), { recursive: true });
+  const lines = rows.map((r) =>
+    formatLine(
+      r.noise
+        ? { ev: "write_promoted", ts: r.ts, sid: r.sid }
+        : { ev: "write_blocked", ts: r.ts, sid: r.sid, gate: 4, reason: r.reason, chain: "c" },
+    ),
+  );
+  writeFileSync(join(evidenceDir(), `${day}.logfmt`), lines.join("\n") + "\n");
+}
+
+async function poll<T>(fn: () => Promise<T | null>, tries = 100): Promise<T | null> {
+  for (let i = 0; i < tries; i++) {
+    const v = await fn();
+    if (v) return v;
+    await Bun.sleep(10);
+  }
+  return null;
+}
 
 describe("memory_status tool + epoch wiring", () => {
   test("fresh process: reports no epoch; a prompt creates the epoch AND status.json", async () => {
@@ -151,8 +271,8 @@ describe("memory_status tool + epoch wiring", () => {
     // Drive the real prompt hook: this is what recomputes the frozen epoch.
     await p.sessionHooks["prompt"]!({ sessionID: "ses_status", prompt: { text: "how do I run bun test" } });
 
-    // status.json hand-off exists with the injected block
-    const s = await readStatus();
+    // per-session hand-off exists with the injected block
+    const s = await readStatus("ses_status");
     expect(s?.sessionID).toBe("ses_status");
     expect(s?.block).toContain("run bun test");
     expect(s?.recomputes).toBeGreaterThanOrEqual(1);
@@ -161,6 +281,65 @@ describe("memory_status tool + epoch wiring", () => {
     const before = (await readStatus())!.recomputes;
     await p.sessionHooks["prompt"]!({ sessionID: "ses_status", prompt: { text: "and again" } });
     expect((await readStatus())!.recomputes).toBe(before);
+  });
+
+  test("injections count at the decision; message.updated lands measured + flush", async () => {
+    const p = await loadPlugin(process.cwd());
+    await appendMemory({
+      type: "pattern",
+      scope: "build",
+      content: "run bun test from the repo root to execute the suite",
+      status: "settled",
+    });
+    await p.sessionHooks["prompt"]!({ sessionID: "ses_m", prompt: { text: "how do I run bun test" } });
+    // Two provider requests through the injection decision.
+    await p["experimental.chat.system.transform"]({ sessionID: "ses_m" }, { system: [] });
+    await p["experimental.chat.system.transform"]({ sessionID: "ses_m" }, { system: [] });
+    // Measured usage arrives on the event bus (measured listener is default-on).
+    p.capture.events.push({
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "msg_1",
+          role: "assistant",
+          sessionID: "ses_m",
+          tokens: { input: 300, output: 50, reasoning: 0, cache: { read: 41200, write: 1400 } },
+        },
+      },
+    });
+    const s = await poll(() => readStatus("ses_m").then((r) => (r?.measured ? r : null)));
+    expect(s?.measured?.read).toBe(41200);
+    expect(s?.stats?.requests).toBe(2);
+    expect(s?.stats?.cumChars).toBeGreaterThan(0);
+    expect(s?.stats?.epochRequests).toBe(2);
+
+    // The tool (in-process truth) renders the same receipts for this session.
+    await p["tool.execute.before"]({ sessionID: "ses_m", callID: "C1", tool: "memory_status" });
+    const rep = await p.tools.memory_status!.execute({});
+    expect(rep.content).toContain("41.2k/42.9k prompt tok cache-read (96%)");
+    expect(rep.content).toContain("2 request(s)");
+
+    p.capture.events.close();
+    await p.cleanup();
+  });
+
+  test("a non-assistant message.updated is ignored", async () => {
+    const p = await loadPlugin(process.cwd());
+    await appendMemory({
+      type: "pattern",
+      scope: "build",
+      content: "run bun test from the repo root to execute the suite",
+      status: "settled",
+    });
+    await p.sessionHooks["prompt"]!({ sessionID: "ses_u", prompt: { text: "how do I run bun test" } });
+    p.capture.events.push({
+      type: "message.updated",
+      properties: { info: { id: "msg_u", role: "user", sessionID: "ses_u" } },
+    });
+    await Bun.sleep(60);
+    const s = await readStatus("ses_u");
+    expect(s?.measured ?? null).toBeNull();
+    await p.cleanup();
   });
 
   test("/memory-report command installs beside /repo-init", async () => {

@@ -1,14 +1,26 @@
 // Terminal surface for opencode-self-improvement (the CLI/TUI half of the
 // plugin). Runs in the terminal process, beside the host's OpenTUI renderer:
-// a one-line footer badge, a /memory session panel, and toasts when a write
-// gets blocked. All data comes from the status hand-off the server plugin
-// writes per epoch (src/status.ts) plus the evidence log — plain file reads,
-// no model, no network. Against a REMOTE server the panel reports that status
-// is local-only (the RPC surface is the follow-up).
+// a one-line footer badge (what is in my context + is the cache healthy), a
+// /memory session panel, and toasts when a write gets blocked. All data comes
+// from the per-session status hand-off the server plugin writes (src/status.ts)
+// plus the evidence log — plain file reads, no model, no network. The badge
+// reads ONLY its own session's file: a missing file renders "mem -" rather
+// than another session's epoch. Against a REMOTE server the panel reports that
+// status is local-only (the RPC surface is the follow-up).
 import { For, Show, createSignal } from "solid-js";
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import type { PanelInput } from "@opencode/plugin/tui/context";
-import { blockedRecent, readStatus, type BlockedRow, type StatusPayload } from "./status.ts";
+import {
+  blockedRecent,
+  cacheHealth,
+  cacheRate,
+  cacheLines,
+  contextLines,
+  readStatus,
+  type BlockedRow,
+  type CacheHealth,
+  type StatusPayload,
+} from "./status.ts";
 
 const PANEL = "self-improvement.memory";
 const POLL_MS = 5000;
@@ -37,9 +49,25 @@ export default Plugin.define({
     const [status, setStatus] = createSignal<StatusPayload | null>(null);
     const [blocked, setBlocked] = createSignal<BlockedRow[]>([]);
     let seenBlockKeys: Set<string> | null = null; // null until first poll (no startup toast storm)
+    // The session whose status file we render. Fed by slot inputs (the
+    // prompt.footer receives the active session; the panel its own).
+    let activeSid: string | undefined;
 
-    const refresh = async (): Promise<void> => {
-      setStatus(await readStatus());
+    // Dot colors: theme semantic colors when the host provides them, stable
+    // hex fallbacks otherwise. Resolved once per setup.
+    const th = context.theme as unknown as Record<string, any>;
+    const col = (v: unknown, fallback: string): string => (typeof v === "string" ? v : fallback);
+    const DOT: Record<CacheHealth, string> = {
+      green: col(th.success, "#4ade80"),
+      recent: col(th.warning, "#fbbf24"),
+      amber: col(th.warning, "#fbbf24"),
+      red: col(th.error, col(th.danger, "#f87171")),
+      unknown: col(th.text?.muted, col(th.text?.base, "#9ca3af")),
+    };
+
+    const refresh = async (sid?: string): Promise<void> => {
+      if (sid !== undefined) activeSid = sid;
+      setStatus(await readStatus(activeSid));
       const rows = await blockedRecent(8);
       setBlocked(rows);
       const keys = new Set(rows.map((r) => `${r.ts}|${r.reason}`));
@@ -60,14 +88,23 @@ export default Plugin.define({
     void refresh();
     const timer = setInterval(() => void refresh(), POLL_MS);
 
-    // ---- footer badge: session footer live badge, home footer store size ----
+    // ---- badge: budget use + cache health; home footer keeps store size ----
     context.ui.slot({
       append: "prompt.footer.status",
-      render: () => {
+      render: (input) => {
+        // Session switches re-render this slot: adopt the new sid and poll
+        // once immediately so the badge does not wait up to POLL_MS.
+        if (input.sessionID !== undefined && input.sessionID !== activeSid) {
+          activeSid = input.sessionID;
+          void refresh();
+        }
         const s = status();
+        if (!s) return <text fg={context.theme.text.base}>mem -</text>;
+        const rate = cacheRate(s.measured);
         return (
           <text fg={context.theme.text.base}>
-            {s ? `mem ${s.store.active} · ${s.blockChars}c · ${age(s.at)}` : "mem -"}
+            <text fg={DOT[cacheHealth(s)]}>●</text>
+            {` mem ${s.blockChars}/${s.budget}c · cache ${rate ? `${rate.pct}%` : "—"}`}
           </text>
         );
       },
@@ -122,14 +159,19 @@ export default Plugin.define({
 
 function MemoryPanel(props: {
   panel: PanelInput;
-  refresh: () => Promise<void>;
+  refresh: (sid?: string) => Promise<void>;
   status: StatusPayload | null;
   blocked: BlockedRow[];
 }) {
   const context = usePlugin();
   context.keymap.layer(() => ({
     commands: [
-      { id: "self-improvement.memory.refresh", title: "Refresh", bind: "r", run: () => void props.refresh() },
+      {
+        id: "self-improvement.memory.refresh",
+        title: "Refresh",
+        bind: "r",
+        run: () => void props.refresh(props.panel.sessionID),
+      },
       { id: "self-improvement.memory.fullscreen", title: "Fullscreen", bind: "f", run: props.panel.toggleFullscreen },
     ],
   }));
@@ -137,16 +179,26 @@ function MemoryPanel(props: {
   const s = () => props.status;
   return (
     <box flexDirection="column" paddingLeft={1} paddingRight={1}>
-      <text fg={context.theme.text.base}>MEMORY — as of {s() ? age(s()!.at) : "never"}</text>
+      <text fg={context.theme.text.base}>
+        MEMORY — as of {s() ? age(s()!.at) : "never"}
+        {s() ? ` · ${s()!.sessionID}` : ""}
+      </text>
 
-      <Section t="INJECTED NOW" />
+      <Section t="CONTEXT" />
       <Show
         when={s()}
         fallback={<text fg={context.theme.text.base}>  no epoch yet — nothing injected (fresh server, or no prompt scored)</text>}
       >
-        <text fg={context.theme.text.base}>
-          {"  " + s()!.reason + " · " + s()!.blockChars + "/" + s()!.budget + " chars · " + s()!.recomputes + " recompute(s) since server start"}
-        </text>
+        <For each={contextLines(s()!)}>{(line) => <text fg={context.theme.text.base}>{line}</text>}</For>
+      </Show>
+
+      <Section t="CACHE" />
+      <Show when={s()} fallback={<text fg={context.theme.text.base}>  nothing to report before the first epoch</text>}>
+        <For each={cacheLines(s()!)}>{(line) => <text fg={context.theme.text.base}>{line}</text>}</For>
+      </Show>
+
+      <Section t="INJECTED BLOCK (VERBATIM)" />
+      <Show when={s()}>
         <Show
           when={s()!.block}
           fallback={

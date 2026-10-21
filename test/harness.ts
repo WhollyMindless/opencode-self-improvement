@@ -6,10 +6,11 @@
 //
 // Phase 4 fakes (all inert by default, backward compatible):
 //   - `options`: passed through to the plugin (autoCapture etc.)
-//   - `capture.events`: a push-queue async iterable backing event.subscribe.
-//     The test calls push(event) to feed the plugin's `for await` loop; the
-//     loop parks between events and wakes on push, on abort, or on close().
-//     subscribeCalls proves "default OFF never subscribes".
+//   - `capture.events`: a BROADCAST push-queue backing event.subscribe (each
+//     subscriber gets every pushed event; the plugin runs a measured-usage
+//     listener by default plus auto-capture when enabled).
+//     The test calls push(event) to feed the plugin's `for await` loops; they
+//     park between events and wake on push, on abort, or on close().
 //   - `capture.generate`: canned generate.text reply + call log.
 //   - `capture.context`: canned session.context messages + call log.
 //   - `cleanup`: whatever setup() returned (no-op when it returned nothing).
@@ -64,41 +65,24 @@ export async function loadPlugin(
   const commands: Record<string, { name: string; execute: (input: any) => Promise<void> }> = {};
 
   // --- Phase 4 fakes ---------------------------------------------------------
-  const queue: unknown[] = [];
-  let notify: (() => void) | null = null;
+  // Broadcast event bus: every subscribe() registers its own parked consumer,
+  // and push()/close() wake ALL of them (the plugin now runs two listeners:
+  // the measured-usage one and, when enabled, auto-capture). Each subscriber
+  // gets its own queue so events are not raced between consumers.
+  type Subscriber = { q: unknown[]; wake: (() => void) | null };
+  const subs: Subscriber[] = [];
   let queueClosed = false;
-  // Push-queue async iterable: parks between events and wakes on push(),
-  // close(), or the plugin's abort. (An async GENERATOR, not an object-literal
-  // [Symbol.asyncIterator] async method — Bun 1.4.3 drops the latter's method
-  // from the transpiled object literal.)
-  async function* iterateEvents(signal?: AbortSignal): AsyncGenerator<unknown> {
-    for (;;) {
-      if (queue.length) yield queue.shift();
-      else if (queueClosed || signal?.aborted) return;
-      else {
-        await new Promise<void>((resolve) => {
-          const done = () => {
-            notify = null;
-            signal?.removeEventListener("abort", done);
-            resolve();
-          };
-          notify = done;
-          signal?.addEventListener("abort", done, { once: true });
-        });
-      }
-    }
-  }
   const capture: CaptureFakes = {
     events: {
       subscribeCalls: 0,
       signals: [],
       push: (event) => {
-        queue.push(event);
-        notify?.();
+        for (const s of subs) s.q.push(event);
+        for (const s of subs) s.wake?.();
       },
       close: () => {
         queueClosed = true;
-        notify?.();
+        for (const s of subs) s.wake?.();
       },
     },
     generate: { calls: [], response: "" },
@@ -129,7 +113,28 @@ export async function loadPlugin(
       subscribe: (o?: { signal?: AbortSignal }) => {
         capture.events.subscribeCalls++;
         if (o?.signal) capture.events.signals.push(o.signal);
-        return iterateEvents(o?.signal);
+        const sub: Subscriber = { q: [], wake: null };
+        subs.push(sub);
+        // Per-subscriber async GENERATOR (an object-literal
+        // [Symbol.asyncIterator] async method is dropped by Bun 1.4.3's
+        // transpiler, hence generators).
+        return (async function* () {
+          for (;;) {
+            if (sub.q.length) yield sub.q.shift();
+            else if (queueClosed || o?.signal?.aborted) return;
+            else {
+              await new Promise<void>((resolve) => {
+                const done = () => {
+                  sub.wake = null;
+                  o?.signal?.removeEventListener("abort", done);
+                  resolve();
+                };
+                sub.wake = done;
+                o?.signal?.addEventListener("abort", done, { once: true });
+              });
+            }
+          }
+        })();
       },
     },
     generate: {

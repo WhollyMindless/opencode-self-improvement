@@ -1,10 +1,18 @@
 // The status hand-off between the two surface halves. The server plugin writes
-// status.json on every epoch recompute (src/index.ts); the terminal plugin
-// (src/tui.tsx) and the memory_status tool read it. status.json is deliberately
-// NOT a .logfmt memory file — loadAll() must never ingest it.
+// one status file per session on every epoch recompute AND every measured
+// assistant turn (src/index.ts); the terminal plugin (src/tui.tsx) and the
+// memory_status tool consume them. Status files are deliberately NOT .logfmt
+// memory files — loadAll() must never ingest them.
 //
-// Scope of v1: same-machine reads. Against a REMOTE server the terminal panel
-// sees no status file (it says so) — the RPC surface is the planned follow-up.
+// Why per-session: the epoch freeze is per-session, so a single global
+// last-writer-wins file let one session's badge show another session's epoch.
+// `status/<sessionID>.json` is the primary read; the global `status.json`
+// survives as a "latest" fallback for argument-free reads. Both are pruned /
+// written best-effort: a status failure degrades surfaces, never injection.
+//
+// Scope of v2: same-machine reads. Against a REMOTE server the terminal panel
+// sees no status files (it says so) — the RPC surface is the planned follow-up.
+import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { dateStr, evidenceDir, memoryRoot } from "./config.ts";
 import { parseLine, readLines } from "./logfmt.ts";
@@ -16,6 +24,47 @@ export interface StoreCounts {
   scopes: number;
 }
 
+/**
+ * Per-session ledger, incremented at the session.context injection decision
+ * (so counts match exactly what was injected — an aborted turn still rode the
+ * bytes). Cumulative fields are session-lifetime; epochRequests resets when a
+ * new epoch freezes. An invalidation = a store_changed recompute that moved a
+ * live epoch (the first epoch of a session is not one).
+ */
+export interface SessionStats {
+  requests: number; // provider requests that injected through session.context
+  abstained: number; // requests where the epoch block was empty
+  cumChars: number; // lifetime sum of injected block chars
+  epochRequests: number; // requests the CURRENT epoch block has ridden
+  invalidations: number; // store_changed recomputes this session
+  lastInvalidation: { at: string; reason: string } | null;
+}
+
+export function emptyStats(): SessionStats {
+  return {
+    requests: 0,
+    abstained: 0,
+    cumChars: 0,
+    epochRequests: 0,
+    invalidations: 0,
+    lastInvalidation: null,
+  };
+}
+
+/**
+ * Measured prompt-cache usage from the last completed assistant message
+ * (message.updated -> tokens {input, cache.read, cache.write}). This is the
+ * SESSION-WIDE prompt cache — the honest receipt for "are we busting cache",
+ * never billed as our block's own rate.
+ */
+export interface Measured {
+  at: string;
+  messageID: string;
+  input: number;
+  read: number;
+  write: number;
+}
+
 export interface StatusPayload {
   /** ISO instant of the epoch recompute that produced this snapshot. */
   at: string;
@@ -23,13 +72,16 @@ export interface StatusPayload {
   /** storeVersion() fingerprint the block was frozen against. */
   storeVersion: string;
   reason: "first" | "store_changed";
-  /** epoch recomputes since the server process started — cache-stability proxy. */
+  /** epoch recomputes since the server process started, ALL sessions. */
   recomputes: number;
   /** exact injected block ("" = abstained: no vocabulary overlap). */
   block: string;
   blockChars: number;
   budget: number;
   store: StoreCounts;
+  /** optional for backward-compatible reads of pre-v2 files. */
+  stats?: SessionStats;
+  measured?: Measured | null;
 }
 
 export interface BlockedRow {
@@ -42,18 +94,69 @@ export function statusFile(): string {
   return join(memoryRoot(), "status.json");
 }
 
-// Best-effort by design: a status write must never break injection.
-export async function writeStatus(p: StatusPayload): Promise<void> {
+export function statusDir(): string {
+  return join(memoryRoot(), "status");
+}
+
+// Session ids are host-generated (ses_…), but sanitize anyway: this string
+// becomes a file name.
+function safeName(sessionID: string): string {
+  return sessionID.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80);
+}
+
+export function sessionStatusFile(sessionID: string): string {
+  return join(statusDir(), `${safeName(sessionID)}.json`);
+}
+
+// LRU cap on per-session files: the badge only ever reads the active session,
+// so old ones are kept for post-hoc inspection up to this count, then pruned
+// by mtime (newest survive; a re-written session refreshes its mtime).
+const SESSION_FILE_CAP = 32;
+
+async function pruneStatusDir(): Promise<void> {
   try {
-    await Bun.write(statusFile(), JSON.stringify(p, null, 2) + "\n");
+    const names = (await readdir(statusDir())).filter((n) => n.endsWith(".json"));
+    if (names.length <= SESSION_FILE_CAP) return;
+    const withMtime = await Promise.all(
+      names.map(async (n) => {
+        try {
+          return { n, m: (await stat(join(statusDir(), n))).mtimeMs };
+        } catch {
+          return { n, m: 0 }; // vanished mid-prune or unstatable: prune first
+        }
+      }),
+    );
+    withMtime.sort((a, b) => b.m - a.m);
+    for (const f of withMtime.slice(SESSION_FILE_CAP)) {
+      await rm(join(statusDir(), f.n), { force: true });
+    }
   } catch {
-    // swallow — surfaces degrade to "no data", the session does not.
+    // pruning is housekeeping; the surfaces tolerate a growing dir
   }
 }
 
-export async function readStatus(): Promise<StatusPayload | null> {
+async function writeJson(path: string, p: StatusPayload): Promise<boolean> {
   try {
-    const f = Bun.file(statusFile());
+    await Bun.write(path, JSON.stringify(p, null, 2) + "\n");
+    return true;
+  } catch {
+    return false; // swallow — surfaces degrade to "no data", the session does not
+  }
+}
+
+// Best-effort by design: a status write must never break injection. Writes the
+// per-session file (primary) AND the global latest file (fallback).
+export async function writeStatus(p: StatusPayload): Promise<void> {
+  await writeJson(statusFile(), p);
+  if (typeof p.sessionID === "string" && p.sessionID) {
+    await writeJson(sessionStatusFile(p.sessionID), p);
+    await pruneStatusDir();
+  }
+}
+
+async function readJson(path: string): Promise<StatusPayload | null> {
+  try {
+    const f = Bun.file(path);
     if (!(await f.exists())) return null;
     const v: unknown = await f.json();
     if (!v || typeof v !== "object") return null;
@@ -63,6 +166,16 @@ export async function readStatus(): Promise<StatusPayload | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Read the status for a session. With a sessionID: ONLY that session's file —
+ * a missing file returns null ("mem -") rather than another session's epoch.
+ * Without one: the global latest file.
+ */
+export async function readStatus(sessionID?: string): Promise<StatusPayload | null> {
+  if (sessionID) return readJson(sessionStatusFile(sessionID));
+  return readJson(statusFile());
 }
 
 // Newest-first last `limit` write_blocked evidence rows, scanning today and
@@ -96,6 +209,71 @@ function ago(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+// --- shared formatting (the /memory panel and memory_status render 1:1) ------
+
+/** Char counts are exact; tokens are an estimate, chars/4, shown only with "≈". */
+export function estTok(chars: number): number {
+  return Math.round(chars / 4);
+}
+
+/** 9999 -> "9999"; 10000 -> "10k"; 41234 -> "41.2k". */
+export function fmtCount(n: number): string {
+  if (n < 10_000) return String(n);
+  const k = n / 1000;
+  return `${k >= 100 ? Math.round(k) : Math.round(k * 10) / 10}k`;
+}
+
+/** Session-wide prompt-cache hit rate from measured usage; null = nothing measured. */
+export function cacheRate(m?: Measured | null): { read: number; prompt: number; pct: number } | null {
+  if (!m) return null;
+  const prompt = (m.input || 0) + (m.read || 0) + (m.write || 0);
+  if (prompt <= 0) return null;
+  return { read: m.read || 0, prompt, pct: Math.round(((m.read || 0) / prompt) * 100) };
+}
+
+/**
+ * Badge dot state: green = no invalidation since the last measured turn AND
+ * last measured reads >= 90%; recent = the epoch moved after the last
+ * measurement (a bust we have not yet seen re-warm); amber 50-89%; red < 50%;
+ * unknown = nothing measured yet (NEVER show 0% for "no data").
+ */
+export type CacheHealth = "green" | "recent" | "amber" | "red" | "unknown";
+
+export function cacheHealth(p: StatusPayload): CacheHealth {
+  const inv = p.stats?.lastInvalidation?.at;
+  if (inv && (!p.measured || inv > p.measured.at)) return "recent";
+  const rate = cacheRate(p.measured);
+  if (!rate) return "unknown";
+  if (rate.pct >= 90) return "green";
+  if (rate.pct >= 50) return "amber";
+  return "red";
+}
+
+export function contextLines(p: StatusPayload): string[] {
+  const st = p.stats ?? emptyStats();
+  const pct = p.budget > 0 ? Math.round((p.blockChars / p.budget) * 100) : 0;
+  return [
+    `  injected now   ${p.blockChars}c ≈ ${estTok(p.blockChars)} tok · ${pct}% of ${p.budget}c budget`,
+    `  this epoch     ${p.reason} epoch since ${p.at} (${ago(p.at)}) · rode ${st.epochRequests} request(s)`,
+    `  session        ${st.requests} request(s) · ${fmtCount(st.cumChars)}c ≈ ${fmtCount(estTok(st.cumChars))} tok rode · abstained ${st.abstained}`,
+  ];
+}
+
+export function cacheLines(p: StatusPayload): string[] {
+  const st = p.stats ?? emptyStats();
+  const inv =
+    st.invalidations === 0
+      ? "  invalidations  0 this session"
+      : `  invalidations  ${st.invalidations} this session · last ${
+          st.lastInvalidation ? `${st.lastInvalidation.at.slice(11, 19)} (${st.lastInvalidation.reason})` : "-"
+        }`;
+  const rate = cacheRate(p.measured);
+  const measured = rate
+    ? `  measured       last turn ${fmtCount(rate.read)}/${fmtCount(rate.prompt)} prompt tok cache-read (${rate.pct}%)`
+    : "  measured       not measured yet — no completed assistant turn";
+  return [inv, `  recomputes     ${p.recomputes} since server start (all sessions)`, measured];
+}
+
 /**
  * Plain-text rendering shared by the memory_status tool (and any other chat
  * client). Sections match the terminal /memory panel one-for-one.
@@ -104,24 +282,24 @@ export function renderMemoryReport(input: {
   status: StatusPayload | null;
   store: StoreCounts;
   blocked: BlockedRow[];
-  /** epoch age basis; defaults to the status file's own `at`. */
-  at?: string;
 }): string {
   const { status, store, blocked } = input;
   const out: string[] = ["MEMORY STATUS", ""];
 
-  out.push("INJECTED NOW");
   if (!status) {
-    out.push('  no epoch yet — memory has not injected this session (fresh server, or no prompt scored yet)');
-  } else {
-    const age = ago(input.at ?? status.at);
     out.push(
-      `  epoch started ${status.at} (${age}, ${status.reason}); ` +
-        `${status.recomputes} recompute(s) since server start; ` +
-        `${status.blockChars}/${status.budget} chars`,
+      "CONTEXT",
+      "  no epoch yet — memory has not injected this session (fresh server, or no prompt scored yet)",
     );
-    if (status.block) out.push("", status.block.split("\n").map((l) => `  ${l}`).join("\n"));
-    else out.push("  abstained — your prompt shares no content vocabulary with any memory, so nothing was injected (by design, no noise).");
+  } else {
+    out.push("CONTEXT", ...contextLines(status));
+    out.push("", "CACHE", ...cacheLines(status));
+    out.push("", "INJECTED BLOCK (verbatim)");
+    if (status.block) out.push(...status.block.split("\n").map((l) => `  ${l}`));
+    else
+      out.push(
+        "  abstained — your prompt shares no content vocabulary with any memory, so nothing was injected (by design, no noise).",
+      );
   }
 
   out.push("", "RECENT BLOCKED WRITES");

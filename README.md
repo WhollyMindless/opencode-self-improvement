@@ -12,10 +12,10 @@ LLMs waste a lot of tokens reading and re-reading your code and asking you for c
   `memory_update`, `memory_forget`, `memory_list`, `memory_undo`,
   `memory_evidence`, `memory_export`, `memory_import`, `memory_decay`,
   `memory_status`).
-- **Memory at a glance** — the terminal shows a one-line footer badge and a
-  `/memory` panel (what's injected right now, blocked writes with reasons,
-  store stats, cost ledger); desktop/web/IDE get the same report in-chat via
-  `/memory-report`. See [Memory at a glance](#memory-at-a-glance).
+- **Memory at a glance** — the terminal shows a footer badge (injected chars
+  vs budget + a cache-health dot) and a `/memory` panel; desktop/web/IDE get
+  the same report in-chat via `/memory-report`, including the *measured*
+  prompt-cache hit rate. See [Memory at a glance](#memory-at-a-glance).
 - **`/repo-init`** — for each repo: indexes the code graph and remembers the
   test/build commands, keyed to the git head. The command installs itself; no
   setup beyond the plugin.
@@ -52,6 +52,10 @@ prompt cache on every message. This one is built the other way around:
 - **Hard character budget.** The block is capped at 1200 characters by default
   (see Options) and trimmed at whole-memory boundaries — never cut mid-sentence.
 - **Evidence is never injected**, and the standing system digest is two lines.
+- **Receipts, not promises.** The plugin measures your session's actual
+  prompt-cache usage (from each turn's `tokens.cache` accounting) and shows it
+  next to the badge — so a cache hit rate you can watch, not just a byte-freeze
+  claim you have to trust.
 
 Measured on a deterministic workload (50 memories, 20 prompts, 3 mid-session
 store writes) using the plugin's real injection code:
@@ -265,16 +269,22 @@ same data (`memory_status` tool under the hood; no model call):
 **Terminal (opencode CLI)** — the plugin ships a TUI half
 (`@opencode/plugin/tui`) that loads automatically:
 
-- a footer badge: `mem 38 · 1157c · 12m` (active memories · injected chars ·
-  epoch age)
-- **`/memory`** opens a session panel:
-  - **INJECTED NOW** — the exact block riding your prompts, or an explicit
-    "abstained: no vocabulary overlap" (silence is a feature)
+- a footer badge: `● mem 1157/1200c · cache 96%` — the injected block against
+  its budget, and the measured session prompt-cache hit rate. The dot is green
+  (stable + warm), yellow (a recent recompute, or 50–90% reads), or red (last
+  turn served almost nothing from cache). `—` until the first assistant turn.
+- **`/memory`** opens a session panel (every number is this session only):
+  - **CONTEXT** — exact chars + estimated tokens riding now, % of the budget,
+    requests the current epoch has ridden, session-lifetime totals, and how
+    many requests abstained (silence is a feature)
+  - **CACHE** — epoch invalidations this session with the last reason, server
+    recompute count, and the *measured* prompt-cache read rate of the last turn
+    — the receipt, not just the promise
+  - **INJECTED BLOCK** — the verbatim block riding your prompts, or an explicit
+    "abstained: no vocabulary overlap"
   - **RECENT BLOCKED WRITES** — that `memory_remember` that didn't stick,
     with its gate reason
   - **STORE** — active / superseded / open / scopes
-  - ledger — epoch recomputes since server start (each one = one busted prompt
-    cache, and the whole design exists to keep this number tiny)
   - keys: `r` refresh, `f` fullscreen
 - a warning toast when a write is blocked (opt out: `"notifyBlocked": false`)
 
