@@ -10,7 +10,12 @@ LLMs waste a lot of tokens reading and re-reading your code and asking you for c
 - **`memory_*` tools** — remember facts, decisions, and commands the agent should
   keep across sessions (`memory_init`, `memory_remember`, `memory_recall`,
   `memory_update`, `memory_forget`, `memory_list`, `memory_undo`,
-  `memory_evidence`, `memory_export`, `memory_import`, `memory_decay`).
+  `memory_evidence`, `memory_export`, `memory_import`, `memory_decay`,
+  `memory_status`).
+- **Memory at a glance** — the terminal shows a one-line footer badge and a
+  `/memory` panel (what's injected right now, blocked writes with reasons,
+  store stats, cost ledger); desktop/web/IDE get the same report in-chat via
+  `/memory-report`. See [Memory at a glance](#memory-at-a-glance).
 - **`/repo-init`** — for each repo: indexes the code graph and remembers the
   test/build commands, keyed to the git head. The command installs itself; no
   setup beyond the plugin.
@@ -187,6 +192,7 @@ the plugin entry in `opencode.json(c)` instead of the plain string:
 | `autoCapture` | `false` (off) | When on, each session-idle event makes one cheap model pass that proposes memory candidates. Every candidate still goes through the 4-gate write pipeline — capture can never bypass the gates. Off by default: the zero-token install stays zero-token. |
 | `captureModel` | — | `"provider/id"` model used for auto-capture. Required when `autoCapture` is on; a missing or invalid value disables capture with a startup warning. |
 | `captureMax` | `3` | Maximum candidates proposed per idle event. |
+| `notifyBlocked` | `true` (on) | Terminal (TUI) half only: toast when the write gate blocks a memory write. `false` keeps the panel quiet; blocks are always in `memory_evidence` regardless. |
 
 ## Code graph (optional)
 
@@ -250,6 +256,32 @@ and the tool reports a tally of four outcomes per line —
 
 so re-running the same import is a no-op (everything collapses). Copying an
 export to a fresh machine is how you seed a new laptop from an old one.
+
+## Memory at a glance
+
+"Wait, what did the memory plugin just do?" — answered differently per client,
+same data (`memory_status` tool under the hood; no model call):
+
+**Terminal (opencode CLI)** — the plugin ships a TUI half
+(`@opencode/plugin/tui`) that loads automatically:
+
+- a footer badge: `mem 38 · 1157c · 12m` (active memories · injected chars ·
+  epoch age)
+- **`/memory`** opens a session panel:
+  - **INJECTED NOW** — the exact block riding your prompts, or an explicit
+    "abstained: no vocabulary overlap" (silence is a feature)
+  - **RECENT BLOCKED WRITES** — that `memory_remember` that didn't stick,
+    with its gate reason
+  - **STORE** — active / superseded / open / scopes
+  - ledger — epoch recomputes since server start (each one = one busted prompt
+    cache, and the whole design exists to keep this number tiny)
+  - keys: `r` refresh, `f` fullscreen
+- a warning toast when a write is blocked (opt out: `"notifyBlocked": false`)
+
+**Desktop / web / IDE** — no TUI slots there (they're terminal-only), so use
+the self-installed **`/memory-report`** chat command: the same four sections,
+rendered in the conversation. For editing, the browser admin (`bun memory-view`)
+works everywhere.
 
 ## Admin Tool
 
