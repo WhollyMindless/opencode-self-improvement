@@ -285,7 +285,8 @@ function MemoryPanel(props: {
       <Show when={s()}>
         <text fg={context.theme.text.base}>
           {"  " + (s()?.store.active ?? 0) + " active · " + (s()?.store.superseded ?? 0) + " superseded · " +
-            (s()?.store.open ?? 0) + " open · " + (s()?.store.scopes ?? 0) + " scopes"}
+            (s()?.store.open ?? 0) + " open · " + (s()?.store.scopes ?? 0) + " scopes" +
+            ((s()?.store.malformed ?? 0) > 0 ? " · " + s()!.store.malformed + " malformed (skipped)" : "")}
         </text>
       </Show>
 

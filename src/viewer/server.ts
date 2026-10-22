@@ -6,6 +6,8 @@
 // I2: serves only file data; never writes into any repo.
 import { basename, join } from "node:path";
 import { serve, type Server } from "bun";
+import { z, type ZodTypeAny } from "zod";
+import { BlockBody, DeleteBody, EditBody, RestoreEntryBody, UnblockBody } from "../schema.ts";
 import { deletionsFile, memoryRoot, snapshotDir } from "../config.ts";
 import { blockedEntries } from "../blocklist.ts";
 import { listSnapshots, restoreSnapshot } from "../undo.ts";
@@ -194,48 +196,67 @@ async function loaded(): Promise<Record<string, unknown>> {
 
 async function route(req: Request, url: URL): Promise<Response> {
   if (req.method === "POST") {
-    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    if (url.pathname === "/api/edit") return editRoute(body);
-    if (url.pathname === "/api/delete") return deleteRoute(body);
-    if (url.pathname === "/api/block") return blockRoute(body);
-    if (url.pathname === "/api/unblock") return unblockRoute(body);
-    if (url.pathname === "/api/restore-entry") return restoreEntryRoute(body);
-    if (url.pathname === "/api/restore") return restoreRoute(body);
+    const body: unknown = await req.json().catch(() => ({}));
+    if (url.pathname === "/api/edit") return parseWith(EditBody, body, editRoute);
+    if (url.pathname === "/api/delete") return parseWith(DeleteBody, body, deleteRoute);
+    if (url.pathname === "/api/block") return parseWith(BlockBody, body, blockRoute);
+    if (url.pathname === "/api/unblock") return parseWith(UnblockBody, body, unblockRoute);
+    if (url.pathname === "/api/restore-entry") return parseWith(RestoreEntryBody, body, restoreEntryRoute);
+    // /api/restore is deliberately NOT schema-parsed here: its name check is
+    // basename + pinned-grammar CONTAINMENT (issue #21), not a shape gate,
+    // and its regression tests pin that behavior.
+    if (url.pathname === "/api/restore") return restoreRoute(body as Record<string, unknown>);
   }
   return json({ error: "not found" }, 404);
 }
 
-async function editRoute(body: Record<string, unknown>): Promise<Response> {
+// Boundary shape check for POST routes (the restore-entry hole from the
+// 2026-10-21 review): the old `String(body.ts ?? "")` coercion made ANY junk
+// fit — ts:{} became "[object Object]" as a row identity, a missing content
+// appended an empty row. A malformed call now gets a clean 400; semantics
+// (which row, what for) stay with the mutate layer.
+function parseWith<S extends ZodTypeAny>(
+  schema: S,
+  body: unknown,
+  h: (data: z.infer<S>) => Response | Promise<Response>,
+): Response | Promise<Response> {
+  const p = schema.safeParse(body);
+  if (!p.success) {
+    return error(
+      `invalid request: ${p.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+      400,
+    );
+  }
+  return h(p.data);
+}
+
+async function editRoute(body: z.infer<typeof EditBody>): Promise<Response> {
   const r: MutationResult = await editMemory({
-    ts: String(body.ts ?? ""),
-    type: String(body.type ?? ""),
-    scope: String(body.scope ?? ""),
-    content: String(body.content ?? ""),
-    issue: typeof body.issue === "string" ? body.issue : undefined,
-    tags: Array.isArray(body.tags) ? (body.tags as string[]) : undefined,
-    reason: String(body.reason ?? ""),
+    ts: body.ts,
+    type: body.type,
+    scope: body.scope,
+    content: body.content,
+    issue: body.issue,
+    tags: body.tags,
+    reason: body.reason,
   });
   return json(r);
 }
 
-async function deleteRoute(body: Record<string, unknown>): Promise<Response> {
-  return json(await deleteMemory({ ts: String(body.ts ?? ""), reason: String(body.reason ?? "") }));
+async function deleteRoute(body: z.infer<typeof DeleteBody>): Promise<Response> {
+  return json(await deleteMemory({ ts: body.ts, reason: body.reason }));
 }
 
-async function blockRoute(body: Record<string, unknown>): Promise<Response> {
-  return json({ ts: await addBlock(String(body.ts ?? ""), String(body.reason ?? "")) });
+async function blockRoute(body: z.infer<typeof BlockBody>): Promise<Response> {
+  return json({ ts: await addBlock(body.ts, body.reason) });
 }
 
-async function unblockRoute(body: Record<string, unknown>): Promise<Response> {
-  return json({ unblocked: await removeBlock(String(body.ts ?? "")) });
+async function unblockRoute(body: z.infer<typeof UnblockBody>): Promise<Response> {
+  return json({ unblocked: await removeBlock(body.ts) });
 }
 
-async function restoreEntryRoute(body: Record<string, unknown>): Promise<Response> {
-  const t = await appendMemory({
-    type: String(body.type ?? ""),
-    scope: String(body.scope ?? ""),
-    content: String(body.content ?? ""),
-  });
+async function restoreEntryRoute(body: z.infer<typeof RestoreEntryBody>): Promise<Response> {
+  const t = await appendMemory({ type: body.type, scope: body.scope, content: body.content });
   return json({ restored: t });
 }
 

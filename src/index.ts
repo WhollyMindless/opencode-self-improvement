@@ -19,6 +19,7 @@ import {
   isActive,
   isVisibleHere,
   loadAll,
+  malformedCount,
   markSuperseded,
   resolveMemoryTarget,
   snapshotFiles,
@@ -65,19 +66,23 @@ import { resolveRepo, setRepoScope } from "./repokey.ts";
 import { readLines } from "./logfmt.ts";
 import { buildCapturePrompt, flattenTranscript, parseCandidates, parseModelRef } from "./capture.ts";
 
-// --- minimal JSON Schema helpers (OpenCode V2 tools take JSON Schema) --------
-type JSONSchema = Record<string, unknown>;
-const str = (): JSONSchema => ({ type: "string" });
-const bool = (): JSONSchema => ({ type: "boolean" });
-const num = (): JSONSchema => ({ type: "number" });
-const strArray = (): JSONSchema => ({ type: "array", items: { type: "string" } });
-const en = (values: readonly string[]): JSONSchema => ({ type: "string", enum: [...values] });
-function obj(properties: Record<string, JSONSchema>, required: string[] = []): JSONSchema {
-  return { type: "object", properties, required, additionalProperties: false };
-}
-function withDesc(schema: JSONSchema, description: string): JSONSchema {
-  return { ...schema, description };
-}
+// Tool/input boundaries are zod schemas (src/schema.ts): the JSON Schema the
+// host sees is GENERATED from them, and raw args are re-parsed at execution.
+import {
+  DecayArgs,
+  EmptyArgs,
+  EvidenceArgs,
+  ExportArgs,
+  ForgetArgs,
+  ImportArgs,
+  InitArgs,
+  MergeReviewArgs,
+  RecallArgs,
+  RememberArgs,
+  UndoArgs,
+  UpdateArgs,
+  validated,
+} from "./schema.ts";
 
 function scoreMemory(m: Memory, q: string): number {
   const hay = `${m.type} ${m.scope} ${m.content}`.toLowerCase();
@@ -94,7 +99,7 @@ function scoreMemory(m: Memory, q: string): number {
 interface ToolDef {
   name: string;
   description: string;
-  input: JSONSchema;
+  input: Record<string, unknown>;
   options?: { codemode?: boolean; namespace?: string };
   execute: (args: any, context: any) => Promise<{ content: string }>;
 }
@@ -202,30 +207,12 @@ const impl = {
     await ctx.tool?.transform((editor) => {
       const direct = { codemode: false } as const;
 
-      editor.add({
+      editor.add(validated(RememberArgs, {
         name: "memory_remember",
         description:
           "Store a memory after the 4-gate write pipeline validates it (canonical graph, stale refs, dupes). Blocked writes record evidence instead of persisting.",
         options: direct,
-        input: obj(
-          {
-            type: withDesc(en(TYPES), "Type of memory"),
-            scope: withDesc(str(), "Scope/area (e.g., auth, api, ctl)"),
-            content: withDesc(str(), "The memory content"),
-            issue: withDesc(str(), "Related issue"),
-            tags: strArray(),
-            status: withDesc(
-              en(STATUSES),
-              "open = live planning thread / frontier (surfaced at session start); settled or omitted = durable knowledge",
-            ),
-            global: withDesc(
-              bool(),
-              "Store cross-project (visible in every repo): user preferences and general tooling habits. Default false = the memory belongs to THIS repo.",
-            ),
-          },
-          ["type", "scope", "content"],
-        ),
-        async execute(args: any): Promise<{ content: string }> {
+        async execute(args): Promise<{ content: string }> {
           const candidate: WriteCandidate = {
             type: args.type,
             scope: args.scope,
@@ -244,30 +231,25 @@ const impl = {
             }`,
           };
         },
-      });
+      }));
 
-      editor.add({
+      editor.add(validated(InitArgs, {
         name: "memory_init",
         description:
           "Initialize repository memory and knowledge graph. Ensures the codebase-memory graph for this repo is indexed (one-shot `cli` spawn; no session MCP needed) and re-derives build/lint/test/typecheck command memories through the write gate, then stores an init stamp keyed on git HEAD. Idempotent: a no-op when the stamp matches HEAD, unless force=true (refresh after a refactor).",
         options: direct,
-        input: obj({
-          force: withDesc(bool(), "Re-run even if initialized (refresh after drift)"),
-          mode: withDesc(en(["fast", "moderate", "full"]), "codebase-memory index mode (default moderate)"),
-        }),
-        async execute(args: any): Promise<{ content: string }> {
+        async execute(args): Promise<{ content: string }> {
           const summary = await runInit({ liveRoot, force: args.force, mode: args.mode });
           return { content: formatInit(summary) };
         },
-      });
+      }));
 
-      editor.add({
+      editor.add(validated(RecallArgs, {
         name: "memory_recall",
         description:
           "Look up durable project knowledge — build/test/lint commands, decisions, patterns, preferences, blockers — BEFORE searching the repo or reading files. Use for 'how do I run X', conventions, and past decisions. By scope, type, or free-text query; with no filters it returns the most recent memories.",
         options: direct,
-        input: obj({ scope: str(), type: en(TYPES), query: str(), limit: num() }),
-        async execute(args: any): Promise<{ content: string }> {
+        async execute(args): Promise<{ content: string }> {
           let results = (await loadAll()).filter(isActive).filter(isVisibleHere);
           if (!results.length) return { content: "No memories found" };
           const total = results.length;
@@ -295,27 +277,14 @@ const impl = {
           }
           return { content: `Found ${results.length} (${total} total)\n\n${limited.map(formatMemory).join("\n")}` };
         },
-      });
+      }));
 
-      editor.add({
+      editor.add(validated(UpdateArgs, {
         name: "memory_update",
         description:
           "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing.",
         options: direct,
-        input: obj(
-          {
-            scope: str(),
-            type: en(TYPES),
-            content: str(),
-            query: withDesc(
-              str(),
-              "Row selector: id (ts), clock fragment, or unique content substring. Omit to target the newest active row of scope+type.",
-            ),
-            status: en(STATUSES),
-          },
-          ["scope", "type", "content"],
-        ),
-        async execute(args: any): Promise<{ content: string }> {
+        async execute(args): Promise<{ content: string }> {
           const prior = (await loadAll()).filter(
             (m) => m.scope === args.scope && m.type === args.type && isActive(m) && isVisibleHere(m),
           );
@@ -356,30 +325,24 @@ const impl = {
           if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
           return { content: `Write blocked at GATE (${outcome.reason}). ${outcome.hint ?? ""}`.trimEnd() };
         },
-      });
+      }));
 
-      editor.add({
+      editor.add(validated(ForgetArgs, {
         name: "memory_forget",
         description:
           "Delete memories by scope and type. Snapshots first, logs the reason for audit, never touches a repo.",
         options: direct,
-        input: obj({ scope: str(), type: en(TYPES), reason: withDesc(str(), "Why this is being deleted (audit)") }, [
-          "scope",
-          "type",
-          "reason",
-        ]),
-        async execute(args: any): Promise<{ content: string }> {
+        async execute(args): Promise<{ content: string }> {
           const res = await pruneMemory(args.scope, args.type, args.reason);
           if (!res.deleted.length) return { content: `No memories found for ${args.type} in ${args.scope}` };
           return { content: `Deleted ${res.deleted.length} ${args.type} memory(s) from ${args.scope}. Audit: ${res.audit}` };
         },
-      });
+      }));
 
-      editor.add({
+      editor.add(validated(EmptyArgs, {
         name: "memory_list",
         description: "List memory scopes and types for discovery.",
         options: direct,
-        input: obj({}),
         async execute(): Promise<{ content: string }> {
           const mems = (await loadAll()).filter(isActive).filter(isVisibleHere);
           if (!mems.length) return { content: "No memories found" };
@@ -393,20 +356,14 @@ const impl = {
             [...map.entries()].sort((a, b) => b[1] - a[1]).map(([k, c]) => `  ${k}: ${c}`).join("\n");
           return { content: `Total: ${mems.length}\n\nScopes:\n${fmt(scopes)}\n\nTypes:\n${fmt(types)}` };
         },
-      });
+      }));
 
-      editor.add({
+      editor.add(validated(UndoArgs, {
         name: "memory_undo",
         description:
           "List memory snapshots, or restore one (rollback). SAFE BY DEFAULT: daily store files are shared across sessions, so if the current file has rows added or edited since the snapshot, restore REFUSES and lists them — re-run with merge=true to restore AND keep those rows, or force=true for the exact rollback. `snapshot` accepts a bare name from the list or a full path.",
         options: direct,
-        input: obj({
-          list: withDesc(bool(), "List snapshots"),
-          snapshot: withDesc(str(), "Snapshot to restore (bare name from list, or a full path)"),
-          merge: withDesc(bool(), "With snapshot: keep rows written after the snapshot instead of refusing"),
-          force: withDesc(bool(), "With snapshot: exact rollback even if the file changed since"),
-        }),
-        async execute(args: any): Promise<{ content: string }> {
+        async execute(args): Promise<{ content: string }> {
           if (args.snapshot) {
             const mode = args.force ? "force" : args.merge ? "merge" : "check";
             const res = await restoreSnapshot(args.snapshot, memoryRoot(), mode);
@@ -430,14 +387,13 @@ const impl = {
           if (!snaps.length) return { content: "No snapshots" };
           return { content: snaps.map((s) => `${s.name}  (${s.bytes} bytes)`).join("\n") };
         },
-      });
+      }));
 
-      editor.add({
+      editor.add(validated(EvidenceArgs, {
         name: "memory_evidence",
         description: "Read captured evidence (data only) for a date, optionally filtered by event.",
         options: direct,
-        input: obj({ date: str(), ev: str(), limit: num() }),
-        async execute(args: any): Promise<{ content: string }> {
+        async execute(args): Promise<{ content: string }> {
           const file = join(evidenceDir(), `${args.date || dateStr()}.logfmt`);
           let lines = await readLines(file);
           if (args.ev) lines = lines.filter((l) => l.includes(`ev=${args.ev}`));
@@ -445,22 +401,14 @@ const impl = {
           const limit = args.limit || 50;
           return { content: lines.slice(-limit).join("\n") };
         },
-      });
+      }));
 
-      editor.add({
+      editor.add(validated(MergeReviewArgs, {
         name: "memory_merge_review",
         description:
           "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor, and clear any supersession the survivor itself carries so the canonical row stays recallable. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. Fails closed (no partial apply) when the reason or the survivor id is missing, or the loser is already superseded.",
         options: direct,
-        input: obj(
-          {
-            loser: withDesc(str(), "Evidence id of the rival/overlap write to supersede"),
-            survivor: withDesc(str(), "Evidence id of the canonical winning write"),
-            reason: withDesc(str(), "Why the survivor is canonical over the loser (written to evidence)"),
-          },
-          ["loser", "survivor", "reason"],
-        ),
-        async execute(args: any): Promise<{ content: string }> {
+        async execute(args): Promise<{ content: string }> {
           if (!args.loser || !args.survivor || !args.reason) {
             return { content: "merge_review blocked: loser, survivor, and reason are all required (fail-closed)." };
           }
@@ -485,30 +433,25 @@ const impl = {
               `Evidence recorded for reason='${args.reason}'.`,
           };
         },
-      });
+      }));
 
-      editor.add({
+      editor.add(validated(ExportArgs, {
         name: "memory_export",
         description:
           "Export active memories as a JSONL file (one JSON object per line: {ts,type,scope,content,status,tags,issue}) for backup or transfer to another machine. Defaults to <memory-root>/exports/<timestamp>.jsonl; pass `file` to choose the path, `scope` to export one scope. Superseded rows are not exported (history stays in the store).",
         options: direct,
-        input: obj({
-          scope: withDesc(str(), "Only export memories in this exact scope"),
-          file: withDesc(str(), "Destination path (default: <memory-root>/exports/)"),
-        }),
-        async execute(args: any): Promise<{ content: string }> {
+        async execute(args): Promise<{ content: string }> {
           const res = await exportMemories({ scope: args.scope, file: args.file });
           return { content: `Exported ${res.count} memories -> ${res.path}` };
         },
-      });
+      }));
 
-      editor.add({
+      editor.add(validated(ImportArgs, {
         name: "memory_import",
         description:
           "Import memories from a JSONL export (see memory_export). Every row goes through the same 4-gate write pipeline as memory_remember (tagged `import`, original tags preserved), so duplicates collapse and ungrounded rows are blocked exactly as usual — those are normal tallied outcomes, not errors. Malformed lines are skipped and counted.",
         options: direct,
-        input: obj({ file: withDesc(str(), "Path to a .jsonl export file") }, ["file"]),
-        async execute(args: any): Promise<{ content: string }> {
+        async execute(args): Promise<{ content: string }> {
           try {
             const t = await importMemories(args.file, (c) =>
               runWriteGate(
@@ -527,24 +470,14 @@ const impl = {
             };
           }
         },
-      });
+      }));
 
-      editor.add({
+      editor.add(validated(DecayArgs, {
         name: "memory_decay",
         description:
           "Retire stale open threads (status=open older than olderThanDays) by superseding them — never deleting; rows stay recoverable via memory_undo. DRY RUN BY DEFAULT: without an explicit dryRun=false this only LISTS what would retire and mutates nothing (fail-closed). A real run snapshots every affected file before the first mutation.",
         options: direct,
-        input: obj({
-          olderThanDays: withDesc(
-            { type: "number", default: 14 },
-            "Age threshold in days (default 14)",
-          ),
-          dryRun: withDesc(
-            { type: "boolean", default: true },
-            "Preview only (default true). Set false to actually supersede.",
-          ),
-        }),
-        async execute(args: any): Promise<{ content: string }> {
+        async execute(args): Promise<{ content: string }> {
           const days = Number(args.olderThanDays) > 0 ? Number(args.olderThanDays) : 14;
           const dryRun = args.dryRun !== false; // only an explicit false mutates
           const stale = await findStaleOpen(days);
@@ -595,14 +528,13 @@ const impl = {
               "Recover with memory_undo.",
           };
         },
-      });
+      }));
 
-      editor.add({
+      editor.add(validated(EmptyArgs, {
         name: "memory_status",
         description:
           "Plain-text memory report for chat clients (desktop/web/IDE), same sections as the terminal /memory panel: CONTEXT (this session's injected block, budget use, cumulative ride and abstentions), CACHE (epoch invalidations plus the measured session prompt-cache read rate), the block verbatim, recent blocked writes with gate reasons, and store stats. Reads only — no model call.",
         options: direct,
-        input: obj({}),
         async execute(): Promise<{ content: string }> {
           // In-process truth: the live epoch + ledger, fresher than any file.
           const sid = getCurrent().sid;
@@ -614,12 +546,13 @@ const impl = {
             superseded: all.length - act.length,
             open: act.filter((m) => m.status === "open").length,
             scopes: new Set(act.map((m) => m.scope)).size,
+            malformed: malformedCount(),
           };
           return {
             content: renderMemoryReport({ status, store, blocked: await blockedRecent(6) }),
           };
         },
-      });
+      }));
     });
 
     // Per-session frozen injection epochs: the relevance block plus the store
@@ -667,6 +600,7 @@ const impl = {
           superseded: all.length - act.length,
           open: act.filter((m) => m.status === "open").length,
           scopes: new Set(act.map((m) => m.scope)).size,
+          malformed: malformedCount(),
         },
         stats: statsFor(sid),
         measured: measuredTurns.get(sid) ?? null,

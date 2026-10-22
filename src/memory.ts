@@ -46,12 +46,36 @@ const RESERVED = new Set([
   "blocklist.logfmt",
 ]);
 
+// Row identity is `ts`: supersede chains, the blocklist, undo matching, and
+// the viewer's action buttons all key off it (issue #15). A row whose ts is
+// not an ISO instant must never become an addressable live row — readers
+// treat it as malformed: skipped, counted, warned once per file. The shape
+// check lives here (the store knows its schema); logfmt stays a dumb parser.
+const ISO_TS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+let malformedRows = 0;
+const malformedWarnedFiles = new Set<string>();
+
+/** Rows skipped as malformed by the most recent store read (approximate, in-process). */
+export function malformedCount(): number {
+  return malformedRows;
+}
+
 function toMemory(fields: Record<string, unknown>, file: string, index: number): Memory | null {
   const ts = fields.ts;
   const type = fields.type;
   const scope = fields.scope;
   if (typeof ts !== "string" || typeof type !== "string") return null;
   if (typeof scope !== "string") return null;
+  if (!ISO_TS_RE.test(ts) || Number.isNaN(Date.parse(ts))) {
+    malformedRows++;
+    if (!malformedWarnedFiles.has(file)) {
+      malformedWarnedFiles.add(file);
+      console.warn(
+        `[memory] malformed row skipped in ${file} (ts is not an ISO instant): ${JSON.stringify(ts.slice(0, 48))}`,
+      );
+    }
+    return null;
+  }
   return {
     ts,
     type,
@@ -85,6 +109,7 @@ export async function memoryFiles(): Promise<string[]> {
 }
 
 export async function loadAll(): Promise<Memory[]> {
+  malformedRows = 0; // per-load telemetry: the most recent read wins
   const blocked = await blockedTs();
   const out: Memory[] = [];
   for (const file of await memoryFiles()) {
