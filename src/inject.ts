@@ -5,7 +5,7 @@
 // results. Evidence is never injected (invariant I3). Open threads (status=
 // "open") get a single capped frontier block in the digest so planning sessions
 // start at the previous session's frontier instead of re-deriving it.
-import { isActive, loadAll, type Memory } from "./memory.ts";
+import { isActive, loadAll, visibleHere, type Memory } from "./memory.ts";
 import { record } from "./evidence.ts";
 import { dateStr } from "./config.ts";
 import { bracketList } from "./logfmt.ts";
@@ -93,7 +93,8 @@ export async function systemDigest(
   _input: unknown,
   output: TransformOutput,
 ): Promise<void> {
-  const mems = (await loadAll()).filter(isActive);
+  // Repo-scoped (issue #8): model-facing reads see this repo + global rows.
+  const mems = visibleHere((await loadAll()).filter(isActive));
   if (!mems.length) return;
   const latest = mems.map((m) => m.ts).sort().pop() ?? "?";
   output.system.push(
@@ -143,7 +144,8 @@ export async function systemDigest(
 export async function relevantKnowledge(message: string, limit = 3): Promise<string> {
   const text = message.trim();
   if (!text) return "";
-  const mems = (await loadAll()).filter(isActive);
+  // Repo-scoped (issue #8): model-facing reads see this repo + global rows.
+  const mems = visibleHere((await loadAll()).filter(isActive));
   const top = scoreMemories(text, mems, limit);
   if (!top.length) return "";
   return `## Relevant durable memory\n${top.map(formatMemory).join("\n")}`;
@@ -154,7 +156,8 @@ export async function relevantKnowledge(message: string, limit = 3): Promise<str
 // injection block is recomputed only when this string changes (or after a
 // compaction). Evidence and superseded rows never affect it (I3, memory.ts).
 export async function storeVersion(): Promise<string> {
-  const mems = (await loadAll()).filter(isActive);
+  // Repo-scoped (issue #8): model-facing reads see this repo + global rows.
+  const mems = visibleHere((await loadAll()).filter(isActive));
   let max = "";
   for (const m of mems) if (m.ts > max) max = m.ts;
   return `${mems.length}:${max}`;
@@ -193,7 +196,8 @@ const ANCHOR_SETTLED_LIMIT = 5;
 const ANCHOR_BUDGET = 2500;
 
 export async function compactionAnchor(limit = 12): Promise<string> {
-  const mems = (await loadAll()).filter(isActive);
+  // Repo-scoped (issue #8): model-facing reads see this repo + global rows.
+  const mems = visibleHere((await loadAll()).filter(isActive));
   if (!mems.length) return "";
   const byNewest = (a: Memory, b: Memory) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0);
   const open = mems
@@ -218,7 +222,8 @@ export async function contextualPull(input: PullInput, output: PullOutput): Prom
   if (!["grep", "glob", "read"].includes(tool)) return;
   const term = argText(input.args);
   if (!term) return;
-  const mems = (await loadAll()).filter(isActive);
+  // Repo-scoped (issue #8): model-facing reads see this repo + global rows.
+  const mems = visibleHere((await loadAll()).filter(isActive));
   const top = scoreMemories(term, mems, 3);
   if (!top.length) return;
   const block = top.map(formatMemory).join("\n");

@@ -17,6 +17,7 @@ import { STATUSES, TYPES } from "./types.ts";
 import {
   clearSuperseded,
   isActive,
+  isVisibleHere,
   loadAll,
   markSuperseded,
   resolveMemoryTarget,
@@ -60,6 +61,7 @@ import {
   onCompacting,
 } from "./triggers.ts";
 import { getCurrent, setCurrent } from "./state.ts";
+import { resolveRepo, setRepoScope } from "./repokey.ts";
 import { readLines } from "./logfmt.ts";
 import { buildCapturePrompt, flattenTranscript, parseCandidates, parseModelRef } from "./capture.ts";
 
@@ -163,6 +165,11 @@ const impl = {
   async setup(ctx: PluginCtx): Promise<Cleanup | void> {
     const liveRoot = ctx?.location?.directory ?? process.cwd();
 
+    // Repo scoping (issue #8): resolve this workspace's identity ONCE. Every
+    // append stamps it; every model-facing read filters by it. Never throws —
+    // a non-git dir simply scopes by path.
+    setRepoScope(resolveRepo(liveRoot));
+
     // Character budget for the epoch-frozen injection block: plugin options
     // (object form in opencode.json(c)) win, then OPENCODE_MEMORY_INJECT_BUDGET,
     // then the 1200 default.
@@ -211,6 +218,10 @@ const impl = {
               en(STATUSES),
               "open = live planning thread / frontier (surfaced at session start); settled or omitted = durable knowledge",
             ),
+            global: withDesc(
+              bool(),
+              "Store cross-project (visible in every repo): user preferences and general tooling habits. Default false = the memory belongs to THIS repo.",
+            ),
           },
           ["type", "scope", "content"],
         ),
@@ -222,6 +233,7 @@ const impl = {
             issue: args.issue,
             tags: args.tags,
             status: args.status,
+            repo: args.global ? "global" : undefined,
           };
           const outcome = await runWriteGate(candidate, gateContext());
           if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
@@ -256,7 +268,7 @@ const impl = {
         options: direct,
         input: obj({ scope: str(), type: en(TYPES), query: str(), limit: num() }),
         async execute(args: any): Promise<{ content: string }> {
-          let results = (await loadAll()).filter(isActive);
+          let results = (await loadAll()).filter(isActive).filter(isVisibleHere);
           if (!results.length) return { content: "No memories found" };
           const total = results.length;
           if (args.scope) results = results.filter((m) => m.scope.includes(args.scope!));
@@ -305,7 +317,7 @@ const impl = {
         ),
         async execute(args: any): Promise<{ content: string }> {
           const prior = (await loadAll()).filter(
-            (m) => m.scope === args.scope && m.type === args.type && isActive(m),
+            (m) => m.scope === args.scope && m.type === args.type && isActive(m) && isVisibleHere(m),
           );
           // Resolve the row BEFORE the gate: an update that cannot identify its
           // target must write nothing, rather than silently superseding whichever
@@ -369,7 +381,7 @@ const impl = {
         options: direct,
         input: obj({}),
         async execute(): Promise<{ content: string }> {
-          const mems = (await loadAll()).filter(isActive);
+          const mems = (await loadAll()).filter(isActive).filter(isVisibleHere);
           if (!mems.length) return { content: "No memories found" };
           const scopes = new Map<string, number>();
           const types = new Map<string, number>();

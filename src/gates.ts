@@ -30,6 +30,11 @@ export interface WriteCandidate {
   issue?: string;
   tags?: string[];
   status?: "open" | "settled";
+  // "global" = cross-project (memory_remember global:true; imports carry a
+  // row's origin stamp). Any other value (including undefined) is resolved by
+  // appendMemory against the live repo scope (issue #8).
+  repo?: string;
+  repoPath?: string;
 }
 
 export interface GateContext {

@@ -5,6 +5,7 @@
 import { existsSync } from "node:fs";
 import { join, basename } from "node:path";
 import { memoryRoot, deletionsFile, snapshotDir } from "./config.ts";
+import { repoScope } from "./repokey.ts";
 import { appendLog, ensureDir, formatLine, parseLine, readLines } from "./logfmt.ts";
 import { blockedTs } from "./blocklist.ts";
 
@@ -28,6 +29,12 @@ export interface Memory {
   superseded_by?: string;
   reason?: string;
   status?: MemoryStatus;
+  // Origin repo (issue #8): sha1 of the normalized origin URL, the toplevel
+  // path when the repo had no remote, the literal "global" for cross-project
+  // writes, or absent for legacy/viewer rows — all three read as described
+  // in isVisibleHere().
+  repo?: string;
+  repoPath?: string;
   file: string;
   index: number;
 }
@@ -56,6 +63,8 @@ function toMemory(fields: Record<string, unknown>, file: string, index: number):
     reason: typeof fields.reason === "string" ? fields.reason : undefined,
     status:
       fields.status === "open" || fields.status === "settled" ? fields.status : undefined,
+    repo: typeof fields.repo === "string" ? fields.repo : undefined,
+    repoPath: typeof fields.repoPath === "string" ? fields.repoPath : undefined,
     file,
     index,
   };
@@ -89,7 +98,9 @@ export async function loadAll(): Promise<Memory[]> {
 }
 
 export async function loadScope(scope: string): Promise<Memory[]> {
-  return (await loadAll()).filter((m) => m.scope === scope);
+  // Gate dedup/stale reads are repo-scoped: a row from another repo must not
+  // collapse or supersede a write here (issue #8).
+  return (await loadAll()).filter((m) => m.scope === scope && isVisibleHere(m));
 }
 
 export interface AppendMemoryInput {
@@ -99,6 +110,11 @@ export interface AppendMemoryInput {
   issue?: string;
   tags?: string[];
   status?: MemoryStatus;
+  // "global" for explicit cross-project writes; imports carry the row's own
+  // origin stamp (hash survives the machine hop — see repokey.ts). Any other
+  // value is resolved by appendMemory against the live repo scope.
+  repo?: string;
+  repoPath?: string;
 }
 
 // Existing ts values across all memory files, used to guarantee uniqueness of
@@ -130,6 +146,18 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   while (taken.has(ts) && guard++ < 1000) {
     ts = new Date(new Date(ts).getTime() + 1).toISOString();
   }
+  // Repo stamp (issue #8) at the single write choke point: gated writes,
+  // viewer restores and edits all pass through here. Explicit "global"
+  // survives; an unscoped process (viewer) stamps nothing = global.
+  let repo = input.repo;
+  let repoPath = input.repoPath;
+  if (repo === undefined) {
+    const cur = repoScope();
+    if (cur) {
+      repo = cur.key;
+      repoPath = cur.path;
+    }
+  }
   const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
   await appendLog(
     file,
@@ -141,6 +169,8 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
       issue: input.issue,
       tags: input.tags?.length ? input.tags.join(",") : undefined,
       status: input.status,
+      repo,
+      repoPath,
     }),
   );
   return ts;
@@ -333,7 +363,10 @@ export async function prune(scope: string, type: string, reason: string): Promis
     for (const line of lines) {
       const parsed = parseLine(line);
       const m = parsed ? toMemory(parsed, file, 0) : null;
-      if (m && m.scope === scope && m.type === type) {
+      // Repo floor (issue #8): forgetting scope X here must never delete
+      // another repo's row for scope X — same basename collisions are real
+      // (a fork next to its upstream).
+      if (m && m.scope === scope && m.type === type && isVisibleHere(m)) {
         deleted.push({ memory: m, reason });
         await logDeletion(m, reason);
         changed = true;
@@ -348,4 +381,22 @@ export async function prune(scope: string, type: string, reason: string): Promis
 
 export function isActive(m: Memory): boolean {
   return !m.superseded_by;
+}
+
+// The ONLY repo filter the model-facing paths use (injection sinks, recall,
+// list, update targeting, prune, decay, gate scope reads). A row is visible
+// when it is global (explicit marker OR no stamp — legacy rows and writes by
+// processes with no scope, e.g. the viewer), or was written in this repo.
+// Keeping it one predicate is what stops the filtering from drifting between
+// entry points the way pre-zod validation did.
+export function isVisibleHere(m: Memory): boolean {
+  if (!m.repo || m.repo === "global") return true;
+  const cur = repoScope();
+  if (!cur) return true; // unscoped process: no partitioning
+  return m.repo === cur.key || (!!m.repoPath && m.repoPath === cur.path);
+}
+
+// Rows visible to the current process (active filtering stays with callers).
+export function visibleHere(mems: Memory[]): Memory[] {
+  return mems.filter(isVisibleHere);
 }
