@@ -124,10 +124,14 @@ describe("exportMemories", () => {
     expect(res.path.endsWith(".jsonl")).toBe(true);
     expect(existsSync(res.path)).toBe(true);
 
-    const rows = readFileSync(res.path, "utf8")
+    const all = readFileSync(res.path, "utf8")
       .trim()
       .split("\n")
       .map((l) => JSON.parse(l) as Record<string, unknown>);
+    // v1 format (issue #22): line 0 is the export header that vouches for
+    // status="open" rows on import.
+    expect(all[0]).toMatchObject({ _export: "opencode-self-improvement", version: 1, count: 2 });
+    const rows = all.slice(1);
     expect(rows.length).toBe(2);
     expect(rows.map((r) => r.ts).sort()).toEqual([t1, t2].sort());
     for (const r of rows) expect("superseded_by" in r).toBe(false);
@@ -147,14 +151,15 @@ describe("exportMemories", () => {
     const res = await exportMemories({ scope: "api", file });
     expect(res.count).toBe(1);
     expect(res.path).toBe(file);
-    const row = JSON.parse(readFileSync(file, "utf8").trim());
+    const row = JSON.parse(readFileSync(file, "utf8").trim().split("\n")[1]!);
     expect(row.scope).toBe("api");
   });
 
-  test("empty store exports zero lines (file still written)", async () => {
+  test("empty store exports only the header line (file still written)", async () => {
     const res = await exportMemories();
     expect(res.count).toBe(0);
-    expect(readFileSync(res.path, "utf8")).toBe("");
+    const text = readFileSync(res.path, "utf8").trim();
+    expect(JSON.parse(text)).toMatchObject({ _export: "opencode-self-improvement", count: 0 });
   });
 });
 
@@ -179,7 +184,7 @@ describe("importMemories", () => {
       return { action: seen.length === 1 ? "promoted" : "blocked" };
     };
     const t = await importMemories(file, gate);
-    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 1, skipped: 3 });
+    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 1, skipped: 3, downgraded: 0 });
     expect(seen.length).toBe(2);
     expect(seen[0].content).toBe("A durable build fact.");
   });
@@ -202,7 +207,7 @@ describe("importMemories", () => {
       got = c;
       return { action: "collapsed" };
     });
-    expect(t).toEqual({ promoted: 0, collapsed: 1, blocked: 0, skipped: 0 });
+    expect(t).toEqual({ promoted: 0, collapsed: 1, blocked: 0, skipped: 0, downgraded: 0 });
     expect(got!.status).toBeUndefined();
     expect(got!.tags).toBeUndefined();
     expect(got!.issue).toBeUndefined();
@@ -210,6 +215,65 @@ describe("importMemories", () => {
 
   test("a missing file throws (the tool turns it into a soft message)", async () => {
     await expect(importMemories(join(root, "nope.jsonl"), async () => ({ action: "promoted" }))).rejects.toThrow(/not found/);
+  });
+});
+
+// --- frontier policy on import (issue #22) ----------------------------------------
+
+describe("import frontier policy (issue #22)", () => {
+  const openRow = {
+    type: "context",
+    scope: "plan",
+    content: "Open thread planted to claim the frontier grounding exemption.",
+    status: "open",
+  };
+
+  test("without an export header, status=open is downgraded to settled and tallied", async () => {
+    const file = join(root, "nohdr.jsonl");
+    writeFileSync(file, JSON.stringify(openRow) + "\n");
+    let got: WriteCandidate | undefined;
+    const t = await importMemories(file, async (c) => {
+      got = c;
+      return { action: "promoted" };
+    });
+    expect(got!.status).toBe("settled");
+    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 0, skipped: 0, downgraded: 1 });
+  });
+
+  test("with a v1 export header, status=open survives and the header is not tallied", async () => {
+    const file = join(root, "hdr.jsonl");
+    writeFileSync(
+      file,
+      [
+        JSON.stringify({ _export: "opencode-self-improvement", version: 1, exportedAt: "x", count: 1 }),
+        JSON.stringify(openRow),
+      ].join("\n") + "\n",
+    );
+    let got: WriteCandidate | undefined;
+    const t = await importMemories(file, async (c) => {
+      got = c;
+      return { action: "promoted" };
+    });
+    expect(got!.status).toBe("open");
+    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0 });
+  });
+
+  test("a header version newer than ours does NOT grant the exemption (fail closed)", async () => {
+    const file = join(root, "future.jsonl");
+    writeFileSync(
+      file,
+      [
+        JSON.stringify({ _export: "opencode-self-improvement", version: 999 }),
+        JSON.stringify(openRow),
+      ].join("\n") + "\n",
+    );
+    let got: WriteCandidate | undefined;
+    const t = await importMemories(file, async (c) => {
+      got = c;
+      return { action: "promoted" };
+    });
+    expect(got!.status).toBe("settled");
+    expect(t.downgraded).toBe(1);
   });
 });
 

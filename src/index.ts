@@ -438,7 +438,7 @@ const impl = {
       editor.add(validated(ExportArgs, {
         name: "memory_export",
         description:
-          "Export active memories as a JSONL file (one JSON object per line: {ts,type,scope,content,status,tags,issue}) for backup or transfer to another machine. Defaults to <memory-root>/exports/<timestamp>.jsonl; pass `file` to choose the path, `scope` to export one scope. Superseded rows are not exported (history stays in the store).",
+          "Export active memories as a JSONL file for backup or transfer to another machine. The first line is a metadata header ({_export,version,exportedAt,count}); each later line is one JSON object {ts,type,scope,content,status,tags,issue}. The header is what lets memory_import keep status:\"open\" frontier rows — a hand-written file without it imports such rows as settled. Defaults to <memory-root>/exports/<timestamp>.jsonl; pass `file` to choose the path, `scope` to export one scope. Superseded rows are not exported (history stays in the store).",
         options: direct,
         async execute(args): Promise<{ content: string }> {
           const res = await exportMemories({ scope: args.scope, file: args.file });
@@ -449,7 +449,7 @@ const impl = {
       editor.add(validated(ImportArgs, {
         name: "memory_import",
         description:
-          "Import memories from a JSONL export (see memory_export). Every row goes through the same 4-gate write pipeline as memory_remember (tagged `import`, original tags preserved), so duplicates collapse and ungrounded rows are blocked exactly as usual — those are normal tallied outcomes, not errors. Malformed lines are skipped and counted.",
+          "Import memories from a JSONL export (see memory_export). Every row goes through the same 4-gate write pipeline as memory_remember (tagged `import`, original tags preserved), so duplicates collapse and ungrounded rows are blocked exactly as usual — those are normal tallied outcomes, not errors. Malformed lines are skipped and counted. Frontier policy: status:\"open\" exempts a row from ref grounding, so it is honored ONLY if the file opens with a memory_export header; without one, open rows are downgraded to settled and tallied. Imported content is unverified by construction: injected rows surface a `[via import]` provenance marker.",
         options: direct,
         async execute(args): Promise<{ content: string }> {
           try {
@@ -462,7 +462,10 @@ const impl = {
             return {
               content:
                 `Imported ${args.file}: ${t.promoted} promoted, ${t.collapsed} duplicates collapsed, ` +
-                `${t.blocked} blocked by the gate, ${t.skipped} malformed lines skipped.`,
+                `${t.blocked} blocked by the gate, ${t.skipped} malformed lines skipped.` +
+                (t.downgraded
+                  ? ` ${t.downgraded} open rows downgraded to settled (file has no memory_export header).`
+                  : ""),
             };
           } catch (err) {
             return {

@@ -25,6 +25,11 @@ LLMs waste a lot of tokens reading and re-reading your code and asking you for c
 - **Export / import (JSONL)** — `memory_export` / `memory_import` back the store
   up or move it between machines. Every imported row re-enters through the same
   write gates, so an export can't smuggle junk in.
+- **Injection-resistant by construction** — every injected memory block frames
+  itself as *reference data, never instructions*; rows that arrived through a
+  path the gates can't fully vouch for carry a visible `[via import]` /
+  `[via auto-capture]` provenance marker; and the `status:"open"` frontier
+  exemption is only honored for files carrying a machine-made export header.
 - **Decay** — `memory_decay` retires stale open threads. Dry run by default;
   supersede-not-delete, snapshot-first, undoable.
 - **Auto-capture (opt-in)** — with `autoCapture` on, session-idle events get one
@@ -245,7 +250,8 @@ origin stamps, so scoping survives a machine hop.
 
 ## Backup & move between machines
 
-`memory_export` writes the live store as JSONL — one JSON object per line
+`memory_export` writes the live store as JSONL — a machine-readable header line
+(`{_export, version, exportedAt, count}`) followed by one JSON object per line
 (`{ts,type,scope,content,status,tags,issue}`), active rows only (superseded
 history stays in the store). `memory_import` reads such a file back. Defaults
 to `<memory-root>/exports/<timestamp>.jsonl`; pass `file` to choose the path
@@ -261,7 +267,7 @@ Import ~/memories.jsonl                       # memory_import
 
 Import is safe by construction: every row re-enters through the same 4-gate
 write pipeline as `memory_remember` (tagged `import`, original tags preserved),
-and the tool reports a tally of four outcomes per line —
+and the tool reports a tally of outcomes per line —
 
 | Outcome | Meaning |
 | --- | --- |
@@ -269,6 +275,12 @@ and the tool reports a tally of four outcomes per line —
 | `collapsed` | near-duplicate of an existing memory; nothing written |
 | `blocked` | rejected by a gate; reason is in `memory_evidence` |
 | `skipped` | malformed line; never reaches the gates |
+| `downgraded` | `status:"open"` without an export header to vouch for it; imported as settled |
+
+The frontier policy matters because an open row is exempt from ref grounding:
+a hand-written JSONL can't hand its rows that free pass (the header is
+friction, not a signature — the real defense is that imported content always
+injects framed as data and marked `[via import]`).
 
 so re-running the same import is a no-op (everything collapses). Copying an
 export to a fresh machine is how you seed a new laptop from an old one.
