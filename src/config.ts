@@ -1,5 +1,5 @@
 // Store paths for the self-improvement harness. Everything lives OUTSIDE any
-// repository (invariant I2): under ~/.config/opencode/memory by default, or
+// repository: under ~/.config/opencode/memory by default, or
 // under $OPENCODE_MEMORY_DIR when set (tests use this for hermetic runs).
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -41,7 +41,7 @@ export function dateStr(d: Date = new Date()): string {
   return d.toISOString().split("T")[0];
 }
 
-// Character budget for the injected "Relevant durable memory" block (Phase 2:
+// Character budget for the injected "Relevant durable memory" block (the
 // cache-safe epoch injection). Overridable via OPENCODE_MEMORY_INJECT_BUDGET
 // (plugin options take precedence — see src/index.ts); falls back to 1200 on
 // missing or invalid values.

@@ -82,11 +82,11 @@ export async function ensureDir(path: string): Promise<void> {
 export async function appendLog(file: string, line: string): Promise<void> {
   await ensureDir(dirname(file));
   const next = line.endsWith("\n") ? line : line + "\n";
-  // One O_APPEND write (issue #23). The previous read-modify-write lost rows:
-  // 20 concurrent appends left 2 on disk. appendFile's "a" flag is
+  // One O_APPEND write: read-modify-write loses rows under concurrent
+  // appenders (20 concurrent appends left 2 on disk). appendFile's "a" flag is
   // O_APPEND|O_CREAT — atomic small writes on local POSIX filesystems,
   // covering interleaved async tasks in the service AND a second process
-  // (the viewer) appending the same day file. Do NOT "simplify" this to
+  // (the viewer) appending the same day file. Do NOT "simplify" back to
   // Bun.write with an options object: on Bun 1.4.3 that silently TRUNCATES.
   await appendFile(file, next);
 }

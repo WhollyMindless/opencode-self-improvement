@@ -1,6 +1,6 @@
-// Behavior suite for the contract in SPEC.md. Hermetic: OPENCODE_MEMORY_DIR is
+// Behavior suite for the plugin contract. Hermetic: OPENCODE_MEMORY_DIR is
 // pointed at a per-test temp dir and the "live" source tree is a throwaway, so
-// nothing here touches this repo or the real memory store (invariant I2).
+// nothing here touches this repo or the real memory store.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   appendFileSync,
@@ -191,7 +191,7 @@ describe("S1 — signature-update-turn (anchor contract)", () => {
     // I1 gate order 1→2→3→4 within the chain.
     expect(gateOrder(lines, field(gs, "chain"))).toEqual([1, 2, 3, 4]);
 
-    // I2 repo-hermetic: the snapshot path is under the memory root, not the repo.
+    // Repo-hermetic: the snapshot path is under the memory root, not the repo.
     expect(field(wp, "snapshot")).toContain(memoryRoot());
     expect(field(wp, "snapshot")).not.toContain(liveRoot);
   });

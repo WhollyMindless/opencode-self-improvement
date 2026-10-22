@@ -1,11 +1,8 @@
-// Path-ref existence gate (live demo 2026-10-20: a settled memory citing
-// src/ghost_pipeline_removed.ts — a file that never existed — was PROMOTED,
-// because gate1 only drift-compares call signatures and counted path refs for
-// the ambiguity check without ever checking existence). Contract: repo-relative
-// path refs in a SETTLED write must exist under liveRoot or the write blocks
-// with ref_path_missing; open planning threads are exempt; paths outside the
-// repo's jurisdiction (bare names, absolute, ~, $VAR, URLs, `..`) are trusted
-// as before and never produce a block.
+// Path-ref existence gate contract: repo-relative path refs in a SETTLED
+// write must exist under liveRoot or the write blocks with ref_path_missing;
+// open planning threads are exempt; paths outside the repo's jurisdiction
+// (bare names, absolute, ~, $VAR, URLs, `..`) are trusted as before and never
+// produce a block.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";

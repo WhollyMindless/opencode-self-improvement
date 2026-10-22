@@ -63,7 +63,7 @@ describe("relevantKnowledge (memory-first injection)", () => {
     expect(block.split("\n").filter((l) => l.startsWith("- [")).length).toBe(3);
   });
 
-  test("stopword-only overlap abstains: no block, no noise (recall bench 2026-10-20)", async () => {
+  test("stopword-only overlap abstains: no block, no noise", async () => {
     // Every memory contains "the"; a query sharing ONLY function words must
     // inject nothing rather than surface a confident wrong memory.
     seed("learning", "ops", "the pager rota rotates weekly and pages route to the alerting channel");

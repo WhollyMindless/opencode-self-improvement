@@ -111,9 +111,9 @@ describe("store rows cannot be forged through content", () => {
     expect(all[0].content).toBe(content);
   });
 
-  test("concurrent appends lose nothing (issue #23)", async () => {
-    // Pre-fix appendLog was read-modify-write: 20 concurrent appends to one
-    // file left 2 rows. O_APPEND must survive the same storm.
+  test("concurrent appends lose nothing", async () => {
+    // A read-modify-write appender loses rows (20 concurrent appends left 2).
+    // O_APPEND must survive the same storm.
     const file = join(process.env.OPENCODE_MEMORY_DIR!, "race.logfmt");
     await Promise.all(
       Array.from({ length: 50 }, (_, i) => appendLog(file, formatLine({ ts: `t${i}`, n: i }))),

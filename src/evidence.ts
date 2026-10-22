@@ -1,6 +1,6 @@
 // Evidence log writer. One logfmt line per event, appended in hook order to
-// ~/.config/opencode/memory/evidence/<date>.logfmt. Evidence is DATA, never
-// chat (invariant I3) and never inside a repo (I2).
+// ~/.config/opencode/memory/evidence/<date>.logfmt. Evidence is DATA: never
+// injected into chat, and stored outside every repo.
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { dateStr, evidenceDir } from "./config.ts";

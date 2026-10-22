@@ -1,9 +1,8 @@
-// extractCallForms guards (regression for live false positives): prose
-// parentheses and file-references must NOT parse as code call signatures.
-// Before the guards, `package.json(committed by @semantic-release/git…)` and
-// `ctx.session.context (main-agent review fix)` were read as calls to `json`
-// and `context`, drift-compared against live code, and blocked legitimate
-// memory writes with drift_ref_stale_incoming (9 observed blocks).
+// extractCallForms guards: prose parentheses and file references must NOT
+// parse as code call signatures. Without the guards, `package.json(committed
+// by @semantic-release/git…)` and `ctx.session.context (main-agent review
+// fix)` read as calls to `json` and `context`, get drift-compared against
+// live code, and block legitimate memory writes with drift_ref_stale_incoming.
 import { describe, expect, test } from "bun:test";
 import { extractCallForms } from "../src/resolver.ts";
 

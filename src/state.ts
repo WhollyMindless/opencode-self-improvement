@@ -21,9 +21,9 @@ export interface FirstTap {
 export interface SessionState {
   sid: string;
   calls: ToolResult[];
-  // T1: last observed status per tool, so a FAIL->PASS transition is visible.
+  // Last observed status per tool, so a FAIL->PASS transition is visible.
   lastByTool: Map<string, { status: "FAIL" | "PASS"; call: string; emitted: boolean }>;
-  // T4: a pending completion-gate failure awaiting a later PASS.
+  // A pending completion-gate failure awaiting a later PASS.
   pendingGate: {
     call: string;
     cmd: string;

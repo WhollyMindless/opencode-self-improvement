@@ -27,8 +27,7 @@ export interface Gate1Result {
   drift: DriftInfo | null;
   candidateStale: boolean;
   // Directory-qualified path refs that do NOT exist under liveRoot. A settled
-  // claim citing one is hallucinated or machine-specific data (live demo
-  // 2026-10-20: src/ghost_pipeline_removed.ts passed on trust).
+  // claim citing one is hallucinated or machine-specific data.
   missingPaths: string[];
 }
 
@@ -60,8 +59,7 @@ const CALL_RE = /([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\s*\(/g;
 
 // Last dotted segment is a known file extension: `package.json(committed by…)`
 // is a file reference followed by parenthetical prose, not a call to a method
-// named `json`. This class produced 9 false drift_ref_stale_incoming blocks in
-// live use before the guard existed.
+// named `json`.
 const FILE_EXT = new Set([
   "json", "jsonc", "jsonl", "logfmt", "md", "mdx", "ts", "tsx", "js", "jsx",
   "mjs", "cjs", "py", "go", "rs", "rb", "java", "kt", "sh", "bash", "zsh",
@@ -82,7 +80,7 @@ function looksProseArgs(inner: string): boolean {
   return s.split(/\s+/).length >= 2;
 }
 
-// Regex scanning ceiling (issue #20): PATH_RE backtracks super-linearly on
+// Regex scanning ceiling: PATH_RE backtracks super-linearly on
 // long word-character runs (200KB of base64 as memory content hung the gate
 // on the service event loop; ~6s already at 100KB). The write gate rejects
 // content far above this ceiling upstream; the bails protect every scanner

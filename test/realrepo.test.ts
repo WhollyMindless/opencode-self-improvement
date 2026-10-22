@@ -1,7 +1,7 @@
 // Real-world scenario suite: drives the resolver and the full gate pipeline
 // against a LIVE repo (Babylon.js by default) instead of a throwaway fixture.
-// The memory store stays hermetic (OPENCODE_MEMORY_DIR -> temp dir, invariant
-// I2); only the "live" source tree is the real repo, read-only. This is where
+// The memory store stays hermetic (OPENCODE_MEMORY_DIR -> temp dir);
+// only the "live" source tree is the real repo, read-only. This is where
 // resolver blind spots show up that tiny fixtures cannot (case-sensitive globs
 // missing -pure.ts / .pure.ts siblings, node_modules shadowing src, compiled
 // dist beating source, multi-thousand-file fallback globs).

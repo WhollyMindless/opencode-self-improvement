@@ -1,9 +1,9 @@
-// Write-side size/type floors (issue #20). Pre-fix: no entry point capped
-// content, and the gate's PATH_RE backtracked super-linearly on long
-// word-character runs — measured 100KB write = 6s, 2MB = never returned,
-// on the shared OpenCode service event loop. These tests pin the blocked
-// outcome AND the speed bound (a fix that "works" by scanning faster but
-// still O(n²) will fail the <100ms assertion on a 1MB payload).
+// Write-side size/type floors: uncapped content lets the gate's PATH_RE
+// backtrack super-linearly on long word-character runs (100KB write = 6s,
+// 2MB = never returned) on the shared OpenCode service event loop. These
+// tests pin the blocked outcome AND the speed bound (a fix that "works" by
+// scanning faster but is still O(n²) will fail the <100ms assertion on a
+// 1MB payload).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,7 +29,7 @@ const gateCtx = () => ({
   trusted: true,
 });
 
-describe("write-side size + type floors (issue #20)", () => {
+describe("write-side size + type floors", () => {
   test("a 1 MB write is blocked by the gate in < 100ms", async () => {
     const t0 = performance.now();
     const out = await runWriteGate(

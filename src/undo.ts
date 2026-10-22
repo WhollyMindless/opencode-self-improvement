@@ -3,7 +3,7 @@
 //
 // Daily logfmt files are SHARED across concurrent sessions, so a naive
 // whole-file write can silently clobber rows another session appended after
-// the snapshot (live data loss observed 2026-10-20). Restore is therefore
+// the snapshot. Restore is therefore
 // conflict-aware. The snapshot cannot tell "rows I added since the snapshot,
 // which undo should remove" apart from "rows another session added, which
 // must survive" — that call belongs to the caller, so the default mode CHECK
@@ -78,7 +78,7 @@ export async function restoreSnapshot(
   if (!(await f.exists())) throw new Error(`snapshot not found: ${snapshot}`);
 
   const original = name.replace(/^\d+-/, "");
-  // Defense in depth (issue #21): `name` is basenamed above, so `original`
+  // Defense in depth: `name` is basenamed above, so `original`
   // carries no separators — but a restore must never write outside the memory
   // root no matter what a future caller passes.
   const rootAbs = resolve(memoryRootDir);

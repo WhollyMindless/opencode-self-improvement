@@ -1,12 +1,12 @@
 // Input boundaries (zod, src/schema.ts). Three contracts pinned here:
 // (1) WIRE: the JSON Schema handed to the host/model is deep-equal to a
-//     byte-capture taken from main before the zod migration — the model-facing
-//     contract did not move.
+//     byte-capture taken before the zod migration — the model-facing contract
+//     did not move.
 // (2) TOOLS: a malformed tool call returns "invalid arguments ... nothing was
-//     done" and writes NOTHING (pre-zod these crashed or wrote junk), while
-//     stringified numerics still work (z.coerce.number, non-breaking by design).
-// (3) STORE READER (issue #15): row identity is `ts`; a non-ISO ts is skipped
-//     as malformed — counted in memory_status, never an addressable row.
+//     done" and writes NOTHING; stringified numerics still work
+//     (z.coerce.number, non-breaking by design).
+// (3) STORE READER: row identity is `ts`; a non-ISO ts is skipped as
+//     malformed — counted in memory_status, never an addressable row.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -307,7 +307,7 @@ describe("viewer boundary — malformed POSTs get 400, not coerced rows", () => 
   const text = (r: Response) => r.text();
 });
 
-describe("store reader — ts is validated at load (issue #15)", () => {
+describe("store reader — ts is validated at load", () => {
   test("a row whose ts is not an ISO instant is skipped and counted, not loaded", async () => {
     await appendLog(
       dayFile(),

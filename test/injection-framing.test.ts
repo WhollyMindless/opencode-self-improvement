@@ -1,4 +1,4 @@
-// Issue #22 contract: framing + provenance for injected memory content.
+// Contract: framing + provenance for injected memory content.
 //
 // Memory text rides the system prompt verbatim, and attacker-reachable write
 // paths exist (memory_import of a shared file, auto-capture over transcripts
@@ -11,7 +11,7 @@
 //   3. one memory is one line — a planted newline cannot forge a header;
 //   4. headerless imports lose the status="open" frontier exemption (the
 //      portable.test.ts frontier-policy tests cover the import side).
-// Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR (I2).
+// Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

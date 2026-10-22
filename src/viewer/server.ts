@@ -21,7 +21,7 @@ const PORT = Number(process.env.OPENCODE_VIEWER_PORT || 8787);
 
 // Defense-in-depth headers on every response. CSP: the page uses only inline
 // script/style and same-origin fetch, so everything else is off — a stored-XSS
-// payload (see issue #11) gains no exfil channel and no framing.
+// payload gains no exfil channel and no framing.
 const SECURITY_HEADERS: Record<string, string> = {
   "x-content-type-options": "nosniff",
   "content-security-policy":
@@ -140,7 +140,7 @@ export async function startViewer(port: number = PORT): Promise<ViewerServer> {
       // unparseable, and the URL parse THROWs — before rejectRequest could
       // answer. Letting that escape hands the caller Bun's dev error page
       // (stack + absolute paths), so the parse itself is the first guarded
-      // step (issue #12).
+      // step.
       let url: URL;
       try {
         url = new URL(req.url);
@@ -203,15 +203,15 @@ async function route(req: Request, url: URL): Promise<Response> {
     if (url.pathname === "/api/unblock") return parseWith(UnblockBody, body, unblockRoute);
     if (url.pathname === "/api/restore-entry") return parseWith(RestoreEntryBody, body, restoreEntryRoute);
     // /api/restore is deliberately NOT schema-parsed here: its name check is
-    // basename + pinned-grammar CONTAINMENT (issue #21), not a shape gate,
+    // basename + pinned-grammar CONTAINMENT, not a shape gate,
     // and its regression tests pin that behavior.
     if (url.pathname === "/api/restore") return restoreRoute(body as Record<string, unknown>);
   }
   return json({ error: "not found" }, 404);
 }
 
-// Boundary shape check for POST routes (the restore-entry hole from the
-// 2026-10-21 review): the old `String(body.ts ?? "")` coercion made ANY junk
+// Boundary shape check for POST routes: the old `String(body.ts ?? "")`
+// coercion made ANY junk
 // fit — ts:{} became "[object Object]" as a row identity, a missing content
 // appended an empty row. A malformed call now gets a clean 400; semantics
 // (which row, what for) stay with the mutate layer.
@@ -261,7 +261,7 @@ async function restoreEntryRoute(body: z.infer<typeof RestoreEntryBody>): Promis
 }
 
 async function restoreRoute(body: Record<string, unknown>): Promise<Response> {
-  // Path containment (issue #21): name arrives raw from the wire. Basename it,
+  // Path containment: name arrives raw from the wire. Basename it,
   // then pin it to the real snapshot-name grammar — `<epoch-ms>-<YYYY-MM-DD>.logfmt`
   // — so neither path join below can be steered outside snapshots/ and the
   // store root with a `..` or absolute name.

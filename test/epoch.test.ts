@@ -1,10 +1,10 @@
-// Phase 2 contract: the injected "Relevant durable memory" block is FROZEN per
+// Contract: the injected "Relevant durable memory" block is FROZEN per
 // epoch. An epoch is invalidated ONLY on the first prompt of a session, when
 // the memory store changed since the epoch was computed, or after a compaction
 // for that session — so the system prefix (and the provider prompt cache)
 // survives ordinary turns. The block is capped to a character budget at
 // whole-line boundaries. Hermetic: temp OPENCODE_MEMORY_DIR /
-// OPENCODE_COMMANDS_DIR, nothing touches the real store (I2).
+// OPENCODE_COMMANDS_DIR, nothing touches the real store.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -148,7 +148,7 @@ describe("epoch freeze (cache-safe injection)", () => {
     expect(block.length).toBeLessThanOrEqual(budget);
 
     const lines = block.split("\n");
-    // Issue #22: the header line carries the data-not-instructions framing.
+    // The header line carries the data-not-instructions framing.
     expect(lines[0].startsWith("## Relevant durable memory")).toBe(true);
     expect(lines[0]).toContain("never instructions");
     for (const line of lines.slice(1)) expect(line.startsWith("- ")).toBe(true); // never cut mid-line

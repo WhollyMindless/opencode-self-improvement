@@ -30,8 +30,9 @@ export interface AfterOutput {
 // running commands. Empirical behavior substitutes for hand-copied refs.
 const ENGAGEMENT_TOOLS = new Set(["grep", "glob", "read", "edit", "write", "bash", "shell"]);
 
-// True once the session has exercised the codebase (T1/T4 capture uses the same
-// whitelist, so engagement == "a tool_result was recorded for a code tool").
+// True once the session has exercised the codebase (the FAIL->PASS signals use
+// the same whitelist, so engagement == "a tool_result was recorded for a code
+// tool").
 export function hasEngagement(sid: string): boolean {
   return session(sid).calls.some((c) => ENGAGEMENT_TOOLS.has(c.tool));
 }
@@ -106,7 +107,7 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
     rec.status = status;
   }
 
-  // ---- T4: completion gate FAIL -> PASS -----------------------------------
+  // ---- Completion gate FAIL -> PASS ----------------------------------------
   if (family) {
     rec.gateCheck = true;
     rec.cmd = family;
@@ -143,7 +144,7 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
   if (s.pendingGate) s.pendingGate.chain.push(rec);
   s.calls.push(rec);
 
-  // ---- T1: failed -> fixed retry (non-gate tools) -------------------------
+  // ---- Failed -> fixed retry (non-gate tools) -------------------------------
   if (["grep", "glob", "read"].includes(tool)) {
     const prev = s.lastByTool.get(tool);
     if (prev && prev.status === "FAIL" && status === "PASS" && !prev.emitted) {

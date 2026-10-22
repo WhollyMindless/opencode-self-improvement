@@ -1,4 +1,4 @@
-// Phase 5 contract: portability (JSONL export/import) + decay of stale open
+// Contract: portability (JSONL export/import) + decay of stale open
 // threads. Export is the ACTIVE store (superseded rows excluded); import
 // re-enters through the SAME runWriteGate as any other write, so gate
 // semantics apply unchanged: ref-free settled rows need session engagement,
@@ -6,7 +6,7 @@
 // test/capture.test.ts (that is intended behavior, not a workaround). Decay
 // defaults to dry-run; a real run snapshots (prune's snapshotFiles helper)
 // before any mutation and supersedes rather than deletes. Hermetic: temp
-// OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR (I2).
+// OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   appendFileSync,
@@ -128,7 +128,7 @@ describe("exportMemories", () => {
       .trim()
       .split("\n")
       .map((l) => JSON.parse(l) as Record<string, unknown>);
-    // v1 format (issue #22): line 0 is the export header that vouches for
+    // v1 format: line 0 is the export header that vouches for
     // status="open" rows on import.
     expect(all[0]).toMatchObject({ _export: "opencode-self-improvement", version: 1, count: 2 });
     const rows = all.slice(1);
@@ -218,9 +218,9 @@ describe("importMemories", () => {
   });
 });
 
-// --- frontier policy on import (issue #22) ----------------------------------------
+// --- frontier policy on import ---------------------------------------------------
 
-describe("import frontier policy (issue #22)", () => {
+describe("import frontier policy", () => {
   const openRow = {
     type: "context",
     scope: "plan",

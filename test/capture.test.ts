@@ -1,4 +1,4 @@
-// Phase 4 contract: opt-in auto-capture on session idle.
+// Contract: opt-in auto-capture on session idle.
 //
 // Unit tests for the pure core (parseCandidates / parseModelRef / buildCapturePrompt
 // / flattenTranscript — all total functions) plus end-to-end runs through the
@@ -6,7 +6,7 @@
 // captureModel skips registration; candidates flow through runWriteGate (the
 // dupe collapses, only the fresh one lands, tagged auto-capture); the 5-minute
 // per-session cooldown bounds model calls; and setup's cleanup aborts the
-// subscription. Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR (I2).
+// subscription. Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
