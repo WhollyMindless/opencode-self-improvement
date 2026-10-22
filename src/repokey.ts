@@ -1,6 +1,8 @@
-// Repo identity for memory scoping. One plugin process serves one
-// workspace, so the scope resolves ONCE at setup; every store write stamps
-// it and every model-facing read filters by it.
+// Repo identity for memory scoping. A server process can host sessions from
+// several workspaces, and setup() can run before the host attaches a session
+// location — so identity is resolved PER SESSION from the event stream and
+// falls back to the module scope (which itself may be null, never a guessed
+// cwd). Every store write stamps it; every model-facing read filters by it.
 //
 // Two keys, both cheap, with opposite failure modes:
 //   key  — sha1 of the normalized origin URL: survives re-clone, moves, and
@@ -63,4 +65,47 @@ export function resolveRepo(startDir: string): RepoScope {
     ? createHash("sha1").update(normalizeRemote(remote)).digest("hex").slice(0, 12)
     : path;
   return { key, path };
+}
+
+// --- per-session identity -----------------------------------------------------
+// Learned from session events (created / execution.started / moved). Bounded:
+// a long-lived server must not grow this with every session ever seen.
+const SESSION_CAP = 64;
+const byDir = new Map<string, RepoScope>();
+const bySession = new Map<string, { dir: string; scope: RepoScope }>();
+
+function scopeForDir(dir: string): RepoScope {
+  let s = byDir.get(dir);
+  if (!s) {
+    s = resolveRepo(dir);
+    byDir.set(dir, s);
+  }
+  return s;
+}
+
+export function rememberSessionDir(sid: string, dir: string): void {
+  const prev = bySession.get(sid);
+  if (prev && prev.dir === dir) return;
+  bySession.set(sid, { dir, scope: scopeForDir(dir) });
+  while (bySession.size > SESSION_CAP) bySession.delete(bySession.keys().next().value as string);
+}
+
+export function sessionDir(sid?: string): string | undefined {
+  if (!sid || sid === "?") return undefined;
+  return bySession.get(sid)?.dir;
+}
+
+// The scope a write/read belongs to: the session's when known, else the
+// module scope (null = unscoped process = global rows).
+export function repoScopeFor(sid?: string): RepoScope | null {
+  if (sid && sid !== "?") {
+    const e = bySession.get(sid);
+    if (e) return e.scope;
+  }
+  return current;
+}
+
+export function resetSessionScopes(): void {
+  bySession.clear();
+  byDir.clear();
 }

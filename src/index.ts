@@ -62,7 +62,7 @@ import {
   onCompacting,
 } from "./triggers.ts";
 import { getCurrent, setCurrent } from "./state.ts";
-import { resolveRepo, setRepoScope } from "./repokey.ts";
+import { resolveRepo, setRepoScope, rememberSessionDir, sessionDir } from "./repokey.ts";
 import { readLines } from "./logfmt.ts";
 import { buildCapturePrompt, flattenTranscript, parseCandidates, parseModelRef } from "./capture.ts";
 
@@ -168,12 +168,13 @@ const PLUGIN_ID = "opencode-self-improvement";
 // (the only members of the V2 context this plugin actually touches).
 const impl = {
   async setup(ctx: PluginCtx): Promise<Cleanup | void> {
-    const liveRoot = ctx?.location?.directory ?? process.cwd();
-
-    // Repo scoping: resolve this workspace's identity ONCE. Every
-    // append stamps it; every model-facing read filters by it. Never throws —
-    // a non-git dir simply scopes by path.
-    setRepoScope(resolveRepo(liveRoot));
+    // Identity vs verification tree are separate concerns: the repo STAMP is
+    // resolved per session from the event stream (never from process.cwd(),
+    // which is the server launch dir and poisons rows invisibly); cwd remains
+    // only as the gate's verification tree when no session location is known.
+    const setupRoot = ctx?.location?.directory;
+    const liveRoot = setupRoot ?? process.cwd();
+    setRepoScope(setupRoot ? resolveRepo(setupRoot) : null);
 
     // Character budget for the epoch-frozen injection block: plugin options
     // (object form in opencode.json(c)) win, then OPENCODE_MEMORY_INJECT_BUDGET,
@@ -197,7 +198,7 @@ const impl = {
     }
 
     const gateContext = (): GateContext => ({
-      liveRoot,
+      liveRoot: sessionDir(getCurrent().sid) ?? liveRoot,
       evidenceCalls: evidenceCalls(getCurrent().sid),
       hasGateCheck: hasGateCheck(getCurrent().sid),
       hasEngagement: hasEngagement(getCurrent().sid),
@@ -239,7 +240,7 @@ const impl = {
           "Initialize repository memory and knowledge graph. Ensures the codebase-memory graph for this repo is indexed (one-shot `cli` spawn; no session MCP needed) and re-derives build/lint/test/typecheck command memories through the write gate, then stores an init stamp keyed on git HEAD. Idempotent: a no-op when the stamp matches HEAD, unless force=true (refresh after a refactor).",
         options: direct,
         async execute(args): Promise<{ content: string }> {
-          const summary = await runInit({ liveRoot, force: args.force, mode: args.mode });
+          const summary = await runInit({ liveRoot: gateContext().liveRoot, force: args.force, mode: args.mode });
           return { content: formatInit(summary) };
         },
       }));
@@ -647,6 +648,8 @@ const impl = {
     // Tiny system digest + open-thread frontier block, injected into the system prompt.
     await ctx.session?.hook("context", (event: any) =>
       guarded("session.context (systemDigest)", async () => {
+        // Route store reads in this hook through the right session's scope.
+        setCurrent({ sessionID: event?.sessionID });
         const parts: string[] = [];
         await systemDigest({ sessionID: event?.sessionID }, { system: parts });
         for (const text of parts) event?.system?.push?.({ type: "text", text });
@@ -676,6 +679,7 @@ const impl = {
     // the UI.
     await ctx.session?.hook("prompt", (event: any) =>
       guarded("session.prompt (inject)", async () => {
+        setCurrent({ sessionID: event?.sessionID });
         const sid = event?.sessionID;
         if (typeof sid === "string") {
           markTurn(sid);
@@ -724,6 +728,7 @@ const impl = {
     // the summarizer call entirely.
     await ctx.session?.hook("compaction", (event: any) =>
       guarded("session.compaction (onCompacting)", async () => {
+        setCurrent({ sessionID: event?.sessionID });
         await onCompacting({ sessionID: event?.sessionID });
         if (typeof event?.sessionID === "string") epoch.delete(event.sessionID);
         const anchor = await compactionAnchor();
@@ -747,6 +752,22 @@ const impl = {
         try {
           for await (const raw of eventApi.subscribe({ signal: measuredController.signal })) {
             const ev = raw as Record<string, any>;
+            // Session identity: created fires for new sessions, execution.started
+            // every turn (covers sessions resumed across a restart), moved on a
+            // workspace change. Stamps and visibility resolve through this.
+            if (
+              ev?.type === "session.created" ||
+              ev?.type === "session.execution.started" ||
+              ev?.type === "session.moved"
+            ) {
+              const d = ev.data ?? ev.properties ?? {};
+              const info = d.info ?? d;
+              const sid = info.sessionID ?? d.sessionID;
+              const dir =
+                info.location?.directory ?? d.location?.directory ?? ev.location?.directory ?? info.directory;
+              if (typeof sid === "string" && typeof dir === "string") rememberSessionDir(sid, dir);
+              continue;
+            }
             if (ev?.type !== "message.updated") continue;
             const info = ev.properties?.info ?? ev.info;
             if (!info || info.role !== "assistant") continue;
@@ -812,6 +833,9 @@ const impl = {
               if (event?.type !== "session.idle") continue;
               const sid = event.sessionID ?? event.properties?.sessionID;
               if (typeof sid !== "string") continue;
+              // Bind the idle session so captures stamp (and gate against)
+              // that session's repo, not whatever tool call ran last.
+              setCurrent({ sessionID: sid });
               const now = Date.now();
               if (now - (lastRun.get(sid) ?? 0) < 5 * 60_000) continue; // 5-min cooldown
               lastRun.set(sid, now);

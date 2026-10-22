@@ -56,7 +56,7 @@ export interface LoadedPlugin {
 }
 
 export async function loadPlugin(
-  directory = process.cwd(),
+  directory: string | null = process.cwd(),
   options?: Record<string, unknown>,
 ): Promise<LoadedPlugin> {
   const tools: Record<string, ToolRecord> = {};
@@ -90,7 +90,9 @@ export async function loadPlugin(
   };
 
   const ctx = {
-    location: { directory },
+    // null directory simulates a server-start setup with no session location
+    // attached yet.
+    ...(directory ? { location: { directory } } : {}),
     options: options ?? {},
     tool: {
       transform: async (cb: (editor: { add: (t: ToolRecord) => void }) => void) =>
