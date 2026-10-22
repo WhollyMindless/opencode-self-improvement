@@ -356,3 +356,66 @@ describe("request checks — other websites", () => {
     expect(api.headers.get("content-security-policy")).toContain("connect-src 'self'");
   });
 });
+
+// --- page.html escaping (issue #11) --------------------------------------------
+// The row template renders store data via innerHTML; ts and superseded_by were
+// the two fields that bypassed esc(). The pure helpers now live in a dedicated
+// DOM-free <script id="viewer-helpers"> block so THIS test can eval the SHIPPED
+// code (not a copy) and assert escaping.
+
+type Helpers = {
+  esc: (s: unknown) => string;
+  badge: (cls: string, text: string) => string;
+  tsCell: (ts: string) => string;
+};
+
+function loadHelpers(): { h: Helpers; src: string } {
+  const src = readFileSync(join(import.meta.dir, "../src/viewer/page.html"), "utf8");
+  const m = src.match(/<script id="viewer-helpers">([\s\S]*?)<\/script>/);
+  if (!m) throw new Error("viewer-helpers block not found in page.html");
+  const scope: Record<string, unknown> = {};
+  new Function("exports", `${m[1]}; Object.assign(exports, { esc, badge, tsCell });`)(scope);
+  return { h: scope as unknown as Helpers, src };
+}
+
+describe("page.html escaping (issue #11)", () => {
+  const X = '<img src=x onerror="alert(1)">';
+
+  test("the helpers block is DOM-free and loads standalone", () => {
+    const { h } = loadHelpers();
+    expect(typeof h.esc).toBe("function");
+    expect(typeof h.badge).toBe("function");
+    expect(typeof h.tsCell).toBe("function");
+  });
+
+  test("badge() escapes hostile text — no live markup survives", () => {
+    const { h } = loadHelpers();
+    const out = h.badge("type", X);
+    expect(out).toBe('<span class="badge type">&lt;img src=x onerror=&quot;alert(1)&quot;&gt;</span>');
+    expect(out).not.toContain("<img");
+  });
+
+  test("badge() escapes its class argument too (defense in depth)", () => {
+    const { h } = loadHelpers();
+    expect(h.badge(`" onload="alert(1)`, "x")).not.toContain('" onload=');
+  });
+
+  test("tsCell() escapes both the date and the time segment", () => {
+    const { h } = loadHelpers();
+    expect(h.tsCell(X)).toBe("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;<br>");
+    expect(h.tsCell("2026-01-01T<img src=x onerror=1>Z")).toBe("2026-01-01<br>&lt;img src");
+    // A normal ISO ts renders unchanged apart from the <br> split.
+    expect(h.tsCell("2026-10-22T18:30:00.000Z")).toBe("2026-10-22<br>18:30:00");
+  });
+
+  test("the row template interpolates ts and superseded_by only through helpers", () => {
+    const { src } = loadHelpers();
+    // Regression tripwires: the two raw cells from the issue.
+    expect(src).not.toContain("${m.ts.");
+    expect(src).not.toContain("${m.superseded_by");
+    expect(src).toContain("${tsCell(m.ts)}");
+    expect(src).toContain('badge("status-superseded", "superseded');
+    // Helpers must be defined BEFORE the main script that calls them.
+    expect(src.indexOf('id="viewer-helpers"')).toBeLessThan(src.indexOf("<script>"));
+  });
+});

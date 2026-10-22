@@ -143,6 +143,22 @@
   </div>
 </div>
 
+<script id="viewer-helpers">
+// Pure render helpers — DOM-free by contract so test/viewer.test.ts can eval
+// THIS block standalone and assert the shipped escaping (issue #11). Keep it
+// free of document/window references.
+// Store values are untrusted by principle, not just by policy: ts and
+// superseded_by are normally code-written ISO strings, but a hostile import
+// file (pre-#9 route) or a forged store file could plant HTML here, and the
+// row template renders via innerHTML in the viewer's own origin.
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c])); }
+function badge(cls, text) { return `<span class="badge ${esc(cls)}">${esc(text)}</span>`; }
+function tsCell(ts) {
+  const parts = String(ts).split("T");
+  return `${esc(parts[0])}<br>${esc((parts[1] || "").slice(0, 8))}`;
+}
+</script>
+
 <script>
 const $ = (id) => document.getElementById(id);
 let DATA = null;
@@ -188,7 +204,7 @@ function render() {
   $("rows").innerHTML = rows.map((m) => {
     const status = kind === "blocked" ? "blocked" : kind === "deleted" ? "deleted"
       : m.superseded_by ? "superseded" : "active";
-    const stBadge = status === "superseded" ? badge("status-superseded", `superseded \u2192 ${m.superseded_by.slice(0,8)}`)
+    const stBadge = status === "superseded" ? badge("status-superseded", "superseded \u2192 " + m.superseded_by.slice(0,8))
       : badge("status-" + status, status);
     const actions = kind === "blocked"
       ? `<button class="btn warn" data-action="unblock" data-ts="${esc(m.ts)}" title="Restore this memory to the read paths">unblock</button>`
@@ -198,9 +214,9 @@ function render() {
            <button class="btn danger" data-action="delete" data-ts="${esc(m.ts)}" title="Delete: snapshot the file, then remove this entry (audited)">delete</button>
            <button class="btn danger" data-action="block" data-ts="${esc(m.ts)}" title="Block (poison): keep on disk but hide from recall/inject">block</button>`;
     return `<tr>
-      <td class="ts">${m.ts.split("T")[0]}<br>${(m.ts.split("T")[1] || "").slice(0,8)}</td>
-      <td>${badge("type", esc(m.type))}</td>
-      <td>${badge("scope", esc(m.scope))}</td>
+      <td class="ts">${tsCell(m.ts)}</td>
+      <td>${badge("type", m.type)}</td>
+      <td>${badge("scope", m.scope)}</td>
       <td class="content">${esc(m.content)}</td>
       <td>${stBadge}</td>
       <td class="actions">${actions}</td>
@@ -214,8 +230,6 @@ function render() {
   $("cDeleted").textContent = DATA.deleted.length;
 }
 
-function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c])); }
-
 async function refresh() {
   DATA = await api("/api/data");
   const scopes = [...new Set(DATA.memories.map((m) => m.scope))].sort();
@@ -225,8 +239,6 @@ async function refresh() {
   $("rootLabel").textContent = DATA.roots.memoryRoot;
   render();
 }
-
-function badge(cls, text) { return `<span class="badge ${cls}">${text}</span>`; }
 
 function openEdit(ts) {
   const m = DATA.memories.find((x) => x.ts === ts);
