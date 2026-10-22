@@ -79,6 +79,33 @@ output):
 bun bench/inject-cost.ts
 ```
 
+## Write latency — one tree scan per write, not per ref
+
+GATE-1 re-resolves call signatures embedded in a memory against the live
+source tree, and GATE-2's stale-ref scan does the same for every memory in
+the scope. The original resolver enumerated the whole tree (a glob pass per
+extension, `node_modules` included) **per call form** — a write citing a few
+symbols paid N full-tree scans: ~0.4s each in a small repo, seconds in a
+monorepo. A write now builds one tree index — a single recursive walk that
+prunes `node_modules`/VCS/dot dirs — shared by both gates, and source files
+are read in bounded-parallel chunks and cached, so each file is read at most
+once per write. Measured on a 5,300-file fixture (300 sources + 5,000
+`node_modules` decoys), scope seeded with 5 embedded call forms:
+
+| Call forms in the write | Shipped | Old (scan per form) |
+| --- | ---: | ---: |
+| 1 | 17ms | 105ms |
+| 3 | 15ms | 136ms |
+| 5 | 20ms | 169ms |
+
+The shipped column is flat — the tree is walked once no matter how many refs
+the write cites. In real `node_modules`-heavy repos the old per-form scan
+measured 400–700ms, so the gap there is 20–100×. Reproduce:
+
+```sh
+bun bench/write-latency.ts
+```
+
 ## Recall quality — no models required
 
 Memory plugins get told "keyword matching isn't good enough," and the usual

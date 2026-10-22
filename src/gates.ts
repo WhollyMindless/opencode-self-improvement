@@ -19,8 +19,10 @@ import {
   extractCallForms,
   findLiveCall,
   gate1,
+  memoTree,
   sameArgs,
   type DriftInfo,
+  type LazyTree,
 } from "./resolver.ts";
 
 export interface WriteCandidate {
@@ -169,9 +171,9 @@ interface StaleRef {
   to: string;
 }
 
-async function staleRefFor(m: Memory, liveRoot: string): Promise<StaleRef | null> {
+async function staleRefFor(m: Memory, liveRoot: string, tree: LazyTree): Promise<StaleRef | null> {
   for (const form of extractCallForms(m.content)) {
-    const live = await findLiveCall(form.name, form.fileHint, liveRoot);
+    const live = await findLiveCall(form.name, form.fileHint, liveRoot, await tree());
     if (!live) continue;
     if (!sameArgs(form.argsText, live.argsText)) {
       return {
@@ -230,6 +232,8 @@ export async function runWriteGate(
   });
 
   const scopeMems = candidate.scope ? await loadScope(candidate.scope) : [];
+  // One tree index per write, shared by gate1 and every gate2 stale scan.
+  const tree = memoTree(ctx.liveRoot);
 
   // ---- GATE-1: canonical graph correct ------------------------------------
   const g1 = await gate1({
@@ -237,6 +241,7 @@ export async function runWriteGate(
     scope: candidate.scope,
     liveRoot: ctx.liveRoot,
     scopeMemories: scopeMems,
+    tree,
   });
   if (g1.drift) {
     await record("graph_drift", {
@@ -267,7 +272,7 @@ export async function runWriteGate(
   const delta = deltaTokens(candidate, g1.drift);
   const stale: StaleRef[] = [];
   for (const m of scopeMems) {
-    const s = await staleRefFor(m, ctx.liveRoot);
+    const s = await staleRefFor(m, ctx.liveRoot, tree);
     if (s) stale.push(s);
   }
   const bailed = scopeMems.length === 0;
