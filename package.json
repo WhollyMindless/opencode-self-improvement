@@ -60,6 +60,7 @@
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "bench": "bun bench/inject-cost.ts",
     "bench:recall": "bun bench/recall-quality.ts",
+    "bench:write": "bun bench/write-latency.ts",
     "memory-view": "bun run src/viewer/server.ts",
     "lint": "biome lint"
   },

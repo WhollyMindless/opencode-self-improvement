@@ -3,6 +3,7 @@
 // OPENCODE_CBM_BIN is set, the codebase-memory-mcp file graph). Deterministic:
 // regex + balanced-paren scanning, no model involvement.
 import { join } from "node:path";
+import { opendir } from "node:fs/promises";
 import { type Memory } from "./memory.ts";
 
 export interface CallForm {
@@ -250,16 +251,69 @@ function relRank(rel: string): number {
   return rank;
 }
 
-async function scanSourceFiles(liveRoot: string): Promise<string[]> {
-  const out = new Set<string>();
-  for (const ext of SOURCE_EXTS) {
-    try {
-      for await (const f of new Bun.Glob(`**/*.${ext}`).scan(liveRoot)) out.add(f);
-    } catch {
-      // Non-existent root -> no candidates.
-    }
+// One recursive walk enumerates the source tree, shared by every resolution
+// in a gate run instead of a glob pass per extension per call form. Semantics
+// match Bun.Glob defaults: dot entries are skipped, symlinks (file or dir)
+// are neither listed nor traversed, extensions match case-sensitively.
+async function walkSources(absDir: string, relDir: string, out: string[]): Promise<void> {
+  let dh: Awaited<ReturnType<typeof opendir>>;
+  try {
+    dh = await opendir(absDir);
+  } catch {
+    return; // Non-existent/unreadable root -> no candidates.
   }
-  return [...out].filter((f) => relRank(f) < Infinity);
+  try {
+    for await (const ent of dh) {
+      if (ent.name.startsWith(".")) continue;
+      if (ent.isDirectory()) {
+        if (!SKIP_DIRS.includes(ent.name)) {
+          await walkSources(join(absDir, ent.name), relDir ? `${relDir}/${ent.name}` : ent.name, out);
+        }
+      } else if (ent.isFile()) {
+        const dot = ent.name.lastIndexOf(".");
+        if (dot > 0 && SOURCE_EXTS.includes(ent.name.slice(dot + 1))) out.push(relDir ? `${relDir}/${ent.name}` : ent.name);
+      }
+    }
+  } catch {
+    // Directory vanished mid-walk: keep what was collected.
+  } finally {
+    dh.close().catch(() => {});
+  }
+}
+
+// Tree file list + lazily cached file texts, shared by ALL resolution work in
+// one gate run: gate1's candidate forms and gate2's per-memory stale scan read
+// each source file at most once per write instead of once per call form.
+export interface TreeIndex {
+  files: string[];
+  texts: Map<string, string>;
+}
+
+export async function buildTreeIndex(liveRoot: string): Promise<TreeIndex> {
+  const out: string[] = [];
+  await walkSources(liveRoot, "", out);
+  return { files: [...new Set(out)].filter((f) => relRank(f) < Infinity), texts: new Map() };
+}
+
+export type LazyTree = () => Promise<TreeIndex>;
+
+// Memoized builder: the index is constructed on first use and reused by every
+// later caller within the same gate run.
+export function memoTree(liveRoot: string): LazyTree {
+  let p: Promise<TreeIndex> | undefined;
+  return () => (p ??= buildTreeIndex(liveRoot));
+}
+
+async function textOf(index: TreeIndex, abs: string): Promise<string | null> {
+  const cached = index.texts.get(abs);
+  if (cached !== undefined) return cached;
+  try {
+    const text = await Bun.file(abs).text();
+    index.texts.set(abs, text);
+    return text;
+  } catch {
+    return null;
+  }
 }
 
 function hintBoost(rel: string, hint: string): number {
@@ -278,8 +332,10 @@ export async function findLiveCall(
   name: string,
   fileHint: string | undefined,
   liveRoot: string,
+  tree?: TreeIndex,
 ): Promise<{ file: string; argsText: string } | null> {
-  let files = await scanSourceFiles(liveRoot);
+  const index = tree ?? (await buildTreeIndex(liveRoot));
+  const files = [...index.files];
   const tiebreak = (a: string, b: string) => a.localeCompare(b);
   if (fileHint) {
     const h = fileHint.toLowerCase();
@@ -287,30 +343,33 @@ export async function findLiveCall(
   } else {
     files.sort((a, b) => relRank(a) - relRank(b) || tiebreak(a, b));
   }
+  const defRe = new RegExp(`(?:function|const|class|var|static)\\s+${name}\\b`);
+  const callRe = new RegExp(`\\b${name}\\s*\\(`);
 
   let fallback: { file: string; argsText: string } | null = null;
-  for (const rel of files) {
-    const file = join(liveRoot, rel);
-    let text: string;
-    try {
-      text = await Bun.file(file).text();
-    } catch {
-      continue;
-    }
-    if (!text.includes(name)) continue;
-    const defRe = new RegExp(`(?:function|const|class|var|static)\\s+${name}\\b`);
-    const defMatch = defRe.exec(text);
-    if (defMatch) {
-      const idx = text.indexOf("(", defMatch.index + defMatch[0].length);
-      const paren = idx >= 0 ? balancedParen(text, idx) : null;
-      if (paren) return { file, argsText: paren.inner };
-    }
-    if (!fallback) {
-      const callMatch = new RegExp(`\\b${name}\\s*\\(`).exec(text);
-      if (callMatch) {
-        const idx = text.indexOf("(", callMatch.index);
+  // Reads go out in bounded-parallel chunks but are evaluated in priority
+  // order, so "first definition wins" is unchanged — only its latency is.
+  const CHUNK = 32;
+  for (let i = 0; i < files.length; i += CHUNK) {
+    const chunk = files.slice(i, i + CHUNK);
+    const texts = await Promise.all(chunk.map((rel) => textOf(index, join(liveRoot, rel))));
+    for (let j = 0; j < chunk.length; j++) {
+      const text = texts[j];
+      if (text === null || !text.includes(name)) continue;
+      const rel = chunk[j];
+      const defMatch = defRe.exec(text);
+      if (defMatch) {
+        const idx = text.indexOf("(", defMatch.index + defMatch[0].length);
         const paren = idx >= 0 ? balancedParen(text, idx) : null;
-        if (paren) fallback = { file, argsText: paren.inner };
+        if (paren) return { file: join(liveRoot, rel), argsText: paren.inner };
+      }
+      if (!fallback) {
+        const callMatch = callRe.exec(text);
+        if (callMatch) {
+          const idx = text.indexOf("(", callMatch.index);
+          const paren = idx >= 0 ? balancedParen(text, idx) : null;
+          if (paren) fallback = { file: join(liveRoot, rel), argsText: paren.inner };
+        }
       }
     }
   }
@@ -332,6 +391,9 @@ export interface ResolveInput {
   scope: string;
   liveRoot: string;
   scopeMemories: Memory[];
+  // Shared (memoized) tree index for this gate run; built on first use.
+  // Omitted callers resolve against their own single-use index.
+  tree?: LazyTree;
 }
 
 export async function gate1(input: ResolveInput): Promise<Gate1Result> {
@@ -353,29 +415,32 @@ export async function gate1(input: ResolveInput): Promise<Gate1Result> {
     }
   }
 
-  for (const form of forms) {
-    resolved.push(form.symbol);
-    const live = await findLiveCall(form.name, form.fileHint, input.liveRoot);
-    if (!live) continue;
-    const indexed = indexedSignature(form.symbol, input.scopeMemories);
-    const candidateDiffers = !sameArgs(form.argsText, live.argsText);
-    const indexedDiffers = indexed ? !sameArgs(indexed.argsText, live.argsText) : false;
-    if (candidateDiffers) {
-      drift = {
-        symbol: form.symbol,
-        from: displayCall(form.name, form.argsText),
-        to: displayCall(form.name, live.argsText),
-        source: "candidate",
-        file: live.file,
-      };
-    } else if (indexedDiffers && indexed) {
-      drift = {
-        symbol: form.symbol,
-        from: displayCall(form.name, indexed.argsText),
-        to: displayCall(form.name, live.argsText),
-        source: "indexed",
-        file: live.file,
-      };
+  if (forms.length) {
+    const tree = await (input.tree ?? memoTree(input.liveRoot))();
+    for (const form of forms) {
+      resolved.push(form.symbol);
+      const live = await findLiveCall(form.name, form.fileHint, input.liveRoot, tree);
+      if (!live) continue;
+      const indexed = indexedSignature(form.symbol, input.scopeMemories);
+      const candidateDiffers = !sameArgs(form.argsText, live.argsText);
+      const indexedDiffers = indexed ? !sameArgs(indexed.argsText, live.argsText) : false;
+      if (candidateDiffers) {
+        drift = {
+          symbol: form.symbol,
+          from: displayCall(form.name, form.argsText),
+          to: displayCall(form.name, live.argsText),
+          source: "candidate",
+          file: live.file,
+        };
+      } else if (indexedDiffers && indexed) {
+        drift = {
+          symbol: form.symbol,
+          from: displayCall(form.name, indexed.argsText),
+          to: displayCall(form.name, live.argsText),
+          source: "indexed",
+          file: live.file,
+        };
+      }
     }
   }
 
