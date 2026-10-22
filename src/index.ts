@@ -170,7 +170,7 @@ const impl = {
   async setup(ctx: PluginCtx): Promise<Cleanup | void> {
     const liveRoot = ctx?.location?.directory ?? process.cwd();
 
-    // Repo scoping (issue #8): resolve this workspace's identity ONCE. Every
+    // Repo scoping: resolve this workspace's identity ONCE. Every
     // append stamps it; every model-facing read filters by it. Never throws —
     // a non-git dir simply scopes by path.
     setRepoScope(resolveRepo(liveRoot));
@@ -857,8 +857,8 @@ const impl = {
 
 // The plain object IS the V2 contract ({ id, setup }); the SDK's `Plugin` type
 // pins its shape at compile time. The import is deliberately type-only:
-// opencode installs npm plugins with runtime dependencies only (verified in
-// ~/.cache/opencode/npm/<pkg>@<ver>/), so a value import of @opencode/plugin —
+// opencode installs npm plugins with runtime dependencies only, so a value
+// import of @opencode/plugin —
 // a devDependency here — would fail to resolve at load time for published
 // consumers, and making it a runtime dependency would pull effect +
 // @opencode/client into every install, the exact dead-weight problem dropping

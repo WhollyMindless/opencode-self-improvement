@@ -185,7 +185,7 @@ export interface InitStamp {
 }
 
 export async function initStamp(scope: string): Promise<InitStamp | null> {
-  // Issue #8: scope is a basename, so two different repos can share one
+  // Scope is a basename, so two different repos can share one
   // ("api" next to "api", a fork beside its upstream). Visibility filtering
   // makes each repo see only its own stamp — basename collisions no longer
   // alias init state between repos.

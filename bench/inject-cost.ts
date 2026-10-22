@@ -1,17 +1,17 @@
-// Deterministic injection-cost bench (Phase 6).
+// Deterministic injection-cost bench.
 //
-// Answers the community's #1 question about memory plugins — "what does it
-// actually cost?" — with reproducible numbers from THIS plugin's real
-// injection code (src/inject.ts), not estimates.
+// Answers "what does memory injection actually cost?" with reproducible
+// numbers from THIS plugin's real injection code (src/inject.ts), not
+// estimates.
 //
-//   Policy A (pre-0.2): recompute relevantKnowledge on every prompt, uncapped.
-//   Policy B (0.2):     epoch freeze — recompute only when the store
+//   Policy A (naive):   recompute relevantKnowledge on every prompt, uncapped.
+//   Policy B (shipped): epoch freeze — recompute only when the store
 //                       fingerprint (storeVersion) changes — plus the
 //                       character cap (capToBudget). The simulated session
 //                       performs 3 mid-session store writes, so B recomputes
 //                       a handful of times across 20 turns instead of 20.
 //
-// Determinism (review checklist): a fixed-seed LCG generates the store and
+// Determinism: a fixed-seed LCG generates the store and
 // the prompts; memory timestamps are synthetic (no Date.now()); nothing reads
 // Math.random; RESULTS.md carries no wall-clock stamp — `bun bench/inject-cost.ts`
 // is byte-identical across runs.
@@ -21,8 +21,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, appendFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Hermetic store (invariant I2): a temp dir, never the real one. config.ts
-// reads OPENCODE_MEMORY_DIR lazily inside every helper call (verified), so
+// Hermetic store: a temp dir, never the real one. config.ts
+// reads OPENCODE_MEMORY_DIR lazily inside every helper call, so
 // setting it here — before the first store read below — is sufficient even
 // though the imports below are hoisted.
 const tmp = mkdtempSync(join(tmpdir(), "osi-bench-"));
@@ -131,7 +131,7 @@ function seedStore(): void {
 
 // --- policy runs (mirror the real hooks in src/index.ts) ---------------------------
 
-// Policy A: the pre-0.2 behavior — recompute top-3 relevance on EVERY prompt,
+// Policy A: the naive behavior — recompute top-3 relevance on EVERY prompt,
 // uncapped, and inject it (which changed the system prefix every turn).
 seedStore();
 const aBlocks: string[] = [];
@@ -168,7 +168,7 @@ for (let i = 0; i < prompts.length; i++) {
   bBlocks.push(epoch.block);
 }
 
-// The compaction anchor (Phase 3): pushed once per compaction, capped at 2500.
+// The compaction anchor: pushed once per compaction, capped at 2500.
 seedStore();
 const anchor = await compactionAnchor();
 
@@ -192,15 +192,15 @@ ${budget}-character budget.
 
 | Policy | Recomputes | Injected chars (${prompts.length} turns) | Avg/turn | Worst block |
 | --- | ---: | ---: | ---: | ---: |
-| A — recompute per prompt, uncapped (pre-0.2) | ${aBlocks.length} | ${sumA} | ${f1(sumA / aBlocks.length)} | ${worst(aBlocks)} |
-| B — epoch freeze + ${budget}-char cap (0.2) | ${recomputes} | ${sumB} | ${f1(sumB / bBlocks.length)} | ${worst(bBlocks)} |
+| A — recompute per prompt, uncapped (naive) | ${aBlocks.length} | ${sumA} | ${f1(sumA / aBlocks.length)} | ${worst(aBlocks)} |
+| B — epoch freeze + ${budget}-char cap (shipped) | ${recomputes} | ${sumB} | ${f1(sumB / bBlocks.length)} | ${worst(bBlocks)} |
 
 Policy B injects ${f1(saved)}% fewer characters on this workload. The bigger
 saving is invisible in this table: B's block is byte-identical between store
 changes, so the system prefix — and with it the provider prompt cache —
 survives ordinary turns instead of being invalidated on every prompt.
 
-Compaction anchor (Phase 3 block, capped at 2500 chars): ${anchor.length} chars,
+Compaction anchor (capped at 2500 chars): ${anchor.length} chars,
 pushed once per compaction rather than per turn.
 `;
 

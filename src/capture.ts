@@ -1,4 +1,4 @@
-// Opt-in auto-capture core (Phase 4). Pure and dependency-free: no opencode
+// Opt-in auto-capture core. Pure and dependency-free: no opencode
 // imports, no filesystem, no ambient clock — the transcript, the model call
 // and time are all injected by the caller (src/index.ts), so everything here
 // is unit-testable. Every candidate that leaves this module still flows

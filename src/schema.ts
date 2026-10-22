@@ -1,5 +1,4 @@
-// Input-boundary schemas (issue #15's sibling work; zod verdict from the
-// 2026-10-21 security review). ONE definition per boundary serves both sides:
+// Input-boundary schemas. ONE definition per boundary serves both sides:
 // the JSON Schema handed to the host/model is GENERATED from these zod
 // schemas, and every raw tool call / viewer POST is re-parsed through them
 // before touching any business logic. Keeping a hand-written wire schema next
@@ -14,7 +13,7 @@
 //   * Nothing here validates semantics (a well-shaped lie still passes) —
 //     that is what the 4-gate pipeline is for.
 //   * Store reads deliberately do NOT use zod: they get a plain ISO-instant
-//     check in memory.ts (row identity, issue #15), where the row schema lives.
+//     check in memory.ts (row identity), where the row schema lives.
 import { z, type ZodTypeAny } from "zod";
 import { STATUSES, TYPES } from "./types.ts";
 
@@ -153,8 +152,8 @@ export const EditBody = z.object({
 export const DeleteBody = z.object({ ts: isoTs, reason: z.string() });
 export const BlockBody = z.object({ ts: isoTs, reason: z.string() });
 export const UnblockBody = z.object({ ts: isoTs });
-// The restore-entry hole (security review): unvalidated POSTs used to append
-// rows with empty type/scope/content — String(body.x ?? "") made anything fit.
+// Strict fields by intent: String(body.x ?? "") coercion once let unvalidated
+// POSTs append rows with empty type/scope/content.
 export const RestoreEntryBody = z.object({
   type: z.enum(TYPES),
   scope: z.string().min(1),

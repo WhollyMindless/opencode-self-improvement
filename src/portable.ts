@@ -1,4 +1,4 @@
-// Portability (Phase 5): JSONL export/import of the durable store, plus the
+// Portability: JSONL export/import of the durable store, plus the
 // stale-open-thread query that backs memory_decay. Import NEVER writes: every
 // row flows through the caller-provided gate callback (index.ts wires it to
 // runWriteGate), so moving memories between machines cannot bypass the 4-gate
@@ -11,10 +11,10 @@ import type { WriteCandidate } from "./gates.ts";
 
 // --- export -------------------------------------------------------------------
 
-// Export header line (issue #22): the first line of a v1 export identifies the
-// file as machine-made by memory_export. It is what vouches for status="open"
-// frontier rows on import — the open status exempts a row from ref grounding
-// at the gate, so it must not be granted by an attacker-chosen field in a
+// Export header line: the first line of a v1 export identifies the file as
+// machine-made by memory_export. It is what vouches for status="open" frontier
+// rows on import — the open status exempts a row from ref grounding at the
+// gate, so it must not be granted by an attacker-chosen field in a
 // hand-written JSONL. The header is friction, not a boundary (anyone can
 // paste one); the real defense against planted content is the injection
 // framing + provenance in inject.ts and the write gates.
@@ -130,7 +130,7 @@ function parseRow(line: string): WriteCandidate | null {
 // promotion (index.ts passes runWriteGate with the "import" tag), so imported
 // rows face the same canonical/stale/dedup/ambiguity gates as any other write.
 // Blocked and collapsed rows are normal outcomes, tallied rather than raised.
-// Frontier policy (issue #22): status="open" exempts a row from ref grounding
+// Frontier policy: status="open" exempts a row from ref grounding
 // at the gate, so it is honored ONLY when the file opens with our export
 // header (version <= ours); otherwise every open row is downgraded to settled
 // and tallied. Only a missing file throws.
@@ -177,7 +177,7 @@ export async function importMemories(
 export async function findStaleOpen(days: number): Promise<Memory[]> {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
   return (await loadAll())
-    // Decay is repo-scoped (issue #8): running it here must not retire
+    // Decay is repo-scoped: running it here must not retire
     // another repo's open threads.
     .filter((m) => isActive(m) && isVisibleHere(m) && m.status === "open" && m.ts < cutoff)
     .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));

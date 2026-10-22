@@ -3,7 +3,7 @@
 // an open thread, and grep/glob/read re-derivation — rolled up per session into
 // a `session_convergence` evidence line at compaction (or when a newer session
 // opens), plus a one-line aggregate in the frontier digest block. Evidence is
-// data (I3): nothing raw leaks into chat.
+// data: nothing raw leaks into chat.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   existsSync,

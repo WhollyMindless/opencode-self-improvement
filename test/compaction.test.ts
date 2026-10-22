@@ -9,7 +9,7 @@
 // contract so a future hook refactor cannot silently start mutating it.
 //
 // Hermetic: OPENCODE_MEMORY_DIR points at a temp dir and the "live" source tree
-// is a throwaway, so nothing here touches this repo or the real memory store (I2).
+// is a throwaway, so nothing here touches this repo or the real memory store.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -89,7 +89,7 @@ describe("compaction contract — the plugin must not corrupt the model call", (
     expect(field(t2[0], "session")).toBe("ses_test");
     expect(field(t2[0], "captured_calls")).toBe("0");
     expect(field(t2[0], "pending_gate")).toBe("-");
-    // evidence is DATA (I3): no prompt/context fields ride along into the model call
+    // evidence is DATA: no prompt/context fields ride along into the model call
     expect(field(t2[0], "context")).toBe("");
     expect(field(t2[0], "prompt")).toBe("");
   });
@@ -122,7 +122,7 @@ describe("compaction-time hook surface is total (never throws)", () => {
       output,
     );
 
-    // empty store -> no digest; and no evidence text leaks into the system prompt (I3)
+    // empty store -> no digest; and no evidence text leaks into the system prompt
     expect(output.system).toEqual([]);
   });
 
@@ -143,7 +143,7 @@ describe("compaction-time hook surface is total (never throws)", () => {
   });
 });
 
-// --- Phase 3: memory-aware compaction anchor ---------------------------------
+// --- memory-aware compaction anchor ------------------------------------------
 // The hook pushes a durable-memory block onto the V2 compaction event's
 // `system` parts (visible to the summarizer model). The harness adapter copies
 // pushed part texts onto `output.system`.

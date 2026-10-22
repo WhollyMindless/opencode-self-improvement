@@ -145,11 +145,11 @@
 
 <script id="viewer-helpers">
 // Pure render helpers — DOM-free by contract so test/viewer.test.ts can eval
-// THIS block standalone and assert the shipped escaping (issue #11). Keep it
+// THIS block standalone and assert the shipped escaping. Keep it
 // free of document/window references.
 // Store values are untrusted by principle, not just by policy: ts and
 // superseded_by are normally code-written ISO strings, but a hostile import
-// file (pre-#9 route) or a forged store file could plant HTML here, and the
+// file or a forged store file could plant HTML here, and the
 // row template renders via innerHTML in the viewer's own origin.
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c])); }
 function badge(cls, text) { return `<span class="badge ${esc(cls)}">${esc(text)}</span>`; }

@@ -1,4 +1,4 @@
-// Repo identity for memory scoping (issue #8). One plugin process serves one
+// Repo identity for memory scoping. One plugin process serves one
 // workspace, so the scope resolves ONCE at setup; every store write stamps
 // it and every model-facing read filters by it.
 //

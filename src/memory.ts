@@ -11,10 +11,10 @@ import { blockedTs } from "./blocklist.ts";
 
 export type MemoryStatus = "open" | "settled";
 
-// Hard ceiling on stored content (issue #20). No entry point may persist a
-// line longer than this: injection ever shows ~1200 chars, the gate runs on
-// the shared service event loop, and regex scanning over megabyte-scale
-// strings froze every session (measured: 100KB write = 6s, 2MB = hang).
+// Hard ceiling on stored content. No entry point may persist a line longer
+// than this: injection ever shows ~1200 chars, the gate runs on the shared
+// service event loop, and regex scanning over megabyte-scale strings froze
+// sessions (100KB write = 6s, 2MB = hang).
 // Enforced twice — politely in runWriteGate (blocked outcome + evidence),
 // absolutely in appendMemory (throws, covering gate-bypassing callers).
 export const MAX_CONTENT_CHARS = 4000;
@@ -29,7 +29,7 @@ export interface Memory {
   superseded_by?: string;
   reason?: string;
   status?: MemoryStatus;
-  // Origin repo (issue #8): sha1 of the normalized origin URL, the toplevel
+  // Origin repo: sha1 of the normalized origin URL, the toplevel
   // path when the repo had no remote, the literal "global" for cross-project
   // writes, or absent for legacy/viewer rows — all three read as described
   // in isVisibleHere().
@@ -47,7 +47,7 @@ const RESERVED = new Set([
 ]);
 
 // Row identity is `ts`: supersede chains, the blocklist, undo matching, and
-// the viewer's action buttons all key off it (issue #15). A row whose ts is
+// the viewer's action buttons all key off it. A row whose ts is
 // not an ISO instant must never become an addressable live row — readers
 // treat it as malformed: skipped, counted, warned once per file. The shape
 // check lives here (the store knows its schema); logfmt stays a dumb parser.
@@ -124,7 +124,7 @@ export async function loadAll(): Promise<Memory[]> {
 
 export async function loadScope(scope: string): Promise<Memory[]> {
   // Gate dedup/stale reads are repo-scoped: a row from another repo must not
-  // collapse or supersede a write here (issue #8).
+  // collapse or supersede a write here.
   return (await loadAll()).filter((m) => m.scope === scope && isVisibleHere(m));
 }
 
@@ -158,7 +158,7 @@ async function existingTs(): Promise<Set<string>> {
 
 // Append a durable memory. Only the gate's GATE-4 promotion step calls this.
 export async function appendMemory(input: AppendMemoryInput): Promise<string> {
-  // Absolute floor (issue #20): every write SHOULD arrive through the gate,
+  // Absolute floor: every write SHOULD arrive through the gate,
   // which rejects oversized content politely; the viewer's restore/edit paths
   // do not, so nothing oversized leaves this function either.
   if (typeof input.content !== "string") throw new Error("memory content must be a string");
@@ -171,7 +171,7 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   while (taken.has(ts) && guard++ < 1000) {
     ts = new Date(new Date(ts).getTime() + 1).toISOString();
   }
-  // Repo stamp (issue #8) at the single write choke point: gated writes,
+  // Repo stamp at the single write choke point: gated writes,
   // viewer restores and edits all pass through here. Explicit "global"
   // survives; an unscoped process (viewer) stamps nothing = global.
   let repo = input.repo;
@@ -340,10 +340,10 @@ export async function snapshotFiles(files: string[]): Promise<string[]> {
   for (const file of files) {
     const f = Bun.file(file);
     if (!(await f.exists())) continue;
-    // Names must be unique. A `${Date.now()}-` stamp collides whenever two
-    // mutations happen in the same millisecond — live CI proved a viewer
-    // restore's backup overwrote the very snapshot it was about to read,
-    // restoring post-edit content. Bump until free; never clobber a snapshot.
+    // Names must be unique: a `${Date.now()}-` stamp collides whenever two
+    // mutations happen in the same millisecond, and a clobbered snapshot once
+    // let a restore read post-edit content. Bump until free; never overwrite
+    // a snapshot.
     let snap = join(snapshotDir(), `${stamp}-${basename(file)}`);
     while (await Bun.file(snap).exists()) {
       stamp++;
@@ -388,7 +388,7 @@ export async function prune(scope: string, type: string, reason: string): Promis
     for (const line of lines) {
       const parsed = parseLine(line);
       const m = parsed ? toMemory(parsed, file, 0) : null;
-      // Repo floor (issue #8): forgetting scope X here must never delete
+      // Repo floor: forgetting scope X here must never delete
       // another repo's row for scope X — same basename collisions are real
       // (a fork next to its upstream).
       if (m && m.scope === scope && m.type === type && isVisibleHere(m)) {
@@ -413,7 +413,7 @@ export function isActive(m: Memory): boolean {
 // when it is global (explicit marker OR no stamp — legacy rows and writes by
 // processes with no scope, e.g. the viewer), or was written in this repo.
 // Keeping it one predicate is what stops the filtering from drifting between
-// entry points the way pre-zod validation did.
+// entry points.
 export function isVisibleHere(m: Memory): boolean {
   if (!m.repo || m.repo === "global") return true;
   const cur = repoScope();

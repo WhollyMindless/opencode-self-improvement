@@ -1,6 +1,5 @@
-// Conflict-aware snapshot restore (live data loss 2026-10-20: memory_undo
-// rewrote the whole daily logfmt file, silently clobbering a row a CONCURRENT
-// session had promoted after the snapshot). Contract:
+// Conflict-aware snapshot restore contract: a whole-file restore would clobber
+// rows a CONCURRENT session promoted after the snapshot. Contract:
 //   - check (default): refuse when the current file has rows added/changed
 //     since the snapshot, listing them; file untouched;
 //   - merge: restore the snapshot AND keep the divergent rows (superset);

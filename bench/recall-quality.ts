@@ -7,7 +7,7 @@
 // project's position is that a user should never be required to.
 //
 // Scorers:
-//   naive — the pre-2026-10-20 shipped matcher (verbatim inline copy, kept as
+//   naive — the previous shipped matcher (verbatim inline copy, kept as
 //           the honest "before"): bag-of-words with no query stopword filter.
 //   prod  — the CURRENT shipped matcher (imported from src/inject.ts):
 //           identical scoring plus query-side stopword abstention.
@@ -164,7 +164,7 @@ lines.push(
   `Dataset: ${MEMORIES.length} gold memories, ${QUERIES.length} queries; classes assigned by ` +
     "MEASURED token overlap with the gold (>=2 shared content tokens = lexical, 1 = near, " +
     "0 = strict paraphrase). k=3 mirrors the production injection limit. BM25 k1=1.2 b=0.75 " +
-    "fixed before the eval. naive = pre-2026-10-20 shipped matcher; prod = current shipped " +
+    "fixed before the eval. naive = previous shipped matcher; prod = current shipped " +
     "matcher (query-side stopword abstention).",
 );
 lines.push("");

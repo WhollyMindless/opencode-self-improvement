@@ -22,7 +22,7 @@ export interface StoreCounts {
   superseded: number;
   open: number;
   scopes: number;
-  /** Rows skipped as malformed by the most recent store read (issue #15). */
+  /** Rows skipped as malformed by the most recent store read. */
   malformed: number;
 }
 

@@ -1,4 +1,4 @@
-// Repo scoping (issue #8): memories belong to the repo that wrote them;
+// Repo scoping: memories belong to the repo that wrote them;
 // global rows (explicit marker, or no stamp — legacy and unscoped writers)
 // follow the user everywhere. Covers: the stamp at appendMemory, the single
 // visibility predicate at every model-facing sink (injection, pull, digest,

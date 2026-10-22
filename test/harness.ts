@@ -4,7 +4,7 @@
 // written against the old `await SelfImprovement(ctx)` contract keep working
 // while exercising the real V2 registrations (including the fail-closed guards).
 //
-// Phase 4 fakes (all inert by default, backward compatible):
+// Fakes (all inert by default, backward compatible):
 //   - `options`: passed through to the plugin (autoCapture etc.)
 //   - `capture.events`: a BROADCAST push-queue backing event.subscribe (each
 //     subscriber gets every pushed event; the plugin runs a measured-usage
@@ -64,7 +64,7 @@ export async function loadPlugin(
   const sessionHooks: Record<string, (event: any) => Promise<void>> = {};
   const commands: Record<string, { name: string; execute: (input: any) => Promise<void> }> = {};
 
-  // --- Phase 4 fakes ---------------------------------------------------------
+  // --- Fakes -----------------------------------------------------------------
   // Broadcast event bus: every subscribe() registers its own parked consumer,
   // and push()/close() wake ALL of them (the plugin now runs two listeners:
   // the measured-usage one and, when enabled, auto-capture). Each subscriber

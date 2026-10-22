@@ -218,7 +218,7 @@ describe("restore", () => {
     expect(restored).not.toContain("superseded_by");
   });
 });
-describe("restore — path containment (issue #21)", () => {
+describe("restore — path containment", () => {
   async function postRaw(path: string, body: unknown): Promise<Response> {
     return vm.server.fetch(
       new Request(new URL(path, vm.url), {
@@ -357,11 +357,10 @@ describe("request checks — other websites", () => {
   });
 });
 
-// --- page.html escaping (issue #11) --------------------------------------------
-// The row template renders store data via innerHTML; ts and superseded_by were
-// the two fields that bypassed esc(). The pure helpers now live in a dedicated
-// DOM-free <script id="viewer-helpers"> block so THIS test can eval the SHIPPED
-// code (not a copy) and assert escaping.
+// --- page.html escaping -------------------------------------------------------
+// The row template renders store data via innerHTML. The pure helpers live in
+// a dedicated DOM-free <script id="viewer-helpers"> block so THIS test can
+// eval the SHIPPED code (not a copy) and assert escaping.
 
 type Helpers = {
   esc: (s: unknown) => string;
@@ -378,7 +377,7 @@ function loadHelpers(): { h: Helpers; src: string } {
   return { h: scope as unknown as Helpers, src };
 }
 
-describe("page.html escaping (issue #11)", () => {
+describe("page.html escaping", () => {
   const X = '<img src=x onerror="alert(1)">';
 
   test("the helpers block is DOM-free and loads standalone", () => {

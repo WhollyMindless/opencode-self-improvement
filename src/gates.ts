@@ -32,7 +32,7 @@ export interface WriteCandidate {
   status?: "open" | "settled";
   // "global" = cross-project (memory_remember global:true; imports carry a
   // row's origin stamp). Any other value (including undefined) is resolved by
-  // appendMemory against the live repo scope (issue #8).
+  // appendMemory against the live repo scope.
   repo?: string;
   repoPath?: string;
 }
@@ -203,9 +203,9 @@ export async function runWriteGate(
 ): Promise<GateOutcome> {
   const chain = chainId();
 
-  // Size/type floor BEFORE any scanning (issue #20): gate analysis regexes
-  // over megabyte content backtracked super-linearly and froze the service
-  // event loop. Measured pre-fix: 100KB write = 6s, 2MB = never returned.
+  // Size/type floor BEFORE any scanning: gate analysis regexes
+  // over megabyte content backtrack super-linearly and freeze the service
+  // event loop (100KB write = 6s, 2MB = never returned).
   if (typeof candidate.content !== "string") {
     await recordWriteBlocked(4, "invalid_content", [`content_type=${typeof candidate.content}`], chain);
     return { action: "blocked", reason: "invalid_content", chain, hint: "content must be a string." };
@@ -465,10 +465,9 @@ export async function runWriteGate(
     blockReason = "drift_ref_stale_incoming";
     blockFlags = ["incoming_embeds_pre_drift_ref"];
   } else if (g1.missingPaths.length && !planningObject) {
-    // A settled claim about code must point at files that exist. Live demo
-    // 2026-10-20: a memory citing src/ghost_pipeline_removed.ts (never existed)
-    // was promoted on trust. Open planning threads are exempt — plans routinely
-    // cite files not yet created.
+    // A settled claim about code must point at files that exist. Open
+    // planning threads are exempt — plans routinely cite files not yet
+    // created.
     blockReason = "ref_path_missing";
     blockFlags = [`missing=${g1.missingPaths.join(",")}`];
     hint = `Path ref(s) not found in the repo: ${g1.missingPaths.join(", ")}. Rephrase against the current tree (drop the path or fix it) and retry; use status="open" if the file is planned, not existing.`;

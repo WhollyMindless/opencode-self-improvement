@@ -67,10 +67,10 @@ store writes) using the plugin's real injection code:
 
 | Policy | Recomputes | Injected chars (20 turns) | Avg/turn | Worst block |
 | --- | ---: | ---: | ---: | ---: |
-| A — recompute per prompt, uncapped (pre-0.2) | 20 | 27748 | 1387.4 | 1575 |
-| B — epoch freeze + 1200-char cap (0.2) | 4 | 20654 | 1032.7 | 1157 |
+| A — recompute per prompt, uncapped (naive) | 20 | 29460 | 1473.0 | 1765 |
+| B — epoch freeze + 1200-char cap (shipped) | 4 | 19516 | 975.8 | 1139 |
 
-Policy B injects 25.6% fewer characters — and the bigger saving isn't even in
+Policy B injects 33.8% fewer characters — and the bigger saving isn't even in
 the character count: B's block is byte-identical between store changes, so the
 prompt cache stays warm across ordinary turns. Reproduce (byte-identical
 output):
