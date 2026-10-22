@@ -15,6 +15,7 @@ import { dateStr, evidenceDir, memoryRoot } from "../src/config.ts";
 import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { resetState } from "../src/state.ts";
 import { isActive, loadAll } from "../src/memory.ts";
+import { setRepoScope } from "../src/repokey.ts";
 import { loadPlugin } from "./harness.ts";
 import {
   buildCapturePrompt,
@@ -29,6 +30,7 @@ let liveRoot: string;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "osi-capture-"));
   process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
+  setRepoScope(null);
   process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });

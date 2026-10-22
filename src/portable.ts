@@ -5,7 +5,7 @@
 // moat. Decay is supersede-not-delete and snapshot-first, mirroring prune.
 import { join } from "node:path";
 import { memoryRoot } from "./config.ts";
-import { isActive, loadAll, type Memory } from "./memory.ts";
+import { isActive, isVisibleHere, loadAll, type Memory } from "./memory.ts";
 import { TYPES } from "./types.ts";
 import type { WriteCandidate } from "./gates.ts";
 
@@ -45,6 +45,10 @@ export async function exportMemories(opts: ExportOptions = {}): Promise<ExportRe
       status: m.status,
       tags: m.tags,
       issue: m.issue,
+      // Origin stamps ride along so scoping survives the machine hop (the
+      // repo key is a remote-URL hash; the path is the secondary match).
+      repo: m.repo,
+      repoPath: m.repoPath,
     }),
   );
   await Bun.write(path, lines.length ? lines.join("\n") + "\n" : "");
@@ -79,6 +83,11 @@ function parseRow(line: string): WriteCandidate | null {
   if (r.status === "open" || r.status === "settled") c.status = r.status;
   if (Array.isArray(r.tags) && r.tags.every((t) => typeof t === "string")) c.tags = r.tags;
   if (typeof r.issue === "string" && r.issue) c.issue = r.issue;
+  // Origin stamps survive an export/import hop (repokey.ts): a row written
+  // for repo X stays visible only where repo X is opened, even on a new
+  // machine. Unstamped rows stay global.
+  if (typeof r.repo === "string" && r.repo) c.repo = r.repo;
+  if (typeof r.repoPath === "string" && r.repoPath) c.repoPath = r.repoPath;
   return c;
 }
 
@@ -116,6 +125,8 @@ export async function importMemories(
 export async function findStaleOpen(days: number): Promise<Memory[]> {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
   return (await loadAll())
-    .filter((m) => isActive(m) && m.status === "open" && m.ts < cutoff)
+    // Decay is repo-scoped (issue #8): running it here must not retire
+    // another repo's open threads.
+    .filter((m) => isActive(m) && isVisibleHere(m) && m.status === "open" && m.ts < cutoff)
     .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 }

@@ -23,6 +23,7 @@ import { runWriteGate, type GateContext } from "../src/gates.ts";
 import { afterTool, evidenceCalls, hasEngagement, hasGateCheck } from "../src/triggers.ts";
 import { systemDigest } from "../src/inject.ts";
 import { resetState, setCurrent } from "../src/state.ts";
+import { setRepoScope } from "../src/repokey.ts";
 import { loadPlugin } from "./harness.ts";
 
 let root: string;
@@ -31,6 +32,7 @@ let liveRoot: string;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "osi-ge-"));
   process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
+  setRepoScope(null);
   process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });

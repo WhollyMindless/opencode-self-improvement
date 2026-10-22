@@ -231,6 +231,18 @@ as `00:11:25.867`, or a unique substring of its text. Omit it to update the newe
 entry of that scope and type. A `query` matching nothing, or matching several rows,
 writes nothing and says so rather than updating the wrong memory.
 
+## Repo scoping
+
+Memories belong to the repo that wrote them: rows are stamped with your git
+remote (an id that survives re-clones and moves between machines) or, with no
+remote, the repo path. Injection, recall, the frontier block, compaction,
+`memory_forget`, and decay only ever see the current repo plus global rows —
+project A's facts never surface in project B. Preferences and habits that
+should follow you everywhere go in with `memory_remember global: true`.
+Memories written before this existed, and ones restored through the viewer,
+are global (visible everywhere), so upgrading changes nothing; exports carry
+origin stamps, so scoping survives a machine hop.
+
 ## Backup & move between machines
 
 `memory_export` writes the live store as JSONL — one JSON object per line

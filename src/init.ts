@@ -8,7 +8,7 @@
 import { basename, join } from "node:path";
 import { existsSync } from "node:fs";
 import { cbmBin } from "./config.ts";
-import { loadAll, markSuperseded } from "./memory.ts";
+import { isVisibleHere, loadAll, markSuperseded } from "./memory.ts";
 import { runWriteGate, type GateContext } from "./gates.ts";
 import { record } from "./evidence.ts";
 import { evidenceCalls, hasGateCheck } from "./triggers.ts";
@@ -185,7 +185,11 @@ export interface InitStamp {
 }
 
 export async function initStamp(scope: string): Promise<InitStamp | null> {
-  const mems = (await loadAll()).filter((m) => !m.superseded_by);
+  // Issue #8: scope is a basename, so two different repos can share one
+  // ("api" next to "api", a fork beside its upstream). Visibility filtering
+  // makes each repo see only its own stamp — basename collisions no longer
+  // alias init state between repos.
+  const mems = (await loadAll()).filter((m) => !m.superseded_by && isVisibleHere(m));
   for (const m of mems) {
     if (m.type !== "context" || m.scope !== scope) continue;
     if (!m.tags?.some((t) => t === "init-stamp")) continue;
