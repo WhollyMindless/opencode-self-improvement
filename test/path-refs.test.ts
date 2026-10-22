@@ -41,6 +41,23 @@ describe("checkablePathRefs — which refs are policed", () => {
   test("dedupes repeated refs", () => {
     expect(checkablePathRefs("src/a.ts ... src/a.ts again")).toEqual(["src/a.ts"]);
   });
+
+  test("the whole extension is kept: .tsx and .jsx are not cut to .ts and .js", () => {
+    expect(checkablePathRefs("see src/Button.tsx, src/App.jsx:12 and src/a.ts.")).toEqual([
+      "src/Button.tsx",
+      "src/App.jsx",
+      "src/a.ts",
+    ]);
+  });
+
+  test("other extensions that start with ts/js are not refs", () => {
+    expect(
+      checkablePathRefs(
+        "src/config.json, x/opencode.jsonc, s/tsconfig.tsbuildinfo, " +
+          "s/__snapshots__/B.tsx.snap and d/app.js.map",
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("gate1 — existence check against liveRoot", () => {
@@ -131,6 +148,21 @@ describe("runWriteGate — ref_path_missing block", () => {
     await Bun.write(join(liveRoot, "src", "real.ts"), "export const x = 1;\n");
     const outcome = await runWriteGate(
       { type: "learning", scope: "demo", content: "The gate lives in src/real.ts and exports x." },
+      ctx(),
+    );
+    expect(outcome.action).toBe("promoted");
+  });
+
+  test("settled write citing real .tsx, .jsx and .json files promotes", async () => {
+    for (const f of ["Button.tsx", "App.jsx", "config.json"]) {
+      await Bun.write(join(liveRoot, "src", f), "x\n");
+    }
+    const outcome = await runWriteGate(
+      {
+        type: "learning",
+        scope: "demo",
+        content: "src/Button.tsx renders inside src/App.jsx; flags come from src/config.json.",
+      },
       ctx(),
     );
     expect(outcome.action).toBe("promoted");
