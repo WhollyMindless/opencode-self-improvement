@@ -5,7 +5,8 @@
 import { existsSync } from "node:fs";
 import { join, basename } from "node:path";
 import { memoryRoot, deletionsFile, snapshotDir } from "./config.ts";
-import { repoScope } from "./repokey.ts";
+import { repoScopeFor } from "./repokey.ts";
+import { getCurrent } from "./state.ts";
 import { appendLog, ensureDir, formatLine, parseLine, readLines } from "./logfmt.ts";
 import { blockedTs } from "./blocklist.ts";
 
@@ -173,11 +174,13 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   }
   // Repo stamp at the single write choke point: gated writes,
   // viewer restores and edits all pass through here. Explicit "global"
-  // survives; an unscoped process (viewer) stamps nothing = global.
+  // survives; an unscoped process (viewer) stamps nothing = global. Session
+  // identity wins over the module scope so a server hosting several workspaces
+  // stamps the writing session's repo.
   let repo = input.repo;
   let repoPath = input.repoPath;
   if (repo === undefined) {
-    const cur = repoScope();
+    const cur = repoScopeFor(getCurrent().sid);
     if (cur) {
       repo = cur.key;
       repoPath = cur.path;
@@ -416,7 +419,7 @@ export function isActive(m: Memory): boolean {
 // entry points.
 export function isVisibleHere(m: Memory): boolean {
   if (!m.repo || m.repo === "global") return true;
-  const cur = repoScope();
+  const cur = repoScopeFor(getCurrent().sid);
   if (!cur) return true; // unscoped process: no partitioning
   return m.repo === cur.key || (!!m.repoPath && m.repoPath === cur.path);
 }
