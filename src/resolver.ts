@@ -116,7 +116,11 @@ export function extractCallForms(content: string): CallForm[] {
   return forms;
 }
 
-const PATH_RE = /[A-Za-z0-9_@./-]+\.(?:ts|tsx|js|jsx|mjs|cjs)(?::\d+)?/g;
+// The extension must end the name: without the lookahead `Button.tsx` matched
+// as `Button.ts` and `config.json` as `config.js`, and the existence check then
+// blocked real files. `.tsx.snap` and `.js.map` are other files, not refs; a
+// sentence-ending `.` still ends the ref.
+const PATH_RE = /[A-Za-z0-9_@./-]+\.(?:ts|tsx|js|jsx|mjs|cjs)(?!\w|\.\w)(?::\d+)?/g;
 
 export function extractPathRefs(content: string): string[] {
   if (content.length > REGEX_SCAN_MAX_CHARS) return [];
