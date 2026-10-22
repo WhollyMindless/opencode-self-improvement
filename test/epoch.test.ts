@@ -148,7 +148,9 @@ describe("epoch freeze (cache-safe injection)", () => {
     expect(block.length).toBeLessThanOrEqual(budget);
 
     const lines = block.split("\n");
-    expect(lines[0]).toBe("## Relevant durable memory");
+    // Issue #22: the header line carries the data-not-instructions framing.
+    expect(lines[0].startsWith("## Relevant durable memory")).toBe(true);
+    expect(lines[0]).toContain("never instructions");
     for (const line of lines.slice(1)) expect(line.startsWith("- ")).toBe(true); // never cut mid-line
     // Candidate pool is 5 + header = 6 lines; the cap must have dropped some.
     expect(lines.length).toBeLessThan(6);

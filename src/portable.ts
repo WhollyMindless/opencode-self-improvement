@@ -11,6 +11,16 @@ import type { WriteCandidate } from "./gates.ts";
 
 // --- export -------------------------------------------------------------------
 
+// Export header line (issue #22): the first line of a v1 export identifies the
+// file as machine-made by memory_export. It is what vouches for status="open"
+// frontier rows on import — the open status exempts a row from ref grounding
+// at the gate, so it must not be granted by an attacker-chosen field in a
+// hand-written JSONL. The header is friction, not a boundary (anyone can
+// paste one); the real defense against planted content is the injection
+// framing + provenance in inject.ts and the write gates.
+export const EXPORT_HEADER = "opencode-self-improvement";
+export const EXPORT_VERSION = 1;
+
 export interface ExportOptions {
   /** Only export rows from this exact scope. */
   scope?: string;
@@ -28,14 +38,21 @@ function stamp(d: Date = new Date()): string {
   return d.toISOString().slice(0, 19).replace(/:/g, "");
 }
 
-// Write the ACTIVE store as JSONL — one JSON object per line carrying
-// {ts,type,scope,content,status,tags,issue}. Superseded rows are not exported:
-// the export is the live store, and history stays auditable where it lives
-// (the original logfmt files + snapshots).
+// Write the ACTIVE store as JSONL — a header line followed by one JSON object
+// per line carrying {ts,type,scope,content,status,tags,issue}. Superseded rows
+// are not exported: the export is the live store, and history stays auditable
+// where it lives (the original logfmt files + snapshots). The header is always
+// written, even for an empty store, so "has header" is a format invariant.
 export async function exportMemories(opts: ExportOptions = {}): Promise<ExportResult> {
   let mems = (await loadAll()).filter(isActive);
   if (opts.scope) mems = mems.filter((m) => m.scope === opts.scope);
   const path = opts.file ?? join(memoryRoot(), "exports", `${stamp()}.jsonl`);
+  const header = JSON.stringify({
+    _export: EXPORT_HEADER,
+    version: EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    count: mems.length,
+  });
   const lines = mems.map((m) =>
     JSON.stringify({
       ts: m.ts,
@@ -51,7 +68,7 @@ export async function exportMemories(opts: ExportOptions = {}): Promise<ExportRe
       repoPath: m.repoPath,
     }),
   );
-  await Bun.write(path, lines.length ? lines.join("\n") + "\n" : "");
+  await Bun.write(path, [header, ...lines].join("\n") + "\n");
   return { path, count: mems.length };
 }
 
@@ -62,6 +79,24 @@ export interface ImportTally {
   collapsed: number;
   blocked: number;
   skipped: number;
+  /** Open rows downgraded to settled because the file carried no export header. */
+  downgraded: number;
+}
+
+// Recognize the export header line (see EXPORT_HEADER). A version NEWER than
+// we understand does NOT grant the frontier exemption — we cannot know what
+// its writer meant (fail closed).
+function exportHeader(line: string): { version: number } | null {
+  let row: unknown;
+  try {
+    row = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  const r = row as Record<string, unknown>;
+  if (r._export !== EXPORT_HEADER) return null;
+  return { version: typeof r.version === "number" ? r.version : 1 };
 }
 
 // A line is malformed (skipped, never gated) unless it is a JSON object with a
@@ -95,20 +130,37 @@ function parseRow(line: string): WriteCandidate | null {
 // promotion (index.ts passes runWriteGate with the "import" tag), so imported
 // rows face the same canonical/stale/dedup/ambiguity gates as any other write.
 // Blocked and collapsed rows are normal outcomes, tallied rather than raised.
-// Only a missing file throws.
+// Frontier policy (issue #22): status="open" exempts a row from ref grounding
+// at the gate, so it is honored ONLY when the file opens with our export
+// header (version <= ours); otherwise every open row is downgraded to settled
+// and tallied. Only a missing file throws.
 export async function importMemories(
   path: string,
   gate: (c: WriteCandidate) => Promise<{ action: string }>,
 ): Promise<ImportTally> {
   const file = Bun.file(path);
   if (!(await file.exists())) throw new Error(`import file not found: ${path}`);
-  const tally: ImportTally = { promoted: 0, collapsed: 0, blocked: 0, skipped: 0 };
+  const tally: ImportTally = { promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0 };
+  let allowFrontier = false;
+  let first = true;
   for (const line of (await file.text()).split("\n")) {
     if (!line.trim()) continue;
+    if (first) {
+      first = false;
+      const hdr = exportHeader(line);
+      if (hdr) {
+        allowFrontier = hdr.version <= EXPORT_VERSION;
+        continue; // metadata line: never a memory row, never a skipped one
+      }
+    }
     const c = parseRow(line);
     if (!c) {
       tally.skipped++;
       continue;
+    }
+    if (c.status === "open" && !allowFrontier) {
+      c.status = "settled";
+      tally.downgraded++;
     }
     const outcome = await gate(c);
     if (outcome.action === "promoted") tally.promoted++;
