@@ -39,15 +39,15 @@
     "codebase-memory-mcp": "0.11.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.6.2",
-    "@opencode/plugin": "^2.0.32",
-    "@opentui/core": ">=0.6.6",
-    "@opentui/solid": ">=0.6.6",
-    "@semantic-release/git": "^11.0.1",
-    "@types/bun": "latest",
-    "semantic-release": "^25.0.9",
-    "solid-js": ">=1.9.0",
-    "typescript": "^7.0.2"
+    "@biomejs/biome": "2.6.2",
+    "@opencode/plugin": "2.0.32",
+    "@opentui/core": "0.6.6",
+    "@opentui/solid": "0.6.6",
+    "@semantic-release/git": "11.0.1",
+    "@types/bun": "1.4.2",
+    "semantic-release": "25.0.9",
+    "solid-js": "1.9.17",
+    "typescript": "7.0.2"
   },
   "peerDependencies": {
     "@opentui/core": ">=0.6.6",
@@ -64,6 +64,6 @@
     "lint": "biome lint"
   },
   "dependencies": {
-    "zod": "^4.6.7"
+    "zod": "4.6.7"
   }
 }
