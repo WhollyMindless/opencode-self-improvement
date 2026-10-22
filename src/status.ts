@@ -22,6 +22,8 @@ export interface StoreCounts {
   superseded: number;
   open: number;
   scopes: number;
+  /** Rows skipped as malformed by the most recent store read (issue #15). */
+  malformed: number;
 }
 
 /**
@@ -309,7 +311,8 @@ export function renderMemoryReport(input: {
   out.push(
     "",
     "STORE",
-    `  ${store.active} active · ${store.superseded} superseded · ${store.open} open · ${store.scopes} scopes`,
+    `  ${store.active} active · ${store.superseded} superseded · ${store.open} open · ${store.scopes} scopes` +
+      (store.malformed ? ` · ${store.malformed} malformed (skipped; fix the ts= field or undo)` : ""),
   );
   out.push("", "Terminal (CLI/TUI) users: /memory opens this as a live panel; the footer shows a one-line badge.");
   return out.join("\n");

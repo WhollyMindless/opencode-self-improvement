@@ -53,7 +53,7 @@ const payload = (over: Partial<StatusPayload> = {}): StatusPayload => ({
   block: "## Relevant durable memory\n- [2026-10-20] pattern/build: run bun test",
   blockChars: 70,
   budget: 1200,
-  store: { active: 3, superseded: 1, open: 1, scopes: 2 },
+  store: { active: 3, superseded: 1, open: 1, scopes: 2, malformed: 0 },
   stats: {
     requests: 14,
     abstained: 3,
