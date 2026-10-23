@@ -221,6 +221,12 @@ bun run gate          # typecheck + lint + unit tests + terminal smoke & BDD
 bun run gate:hooks    # once per clone: run the gate automatically on `git push`
 ```
 
+**Feature order is BDD-first.** Every new feature starts by adding (or fixing)
+a BDD scenario in `e2e/` describing the behavior as a user would observe it —
+before any implementation code and before unit tests. Then write the unit
+tests for the pieces, then the code until everything is green. If no scenario
+turns red first, the feature has no observable contract.
+
 The `e2e/` suite is what keeps a load-error release from shipping again: it
 boots the **real opencode CLI** against each candidate in a fully isolated
 instance (fresh config, fresh db, fresh memory store, empty `HOME`) driven by
