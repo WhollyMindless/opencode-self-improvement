@@ -468,6 +468,19 @@ describe("S5 — prune-a-bad-memory (Principle 3)", () => {
     expect(res.snapshot[0]).toContain(memoryRoot());
     expect(res.snapshot[0]).not.toContain(liveRoot);
   });
+
+  test("a forget that matches nothing writes no snapshot and no deletion", async () => {
+    seed("pattern", "testing", "always run vitest before playwright");
+    mkdirSync(snapshotDir(), { recursive: true });
+
+    const res = await pruneMemory("nothing-matches-this", "pattern", "cleanup sweep");
+    expect(res.deleted.length).toBe(0);
+    // Contract: snapshots are taken per REWRITTEN file, not per file that
+    // exists — a no-op forget must not mint an undo point for nothing.
+    expect(res.snapshot).toEqual([]);
+    expect((await loadAll()).length).toBe(1);
+    expect(existsSync(join(memoryRoot(), "deletions.logfmt"))).toBe(false);
+  });
 });
 
 describe("S6 — FAIL→PASS gate → learning (T4)", () => {

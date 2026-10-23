@@ -96,6 +96,33 @@ describe("restoreSnapshot modes", () => {
     expect(lines()).toEqual([row(1), row(2, ' superseded_by="x" reason="drift"'), row(3)]);
   });
 
+  test("force snapshots what it drops: rows newer than the snapshot land in the safety copy", async () => {
+    seed([row(1), row(2)]);
+    const snap = await snapshotOfStore();
+    // another session appends after the snapshot was taken
+    seed([row(1), row(2), row(3)]);
+
+    const res = await restoreSnapshot(snap, memoryRoot(), "force");
+    expect(res.restored).toBe(true);
+    expect(lines()).toEqual([row(1), row(2)]); // force means the new row goes
+    expect(res.concurrentAdded).toEqual(["2026-01-01T00:00:03.000Z"]);
+    // ...and it is not simply gone: the pre-restore file is snapshotted, from
+    // under the lock, so it holds the row this call dropped.
+    if (!res.safety) throw new Error("force restore returned no safety snapshot");
+    expect(res.safety).not.toBe(snap);
+    expect(readFileSync(res.safety, "utf8")).toContain("row 3");
+  });
+
+  test("check and merge keep every row, so they take no safety snapshot", async () => {
+    seed([row(1), row(2)]);
+    const snap = await snapshotOfStore();
+    seed([row(1), row(2), row(3)]);
+
+    expect((await restoreSnapshot(snap, memoryRoot())).safety).toBeUndefined();
+    expect((await restoreSnapshot(snap, memoryRoot(), "merge")).safety).toBeUndefined();
+    expect(lines().length).toBe(3);
+  });
+
   test("bare snapshot name (as printed by list) resolves against snapshots/", async () => {
     seed([row(1), row(2)]);
     const snap = await snapshotOfStore();

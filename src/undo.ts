@@ -3,15 +3,18 @@
 //
 // Daily logfmt files are SHARED across concurrent sessions, so a naive
 // whole-file write can silently clobber rows another session appended after
-// the snapshot. Restore is therefore
-// conflict-aware. The snapshot cannot tell "rows I added since the snapshot,
-// which undo should remove" apart from "rows another session added, which
-// must survive" — that call belongs to the caller, so the default mode CHECK
-// refuses and lists the divergent rows; MERGE replays them on top of the
-// snapshot; FORCE is the old exact rollback.
+// the snapshot. Restore is therefore conflict-aware: the snapshot cannot tell
+// "rows I added since the snapshot, which undo should remove" apart from
+// "rows another session added, which must survive", so that call belongs to
+// the caller. The default mode CHECK refuses and lists the divergent rows;
+// MERGE replays them on top of the snapshot; FORCE is the old exact rollback,
+// and additionally snapshots the file it replaces, so the state it drops stays
+// undoable (result.safety).
 import { basename, join, resolve, sep } from "node:path";
 import { snapshotDir } from "./config.ts";
-import { ensureDir } from "./logfmt.ts";
+import { ensureDir, writeAtomic } from "./logfmt.ts";
+import { withStoreLock, LOCK_RESTORE } from "./lock.ts";
+import { snapshotFiles } from "./memory.ts";
 
 export interface SnapshotInfo {
   file: string;
@@ -45,6 +48,9 @@ export interface RestoreResult {
   target: string;
   restored: boolean;
   mode: RestoreMode;
+  // Snapshot of the file as it stood the moment the restore held the lock —
+  // present on a force restore, which is the mode that drops rows.
+  safety?: string;
   // ts of rows present in the CURRENT file but absent from the snapshot
   // (added after it — or in-place edits, listed under their original ts).
   concurrentAdded: string[];
@@ -87,37 +93,55 @@ export async function restoreSnapshot(
     throw new Error(`snapshot target escapes the memory root: ${original}`);
   }
   const snapLines = rows(await f.text());
-  const cur = Bun.file(target);
-  const curLines = (await cur.exists()) ? rows(await cur.text()) : [];
 
-  const snapByKey = new Map(snapLines.map((l) => [rowKey(l), l]));
-  const concurrentAdded: string[] = [];
-  const concurrentChanged: string[] = [];
-  const curByKey = new Map<string, string>();
-  for (const l of curLines) {
-    const k = rowKey(l);
-    curByKey.set(k, l);
-    const s = snapByKey.get(k);
-    if (s === undefined) concurrentAdded.push(k);
-    else if (s !== l) concurrentChanged.push(k);
-  }
+  // Comparing and publishing happen under the same lock: a divergence check on
+  // a stale read would wave through a row that landed after it. A restore waits
+  // for the store rather than proceeding unlocked, because "force" deliberately
+  // drops rows — doing that on top of a racing writer would drop rows nobody
+  // agreed to drop.
+  return withStoreLock(
+    target,
+    async () => {
+      const cur = Bun.file(target);
+      const curLines = (await cur.exists()) ? rows(await cur.text()) : [];
 
-  if (mode === "check" && (concurrentAdded.length || concurrentChanged.length)) {
-    return { target, restored: false, mode, concurrentAdded, concurrentChanged };
-  }
+      const snapByKey = new Map(snapLines.map((l) => [rowKey(l), l]));
+      const concurrentAdded: string[] = [];
+      const concurrentChanged: string[] = [];
+      const curByKey = new Map<string, string>();
+      for (const l of curLines) {
+        const k = rowKey(l);
+        curByKey.set(k, l);
+        const s = snapByKey.get(k);
+        if (s === undefined) concurrentAdded.push(k);
+        else if (s !== l) concurrentChanged.push(k);
+      }
 
-  let out = snapLines;
-  if (mode === "merge") {
-    // Keep the CURRENT version of rows the snapshot also has (in-place edits —
-    // e.g. a supersede stamp — made after the snapshot win), then append the
-    // rows the snapshot never saw. Merge is a deliberate superset: rows the
-    // snapshotter wrote after the snapshot are NOT dropped here; choose FORCE
-    // for that.
-    out = snapLines.map((l) => curByKey.get(rowKey(l)) ?? l).concat(
-      curLines.filter((l) => !snapByKey.has(rowKey(l))),
-    );
-  }
-  await ensureDir(memoryRootDir);
-  await Bun.write(target, out.length ? out.join("\n") + "\n" : "");
-  return { target, restored: true, mode, concurrentAdded, concurrentChanged };
+      if (mode === "check" && (concurrentAdded.length || concurrentChanged.length)) {
+        return { target, restored: false, mode, concurrentAdded, concurrentChanged };
+      }
+
+      // FORCE is the mode that drops rows, so the file it replaces is
+      // snapshotted HERE — inside the lock, which is what makes rows a
+      // concurrent session appended moments earlier part of the copy. A caller
+      // that snapshots before this call races the very write it means to save.
+      const safety = mode === "force" ? (await snapshotFiles([target]))[0] : undefined;
+
+      let out = snapLines;
+      if (mode === "merge") {
+        // Keep the CURRENT version of rows the snapshot also has (in-place edits —
+        // e.g. a supersede stamp — made after the snapshot win), then append the
+        // rows the snapshot never saw. Merge is a deliberate superset: rows the
+        // snapshotter wrote after the snapshot are NOT dropped here; choose FORCE
+        // for that.
+        out = snapLines.map((l) => curByKey.get(rowKey(l)) ?? l).concat(
+          curLines.filter((l) => !snapByKey.has(rowKey(l))),
+        );
+      }
+      await ensureDir(memoryRootDir);
+      await writeAtomic(target, out.length ? out.join("\n") + "\n" : "");
+      return { target, restored: true, mode, safety, concurrentAdded, concurrentChanged };
+    },
+    LOCK_RESTORE,
+  );
 }

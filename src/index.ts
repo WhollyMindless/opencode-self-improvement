@@ -415,7 +415,8 @@ const impl = {
             const kept = res.mode === "merge" && (res.concurrentAdded.length || res.concurrentChanged.length)
               ? ` Kept ${res.concurrentAdded.length} added / ${res.concurrentChanged.length} changed row(s) written after the snapshot.`
               : "";
-            return { content: `Restored ${basename(res.target)} from ${res.mode} snapshot -> ${res.target}.${kept}` };
+            const safety = res.safety ? ` Pre-restore file snapshotted -> ${res.safety}.` : "";
+            return { content: `Restored ${basename(res.target)} from ${res.mode} snapshot -> ${res.target}.${kept}${safety}` };
           }
           const snaps = await listSnapshots();
           if (!snaps.length) return { content: "No snapshots" };

@@ -3,11 +3,13 @@
 // vendor/opencode-memory/LICENSE) and extends it with the fields the write-gate
 // needs: supersession markers, snapshots and audited deletion.
 import { existsSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { join, basename } from "node:path";
-import { memoryRoot, deletionsFile, snapshotDir } from "./config.ts";
+import { dateStr, memoryRoot, deletionsFile, snapshotDir } from "./config.ts";
 import { repoScopeFor } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
-import { appendLog, ensureDir, formatLine, parseLine, readLines } from "./logfmt.ts";
+import { appendLog, ensureDir, formatLine, parseLine, readLines, writeAtomic, type Fields } from "./logfmt.ts";
+import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 import { blockedTs } from "./blocklist.ts";
 
 export type MemoryStatus = "open" | "settled";
@@ -143,16 +145,15 @@ export interface AppendMemoryInput {
   repoPath?: string;
 }
 
-// Existing ts values across all memory files, used to guarantee uniqueness of
-// newly appended entries (a fast seed->append within one millisecond would
-// otherwise collide on the ISO timestamp).
-async function existingTs(): Promise<Set<string>> {
+// ts values already in `file`. An appended row's ts is "now", so the only rows
+// it can collide with are ones this same file received in the same millisecond;
+// scanning just it keeps the locked section to one read of one file. (A row
+// hand-placed with today's ts in another day's file is outside this promise.)
+async function existingTs(file: string): Promise<Set<string>> {
   const set = new Set<string>();
-  for (const file of await memoryFiles()) {
-    for (const line of await readLines(file)) {
-      const f = parseLine(line);
-      if (f && typeof f.ts === "string") set.add(f.ts);
-    }
+  for (const line of await readLines(file)) {
+    const f = parseLine(line);
+    if (f && typeof f.ts === "string") set.add(f.ts);
   }
   return set;
 }
@@ -166,17 +167,11 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   if (input.content.length > MAX_CONTENT_CHARS) {
     throw new Error(`memory content exceeds ${MAX_CONTENT_CHARS} chars (${input.content.length})`);
   }
-  const taken = await existingTs();
-  let ts = new Date().toISOString();
-  let guard = 0;
-  while (taken.has(ts) && guard++ < 1000) {
-    ts = new Date(new Date(ts).getTime() + 1).toISOString();
-  }
-  // Repo stamp at the single write choke point: gated writes,
-  // viewer restores and edits all pass through here. Explicit "global"
-  // survives; an unscoped process (viewer) stamps nothing = global. Session
-  // identity wins over the module scope so a server hosting several workspaces
-  // stamps the writing session's repo.
+  // Repo stamp at the single write choke point: gated writes, viewer restores
+  // and edits all pass through here. Explicit "global" survives; an unscoped
+  // process (viewer) stamps nothing = global. Session identity wins over the
+  // module scope so a server hosting several workspaces stamps the writing
+  // session's repo.
   let repo = input.repo;
   let repoPath = input.repoPath;
   if (repo === undefined) {
@@ -186,22 +181,36 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
       repoPath = cur.path;
     }
   }
-  const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
-  await appendLog(
-    file,
-    formatLine({
-      ts,
-      type: input.type,
-      scope: input.scope,
-      content: input.content,
-      issue: input.issue,
-      tags: input.tags?.length ? input.tags.join(",") : undefined,
-      status: input.status,
-      repo,
-      repoPath,
-    }),
-  );
-  return ts;
+  // Day file chosen before the lock (it IS the lock key). A ts bumped across
+  // midnight therefore lands under the previous day's name; readers glob every
+  // file and decay compares ts values, so the grouping is cosmetic.
+  const file = join(memoryRoot(), `${dateStr()}.logfmt`);
+  // Locked end to end: seeding ts from a scan another process can race yields
+  // two rows with the same identity, and an append that lands inside someone
+  // else's whole-file rewrite is simply not there afterwards.
+  return withStoreLock(file, async () => {
+    const taken = await existingTs(file);
+    let ts = new Date().toISOString();
+    let guard = 0;
+    while (taken.has(ts) && guard++ < 1000) {
+      ts = new Date(new Date(ts).getTime() + 1).toISOString();
+    }
+    await appendLog(
+      file,
+      formatLine({
+        ts,
+        type: input.type,
+        scope: input.scope,
+        content: input.content,
+        issue: input.issue,
+        tags: input.tags?.length ? input.tags.join(",") : undefined,
+        status: input.status,
+        repo,
+        repoPath,
+      }),
+    );
+    return ts;
+  }, LOCK_WRITE);
 }
 
 export interface SupersedeFields {
@@ -213,44 +222,52 @@ export interface SupersedeFields {
   entity?: string;
 }
 
-// Copy `file` into snapshots/ before a mutation. Names follow
-// `<stamp>-<original>` because /undo strips the stamp to find its target, so a
-// same-millisecond collision would clobber an earlier, still-undoable snapshot
-// (supersede + clear in one merge_review can land in the same millisecond).
+// Copy `file` into snapshots/ before a mutation.
 async function snapshotBefore(file: string): Promise<void> {
-  await ensureDir(snapshotDir());
-  let stamp = Date.now();
-  let snap = join(snapshotDir(), `${stamp}-${basename(file)}`);
-  while (await Bun.file(snap).exists()) snap = join(snapshotDir(), `${++stamp}-${basename(file)}`);
-  await Bun.write(snap, (await Bun.file(file).text()) || "");
+  await snapshotFiles([file]);
+}
+
+// Read-modify-write ONE row of a store file: read, rewrite the line, publish
+// atomically, all under the store lock, so an append or another rewrite by a
+// concurrent session cannot be overwritten by our stale copy. Resolves to null
+// when the row is not in this file, otherwise the mutation's outcome.
+async function stampRow(
+  file: string,
+  ts: string,
+  mutate: (fields: Fields) => string | null,
+): Promise<boolean | null> {
+  return withStoreLock(
+    file,
+    async () => {
+      const lines = await readLines(file);
+      const idx = lines.findIndex((l) => {
+        const f = parseLine(l);
+        return f && f.ts === ts;
+      });
+      if (idx === -1) return null;
+      const parsed = parseLine(lines[idx]);
+      if (!parsed) return false;
+      const next = mutate(parsed);
+      if (next === null) return false;
+      lines[idx] = next;
+      await snapshotBefore(file);
+      await writeAtomic(file, lines.join("\n") + "\n");
+      return true;
+    },
+    LOCK_WRITE,
+  );
 }
 
 // Mark an existing memory as superseded IN PLACE (entry retained, recoverable).
 // Idempotent: a second call is a no-op, so no double `superseded_by`.
 export async function markSuperseded(ts: string, fields: SupersedeFields): Promise<boolean> {
   for (const file of await memoryFiles()) {
-    const lines = await readLines(file);
-    const idx = lines.findIndex((l) => {
-      const f = parseLine(l);
-      return f && f.ts === ts;
-    });
-    if (idx === -1) continue;
-    const parsed = parseLine(lines[idx]);
-    if (parsed && typeof parsed.superseded_by === "string") return false;
-    // Rewrite the whole line rather than appending to it, so an old-format line
+    // The whole line is rewritten rather than extended, so an old-format line
     // comes out in the current format with its values unchanged.
-    lines[idx] = formatLine({
-      ...parsed,
-      superseded_by: fields.superseded_by,
-      reason: fields.reason,
-      symbol: fields.symbol,
-      from: fields.from,
-      to: fields.to,
-      entity: fields.entity,
-    });
-    await snapshotBefore(file);
-    await Bun.write(file, lines.join("\n") + "\n");
-    return true;
+    const outcome = await stampRow(file, ts, (parsed) =>
+      typeof parsed.superseded_by === "string" ? null : formatLine({ ...parsed, ...fields }),
+    );
+    if (outcome !== null) return outcome;
   }
   return false;
 }
@@ -260,25 +277,18 @@ export async function markSuperseded(ts: string, fields: SupersedeFields): Promi
 // even when an earlier row — now the loser — had superseded it first.
 export async function clearSuperseded(ts: string): Promise<boolean> {
   for (const file of await memoryFiles()) {
-    const lines = await readLines(file);
-    const idx = lines.findIndex((l) => {
-      const f = parseLine(l);
-      return f && f.ts === ts;
+    const outcome = await stampRow(file, ts, (parsed) => {
+      if (typeof parsed.superseded_by !== "string") return null;
+      // These five keys are written only by markSuperseded (drift, canonical,
+      // update and merge_review), never by appendMemory, so they are all part of
+      // the marker and go with it. Field order round-trips because parseLine
+      // inserts keys in source order.
+      for (const key of ["superseded_by", "reason", "symbol", "from", "to", "entity"]) {
+        delete parsed[key];
+      }
+      return formatLine(parsed);
     });
-    if (idx === -1) continue;
-    const parsed = parseLine(lines[idx]);
-    if (!parsed || typeof parsed.superseded_by !== "string") return false;
-    // These five keys are written only by markSuperseded (drift, canonical,
-    // update and merge_review), never by appendMemory, so they are all part of
-    // the marker and go with it. Field order round-trips because parseLine
-    // inserts keys in source order.
-    for (const key of ["superseded_by", "reason", "symbol", "from", "to", "entity"]) {
-      delete parsed[key];
-    }
-    lines[idx] = formatLine(parsed);
-    await snapshotBefore(file);
-    await Bun.write(file, lines.join("\n") + "\n");
-    return true;
+    if (outcome !== null) return outcome;
   }
   return false;
 }
@@ -334,24 +344,35 @@ export interface DeletedMemory {
   reason: string;
 }
 
+// Claim a snapshot name with O_EXCL so "never overwrite a snapshot" holds
+// across processes, not just inside one: two sessions mutating the same file in
+// one millisecond both bump instead of one clobbering the other's still-undoable
+// copy. Names are `<epoch-ms>-<original>` because /undo strips the leading stamp
+// to find its target, so nothing may go in front of it.
+async function claimSnapshot(file: string): Promise<string> {
+  await ensureDir(snapshotDir());
+  let stamp = Date.now();
+  for (;;) {
+    const snap = join(snapshotDir(), `${stamp}-${basename(file)}`);
+    try {
+      const handle = await open(snap, "wx");
+      await handle.close();
+      return snap;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      stamp++;
+    }
+  }
+}
+
 // Snapshot-before-mutate: copy each affected file into snapshots/ so /undo can
 // restore it. Returns the snapshot paths keyed by original file.
 export async function snapshotFiles(files: string[]): Promise<string[]> {
-  await ensureDir(snapshotDir());
-  let stamp = Date.now();
   const snaps: string[] = [];
   for (const file of files) {
     const f = Bun.file(file);
     if (!(await f.exists())) continue;
-    // Names must be unique: a `${Date.now()}-` stamp collides whenever two
-    // mutations happen in the same millisecond, and a clobbered snapshot once
-    // let a restore read post-edit content. Bump until free; never overwrite
-    // a snapshot.
-    let snap = join(snapshotDir(), `${stamp}-${basename(file)}`);
-    while (await Bun.file(snap).exists()) {
-      stamp++;
-      snap = join(snapshotDir(), `${stamp}-${basename(file)}`);
-    }
+    const snap = await claimSnapshot(file);
     await Bun.write(snap, await f.text());
     snaps.push(snap);
   }
@@ -379,30 +400,39 @@ export interface PruneResult {
 }
 
 // Remove matching memories (used by memory_forget), snapshotting first and
-// logging every deletion with its reason.
+// logging every deletion with its reason. Each file is filtered and republished
+// under the store lock, so a row another session appended while we were reading
+// is not quietly filtered out along with the targets.
 export async function prune(scope: string, type: string, reason: string): Promise<PruneResult> {
-  const files = await memoryFiles();
-  const snapshot = await snapshotFiles(files);
   const deleted: DeletedMemory[] = [];
-  for (const file of files) {
-    const lines = await readLines(file);
-    const kept: string[] = [];
-    let changed = false;
-    for (const line of lines) {
-      const parsed = parseLine(line);
-      const m = parsed ? toMemory(parsed, file, 0) : null;
-      // Repo floor: forgetting scope X here must never delete
-      // another repo's row for scope X — same basename collisions are real
-      // (a fork next to its upstream).
-      if (m && m.scope === scope && m.type === type && isVisibleHere(m)) {
-        deleted.push({ memory: m, reason });
-        await logDeletion(m, reason);
-        changed = true;
-        continue;
-      }
-      kept.push(line);
-    }
-    if (changed) await Bun.write(file, kept.join("\n") + (kept.length ? "\n" : ""));
+  const snapshot: string[] = [];
+  for (const file of await memoryFiles()) {
+    await withStoreLock(
+      file,
+      async () => {
+        const lines = await readLines(file);
+        const kept: string[] = [];
+        let changed = false;
+        for (const line of lines) {
+          const parsed = parseLine(line);
+          const m = parsed ? toMemory(parsed, file, 0) : null;
+          // Repo floor: forgetting scope X here must never delete
+          // another repo's row for scope X — same basename collisions are real
+          // (a fork next to its upstream).
+          if (m && m.scope === scope && m.type === type && isVisibleHere(m)) {
+            deleted.push({ memory: m, reason });
+            await logDeletion(m, reason);
+            changed = true;
+            continue;
+          }
+          kept.push(line);
+        }
+        if (!changed) return;
+        snapshot.push(...(await snapshotFiles([file])));
+        await writeAtomic(file, kept.join("\n") + (kept.length ? "\n" : ""));
+      },
+      LOCK_WRITE,
+    );
   }
   return { deleted, snapshot };
 }
