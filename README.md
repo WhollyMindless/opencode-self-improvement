@@ -41,6 +41,12 @@ LLMs waste a lot of tokens reading and re-reading your code and asking you for c
   superseded memories are rejected. Blocked writes are logged with a reason
   (`memory_evidence`), and nothing is ever deleted — updates supersede the old row and
   `memory_undo` rolls back.
+- **Safe across concurrent sessions** — the daily store file is shared by every
+  opencode session on the machine plus the viewer, so the whole-file rewrites
+  (update, forget, undo, viewer delete) hold a per-file lock that is honored
+  across processes, and hand the new file over with an atomic rename. Another
+  session's write is never overwritten, and a reader never sees a half-written
+  store.
 - Automatically looks for insights when you complete the verification gates (tests, linting, etc)
 - Always defaults to memories first before sending a prompt to the LLM, which saves tokens! 
 
@@ -400,6 +406,7 @@ Run `bun memory-view` in your terminal and visit  http://127.0.0.1:8787 in your 
 | `memory_remember` says blocked | A gate rejected the write (stale code reference, a cited `path/to/file.ts` that doesn't exist in the repo, overlap with a superseded memory, or an ambiguous claim). The reason is logged — check `memory_evidence`, then rephrase against current code and retry. |
 | `invalid arguments to memory_*` | The tool call didn't match the tool's input schema — nothing was done, and the message names the offending fields. Schema validation lives at the tool boundary; gate blocks look different (`blocked at GATE (…)`). |
 | STORE shows `N malformed` | Rows in a daily file have a `ts=` that is not a valid ISO instant (typically a hand-edit gone wrong). Every reader skips them; fix the `ts=` value or restore the file with `memory_undo`. |
+| `memory store is busy`, or a stray `*.logfmt.lock` | Another session or the viewer has held that store file for over 5s. Ordinary writes proceed anyway; only `memory_undo` and the viewer's restore refuse, because a forced rollback under a live writer would drop rows nobody agreed to drop. Retry. A lock left behind by a killed process is taken over after 10s; `*.lock` and `*.tmp` files in the store are write bookkeeping, safe to delete while nothing is writing. |
 | `/repo-init` missing from the command list | The self-install couldn't write to `~/.config/opencode/commands/` (e.g. read-only config dir). Create it, restart, or just ask the model to "init memory for this repo" — it calls the same tool. |
 | Init says `Graph: unavailable` | `codebase-memory-mcp` couldn't start (not installed, or its once-only download is blocked). Install pinned `0.11.0` via the one-liner above, or point `OPENCODE_CBM_BIN` at the binary. Scripts are still remembered without it. |
 | Stale plugin after an update | Bump the pinned version in the `plugin` entry (or `opencode plugin update opencode-self-improvement` on v2) and restart opencode. |

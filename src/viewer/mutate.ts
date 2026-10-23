@@ -9,7 +9,9 @@
 import { deletionsFile } from "../config.ts";
 import { addBlock, removeBlock } from "../blocklist.ts";
 import { record, chainId } from "../evidence.ts";
-import { appendLog, formatLine, parseLine, readLines } from "../logfmt.ts";
+import { appendLog, formatLine, parseLine, readLines, writeAtomic } from "../logfmt.ts";
+import { withStoreLock } from "../lock.ts";
+import { LOCK_WRITE } from "../storelock.ts";
 import {
   appendMemory,
   loadAll,
@@ -99,14 +101,23 @@ export async function deleteMemory(input: DeleteInput): Promise<MutationResult> 
   const chain = chainId();
   const target = await findMemory(input.ts);
 
-  const snapshot = await snapshotFiles([target.file]);
-  const lines = await readLines(target.file);
-  const kept = lines.filter((l) => {
-    const f = parseLine(l);
-    return !(f && f.ts === input.ts);
-  });
-  if (kept.length === lines.length) throw new Error(`memory line not found: ${input.ts}`);
-  await Bun.write(target.file, kept.join("\n") + (kept.length ? "\n" : ""));
+  // Snapshot, filter and republish happen as one locked step, so a row another
+  // session appended while we read cannot be filtered out with the target.
+  let snapshot: string[] = [];
+  await withStoreLock(
+    target.file,
+    async () => {
+      const lines = await readLines(target.file);
+      const kept = lines.filter((l) => {
+        const f = parseLine(l);
+        return !(f && f.ts === input.ts);
+      });
+      if (kept.length === lines.length) throw new Error(`memory line not found: ${input.ts}`);
+      snapshot = await snapshotFiles([target.file]);
+      await writeAtomic(target.file, kept.join("\n") + (kept.length ? "\n" : ""));
+    },
+    LOCK_WRITE,
+  );
 
   await audit("deleted", target, input.ts, undefined, input.reason);
   await record("prune", {

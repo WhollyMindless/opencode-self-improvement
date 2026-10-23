@@ -5,7 +5,9 @@
 // memory scan must never pick it up.
 import { join } from "node:path";
 import { memoryRoot } from "./config.ts";
-import { appendLog, formatLine, parseLine, readLines } from "./logfmt.ts";
+import { appendLog, formatLine, parseLine, readLines, writeAtomic } from "./logfmt.ts";
+import { withStoreLock } from "./lock.ts";
+import { LOCK_WRITE } from "./storelock.ts";
 
 const BLOCKLIST_FILENAME = "blocklist.logfmt";
 
@@ -40,17 +42,31 @@ export async function blockedTs(): Promise<Set<string>> {
 
 export async function addBlock(ts: string, reason: string): Promise<string> {
   if (!reason.trim()) throw new Error("reason is required to block a memory");
-  await appendLog(blocklistFile(), formatLine({ ts, reason, blocked_at: new Date().toISOString() }));
+  const file = blocklistFile();
+  await withStoreLock(
+    file,
+    () => appendLog(file, formatLine({ ts, reason, blocked_at: new Date().toISOString() })),
+    LOCK_WRITE,
+  );
   return ts;
 }
 
+// Unblocking filters the file down, so it republishes it whole: both paths hold
+// the blocklist lock or the slower one loses the other's entries.
 export async function removeBlock(ts: string): Promise<boolean> {
-  const file = Bun.file(blocklistFile());
-  if (!(await file.exists())) return false;
-  const kept = (await file.text()).split("\n").filter((l) => {
-    const f = parseLine(l);
-    return !(f && f.ts === ts);
-  });
-  await Bun.write(blocklistFile(), kept.join("\n") + (kept.length ? "\n" : ""));
-  return true;
+  const file = blocklistFile();
+  return withStoreLock(
+    file,
+    async () => {
+      const store = Bun.file(file);
+      if (!(await store.exists())) return false;
+      const kept = (await store.text()).split("\n").filter((l) => {
+        const row = parseLine(l);
+        return !(row && row.ts === ts);
+      });
+      await writeAtomic(file, kept.join("\n") + (kept.length ? "\n" : ""));
+      return true;
+    },
+    LOCK_WRITE,
+  );
 }

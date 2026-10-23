@@ -1,7 +1,7 @@
 // Minimal logfmt reader/writer shared by the durable store and the evidence
 // log. Field order is preserved on write so chains are diffable.
 import { dirname } from "node:path";
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, rename, unlink } from "node:fs/promises";
 
 export type Fields = Record<string, unknown>;
 
@@ -88,7 +88,29 @@ export async function appendLog(file: string, line: string): Promise<void> {
   // covering interleaved async tasks in the service AND a second process
   // (the viewer) appending the same day file. Do NOT "simplify" back to
   // Bun.write with an options object: on Bun 1.4.3 that silently TRUNCATES.
+  // Appending is safe against other appenders only. Callers writing a file that
+  // is ALSO rewritten whole (a daily memory file, the blocklist) hold the store
+  // lock around this — see lock.ts.
   await appendFile(file, next);
+}
+
+// Publish whole-file content so no reader can observe a partial store. Recall,
+// injection and the viewer read these files without taking the lock, so the
+// handover is a same-directory rename (atomic on POSIX): a reader sees either
+// the previous file or the new one, never a truncated middle. Callers hold the
+// store lock for the whole read-modify-write.
+export async function writeAtomic(file: string, content: string): Promise<void> {
+  await ensureDir(dirname(file));
+  // One writer per file (the store lock), so the temp name is stable per
+  // process and a crash leaves one leftover instead of one per attempt.
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    await Bun.write(tmp, content);
+    await rename(tmp, file);
+  } catch (err) {
+    await unlink(tmp).catch(() => undefined);
+    throw err;
+  }
 }
 
 export async function readLines(file: string): Promise<string[]> {
