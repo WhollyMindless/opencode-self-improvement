@@ -70,12 +70,12 @@ describe("plugin wiring (OpenCode V2)", () => {
 
     const event: { sessionID: string; prompt: { text: string } } = {
       sessionID: "ses_x",
-      prompt: { text: "run the unit test for multiTexture" },
+      prompt: { text: "run the unit tests for Babylon.js" },
     };
     await loaded.sessionHooks["prompt"]!(event);
 
     // Prompt text is stored verbatim and rendered in the UI — it must never carry injected memory.
-    expect(event.prompt.text).toBe("run the unit test for multiTexture");
+    expect(event.prompt.text).toBe("run the unit tests for Babylon.js");
 
     const delivered: { sessionID: string; system: Array<{ type: string; text: string }> } = {
       sessionID: "ses_x",

@@ -82,23 +82,44 @@ export function words(text: string): string[] {
 // Memory-side tokens are never filtered: a memory stating "the" must not
 // gain or lose rank from it, only queries drive matching.
 const QUERY_STOPWORDS = new Set(
-  "a an and are at be but by can did do does for from had has have how i in into is it its me my no not of on or our so than that the their them then there these they this to us was we were what when where which who why will with you your run runs getting want needs right back yet also just still ever".split(" "),
+  "a an and are at be but by can did do does for from had has have how i in into is it its me my no not of on or our so than that the their them then there these they this to us was we were what when where which who why will with you your run runs getting want needs right back yet also just still ever should would could might may must shall ought nothing something anything everything thing things".split(" "),
 );
 
-// Production relevance ranking: score = number of distinct query tokens the
-// memory's (scope+type+content) token set contains. Exported for
-// bench/recall-quality.ts — the benchmark must measure the shipped matcher.
+// A free-text prompt long enough to carry >= this many content tokens must
+// share >= 2 distinct concepts with a memory to inject: with a long query
+// vocabulary, one shared token is near-certain coincidence (a live store hit
+// injected a git memory on the word "should", df=1). A keyword-length query
+// is a deliberate search — one shared concept suffices. memory_recall and the
+// contextual pull keep single-overlap matches reachable; injection just stays
+// quiet unless the vocabulary genuinely agrees twice.
+const LONG_QUERY_TOKENS = 3;
+
+// Production relevance ranking: candidates must clear the concept-overlap
+// gate, then rank by Robertson-IF of the shared tokens (rare concepts beat
+// piles of common ones — the same idf form the bench's BM25 row uses).
+// Exported for bench/recall-quality.ts — the benchmark measures the shipped
+// matcher.
 export function scoreMemories(term: string, mems: Memory[], limit: number): Memory[] {
   const query = new Set(words(term).filter((t) => !QUERY_STOPWORDS.has(t)));
   if (!query.size) return [];
+  const needShared = query.size >= LONG_QUERY_TOKENS ? 2 : 1;
+  const hays = mems.map((m) => new Set(words(`${m.scope} ${m.type} ${m.content}`)));
+  const df = new Map<string, number>();
+  for (const h of hays) for (const t of h) df.set(t, (df.get(t) ?? 0) + 1);
+  const n = mems.length || 1;
   return mems
-    .map((m) => {
-      const hay = new Set(words(`${m.scope} ${m.type} ${m.content}`));
+    .map((m, i) => {
+      let shared = 0;
       let score = 0;
-      for (const w of query) if (hay.has(w)) score++;
-      return { m, score };
+      for (const w of query)
+        if (hays[i]!.has(w)) {
+          shared++;
+          const d = df.get(w) ?? 0;
+          score += Math.log(1 + (n - d + 0.5) / (d + 0.5));
+        }
+      return { m, shared, score };
     })
-    .filter((s) => s.score > 0)
+    .filter((s) => s.shared >= needShared)
     .sort((a, b) => b.score - a.score || openRank(b.m) - openRank(a.m))
     .slice(0, limit)
     .map((s) => s.m);
