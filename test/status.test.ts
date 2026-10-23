@@ -200,9 +200,9 @@ describe("renderMemoryReport", () => {
     expect(text).toContain("rode 11 request(s)");
     expect(text).toContain("14 request(s) · 11.4kc ≈ 2850 tok rode · abstained 3");
     expect(text).toContain("CACHE");
-    expect(text).toContain("invalidations  1 this session");
-    expect(text).toContain("1 since server start (all sessions)");
-    expect(text).toContain("41.2k/42.9k prompt tok cache-read (96%)");
+    expect(text).toContain("cache busts    1 this session");
+    expect(text).toContain("1 block builds since server start (all sessions)");
+    expect(text).toContain("41.2k/42.9k prompt tok served from cache (96%)");
     expect(text).toContain("3 active · 1 superseded · 1 open · 2 scopes");
   });
 
@@ -213,8 +213,9 @@ describe("renderMemoryReport", () => {
 
   test("no measurement yet says so, never 0%", () => {
     const text = renderMemoryReport({ status: payload({ measured: null }), store: payload().store, blocked: [] });
-    expect(text).toContain("not measured yet");
-    expect(text).not.toContain("cache-read (0%)");
+    expect(text).toContain("provider reports no cache usage yet");
+    expect(text).toContain("structural proof");
+    expect(text).not.toContain("served from cache (0%)");
   });
 
   test("pre-v2 payloads without stats/measured still render", () => {
@@ -223,7 +224,7 @@ describe("renderMemoryReport", () => {
     delete (bare as Partial<StatusPayload>).measured;
     const text = renderMemoryReport({ status: bare, store: bare.store, blocked: [] });
     expect(text).toContain("0 request(s)");
-    expect(text).toContain("not measured yet");
+    expect(text).toContain("provider reports no cache usage yet");
   });
 
   test("blocked rows render with reasons", () => {
@@ -317,7 +318,7 @@ describe("memory_status tool + epoch wiring", () => {
     // The tool (in-process truth) renders the same receipts for this session.
     await p["tool.execute.before"]({ sessionID: "ses_m", callID: "C1", tool: "memory_status" });
     const rep = await p.tools.memory_status!.execute({});
-    expect(rep.content).toContain("41.2k/42.9k prompt tok cache-read (96%)");
+    expect(rep.content).toContain("41.2k/42.9k prompt tok served from cache (96%)");
     expect(rep.content).toContain("2 request(s)");
 
     p.capture.events.close();
