@@ -204,6 +204,36 @@ const impl = {
       hasEngagement: hasEngagement(getCurrent().sid),
     });
 
+    // Identity-event race backstop: a resumed session's FIRST turn can write
+    // before the subscription has delivered its execution.started, and the
+    // module-scope fallback is the last setup instance — possibly another
+    // workspace. The session context API is synchronous and its messages
+    // carry location.directory, so bind once from them for unmapped sids.
+    // One-shot: never overwrites an event-bound entry.
+    const bindingSids = new Set<string>();
+    async function bindSessionFromMessages(sid: string | undefined): Promise<void> {
+      if (!sid || sid === "?" || sessionDir(sid) || bindingSids.has(sid)) return;
+      bindingSids.add(sid);
+      try {
+        const msgs = await ctx.session?.context?.({ sessionID: sid });
+        if (Array.isArray(msgs)) {
+          for (const m of msgs) {
+            if (!m || typeof m !== "object") continue;
+            const r = m as Record<string, any>;
+            const dir = r.location?.directory ?? r.info?.location?.directory;
+            if (typeof dir === "string" && dir) {
+              rememberSessionDir(sid, dir);
+              break;
+            }
+          }
+        }
+      } catch {
+        // no context access or host error: the event stream still binds later
+      } finally {
+        bindingSids.delete(sid);
+      }
+    }
+
     // ---- tools --------------------------------------------------------------
     await ctx.tool?.transform((editor) => {
       const direct = { codemode: false } as const;
@@ -223,6 +253,7 @@ const impl = {
             status: args.status,
             repo: args.global ? "global" : undefined,
           };
+          await bindSessionFromMessages(getCurrent().sid);
           const outcome = await runWriteGate(candidate, gateContext());
           if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
           if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
@@ -240,6 +271,7 @@ const impl = {
           "Initialize repository memory and knowledge graph. Ensures the codebase-memory graph for this repo is indexed (one-shot `cli` spawn; no session MCP needed) and re-derives build/lint/test/typecheck command memories through the write gate, then stores an init stamp keyed on git HEAD. Idempotent: a no-op when the stamp matches HEAD, unless force=true (refresh after a refactor).",
         options: direct,
         async execute(args): Promise<{ content: string }> {
+          await bindSessionFromMessages(getCurrent().sid);
           const summary = await runInit({ liveRoot: gateContext().liveRoot, force: args.force, mode: args.mode });
           return { content: formatInit(summary) };
         },
@@ -286,6 +318,7 @@ const impl = {
           "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing.",
         options: direct,
         async execute(args): Promise<{ content: string }> {
+          await bindSessionFromMessages(getCurrent().sid);
           const prior = (await loadAll()).filter(
             (m) => m.scope === args.scope && m.type === args.type && isActive(m) && isVisibleHere(m),
           );
@@ -684,6 +717,7 @@ const impl = {
         if (typeof sid === "string") {
           markTurn(sid);
           await checkNewSession(sid);
+          await bindSessionFromMessages(sid);
           const version = await storeVersion();
           const cached = epoch.get(sid);
           if (!cached || cached.version !== version) {
