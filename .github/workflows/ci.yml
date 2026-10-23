@@ -23,4 +23,19 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - name: Tests
-        run: bun test
+        run: bun run test
+
+  # Terminal merge gate: boots the pinned real opencode CLI in fully isolated
+  # XDG dirs (fresh db + fresh store) against a scripted fake model, and runs
+  # the load smoke + BDD integration scenarios. Zero API keys involved.
+  # Keep the CLI pin in lockstep with @opencode/plugin in package.json.
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Install pinned opencode CLI
+        run: npm install -g opencode-ai@2.0.26
+      - name: Terminal smoke + BDD integration
+        run: bun run test:e2e

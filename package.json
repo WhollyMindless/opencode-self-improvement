@@ -57,7 +57,10 @@
     "typescript": "^7.0.2"
   },
   "scripts": {
-    "test": "bun test",
+    "test": "bun test ./test/",
+    "test:e2e": "bun test ./e2e/ --timeout 240000",
+    "gate": "bun scripts/merge-gate.ts",
+    "gate:hooks": "git config core.hooksPath .githooks",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "bench": "bun bench/inject-cost.ts",
     "bench:recall": "bun bench/recall-quality.ts",
