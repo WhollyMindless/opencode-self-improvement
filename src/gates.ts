@@ -14,6 +14,7 @@ import {
   type Memory,
 } from "./memory.ts";
 import { chainId, contentHash, record, recordWriteBlocked } from "./evidence.ts";
+import { redactSecrets } from "./secrets.ts";
 import {
   displayCall,
   extractCallForms,
@@ -221,6 +222,17 @@ export async function runWriteGate(
       hint: `content is ${candidate.content.length} chars (max ${MAX_CONTENT_CHARS}). Distill the memory to its durable core and retry.`,
     };
   }
+
+  // This is the common boundary for manual, imported and auto-captured writes.
+  // Scrub before hashing, analysis and persistence so no write path can retain
+  // a credential that the capture model echoes or invents.
+  candidate = {
+    ...candidate,
+    scope: redactSecrets(candidate.scope),
+    content: redactSecrets(candidate.content),
+    issue: candidate.issue ? redactSecrets(candidate.issue) : candidate.issue,
+    tags: candidate.tags?.map(redactSecrets),
+  };
 
   const ch = contentHash(candidate.content);
   await record("gate_start", {

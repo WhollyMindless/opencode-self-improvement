@@ -7,6 +7,7 @@
 // All parsing functions are TOTAL: any malformed input yields [] / "" / null,
 // never a throw.
 import { STATUSES, TYPES } from "./types.ts";
+import { redactSecrets } from "./secrets.ts";
 
 export interface CaptureOptions {
   model: string; // "provider/id"
@@ -45,7 +46,7 @@ export function buildCapturePrompt(transcript: string, max = 3): string {
     "- If nothing is worth remembering, output [ ].",
     "",
     "Transcript:",
-    transcript,
+    redactSecrets(transcript),
   ].join("\n");
 }
 
@@ -145,15 +146,23 @@ export function flattenTranscript(msgs: unknown): string {
       const role =
         typeof info?.role === "string" ? info.role : typeof m.role === "string" ? m.role : "";
       let text = "";
+      let hadPrivatePart = false;
       if (Array.isArray(m.parts)) {
         text = m.parts
-          .map((p) =>
-            p && typeof p === "object" ? (p as Record<string, unknown>).text : undefined,
-          )
+          .map((p) => {
+            if (!p || typeof p !== "object") return undefined;
+            const part = p as Record<string, unknown>;
+            const partType = typeof part.type === "string" ? part.type.toLowerCase() : "";
+            if (partType === "reasoning" || partType === "thinking") {
+              hadPrivatePart = true;
+              return undefined;
+            }
+            return part.text;
+          })
           .filter((t): t is string => typeof t === "string" && t.length > 0)
           .join(" ");
       }
-      if (!text) {
+      if (!text && !hadPrivatePart) {
         for (const k of ["text", "content"]) {
           if (typeof m[k] === "string") {
             text = m[k] as string;
