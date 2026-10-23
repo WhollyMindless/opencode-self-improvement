@@ -165,7 +165,8 @@ lines.push(
     "MEASURED token overlap with the gold (>=2 shared content tokens = lexical, 1 = near, " +
     "0 = strict paraphrase). k=3 mirrors the production injection limit. BM25 k1=1.2 b=0.75 " +
     "fixed before the eval. naive = previous shipped matcher; prod = current shipped " +
-    "matcher (query-side stopword abstention).",
+    "matcher (query-side stopword abstention, two-concept evidence gate for free-text " +
+    "queries, IDF-weighted ranking).",
 );
 lines.push("");
 

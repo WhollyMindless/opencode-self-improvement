@@ -70,8 +70,27 @@ describe("relevantKnowledge (memory-first injection)", () => {
     expect(await relevantKnowledge("what is the thing and how does the it go")).toBe("");
   });
 
-  test("a single shared CONTENT token still injects (abstention is not amnesia)", async () => {
+  test("keyword-length query injects on a single shared concept", async () => {
     seed("learning", "ops", "pager rota rotates weekly");
-    expect(await relevantKnowledge("who holds the pager tonight")).toContain("pager rota");
+    expect(await relevantKnowledge("pager")).toContain("pager rota");
+  });
+
+  test("free-text prompts need two shared concepts: one accidental overlap abstains", async () => {
+    // Long queries carry big vocabularies; a single token hit (e.g. an
+    // auxiliary colliding with one memory's prose) is coincidence, not topic.
+    seed("learning", "ops", "pager rota rotates weekly");
+    expect(await relevantKnowledge("who holds the pager tonight")).toBe("");
+    expect(await relevantKnowledge("who holds the pager and rotates the rota")).toContain("pager rota");
+  });
+
+  test("rare-concept overlap outranks common-word overlap", async () => {
+    // ui shares {build, output} with the query, db shares {build, salt}:
+    // raw overlap ties at 2, but "salt" is in one memory and "output" in nine.
+    for (let i = 0; i < 8; i++) seed("learning", "build", `build output artifact pack step ${i}`);
+    seed("learning", "ui", "build output toggle default off");
+    seed("learning", "db", "build salt rotation rule");
+    const block = await relevantKnowledge("the build output salt");
+    const lines = block.split("\n").filter((l) => l.startsWith("- ["));
+    expect(lines[0]).toContain("salt");
   });
 });
