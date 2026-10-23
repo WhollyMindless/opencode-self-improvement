@@ -79,7 +79,7 @@ export interface ImportTally {
   collapsed: number;
   blocked: number;
   skipped: number;
-  /** Open rows downgraded to settled because the file carried no export header. */
+  /** Open rows downgraded because the file cannot grant that frontier scope. */
   downgraded: number;
 }
 
@@ -133,7 +133,10 @@ function parseRow(line: string): WriteCandidate | null {
 // Frontier policy: status="open" exempts a row from ref grounding
 // at the gate, so it is honored ONLY when the file opens with our export
 // header (version <= ours); otherwise every open row is downgraded to settled
-// and tallied. Only a missing file throws.
+// and tallied. Even with a header, an imported row cannot claim a global open
+// frontier: unlike a local repo stamp, that would make unverified file content
+// ride every repo's system prompt. Explicit global-open memories can still be
+// created locally with memory_remember. Only a missing file throws.
 export async function importMemories(
   path: string,
   gate: (c: WriteCandidate) => Promise<{ action: string }>,
@@ -158,7 +161,7 @@ export async function importMemories(
       tally.skipped++;
       continue;
     }
-    if (c.status === "open" && !allowFrontier) {
+    if (c.status === "open" && (!allowFrontier || c.repo === "global")) {
       c.status = "settled";
       tally.downgraded++;
     }

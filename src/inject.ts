@@ -7,7 +7,7 @@
 // start at the previous session's frontier instead of re-deriving it.
 import { isActive, loadAll, visibleHere, type Memory } from "./memory.ts";
 import { record } from "./evidence.ts";
-import { dateStr } from "./config.ts";
+import { dateStr, injectBudget } from "./config.ts";
 import { bracketList } from "./logfmt.ts";
 import { recentConvergenceSummary } from "./triggers.ts";
 
@@ -130,13 +130,15 @@ function openRank(m: Memory): number {
 }
 
 // Only the newest open threads are surfaced, and each session sees the block
-// once (per process), so the frontier costs a bounded number of tokens.
+// once (per process). Rows can be long (up to the content cap), so the block is
+// also held to the injection budget, like the relevance block.
 const OPEN_THREAD_LIMIT = 3;
 const frontierInjectedSessions = new Set<string>();
 
 export async function systemDigest(
   _input: unknown,
   output: TransformOutput,
+  budget = injectBudget(),
 ): Promise<void> {
   // Repo-scoped: model-facing reads see this repo + global rows.
   const mems = visibleHere((await loadAll()).filter(isActive));
@@ -154,9 +156,14 @@ export async function systemDigest(
     .slice(0, OPEN_THREAD_LIMIT);
   if (!open.length) return;
 
-  output.system.push(
-    `\n## Open threads (frontier)${FRAME}\n` + open.map(formatMemory).join("\n"),
-  );
+  // capToBudget keeps whole rows and skips any that don't fit, so evidence
+  // records only the rows that were actually shown.
+  const rendered = open.map(formatMemory);
+  const frontier = capToBudget(`## Open threads (frontier)${FRAME}\n${rendered.join("\n")}`, budget);
+  if (!frontier) return;
+  const keptLines = new Set(frontier.split("\n"));
+  const shown = open.filter((_, i) => keptLines.has(rendered[i]));
+  output.system.push(`\n${frontier}`);
 
   // Aggregate of past sessions' convergence (one line, gated on data existing;
   // I3: it is a derived fact, never the raw log). Gives the next session the
@@ -177,8 +184,8 @@ export async function systemDigest(
     "frontier_injected",
     {
       session: sid,
-      scopes: bracketList([...new Set(open.map((m) => m.scope))]),
-      shown: open.length,
+      scopes: bracketList([...new Set(shown.map((m) => m.scope))]),
+      shown: shown.length,
       open_total: openMems.length,
       ts_since: dateStr(),
     },
@@ -261,7 +268,11 @@ export async function compactionAnchor(limit = 12): Promise<string> {
   return capToBudget(block, ANCHOR_BUDGET);
 }
 
-export async function contextualPull(input: PullInput, output: PullOutput): Promise<void> {
+export async function contextualPull(
+  input: PullInput,
+  output: PullOutput,
+  budget = injectBudget(),
+): Promise<void> {
   const tool = typeof input.tool === "string" ? input.tool : "";
   if (!["grep", "glob", "read"].includes(tool)) return;
   const term = argText(input.args);
@@ -270,8 +281,9 @@ export async function contextualPull(input: PullInput, output: PullOutput): Prom
   const mems = visibleHere((await loadAll()).filter(isActive));
   const top = scoreMemories(term, mems, 3);
   if (!top.length) return;
-  const block = top.map(formatMemory).join("\n");
-  if (typeof output.output === "string") {
-    output.output += `\n## Related durable memory (pull)${FRAME}\n${block}`;
+  // Held to the injection budget too: three long rows were ~12 KB per call.
+  const block = capToBudget(`## Related durable memory (pull)${FRAME}\n${top.map(formatMemory).join("\n")}`, budget);
+  if (block && typeof output.output === "string") {
+    output.output += `\n${block}`;
   }
 }

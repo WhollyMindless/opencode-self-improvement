@@ -169,6 +169,22 @@ describe("frontier injection (systemDigest)", () => {
     expect(digest).not.toContain("thread one rejected");
   });
 
+  test("the frontier block respects injectBudget; the standing digest stays", async () => {
+    const budget = 300;
+    await seedOpen("poc", `old frontier row ${"a".repeat(90)}`);
+    await seedOpen("poc", `middle frontier row ${"b".repeat(90)}`);
+    await seedOpen("poc", `newest frontier row ${"c".repeat(90)}`);
+    const system: string[] = [];
+    await systemDigest({ sessionID: "sess-budget" }, { system }, budget);
+
+    expect(system.join("\n")).toContain("## Persistent memory");
+    const frontier = system.find((part) => part.includes("## Open threads")) ?? "";
+    expect(frontier.trim().length).toBeLessThanOrEqual(budget);
+    expect(frontier).toContain("newest frontier row");
+    expect(frontier).not.toContain("old frontier row");
+    for (const line of frontier.trim().split("\n").slice(1)) expect(line.startsWith("- ")).toBe(true);
+  });
+
   test("frontier_injected evidence recorded per session with scopes", async () => {
     await seedOpen("poc", "frontier: prove the planning loop end to end");
     const system: string[] = [];

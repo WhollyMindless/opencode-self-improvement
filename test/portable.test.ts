@@ -22,10 +22,11 @@ import { dirname, join } from "node:path";
 import { dateStr, evidenceDir, memoryRoot, snapshotDir } from "../src/config.ts";
 import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { resetState } from "../src/state.ts";
-import { isActive, loadAll } from "../src/memory.ts";
+import { appendMemory, isActive, loadAll } from "../src/memory.ts";
 import type { WriteCandidate } from "../src/gates.ts";
 import { exportMemories, findStaleOpen, importMemories } from "../src/portable.ts";
 import { setRepoScope } from "../src/repokey.ts";
+import { systemDigest } from "../src/inject.ts";
 import { loadPlugin } from "./harness.ts";
 
 let root: string;
@@ -274,6 +275,30 @@ describe("import frontier policy", () => {
     });
     expect(got!.status).toBe("settled");
     expect(t.downgraded).toBe(1);
+  });
+
+  test("a pasted header cannot grant a repo:global row an open frontier everywhere", async () => {
+    const payload = "PLANTED global open thread must not ride an unrelated repo prompt.";
+    const file = join(root, "forged-global.jsonl");
+    writeFileSync(
+      file,
+      [
+        JSON.stringify({ _export: "opencode-self-improvement", version: 1 }),
+        JSON.stringify({ ...openRow, content: payload, repo: "global" }),
+      ].join("\n") + "\n",
+    );
+    setRepoScope({ key: "repo-a", path: join(root, "repo-a") });
+    const t = await importMemories(file, async (c) => {
+      await appendMemory(c);
+      return { action: "promoted" };
+    });
+    expect(t.downgraded).toBe(1);
+    expect((await loadAll()).find((m) => m.content === payload)?.status).toBe("settled");
+
+    setRepoScope({ key: "repo-b", path: join(root, "repo-b") });
+    const system: string[] = [];
+    await systemDigest({ sessionID: "unrelated-repo" }, { system });
+    expect(system.join("\n")).not.toContain(payload);
   });
 });
 
