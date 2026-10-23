@@ -21,6 +21,7 @@ let root: string;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "osi-reposess-"));
   process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
+  process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
   setRepoScope(MODULE_SCOPE);
   resetSessionScopes();
   resetState();
@@ -29,6 +30,7 @@ afterEach(() => {
   setRepoScope(null);
   resetSessionScopes();
   delete process.env.OPENCODE_MEMORY_DIR;
+  delete process.env.OPENCODE_COMMANDS_DIR;
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -150,6 +152,36 @@ describe("server-start window: setup with no location", () => {
       expect(out.content).toContain("Remembered");
       raw = readFileSync(dayFile(), "utf8");
       expect(raw).toContain(`repo=${repo}`);
+    } finally {
+      await loaded.cleanup();
+    }
+  });
+});
+
+describe("first-turn event-race backstop", () => {
+  test("an unmapped session binds identity from session.context messages before its first write", async () => {
+    const moduleDir = join(root, "serverWorkspace");
+    const sessionWs = join(root, "sessionWorkspace");
+    mkdirSync(moduleDir, { recursive: true });
+    mkdirSync(sessionWs, { recursive: true });
+    const loaded = await loadPlugin(moduleDir);
+    try {
+      loaded.capture.context.messages = [
+        { info: { role: "user" }, location: { directory: sessionWs }, parts: [{ text: "hi" }] },
+      ];
+      await loaded["tool.execute.before"]({ sessionID: "sL", callID: "c1", tool: "read" });
+      await loaded["tool.execute.after"](
+        { sessionID: "sL", callID: "c1", tool: "read", args: { filePath: "x.ts" } },
+        { output: "content", metadata: {} },
+      );
+      const out = await loaded.tools["memory_remember"].execute(
+        { type: "learning", scope: "lazy", content: `lazy bind fact ${Date.now()} from message location` },
+        {},
+      );
+      expect(out.content).toContain("Remembered");
+      const raw = readFileSync(dayFile(), "utf8");
+      expect(raw).toContain(`repo=${sessionWs}`);
+      expect(raw).not.toContain(moduleDir);
     } finally {
       await loaded.cleanup();
     }
