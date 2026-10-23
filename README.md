@@ -54,6 +54,11 @@ prompt cache on every message. This one is built the other way around:
   a compaction — and stays byte-identical in between. A stable system prefix
   means the provider's prompt cache survives ordinary turns instead of being
   invalidated on every message.
+- **Two-concept evidence gate.** A free-text prompt must share at least two
+  distinct concepts with a memory for it to be injected; keyword-length
+  queries (one or two words — a deliberate search) need only one. Injection
+  stays quiet on single-word coincidences, which `memory_recall` still
+  reaches on the pull path — rare and right beats frequent and maybe.
 - **Hard character budget.** The block is capped at 1200 characters by default
   (see Options) and trimmed at whole-memory boundaries — never cut mid-sentence.
 - **Evidence is never injected**, and the standing system digest is two lines.
@@ -67,10 +72,10 @@ store writes) using the plugin's real injection code:
 
 | Policy | Recomputes | Injected chars (20 turns) | Avg/turn | Worst block |
 | --- | ---: | ---: | ---: | ---: |
-| A — recompute per prompt, uncapped (naive) | 20 | 29460 | 1473.0 | 1765 |
-| B — epoch freeze + 1200-char cap (shipped) | 4 | 19516 | 975.8 | 1139 |
+| A — recompute per prompt, uncapped (naive) | 20 | 25742 | 1287.1 | 1838 |
+| B — epoch freeze + 1200-char cap (shipped) | 4 | 19990 | 999.5 | 1139 |
 
-Policy B injects 33.8% fewer characters — and the bigger saving isn't even in
+Policy B injects 22.3% fewer characters — and the bigger saving isn't even in
 the character count: B's block is byte-identical between store changes, so the
 prompt cache stays warm across ordinary turns. Reproduce (byte-identical
 output):
@@ -123,23 +128,29 @@ right memory (store of 200; k=3 = the production injection limit):
 
 | Query, vs. the stored memory | share | R@1 | R@3 |
 | --- | ---: | ---: | ---: |
-| lexical — reuses your project's words | 46% | 100% | 100% |
-| near — reworded, one overlap | 17% | 44% | 83% |
+| lexical — reuses your project's words | 46% | 98% | 98% |
+| near — reworded, one overlap | 17% | 28% | 28% |
 | strict — zero shared words | 37% | 0% | 0% |
 
 What the benchmark bought us:
 
 - **In-project prompts are overwhelmingly lexical** — you keep saying
   `bun test`, "the rate limiter", "staging deploys". The shipped matcher
-  nails those: 100% R@3, flat from store size 50 to 500.
+  nails those: 98–100% R@3, flat from store size 50 to 500, and the
+  two-concept evidence gate never abstains on one (0 of 48).
 - **It caught a real bug.** Function words ("the", "what", "how") counted as
   matches, so nearly half the time the top memory was the wrong one. The
   matcher now ignores them on the query side: wrong-first rate fell 49% → 34%,
-  and classic BM25 — a tuned scoring algorithm — no longer beats the shipped
-  matcher on any class except the hopeless one.
+  and the two-concept evidence gate + IDF ranking finished the job: **6%**.
+- **One shared word is a coin flip, so injection stopped playing it.** At the
+  near class (a single shared concept) the old matcher force-pushed a guess;
+  free-text prompts now abstain and the pull path covers them. The trade,
+  exactly: near-class R@3 83% → 28% (the remainder is keyword-length queries,
+  which still inject on one concept) for the 34% → 6% wrong-memory number
+  above. A quiet turn beats a confident wrong one.
 - **Strict paraphrase is the real lexical wall**, and we won't pretend
   otherwise. Nothing keyword-side crosses it. So instead of confident noise the
-  matcher now goes *silent* when the vocabulary shares nothing (a third of
+  matcher now goes *silent* when the vocabulary shares nothing (35 of 39
   strict queries inject nothing at all), and the agent's `memory_recall` loop
   remains as the pull path. Embeddings are the only known crossing — the bench
   exposes a scorer seam if you want to measure them — but requiring an
