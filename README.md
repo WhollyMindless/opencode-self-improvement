@@ -365,9 +365,12 @@ same data (`memory_status` tool under the hood; no model call):
   - **CONTEXT** — exact chars + estimated tokens riding now, % of the budget,
     requests the current epoch has ridden, session-lifetime totals, and how
     many requests abstained (silence is a feature)
-  - **CACHE** — epoch invalidations this session with the last reason, server
-    recompute count, and the *measured* prompt-cache read rate of the last turn
-    — the receipt, not just the promise
+  - **CACHE** — the receipts, in plain language: cache busts this session
+    (0 = memory has never rewritten a byte of your history), the measured
+    share of prompt tokens the provider served from cache (≥90% reads =
+    "memory is cache-invisible"), or — when the provider reports no usage at
+    all — the structural proof instead: the same block bytes rode every
+    request with zero busts
   - **INJECTED BLOCK** — the verbatim block riding your prompts, or an explicit
     "abstained: no vocabulary overlap"
   - **RECENT BLOCKED WRITES** — that `memory_remember` that didn't stick,

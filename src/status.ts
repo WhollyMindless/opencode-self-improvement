@@ -262,15 +262,34 @@ export function cacheLines(p: StatusPayload): string[] {
   const st = p.stats ?? emptyStats();
   const inv =
     st.invalidations === 0
-      ? "  invalidations  0 this session"
-      : `  invalidations  ${st.invalidations} this session · last ${
-          st.lastInvalidation ? `${st.lastInvalidation.at.slice(11, 19)} (${st.lastInvalidation.reason})` : "-"
-        }`;
+      ? [
+          "  cache busts    0 — memory has never rewritten a byte of your past",
+          "                 conversation, so the provider can serve history from cache",
+        ]
+      : [
+          `  cache busts    ${st.invalidations} this session · last ${
+            st.lastInvalidation ? `${st.lastInvalidation.at.slice(11, 19)} (${st.lastInvalidation.reason})` : "-"
+          }`,
+          "                 each memory write between turns costs exactly one; the",
+          "                 prefix re-warms on the following turn",
+        ];
   const rate = cacheRate(p.measured);
-  const measured = rate
-    ? `  measured       last turn ${fmtCount(rate.read)}/${fmtCount(rate.prompt)} prompt tok cache-read (${rate.pct}%)`
-    : "  measured       not measured yet — no completed assistant turn";
-  return [inv, `  recomputes     ${p.recomputes} since server start (all sessions)`, measured];
+  const receipts = rate
+    ? [
+        `  receipts       ${fmtCount(rate.read)}/${fmtCount(rate.prompt)} prompt tok served from cache (${rate.pct}%)`,
+        rate.pct >= 90
+          ? "                 — memory is cache-invisible: the same bytes ride every turn"
+          : "                 — below ~90% something re-bills the whole history each turn",
+      ]
+    : [
+        "  receipts       provider reports no cache usage yet — structural proof:",
+        `                 the same block bytes rode ${st.epochRequests} request(s) with ${st.invalidations} busts`,
+      ];
+  return [
+    ...inv,
+    ...receipts,
+    `  recomputes     ${p.recomputes} block builds since server start (all sessions)`,
+  ];
 }
 
 /**
@@ -292,7 +311,7 @@ export function renderMemoryReport(input: {
     );
   } else {
     out.push("CONTEXT", ...contextLines(status));
-    out.push("", "CACHE", ...cacheLines(status));
+    out.push("", "CACHE — the receipts on your prompt-cache cost", ...cacheLines(status));
     out.push("", "INJECTED BLOCK (verbatim)");
     if (status.block) out.push(...status.block.split("\n").map((l) => `  ${l}`));
     else
