@@ -29,6 +29,7 @@
   "files": [
     "index.ts",
     "tui.ts",
+    "tsconfig.json",
     "src",
     "command",
     "vendor",
