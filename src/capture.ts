@@ -7,6 +7,7 @@
 // All parsing functions are TOTAL: any malformed input yields [] / "" / null,
 // never a throw.
 import { STATUSES, TYPES } from "./types.ts";
+import { flattenMemoryText } from "./sanitize.ts";
 
 export interface CaptureOptions {
   model: string; // "provider/id"
@@ -97,10 +98,16 @@ export function parseCandidates(raw: string, max: number): CaptureCandidate[] {
       if (out.length >= max) break;
       if (!item || typeof item !== "object" || Array.isArray(item)) continue;
       const o = item as Record<string, unknown>;
-      const type = typeof o.type === "string" ? o.type.trim() : "";
-      const scope = typeof o.scope === "string" ? o.scope.trim() : "";
+      const rawType = typeof o.type === "string" ? o.type : "";
+      const rawScope = typeof o.scope === "string" ? o.scope : "";
+      const type = rawType.trim();
+      const scope = rawScope.trim();
       const content = typeof o.content === "string" ? o.content.trim() : "";
       if (!type || !scope || !content) continue;
+      if (
+        flattenMemoryText(rawType) !== rawType ||
+        flattenMemoryText(rawScope) !== rawScope
+      ) continue;
       if (!VALID_TYPES.has(type)) continue;
       if (content.length < 20 || content.length > 600) continue;
       const status = o.status === "open" || o.status === "settled" ? o.status : undefined;

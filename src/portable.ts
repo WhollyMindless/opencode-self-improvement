@@ -8,6 +8,7 @@ import { memoryRoot } from "./config.ts";
 import { isActive, isVisibleHere, loadAll, type Memory } from "./memory.ts";
 import { TYPES } from "./types.ts";
 import type { WriteCandidate } from "./gates.ts";
+import { flattenMemoryText } from "./sanitize.ts";
 
 // --- export -------------------------------------------------------------------
 
@@ -101,7 +102,8 @@ function exportHeader(line: string): { version: number } | null {
 
 // A line is malformed (skipped, never gated) unless it is a JSON object with a
 // known type, a non-empty scope, and non-empty content. Optional fields are
-// sanitized rather than fatal: an unusable status/tags/issue is dropped.
+// sanitized rather than fatal where noted. Control characters in structured
+// metadata make the row malformed; content alone may remain multiline.
 function parseRow(line: string): WriteCandidate | null {
   let row: unknown;
   try {
@@ -113,7 +115,13 @@ function parseRow(line: string): WriteCandidate | null {
   const r = row as Record<string, unknown>;
   if (typeof r.type !== "string" || !(TYPES as readonly string[]).includes(r.type)) return null;
   if (typeof r.scope !== "string" || !r.scope.trim()) return null;
+  if (flattenMemoryText(r.scope) !== r.scope) return null;
   if (typeof r.content !== "string" || !r.content.trim()) return null;
+  if (
+    Array.isArray(r.tags) &&
+    r.tags.some((t) => typeof t === "string" && flattenMemoryText(t) !== t)
+  ) return null;
+  if (typeof r.issue === "string" && flattenMemoryText(r.issue) !== r.issue) return null;
   const c: WriteCandidate = { type: r.type, scope: r.scope, content: r.content };
   if (r.status === "open" || r.status === "settled") c.status = r.status;
   if (Array.isArray(r.tags) && r.tags.every((t) => typeof t === "string")) c.tags = r.tags;
