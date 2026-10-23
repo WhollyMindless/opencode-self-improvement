@@ -84,7 +84,7 @@ export const UndoArgs = z.object({
   list: z.boolean().describe("List snapshots").optional(),
   snapshot: z
     .string()
-    .describe("Snapshot to restore (bare name from list, or a full path)")
+    .describe("Store-owned snapshot to restore (bare name from list, or its full path)")
     .optional(),
   merge: z
     .boolean()

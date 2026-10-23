@@ -6,12 +6,20 @@
 //   - force: exact rollback (the pre-fix behavior, now opt-in);
 //   - a bare snapshot name (as printed by list) resolves against snapshots/.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { basename } from "node:path";
-import { join } from "node:path";
-import { memoryRoot } from "../src/config.ts";
-import { snapshotFiles } from "../src/memory.ts";
+import { basename, join, sep } from "node:path";
+import { addBlock, blocklistFile } from "../src/blocklist.ts";
+import { memoryRoot, snapshotDir } from "../src/config.ts";
+import { loadAll, prune, snapshotFiles } from "../src/memory.ts";
 import { restoreSnapshot } from "../src/undo.ts";
 import { loadPlugin } from "./harness.ts";
 
@@ -133,7 +141,133 @@ describe("restoreSnapshot modes", () => {
   });
 
   test("missing snapshot still throws", async () => {
-    await expect(restoreSnapshot("nope.logfmt", memoryRoot())).rejects.toThrow("snapshot not found");
+    await expect(restoreSnapshot(`123-${DAY}.logfmt`, memoryRoot())).rejects.toThrow(
+      "snapshot not found",
+    );
+  });
+
+  test("an unaudited removal can still be restored from a normal snapshot", async () => {
+    seed([row(1), row(2)]);
+    const snap = await snapshotOfStore();
+    seed([row(2)]);
+
+    const res = await restoreSnapshot(basename(snap), memoryRoot());
+    expect(res.restored).toBe(true);
+    expect(lines()).toEqual([row(1), row(2)]);
+  });
+
+  test("default check does not resurrect a row deliberately forgotten after the snapshot", async () => {
+    seed([row(1)]);
+    const forgotten = await prune("demo", "learning", "remove leaked secret");
+    expect(forgotten.snapshot).toHaveLength(1);
+    const forgottenSnapshot = forgotten.snapshot[0];
+    if (!forgottenSnapshot) throw new Error("expected a pre-forget snapshot");
+
+    const res = await restoreSnapshot(basename(forgottenSnapshot), memoryRoot());
+    expect(res.restored).toBe(true);
+    expect(res.deletedOmitted).toEqual(["2026-01-01T00:00:01.000Z"]);
+    expect(lines()).toEqual([]);
+  });
+
+  test("merge does not resurrect a forgotten row either; force does", async () => {
+    seed([row(1)]);
+    const forgotten = await prune("demo", "learning", "remove leaked secret");
+    const forgottenSnapshot = forgotten.snapshot[0];
+    if (!forgottenSnapshot) throw new Error("expected a pre-forget snapshot");
+
+    const merged = await restoreSnapshot(basename(forgottenSnapshot), memoryRoot(), "merge");
+    expect(merged.deletedOmitted).toEqual(["2026-01-01T00:00:01.000Z"]);
+    expect(lines()).toEqual([]);
+
+    const forced = await restoreSnapshot(basename(forgottenSnapshot), memoryRoot(), "force");
+    expect(forced.deletedOmitted).toEqual([]);
+    expect(lines()).toEqual([row(1)]);
+  });
+
+  test("blocklisted rows stay inactive when a store snapshot restores their raw row", async () => {
+    seed([row(1)]);
+    const snap = await snapshotOfStore();
+    await addBlock("2026-01-01T00:00:01.000Z", "poisoned memory");
+    seed([]);
+
+    const res = await restoreSnapshot(basename(snap), memoryRoot(), "force");
+    expect(res.restored).toBe(true);
+    expect(lines()).toEqual([row(1)]);
+    expect(await loadAll()).toHaveLength(0);
+  });
+});
+
+describe("snapshot containment", () => {
+  test("a snapshot path escaping through .. is rejected", async () => {
+    const name = `123-${DAY}.logfmt`;
+    const outside = join(root, "outside");
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, name), `${row(1)}\n`);
+    const traversing = `${snapshotDir()}${sep}..${sep}..${sep}outside${sep}${name}`;
+
+    await expect(restoreSnapshot(traversing, memoryRoot(), "force")).rejects.toThrow(
+      "outside the snapshots directory",
+    );
+    expect(existsSync(store())).toBe(false);
+  });
+
+  test("a snapshot symlink resolving outside snapshots is rejected", async () => {
+    const name = `124-${DAY}.logfmt`;
+    const outside = join(root, "outside", name);
+    mkdirSync(join(root, "outside"), { recursive: true });
+    mkdirSync(snapshotDir(), { recursive: true });
+    writeFileSync(outside, `${row(1)}\n`);
+    try {
+      symlinkSync(outside, join(snapshotDir(), name));
+    } catch (err) {
+      if (!(err instanceof Error && "code" in err && err.code === "EPERM")) throw err;
+      // Windows requires Developer Mode/admin for file symlinks. Directory
+      // junctions need no elevation and exercise the same realpath escape.
+      rmSync(snapshotDir(), { recursive: true });
+      symlinkSync(join(root, "outside"), snapshotDir(), "junction");
+    }
+
+    await expect(restoreSnapshot(name, memoryRoot(), "force")).rejects.toThrow(/snapshots directory/);
+    expect(existsSync(store())).toBe(false);
+  });
+
+  test("reserved store files cannot be targeted by a crafted snapshot name", async () => {
+    mkdirSync(snapshotDir(), { recursive: true });
+    for (const reserved of ["blocklist.logfmt", "canonical.logfmt"]) {
+      const target = join(memoryRoot(), reserved);
+      const original = `reserved ${reserved}\n`;
+      writeFileSync(target, original);
+      const crafted = join(snapshotDir(), `123-${reserved}`);
+      writeFileSync(crafted, `${row(1)}\n`);
+
+      await expect(restoreSnapshot(crafted, memoryRoot(), "force")).rejects.toThrow(
+        "invalid snapshot name",
+      );
+      expect(readFileSync(target, "utf8")).toBe(original);
+    }
+  });
+
+  test("export-then-undo cannot overwrite the blocklist and reactivate poison", async () => {
+    seed([row(1)]);
+    await addBlock("2026-01-01T00:00:01.000Z", "poisoned memory");
+    const p = await loadPlugin(root);
+    try {
+      const exportTool = p.tools.memory_export;
+      const undoTool = p.tools.memory_undo;
+      if (!exportTool || !undoTool) throw new Error("memory tools were not registered");
+      const exported = join(root, "blocklist.logfmt");
+      await exportTool.execute({ file: exported });
+
+      await expect(
+        undoTool.execute({ snapshot: exported, force: true }),
+      ).rejects.toThrow("invalid snapshot name");
+      expect(readFileSync(blocklistFile(), "utf8")).toContain(
+        "ts=2026-01-01T00:00:01.000Z",
+      );
+      expect(await loadAll()).toHaveLength(0);
+    } finally {
+      await p.cleanup();
+    }
   });
 });
 

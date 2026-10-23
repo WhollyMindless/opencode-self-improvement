@@ -395,7 +395,7 @@ const impl = {
       editor.add(validated(UndoArgs, {
         name: "memory_undo",
         description:
-          "List memory snapshots, or restore one (rollback). SAFE BY DEFAULT: daily store files are shared across sessions, so if the current file has rows added or edited since the snapshot, restore REFUSES and lists them — re-run with merge=true to restore AND keep those rows, or force=true for the exact rollback. `snapshot` accepts a bare name from the list or a full path.",
+          "List memory snapshots, or restore one (rollback). Only snapshots inside this store's snapshots directory are accepted: pass a bare name from the list or its full path. SAFE BY DEFAULT: restore refuses if the current file has rows added or edited since the snapshot, and audited human/tool deletions stay deleted. Re-run with merge=true to restore AND keep divergent rows, or force=true for an explicit exact rollback. Blocklisted rows remain inactive in every mode.",
         options: direct,
         async execute(args): Promise<{ content: string }> {
           if (args.snapshot) {
@@ -416,7 +416,10 @@ const impl = {
               ? ` Kept ${res.concurrentAdded.length} added / ${res.concurrentChanged.length} changed row(s) written after the snapshot.`
               : "";
             const safety = res.safety ? ` Pre-restore file snapshotted -> ${res.safety}.` : "";
-            return { content: `Restored ${basename(res.target)} from ${res.mode} snapshot -> ${res.target}.${kept}${safety}` };
+            const omitted = res.deletedOmitted.length
+              ? ` Omitted ${res.deletedOmitted.length} deliberately deleted row(s); use force=true to recover them.`
+              : "";
+            return { content: `Restored ${basename(res.target)} from ${res.mode} snapshot -> ${res.target}.${kept}${safety}${omitted}` };
           }
           const snaps = await listSnapshots();
           if (!snaps.length) return { content: "No snapshots" };
