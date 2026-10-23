@@ -182,7 +182,7 @@ Add a `plugins` entry to your opencode config —
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["opencode-self-improvement@0.8.0"]
+  "plugins": ["opencode-self-improvement"]
 }
 ```
 
@@ -190,13 +190,15 @@ Opencode installs the package (and its dependencies) automatically with Bun at
 startup. Quit and restart opencode; the plugin loads and `/repo-init` installs
 itself. Nothing else to do.
 
-Pin the exact version (as above). An unpinned entry resolves `@latest` exactly
-once and is never re-resolved afterwards, so it silently sticks. To update,
-bump the version in the config and restart. On Opencode v2 you can also manage
-it with the CLI:
+An unpinned entry resolves `@latest` exactly once and is never re-resolved
+afterwards, so updates are deliberate: `opencode plugin update
+opencode-self-improvement`. To install a specific release, append
+`@<version>` — see [npm](https://www.npmjs.com/package/opencode-self-improvement)
+for what's current — and bump it when you want to move. On Opencode v2 you
+can also manage it with the CLI:
 
 ```sh
-opencode plugin add opencode-self-improvement@0.8.0
+opencode plugin add opencode-self-improvement
 opencode plugin update opencode-self-improvement
 ```
 
