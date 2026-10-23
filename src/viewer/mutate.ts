@@ -10,8 +10,7 @@ import { deletionsFile } from "../config.ts";
 import { addBlock, removeBlock } from "../blocklist.ts";
 import { record, chainId } from "../evidence.ts";
 import { appendLog, formatLine, parseLine, readLines, writeAtomic } from "../logfmt.ts";
-import { withStoreLock } from "../lock.ts";
-import { LOCK_WRITE } from "../storelock.ts";
+import { withStoreLock, LOCK_WRITE } from "../lock.ts";
 import {
   appendMemory,
   loadAll,

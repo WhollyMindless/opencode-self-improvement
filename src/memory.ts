@@ -9,8 +9,7 @@ import { dateStr, memoryRoot, deletionsFile, snapshotDir } from "./config.ts";
 import { repoScopeFor } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
 import { appendLog, ensureDir, formatLine, parseLine, readLines, writeAtomic, type Fields } from "./logfmt.ts";
-import { withStoreLock } from "./lock.ts";
-import { LOCK_WRITE } from "./storelock.ts";
+import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 import { blockedTs } from "./blocklist.ts";
 
 export type MemoryStatus = "open" | "settled";
@@ -146,16 +145,15 @@ export interface AppendMemoryInput {
   repoPath?: string;
 }
 
-// Existing ts values across all memory files, used to guarantee uniqueness of
-// newly appended entries (a fast seed->append within one millisecond would
-// otherwise collide on the ISO timestamp).
-async function existingTs(): Promise<Set<string>> {
+// ts values already in `file`. An appended row's ts is "now", so the only rows
+// it can collide with are ones this same file received in the same millisecond;
+// scanning just it keeps the locked section to one read of one file. (A row
+// hand-placed with today's ts in another day's file is outside this promise.)
+async function existingTs(file: string): Promise<Set<string>> {
   const set = new Set<string>();
-  for (const file of await memoryFiles()) {
-    for (const line of await readLines(file)) {
-      const f = parseLine(line);
-      if (f && typeof f.ts === "string") set.add(f.ts);
-    }
+  for (const line of await readLines(file)) {
+    const f = parseLine(line);
+    if (f && typeof f.ts === "string") set.add(f.ts);
   }
   return set;
 }
@@ -183,12 +181,15 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
       repoPath = cur.path;
     }
   }
+  // Day file chosen before the lock (it IS the lock key). A ts bumped across
+  // midnight therefore lands under the previous day's name; readers glob every
+  // file and decay compares ts values, so the grouping is cosmetic.
   const file = join(memoryRoot(), `${dateStr()}.logfmt`);
   // Locked end to end: seeding ts from a scan another process can race yields
   // two rows with the same identity, and an append that lands inside someone
   // else's whole-file rewrite is simply not there afterwards.
   return withStoreLock(file, async () => {
-    const taken = await existingTs();
+    const taken = await existingTs(file);
     let ts = new Date().toISOString();
     let guard = 0;
     while (taken.has(ts) && guard++ < 1000) {

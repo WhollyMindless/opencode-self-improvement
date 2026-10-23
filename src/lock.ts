@@ -23,6 +23,7 @@
 // the middle of a rewrite.
 import { mkdir, open, stat, unlink } from "node:fs/promises";
 import { basename, dirname } from "node:path";
+import { record } from "./evidence.ts";
 
 const LOCK_SUFFIX = ".lock";
 // A lock older than this belongs to a process that died holding it.
@@ -49,6 +50,23 @@ export interface LockOptions {
   onTimeout?: "proceed" | "fail";
   onEvent?: (event: LockEvent, waitedMs: number) => void;
 }
+
+// How each store caller treats contention. An ordinary write PROCEEDS past the
+// timeout rather than lose the user's memory, and the wait is audited; restore
+// fails closed, because "force" drops rows and must not guess under a racing
+// writer.
+export const LOCK_WRITE: LockOptions = {
+  onEvent: (event, waitedMs) => {
+    void record("store_lock", { event, waited_ms: waitedMs, op: "write" });
+  },
+};
+
+export const LOCK_RESTORE: LockOptions = {
+  onTimeout: "fail",
+  onEvent: (event, waitedMs) => {
+    void record("store_lock", { event, waited_ms: waitedMs, op: "restore" });
+  },
+};
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

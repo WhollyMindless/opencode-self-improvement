@@ -11,7 +11,7 @@ import { BlockBody, DeleteBody, EditBody, RestoreEntryBody, UnblockBody } from "
 import { deletionsFile, memoryRoot, snapshotDir } from "../config.ts";
 import { blockedEntries } from "../blocklist.ts";
 import { listSnapshots, restoreSnapshot } from "../undo.ts";
-import { appendMemory, loadAll, memoryFiles, snapshotFiles } from "../memory.ts";
+import { appendMemory, loadAll, memoryFiles } from "../memory.ts";
 import { parseLine, readLines } from "../logfmt.ts";
 import { deleteMemory, editMemory, addBlock, removeBlock, type MutationResult } from "./mutate.ts";
 
@@ -269,14 +269,14 @@ async function restoreRoute(body: Record<string, unknown>): Promise<Response> {
   if (!/^\d+-\d{4}-\d{2}-\d{2}\.logfmt$/.test(name)) {
     return error("invalid snapshot name", 400);
   }
-  const original = name.replace(/^\d+-/, "");
-  // Explicit human admin action: exact rollback — but the rollback is itself
-  // rollback-able. Snapshot the current file first so concurrent-session rows
-  // lost here stay recoverable, and report how many rows were rolled back.
-  await snapshotFiles([join(memoryRoot(), original)]);
+  // Explicit human admin action: exact rollback. The pre-restore snapshot the
+  // dropped rows can be recovered from is taken by restoreSnapshot itself,
+  // under the store lock — snapshotting here instead would miss anything
+  // another session appended between this call and the rollback.
   const res = await restoreSnapshot(join(snapshotDir(), name), memoryRoot(), "force");
   return json({
     restored: res.target,
+    safety: res.safety ?? null,
     rolledBack: res.concurrentAdded.length + res.concurrentChanged.length,
   });
 }

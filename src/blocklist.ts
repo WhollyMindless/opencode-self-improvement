@@ -6,8 +6,7 @@
 import { join } from "node:path";
 import { memoryRoot } from "./config.ts";
 import { appendLog, formatLine, parseLine, readLines, writeAtomic } from "./logfmt.ts";
-import { withStoreLock } from "./lock.ts";
-import { LOCK_WRITE } from "./storelock.ts";
+import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 
 const BLOCKLIST_FILENAME = "blocklist.logfmt";
 

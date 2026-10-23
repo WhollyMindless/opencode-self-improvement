@@ -3,17 +3,18 @@
 //
 // Daily logfmt files are SHARED across concurrent sessions, so a naive
 // whole-file write can silently clobber rows another session appended after
-// the snapshot. Restore is therefore
-// conflict-aware. The snapshot cannot tell "rows I added since the snapshot,
-// which undo should remove" apart from "rows another session added, which
-// must survive" — that call belongs to the caller, so the default mode CHECK
-// refuses and lists the divergent rows; MERGE replays them on top of the
-// snapshot; FORCE is the old exact rollback.
+// the snapshot. Restore is therefore conflict-aware: the snapshot cannot tell
+// "rows I added since the snapshot, which undo should remove" apart from
+// "rows another session added, which must survive", so that call belongs to
+// the caller. The default mode CHECK refuses and lists the divergent rows;
+// MERGE replays them on top of the snapshot; FORCE is the old exact rollback,
+// and additionally snapshots the file it replaces, so the state it drops stays
+// undoable (result.safety).
 import { basename, join, resolve, sep } from "node:path";
 import { snapshotDir } from "./config.ts";
 import { ensureDir, writeAtomic } from "./logfmt.ts";
-import { withStoreLock } from "./lock.ts";
-import { LOCK_RESTORE } from "./storelock.ts";
+import { withStoreLock, LOCK_RESTORE } from "./lock.ts";
+import { snapshotFiles } from "./memory.ts";
 
 export interface SnapshotInfo {
   file: string;
@@ -47,6 +48,9 @@ export interface RestoreResult {
   target: string;
   restored: boolean;
   mode: RestoreMode;
+  // Snapshot of the file as it stood the moment the restore held the lock —
+  // present on a force restore, which is the mode that drops rows.
+  safety?: string;
   // ts of rows present in the CURRENT file but absent from the snapshot
   // (added after it — or in-place edits, listed under their original ts).
   concurrentAdded: string[];
@@ -117,6 +121,12 @@ export async function restoreSnapshot(
         return { target, restored: false, mode, concurrentAdded, concurrentChanged };
       }
 
+      // FORCE is the mode that drops rows, so the file it replaces is
+      // snapshotted HERE — inside the lock, which is what makes rows a
+      // concurrent session appended moments earlier part of the copy. A caller
+      // that snapshots before this call races the very write it means to save.
+      const safety = mode === "force" ? (await snapshotFiles([target]))[0] : undefined;
+
       let out = snapLines;
       if (mode === "merge") {
         // Keep the CURRENT version of rows the snapshot also has (in-place edits —
@@ -130,7 +140,7 @@ export async function restoreSnapshot(
       }
       await ensureDir(memoryRootDir);
       await writeAtomic(target, out.length ? out.join("\n") + "\n" : "");
-      return { target, restored: true, mode, concurrentAdded, concurrentChanged };
+      return { target, restored: true, mode, safety, concurrentAdded, concurrentChanged };
     },
     LOCK_RESTORE,
   );
