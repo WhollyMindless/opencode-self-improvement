@@ -11,6 +11,7 @@ import { record } from "./evidence.ts";
 import { dateStr } from "./config.ts";
 import { bracketList } from "./logfmt.ts";
 import { recentConvergenceSummary } from "./triggers.ts";
+import { flattenMemoryText } from "./sanitize.ts";
 
 export interface TransformOutput {
   system: string[];
@@ -54,9 +55,12 @@ export function formatMemory(m: Memory): string {
   // One memory is ONE line in every injected block: the store round-trips real
   // newlines, so a planted "\n## Fake header" would forge its own section and
   // escape the framing (and throw capToBudget's line accounting off). Line
-  // breaks collapse to spaces; ordinary spacing survives.
-  const content = m.content.replace(/[\r\n\t]+/g, " ");
-  return `- [${dateOf(m.ts)}]${tag}${src} ${m.type}/${m.scope}: ${content}`;
+  // breaks and other controls collapse to spaces; ordinary spacing survives.
+  const date = flattenMemoryText(dateOf(m.ts));
+  const type = flattenMemoryText(m.type);
+  const scope = flattenMemoryText(m.scope);
+  const content = flattenMemoryText(m.content);
+  return `- [${date}]${tag}${src} ${type}/${scope}: ${content}`;
 }
 
 function argText(args: unknown): string {
@@ -143,7 +147,7 @@ export async function systemDigest(
   // Repo-scoped: model-facing reads see this repo + global rows.
   const mems = rows ?? visibleHere((await loadAll()).filter(isActive));
   if (!mems.length) return;
-  const latest = mems.map((m) => m.ts).sort().pop() ?? "?";
+  const latest = flattenMemoryText(mems.map((m) => m.ts).sort().pop() ?? "?");
   output.system.push(
     "\n## Persistent memory (opencode-self-improvement)\n" +
       `${mems.length} durable memories; latest: ${latest}. ` +
@@ -179,7 +183,7 @@ export async function systemDigest(
     "frontier_injected",
     {
       session: sid,
-      scopes: bracketList([...new Set(open.map((m) => m.scope))]),
+      scopes: bracketList([...new Set(open.map((m) => flattenMemoryText(m.scope)))]),
       shown: open.length,
       open_total: openMems.length,
       ts_since: dateStr(),

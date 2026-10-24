@@ -65,6 +65,7 @@ import { getCurrent, setCurrent } from "./state.ts";
 import { resolveRepo, setRepoScope, rememberSessionDir, sessionDir } from "./repokey.ts";
 import { readLines } from "./logfmt.ts";
 import { buildCapturePrompt, flattenTranscript, parseCandidates, parseModelRef } from "./capture.ts";
+import { flattenMemoryText } from "./sanitize.ts";
 
 // Tool/input boundaries are zod schemas (src/schema.ts): the JSON Schema the
 // host sees is GENERATED from them, and raw args are re-parsed at execution.
@@ -387,7 +388,10 @@ const impl = {
             types.set(m.type, (types.get(m.type) ?? 0) + 1);
           }
           const fmt = (map: Map<string, number>) =>
-            [...map.entries()].sort((a, b) => b[1] - a[1]).map(([k, c]) => `  ${k}: ${c}`).join("\n");
+            [...map.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .map(([k, c]) => `  ${flattenMemoryText(k)}: ${c}`)
+              .join("\n");
           return { content: `Total: ${mems.length}\n\nScopes:\n${fmt(scopes)}\n\nTypes:\n${fmt(types)}` };
         },
       }));
@@ -523,7 +527,10 @@ const impl = {
             return { content: `No active open threads older than ${days} days.` };
           }
           const listing = stale
-            .map((m) => `  ${m.ts} ${m.type}/${m.scope}: ${m.content.slice(0, 100)}`)
+            .map(
+              (m) =>
+                `  ${flattenMemoryText(m.ts)} ${flattenMemoryText(m.type)}/${flattenMemoryText(m.scope)}: ${flattenMemoryText(m.content).slice(0, 100)}`,
+            )
             .join("\n");
           if (dryRun) {
             await record(
