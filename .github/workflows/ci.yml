@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+# Bun is pinned on purpose (bun-version in every job below and in release.yml):
+# Bun behaviour differs between releases (e.g. Bun.write({append:true})), and
+# local dev may run a different version. Bump all four pins together.
+
 jobs:
   lint:
     runs-on: ubuntu-latest
