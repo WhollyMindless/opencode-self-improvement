@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { dateStr, evidenceDir, injectBudget, memoryRoot } from "../src/config.ts";
+import { dateStr, evidenceDir, frontierBudget, injectBudget, memoryRoot } from "../src/config.ts";
 import { capToBudget, storeVersion } from "../src/inject.ts";
 import { addBlock, removeBlock } from "../src/blocklist.ts";
 import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
@@ -27,6 +27,7 @@ beforeEach(() => {
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
   delete process.env.OPENCODE_MEMORY_INJECT_BUDGET;
+  delete process.env.OPENCODE_MEMORY_FRONTIER_BUDGET;
   resetState();
 });
 
@@ -34,6 +35,7 @@ afterEach(() => {
   delete process.env.OPENCODE_MEMORY_DIR;
   delete process.env.OPENCODE_COMMANDS_DIR;
   delete process.env.OPENCODE_MEMORY_INJECT_BUDGET;
+  delete process.env.OPENCODE_MEMORY_FRONTIER_BUDGET;
 });
 
 function seed(type: string, scope: string, content: string): string {
@@ -279,6 +281,21 @@ describe("injectBudget", () => {
     expect(injectBudget()).toBe(1200);
     process.env.OPENCODE_MEMORY_INJECT_BUDGET = "-5";
     expect(injectBudget()).toBe(1200);
+  });
+});
+
+describe("frontierBudget", () => {
+  test("defaults to 3x injectBudget; honors its own env override; ignores invalid ones", () => {
+    expect(frontierBudget()).toBe(3600);
+    process.env.OPENCODE_MEMORY_INJECT_BUDGET = "750";
+    expect(frontierBudget()).toBe(2250);
+    expect(frontierBudget(900)).toBe(2700);
+    process.env.OPENCODE_MEMORY_FRONTIER_BUDGET = "5000";
+    expect(frontierBudget(900)).toBe(5000);
+    process.env.OPENCODE_MEMORY_FRONTIER_BUDGET = "not-a-number";
+    expect(frontierBudget(900)).toBe(2700);
+    process.env.OPENCODE_MEMORY_FRONTIER_BUDGET = "-5";
+    expect(frontierBudget(900)).toBe(2700);
   });
 });
 

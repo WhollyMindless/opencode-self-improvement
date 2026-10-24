@@ -8,7 +8,7 @@
 import { createHash } from "node:crypto";
 import { isActive, loadAll, visibleHere, type Memory } from "./memory.ts";
 import { record } from "./evidence.ts";
-import { dateStr } from "./config.ts";
+import { dateStr, frontierBudget, injectBudget } from "./config.ts";
 import { bracketList } from "./logfmt.ts";
 import { recentConvergenceSummary } from "./triggers.ts";
 import { flattenMemoryText } from "./sanitize.ts";
@@ -135,17 +135,63 @@ function openRank(m: Memory): number {
 }
 
 // Only the newest open threads are surfaced, and each session sees the block
-// once (per process), so the frontier costs a bounded number of tokens.
+// once (per process). Rows can be long (up to the content cap), so the block is
+// also held to its own frontierBudget, with any omission shown in the block.
 const OPEN_THREAD_LIMIT = 3;
 const frontierInjectedSessions = new Set<string>();
+
+function omittedLine(count: number): string {
+  return `+ ${count} open ${count === 1 ? "thread" : "threads"} omitted: over budget`;
+}
+
+function cappedFrontier(open: Memory[], budget: number): {
+  block: string;
+  shown: Memory[];
+  omitted: number;
+} {
+  const header = `## Open threads (frontier)${FRAME}`;
+  const rendered = open.map(formatMemory);
+  const full = [header, ...rendered].join("\n");
+  if (full.length <= budget) return { block: full, shown: open, omitted: 0 };
+
+  // Keep a strict newest-first prefix. Budget the omission marker alongside
+  // each candidate row so an older row can never replace a newer one that did
+  // not fit, and the drop is always visible.
+  const kept: string[] = [];
+  let used = header.length;
+  for (let i = 0; i < rendered.length; i++) {
+    const row = rendered[i];
+    if (row === undefined) break;
+    const remaining = rendered.length - i - 1;
+    const marker = remaining ? omittedLine(remaining) : "";
+    const projected = used + 1 + row.length + (marker ? 1 + marker.length : 0);
+    if (projected > budget) break;
+    kept.push(row);
+    used += 1 + row.length;
+  }
+
+  const omitted = open.length - kept.length;
+  const lines = [header, ...kept];
+  if (omitted) lines.push(omittedLine(omitted));
+  // The header plus omission marker is the minimum useful diagnostic. For a
+  // tiny budget that cannot hold even those two lines, emit them anyway rather
+  // than silently making an existing frontier disappear.
+  return { block: lines.join("\n"), shown: open.slice(0, kept.length), omitted };
+}
+
+export interface DigestOptions {
+  // Rows the caller already loaded for this request (shared with the epoch).
+  rows?: Memory[];
+  frontierBudget?: number;
+}
 
 export async function systemDigest(
   _input: unknown,
   output: TransformOutput,
-  rows?: Memory[],
+  opts: DigestOptions = {},
 ): Promise<void> {
   // Repo-scoped: model-facing reads see this repo + global rows.
-  const mems = rows ?? visibleHere((await loadAll()).filter(isActive));
+  const mems = opts.rows ?? visibleHere((await loadAll()).filter(isActive));
   if (!mems.length) return;
   const latest = flattenMemoryText(mems.map((m) => m.ts).sort().pop() ?? "?");
   output.system.push(
@@ -160,9 +206,8 @@ export async function systemDigest(
     .slice(0, OPEN_THREAD_LIMIT);
   if (!open.length) return;
 
-  output.system.push(
-    `\n## Open threads (frontier)${FRAME}\n` + open.map(formatMemory).join("\n"),
-  );
+  const frontier = cappedFrontier(open, opts.frontierBudget ?? frontierBudget());
+  output.system.push(`\n${frontier.block}`);
 
   // Aggregate of past sessions' convergence (one line, gated on data existing;
   // I3: it is a derived fact, never the raw log). Gives the next session the
@@ -183,8 +228,10 @@ export async function systemDigest(
     "frontier_injected",
     {
       session: sid,
-      scopes: bracketList([...new Set(open.map((m) => flattenMemoryText(m.scope)))]),
-      shown: open.length,
+      scopes: bracketList([...new Set(frontier.shown.map((m) => flattenMemoryText(m.scope)))]),
+      shown: frontier.shown.length,
+      omitted: frontier.omitted,
+      ...(frontier.omitted ? { reason: "over_budget" } : {}),
       open_total: openMems.length,
       ts_since: dateStr(),
     },
@@ -274,7 +321,11 @@ export async function compactionAnchor(limit = 12): Promise<string> {
   return capToBudget(block, ANCHOR_BUDGET);
 }
 
-export async function contextualPull(input: PullInput, output: PullOutput): Promise<void> {
+export async function contextualPull(
+  input: PullInput,
+  output: PullOutput,
+  budget = injectBudget(),
+): Promise<void> {
   const tool = typeof input.tool === "string" ? input.tool : "";
   if (!["grep", "glob", "read"].includes(tool)) return;
   const term = argText(input.args);
@@ -283,8 +334,9 @@ export async function contextualPull(input: PullInput, output: PullOutput): Prom
   const mems = visibleHere((await loadAll()).filter(isActive));
   const top = scoreMemories(term, mems, 3);
   if (!top.length) return;
-  const block = top.map(formatMemory).join("\n");
-  if (typeof output.output === "string") {
-    output.output += `\n## Related durable memory (pull)${FRAME}\n${block}`;
+  // Held to the injection budget too: three long rows were ~12 KB per call.
+  const block = capToBudget(`## Related durable memory (pull)${FRAME}\n${top.map(formatMemory).join("\n")}`, budget);
+  if (block && typeof output.output === "string") {
+    output.output += `\n${block}`;
   }
 }

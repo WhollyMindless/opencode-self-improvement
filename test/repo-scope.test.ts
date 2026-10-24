@@ -142,8 +142,8 @@ describe("tools and admin paths", () => {
   });
 });
 
-describe("portability carries origin stamps", () => {
-  test("export -> import on a 'different machine' keeps the row's repo, not the importer's", async () => {
+describe("portability validates origin stamps", () => {
+  test("export -> import in another repo replaces the foreign stamp with the importer's", async () => {
     await appendMemory({ type: "learning", scope: "s", content: "fact that must stay scoped to alpha" });
     const exp = await exportMemories({});
     setRepoScope(REPO_B);
@@ -152,10 +152,11 @@ describe("portability carries origin stamps", () => {
       return { action: out.action };
     });
     expect(tally.promoted + tally.collapsed).toBeGreaterThan(0);
-    // The imported copy is stamped for ALPHA (its origin), so from B it stays
-    // invisible — the hop cannot launder scoping.
-    expect((await loadAll()).filter((m) => m.content.includes("stay scoped to alpha"))
-      .every((m) => m.repo === REPO_A.key)).toBe(true);
+    // The export's ALPHA stamp cannot choose a privileged destination. The
+    // imported copy belongs to the repo where the user ran memory_import.
+    const copies = (await loadAll()).filter((m) => m.content.includes("stay scoped to alpha"));
+    expect(copies.some((m) => m.repo === REPO_A.key)).toBe(true);
+    expect(copies.some((m) => m.repo === REPO_B.key && m.repoPath === REPO_B.path)).toBe(true);
   });
 });
 

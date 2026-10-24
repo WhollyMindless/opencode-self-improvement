@@ -12,7 +12,7 @@
 // helper modules.
 import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { basename, join } from "node:path";
-import { evidenceDir, injectBudget, memoryRoot, dateStr } from "./config.ts";
+import { evidenceDir, frontierBudget, injectBudget, memoryRoot, dateStr } from "./config.ts";
 import { STATUSES, TYPES } from "./types.ts";
 import {
   clearSuperseded,
@@ -178,10 +178,12 @@ const impl = {
     const liveRoot = setupRoot ?? process.cwd();
     setRepoScope(setupRoot ? resolveRepo(setupRoot) : null);
 
-    // Character budget for the epoch-frozen injection block: plugin options
-    // (object form in opencode.json(c)) win, then OPENCODE_MEMORY_INJECT_BUDGET,
-    // then the 1200 default.
+    // Character budgets: relevance injection and contextual pulls share the
+    // existing cap; the session-start frontier has its own larger cap. Plugin
+    // options win over env fallbacks, and the frontier defaults to 3x the
+    // effective injection budget.
     const budget = Number(ctx.options?.injectBudget) || injectBudget();
+    const openBudget = Number(ctx.options?.frontierBudget) || frontierBudget(budget);
 
     // Mirror the /repo-init slash command into opencode's global commands dir
     // (idempotent, write-if-missing). OpenCode 2.x loads `*.md` from
@@ -481,7 +483,7 @@ const impl = {
       editor.add(validated(ExportArgs, {
         name: "memory_export",
         description:
-          "Export active memories as a JSONL file for backup or transfer to another machine. The first line is a metadata header ({_export,version,exportedAt,count}); each later line is one JSON object {ts,type,scope,content,status,tags,issue}. The header is what lets memory_import keep status:\"open\" frontier rows — a hand-written file without it imports such rows as settled. Defaults to <memory-root>/exports/<timestamp>.jsonl; pass `file` to choose the path, `scope` to export one scope. Superseded rows are not exported (history stays in the store).",
+          "Export active memories as a JSONL file for backup or transfer to another machine. The first line is a metadata header ({_export,version,exportedAt,count}); each later line is one JSON object {ts,type,scope,content,status,tags,issue}. The header is what lets memory_import keep repo-scoped status:\"open\" frontier rows — a hand-written file without it imports such rows as settled, as does an imported open row claiming repo:\"global\". Defaults to <memory-root>/exports/<timestamp>.jsonl; pass `file` to choose the path, `scope` to export one scope. Superseded rows are not exported (history stays in the store).",
         options: direct,
         async execute(args): Promise<{ content: string }> {
           const res = await exportMemories({ scope: args.scope, file: args.file });
@@ -492,7 +494,7 @@ const impl = {
       editor.add(validated(ImportArgs, {
         name: "memory_import",
         description:
-          "Import memories from a JSONL export (see memory_export). Every row goes through the same 4-gate write pipeline as memory_remember (tagged `import`, original tags preserved), so duplicates collapse and ungrounded rows are blocked exactly as usual — those are normal tallied outcomes, not errors. Malformed lines are skipped and counted. Frontier policy: status:\"open\" exempts a row from ref grounding, so it is honored ONLY if the file opens with a memory_export header; without one, open rows are downgraded to settled and tallied. Imported content is unverified by construction: injected rows surface a `[via import]` provenance marker.",
+          "Import memories from a JSONL export (see memory_export). Every row goes through the same 4-gate write pipeline as memory_remember (tagged `import`, original tags preserved), so duplicates collapse and ungrounded rows are blocked exactly as usual — those are normal tallied outcomes, not errors. Malformed lines are skipped and counted. Frontier policy: status:\"open\" exempts a row from ref grounding, so it requires a memory_export header and cannot claim global scope; imported repo stamps are kept only when they match the importing session's repo, otherwise the importing repo is stamped. A stamped open row is downgraded when there is no current repo scope to verify it. Imported content is unverified by construction: injected rows surface a `[via import]` provenance marker.",
         options: direct,
         async execute(args): Promise<{ content: string }> {
           try {
@@ -507,7 +509,7 @@ const impl = {
                 `Imported ${args.file}: ${t.promoted} promoted, ${t.collapsed} duplicates collapsed, ` +
                 `${t.blocked} blocked by the gate, ${t.skipped} malformed lines skipped.` +
                 (t.downgraded
-                  ? ` ${t.downgraded} open rows downgraded to settled (file has no memory_export header).`
+                  ? ` ${t.downgraded} open rows downgraded to settled (missing eligible memory_export header or verifiable repo scope).`
                   : ""),
             };
           } catch (err) {
@@ -734,7 +736,7 @@ const impl = {
         setCurrent(input);
         const out = { output: resultText(event?.result), metadata: resultMeta(event?.result) };
         await afterTool(input, out);
-        await contextualPull(input, out as { output?: unknown });
+        await contextualPull(input, out as { output?: unknown }, budget);
         // Write a contextual-pull append back when the tool result is text we own.
         if (event?.result && typeof event.result === "object" && typeof event.result.content === "string") {
           const text = resultText(event.result);
@@ -753,7 +755,11 @@ const impl = {
         const mems = await injectableRows();
         if (typeof sid === "string") await refreshEpoch(sid, mems);
         const parts: string[] = [];
-        await systemDigest({ sessionID: event?.sessionID }, { system: parts }, mems);
+        await systemDigest(
+          { sessionID: event?.sessionID },
+          { system: parts },
+          { rows: mems, frontierBudget: openBudget },
+        );
         for (const text of parts) event?.system?.push?.({ type: "text", text });
         // Deliver this epoch's relevance-ranked memory via the system channel.
         // The UI never renders system parts, unlike appended prompt text.
