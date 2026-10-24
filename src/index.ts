@@ -65,6 +65,7 @@ import { getCurrent, setCurrent } from "./state.ts";
 import { resolveRepo, setRepoScope, rememberSessionDir, sessionDir } from "./repokey.ts";
 import { readLines } from "./logfmt.ts";
 import { buildCapturePrompt, flattenTranscript, parseCandidates, parseModelRef } from "./capture.ts";
+import { redactSecrets } from "./secrets.ts";
 
 // Tool/input boundaries are zod schemas (src/schema.ts): the JSON Schema the
 // host sees is GENERATED from them, and raw args are re-parsed at execution.
@@ -890,7 +891,8 @@ const impl = {
                   );
                   await record(
                     `auto_capture_${outcome.action}`,
-                    { session: sid, type: c.type, scope: c.scope, reason: outcome.reason ?? "" },
+                    // A blocked credential-shaped scope must not reach the evidence log either.
+                    { session: sid, type: c.type, scope: redactSecrets(c.scope), reason: outcome.reason ?? "" },
                     false,
                   );
                 }

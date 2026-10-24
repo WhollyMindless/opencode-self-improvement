@@ -14,7 +14,7 @@ import {
   type Memory,
 } from "./memory.ts";
 import { chainId, contentHash, record, recordWriteBlocked } from "./evidence.ts";
-import { redactSecrets } from "./secrets.ts";
+import { containsSecret, redactSecrets } from "./secrets.ts";
 import {
   displayCall,
   extractCallForms,
@@ -223,15 +223,32 @@ export async function runWriteGate(
     };
   }
 
+  const credentialMetadata = [
+    containsSecret(candidate.scope) ? "scope" : undefined,
+    candidate.tags?.some(containsSecret) ? "tags" : undefined,
+    containsSecret(candidate.issue) ? "issue" : undefined,
+  ].filter((field): field is string => field !== undefined);
+  if (credentialMetadata.length) {
+    await recordWriteBlocked(
+      4,
+      "credential_in_metadata",
+      credentialMetadata.map((field) => `field=${field}`),
+      chain,
+    );
+    return {
+      action: "blocked",
+      reason: "credential_in_metadata",
+      chain,
+      hint: `Credential-shaped value in ${credentialMetadata.join(", ")}; remove it and retry. Only memory content is redacted automatically.`,
+    };
+  }
+
   // This is the common boundary for manual, imported and auto-captured writes.
-  // Scrub before hashing, analysis and persistence so no write path can retain
-  // a credential that the capture model echoes or invents.
+  // Scrub content before hashing, analysis and persistence. Metadata is
+  // rejected above rather than silently changing where a row can be found.
   candidate = {
     ...candidate,
-    scope: redactSecrets(candidate.scope),
     content: redactSecrets(candidate.content),
-    issue: candidate.issue ? redactSecrets(candidate.issue) : candidate.issue,
-    tags: candidate.tags?.map(redactSecrets),
   };
 
   const ch = contentHash(candidate.content);

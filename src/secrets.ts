@@ -33,3 +33,7 @@ export function redactSecrets(text: string): string {
     looksHighEntropy(value) ? `${prefix}${REDACTED_SECRET}` : match,
   );
 }
+
+export function containsSecret(text: string | undefined): boolean {
+  return typeof text === "string" && redactSecrets(text) !== text;
+}

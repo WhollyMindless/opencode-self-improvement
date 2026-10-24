@@ -345,6 +345,31 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
     await loaded.cleanup();
   });
 
+  test("a credential-shaped captured scope is blocked and never reaches evidence", async () => {
+    const key = "sk-" + "proj-ZyXwVu9876543210ZyXwVu9876543210abc";
+    const loaded = await loadCapturePlugin({ autoCapture: true, captureModel: "fake/model" });
+    loaded.capture.context.messages = [
+      {
+        role: "user",
+        content: "The durable public detail is that releases run from the repository root. ".repeat(4),
+      },
+    ];
+    loaded.capture.generate.response = JSON.stringify([
+      { type: "context", scope: `OPENAI_API_KEY=${key}`, content: "releases run from the repository root", status: "open" },
+    ]);
+
+    loaded.capture.events.push({ type: "session.idle", sessionID: "ses-scope-secret" });
+    await waitFor(() => evidence().some((l) => l.ev === "auto_capture_blocked"));
+
+    const blocked = evidence().find((l) => l.ev === "auto_capture_blocked");
+    expect(String(blocked?.reason)).toBe("credential_in_metadata");
+    expect((await loadAll()).some((m) => m.tags?.includes("auto-capture"))).toBe(false);
+    const evidenceText = readFileSync(join(evidenceDir(), `${dateStr()}.logfmt`), "utf8");
+    expect(evidenceText).not.toContain(key);
+
+    await loaded.cleanup();
+  });
+
   test("secrets and reasoning never reach the model, and returned secrets are redacted", async () => {
     const key = "sk-" + "proj-AbCdEf0123456789AbCdEf0123456789xyz";
     const reasoning = "INTERNAL_REASONING_SENTINEL should remain private";
@@ -391,7 +416,7 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
       content: `The manual deployment credential is SERVICE_TOKEN=${key}`,
       status: "open",
     });
-    expect(manual).toContain("Remembered");
+    expect(manual).toBe("Remembered: learning in manual-credentials");
     const store = readFileSync(join(memoryRoot(), `${dateStr()}.logfmt`), "utf8");
     expect(store).not.toContain(key);
     expect(store.match(/\[redacted\]/g)?.length).toBe(2);
