@@ -38,6 +38,10 @@ export interface CaptureFakes {
     calls: string[];
     messages: unknown;
   };
+  session: {
+    getCalls: string[];
+    row: unknown;
+  };
 }
 
 export interface LoadedPlugin {
@@ -87,6 +91,7 @@ export async function loadPlugin(
     },
     generate: { calls: [], response: "" },
     context: { calls: [], messages: [] },
+    session: { getCalls: [], row: undefined },
   };
 
   const ctx = {
@@ -121,6 +126,10 @@ export async function loadPlugin(
       context: async (input: any) => {
         capture.context.calls.push(String(input?.sessionID ?? ""));
         return capture.context.messages;
+      },
+      get: async (input: any) => {
+        capture.session.getCalls.push(String(input?.sessionID ?? ""));
+        return capture.session.row;
       },
     },
     event: {
