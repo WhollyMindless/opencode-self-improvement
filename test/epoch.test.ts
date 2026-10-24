@@ -14,6 +14,7 @@ import { capToBudget, storeVersion } from "../src/inject.ts";
 import { addBlock, removeBlock } from "../src/blocklist.ts";
 import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { resetState } from "../src/state.ts";
+import { SESSION_CAP } from "../src/sessions.ts";
 import { loadPlugin } from "./harness.ts";
 
 let root: string;
@@ -212,6 +213,37 @@ describe("epoch freeze (cache-safe injection)", () => {
     for (const line of lines.slice(1)) expect(line.startsWith("- ")).toBe(true); // never cut mid-line
     // Candidate pool is 5 + header = 6 lines; the cap must have dropped some.
     expect(lines.length).toBeLessThan(6);
+  });
+
+  test("bounds per-session state and restarts an evicted session with a first epoch", async () => {
+    seed("pattern", "sessions", "frozen epoch session cap sentinel");
+    const loaded = await loadPlugin(liveRoot);
+    const prompt = "find the frozen epoch session cap sentinel";
+    const evictedSid = "ses-cap-0";
+    const keptSid = "ses-cap-1";
+
+    expect(await deliveredBlock(loaded, evictedSid, prompt)).toContain("session cap sentinel");
+    const keptBlock = await deliveredBlock(loaded, keptSid, prompt);
+    expect(keptBlock).toContain("session cap sentinel");
+
+    // Keep ses-cap-1 recent while admitting SESSION_CAP - 1 more sessions.
+    // The first session is therefore the least recent and must be evicted when
+    // the final session takes the bounded cache one entry over its cap.
+    for (let i = 2; i <= SESSION_CAP; i++) {
+      expect(await deliveredBlock(loaded, `ses-cap-${i}`, prompt)).toContain("session cap sentinel");
+      expect(await deliveredContextBlock(loaded, keptSid)).toBe(keptBlock);
+    }
+
+    // Eviction drops all four maps together: no stale relevance can ride a
+    // context request until a new prompt creates a fresh epoch.
+    expect(await deliveredContextBlock(loaded, evictedSid)).toBe("");
+    expect(await deliveredContextBlock(loaded, keptSid)).toBe(keptBlock);
+
+    const promptHook = loaded.sessionHooks["prompt"];
+    if (!promptHook) throw new Error("prompt hook was not registered");
+    await promptHook({ sessionID: evictedSid, prompt: { text: prompt } });
+    expect(epochRecomputes(evictedSid).map((e) => e.reason)).toEqual(["first", "first"]);
+    expect(await deliveredContextBlock(loaded, evictedSid)).toContain("session cap sentinel");
   });
 });
 

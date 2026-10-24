@@ -29,6 +29,7 @@ import { runWriteGate, type GateContext, type WriteCandidate } from "./gates.ts"
 import { pruneMemory } from "./prune.ts";
 import { exportMemories, findStaleOpen, importMemories } from "./portable.ts";
 import { listSnapshots, restoreSnapshot } from "./undo.ts";
+import { SESSION_CAP, SessionLru } from "./sessions.ts";
 import { record } from "./evidence.ts";
 import {
   capToBudget,
@@ -401,7 +402,7 @@ const impl = {
       editor.add(validated(UndoArgs, {
         name: "memory_undo",
         description:
-          "List memory snapshots, or restore one (rollback). Only snapshots inside this store's snapshots directory are accepted: pass a bare name from the list or its full path. SAFE BY DEFAULT: restore refuses if the current file has rows added or edited since the snapshot, and audited human/tool deletions stay deleted. Re-run with merge=true to restore AND keep divergent rows, or force=true for an explicit exact rollback. Blocklisted rows remain inactive in every mode.",
+          "List memory snapshots, or restore one (rollback). Only snapshots inside this store's snapshots directory are accepted: pass a bare name from the list or its full path. Non-standard files in snapshots/ are not listed or restorable. SAFE BY DEFAULT: restore refuses if the current file has rows added or edited since the snapshot, and audited human/tool deletions stay deleted. Re-run with merge=true to restore AND keep divergent rows, or force=true for an explicit exact rollback. Blocklisted rows remain inactive in every mode.",
         options: direct,
         async execute(args): Promise<{ content: string }> {
           if (args.snapshot) {
@@ -606,13 +607,15 @@ const impl = {
     });
 
     // Per-session frozen injection epochs: the relevance block plus the store
-    // fingerprint it was computed against. Recomputed ONLY on the first prompt
-    // of a session, when injectable rows change, or after a compaction (see the
-    // prompt/context/compaction hooks) — so the system prefix, and with it the
-    // provider prompt cache, survives ordinary requests.
+    // fingerprint it was computed against. Recomputed on the first prompt of a
+    // tracked session, when injectable rows change, or after a compaction (see
+    // the prompt/context/compaction hooks) — so the system prefix, and with it
+    // the provider prompt cache, survives ordinary requests. The shared LRU
+    // below may evict the whole session state; a later prompt starts it fresh.
     const epoch = new Map<string, { version: string; block: string; at: string; reason: "first" | "store_changed" }>();
-    // Latest user prompt per session. A changed store is re-scored against it
-    // even when the change happened during a tool loop with no new prompt.
+    // Latest user prompt per tracked session. A changed store is re-scored
+    // against it even when the change happened during a tool loop with no new
+    // prompt. It is evicted together with the epoch and session ledgers.
     const latestPrompt = new Map<string, string>();
     // Recomputes since server start: every one invalidated a prompt cache, so
     // it is the honest cost number the surfaces show (status files / tools).
@@ -624,6 +627,13 @@ const impl = {
     // (memory_status, in-process).
     const sessionStats = new Map<string, SessionStats>();
     const measuredTurns = new Map<string, Measured>();
+    // Every map above is keyed by session and dropped together on eviction.
+    const sessions = new SessionLru(SESSION_CAP, (sid) => {
+      epoch.delete(sid);
+      latestPrompt.delete(sid);
+      sessionStats.delete(sid);
+      measuredTurns.delete(sid);
+    });
     const statsFor = (sid: string): SessionStats => {
       let st = sessionStats.get(sid);
       if (!st) {
@@ -741,6 +751,7 @@ const impl = {
         // Route store reads in this hook through the right session's scope.
         setCurrent({ sessionID: event?.sessionID });
         const sid = event?.sessionID;
+        if (typeof sid === "string") sessions.touch(sid);
         const mems = await injectableRows();
         if (typeof sid === "string") await refreshEpoch(sid, mems);
         const parts: string[] = [];
@@ -779,6 +790,7 @@ const impl = {
         setCurrent({ sessionID: event?.sessionID });
         const sid = event?.sessionID;
         if (typeof sid === "string") {
+          sessions.touch(sid);
           markTurn(sid);
           await checkNewSession(sid);
           await bindSessionFromMessages(sid);
@@ -845,6 +857,7 @@ const impl = {
             const sid = info.sessionID;
             const t = info.tokens;
             if (typeof sid !== "string" || !t) continue;
+            sessions.touch(sid);
             measuredTurns.set(sid, {
               at: new Date().toISOString(),
               input: Number(t.input) || 0,

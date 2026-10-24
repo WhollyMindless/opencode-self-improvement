@@ -19,6 +19,23 @@ import { snapshotFiles } from "./memory.ts";
 
 const SNAPSHOT_NAME = /^(\d+)-(\d{4}-\d{2}-\d{2}\.logfmt)$/;
 
+function matchSnapshotName(name: string): RegExpExecArray | null {
+  const match = SNAPSHOT_NAME.exec(name);
+  if (!match) return null;
+  const original = match[2];
+  if (!original) return null;
+  const year = Number(original.slice(0, 4));
+  const month = Number(original.slice(5, 7));
+  const day = Number(original.slice(8, 10));
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+    ? match
+    : null;
+}
+
 export interface SnapshotInfo {
   file: string;
   name: string;
@@ -31,7 +48,7 @@ export async function listSnapshots(): Promise<SnapshotInfo[]> {
   const out: SnapshotInfo[] = [];
   try {
     for await (const f of glob.scan(snapshotDir())) {
-      if (!SNAPSHOT_NAME.test(f)) continue;
+      if (!matchSnapshotName(f)) continue;
       const info = Bun.file(join(snapshotDir(), f));
       out.push({
         file: join(snapshotDir(), f),
@@ -83,7 +100,7 @@ async function resolveSnapshot(
   memoryRootDir: string,
 ): Promise<{ path: string; original: string }> {
   const name = basename(snapshot);
-  const match = SNAPSHOT_NAME.exec(name);
+  const match = matchSnapshotName(name);
   const original = match?.[2];
   const stamp = match ? Number(match[1]) : Number.NaN;
   if (!original || !Number.isSafeInteger(stamp)) {
