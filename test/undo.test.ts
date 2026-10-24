@@ -20,7 +20,7 @@ import { basename, join, sep } from "node:path";
 import { addBlock, blocklistFile } from "../src/blocklist.ts";
 import { memoryRoot, snapshotDir } from "../src/config.ts";
 import { loadAll, prune, snapshotFiles } from "../src/memory.ts";
-import { restoreSnapshot } from "../src/undo.ts";
+import { listSnapshots, restoreSnapshot } from "../src/undo.ts";
 import { loadPlugin } from "./harness.ts";
 
 const DAY = "2026-01-01";
@@ -198,6 +198,27 @@ describe("restoreSnapshot modes", () => {
 });
 
 describe("snapshot containment", () => {
+  test("rejects impossible calendar dates and lists only valid snapshot names", async () => {
+    mkdirSync(snapshotDir(), { recursive: true });
+    const impossible = "123-2026-13-45.logfmt";
+    const nonLeapDay = "124-2026-02-29.logfmt";
+    const leapDay = "125-2028-02-29.logfmt";
+    for (const name of [impossible, nonLeapDay, leapDay]) {
+      writeFileSync(join(snapshotDir(), name), `${row(1)}\n`);
+    }
+
+    expect((await listSnapshots()).map((snapshot) => snapshot.name)).toEqual([leapDay]);
+    for (const name of [impossible, nonLeapDay]) {
+      await expect(restoreSnapshot(name, memoryRoot())).rejects.toThrow(
+        `invalid snapshot name: ${name}`,
+      );
+    }
+
+    const restored = await restoreSnapshot(leapDay, memoryRoot());
+    expect(basename(restored.target)).toBe("2028-02-29.logfmt");
+    expect(readFileSync(restored.target, "utf8")).toBe(`${row(1)}\n`);
+  });
+
   test("a snapshot path escaping through .. is rejected", async () => {
     const name = `123-${DAY}.logfmt`;
     const outside = join(root, "outside");
