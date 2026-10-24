@@ -9,11 +9,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { dateStr, evidenceDir, injectBudget, memoryRoot } from "../src/config.ts";
+import { dateStr, evidenceDir, frontierBudget, injectBudget, memoryRoot } from "../src/config.ts";
 import { capToBudget, storeVersion } from "../src/inject.ts";
 import { addBlock, removeBlock } from "../src/blocklist.ts";
 import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { resetState } from "../src/state.ts";
+import { SESSION_CAP } from "../src/sessions.ts";
 import { loadPlugin } from "./harness.ts";
 
 let root: string;
@@ -26,6 +27,7 @@ beforeEach(() => {
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
   delete process.env.OPENCODE_MEMORY_INJECT_BUDGET;
+  delete process.env.OPENCODE_MEMORY_FRONTIER_BUDGET;
   resetState();
 });
 
@@ -33,6 +35,7 @@ afterEach(() => {
   delete process.env.OPENCODE_MEMORY_DIR;
   delete process.env.OPENCODE_COMMANDS_DIR;
   delete process.env.OPENCODE_MEMORY_INJECT_BUDGET;
+  delete process.env.OPENCODE_MEMORY_FRONTIER_BUDGET;
 });
 
 function seed(type: string, scope: string, content: string): string {
@@ -211,6 +214,37 @@ describe("epoch freeze (cache-safe injection)", () => {
     // Candidate pool is 5 + header = 6 lines; the cap must have dropped some.
     expect(lines.length).toBeLessThan(6);
   });
+
+  test("bounds per-session state and restarts an evicted session with a first epoch", async () => {
+    seed("pattern", "sessions", "frozen epoch session cap sentinel");
+    const loaded = await loadPlugin(liveRoot);
+    const prompt = "find the frozen epoch session cap sentinel";
+    const evictedSid = "ses-cap-0";
+    const keptSid = "ses-cap-1";
+
+    expect(await deliveredBlock(loaded, evictedSid, prompt)).toContain("session cap sentinel");
+    const keptBlock = await deliveredBlock(loaded, keptSid, prompt);
+    expect(keptBlock).toContain("session cap sentinel");
+
+    // Keep ses-cap-1 recent while admitting SESSION_CAP - 1 more sessions.
+    // The first session is therefore the least recent and must be evicted when
+    // the final session takes the bounded cache one entry over its cap.
+    for (let i = 2; i <= SESSION_CAP; i++) {
+      expect(await deliveredBlock(loaded, `ses-cap-${i}`, prompt)).toContain("session cap sentinel");
+      expect(await deliveredContextBlock(loaded, keptSid)).toBe(keptBlock);
+    }
+
+    // Eviction drops all four maps together: no stale relevance can ride a
+    // context request until a new prompt creates a fresh epoch.
+    expect(await deliveredContextBlock(loaded, evictedSid)).toBe("");
+    expect(await deliveredContextBlock(loaded, keptSid)).toBe(keptBlock);
+
+    const promptHook = loaded.sessionHooks["prompt"];
+    if (!promptHook) throw new Error("prompt hook was not registered");
+    await promptHook({ sessionID: evictedSid, prompt: { text: prompt } });
+    expect(epochRecomputes(evictedSid).map((e) => e.reason)).toEqual(["first", "first"]);
+    expect(await deliveredContextBlock(loaded, evictedSid)).toContain("session cap sentinel");
+  });
 });
 
 describe("capToBudget", () => {
@@ -247,6 +281,21 @@ describe("injectBudget", () => {
     expect(injectBudget()).toBe(1200);
     process.env.OPENCODE_MEMORY_INJECT_BUDGET = "-5";
     expect(injectBudget()).toBe(1200);
+  });
+});
+
+describe("frontierBudget", () => {
+  test("defaults to 3x injectBudget; honors its own env override; ignores invalid ones", () => {
+    expect(frontierBudget()).toBe(3600);
+    process.env.OPENCODE_MEMORY_INJECT_BUDGET = "750";
+    expect(frontierBudget()).toBe(2250);
+    expect(frontierBudget(900)).toBe(2700);
+    process.env.OPENCODE_MEMORY_FRONTIER_BUDGET = "5000";
+    expect(frontierBudget(900)).toBe(5000);
+    process.env.OPENCODE_MEMORY_FRONTIER_BUDGET = "not-a-number";
+    expect(frontierBudget(900)).toBe(2700);
+    process.env.OPENCODE_MEMORY_FRONTIER_BUDGET = "-5";
+    expect(frontierBudget(900)).toBe(2700);
   });
 });
 

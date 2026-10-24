@@ -12,7 +12,7 @@
 // helper modules.
 import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { basename, join } from "node:path";
-import { evidenceDir, injectBudget, memoryRoot, dateStr } from "./config.ts";
+import { evidenceDir, frontierBudget, injectBudget, memoryRoot, dateStr } from "./config.ts";
 import { STATUSES, TYPES } from "./types.ts";
 import {
   clearSuperseded,
@@ -29,6 +29,7 @@ import { runWriteGate, type GateContext, type WriteCandidate } from "./gates.ts"
 import { pruneMemory } from "./prune.ts";
 import { exportMemories, findStaleOpen, importMemories } from "./portable.ts";
 import { listSnapshots, restoreSnapshot } from "./undo.ts";
+import { SESSION_CAP, SessionLru } from "./sessions.ts";
 import { record } from "./evidence.ts";
 import {
   capToBudget,
@@ -178,10 +179,12 @@ const impl = {
     const liveRoot = setupRoot ?? process.cwd();
     setRepoScope(setupRoot ? resolveRepo(setupRoot) : null);
 
-    // Character budget for the epoch-frozen injection block: plugin options
-    // (object form in opencode.json(c)) win, then OPENCODE_MEMORY_INJECT_BUDGET,
-    // then the 1200 default.
+    // Character budgets: relevance injection and contextual pulls share the
+    // existing cap; the session-start frontier has its own larger cap. Plugin
+    // options win over env fallbacks, and the frontier defaults to 3x the
+    // effective injection budget.
     const budget = Number(ctx.options?.injectBudget) || injectBudget();
+    const openBudget = Number(ctx.options?.frontierBudget) || frontierBudget(budget);
 
     // Mirror the /repo-init slash command into opencode's global commands dir
     // (idempotent, write-if-missing). OpenCode 2.x loads `*.md` from
@@ -400,7 +403,7 @@ const impl = {
       editor.add(validated(UndoArgs, {
         name: "memory_undo",
         description:
-          "List memory snapshots, or restore one (rollback). Only snapshots inside this store's snapshots directory are accepted: pass a bare name from the list or its full path. SAFE BY DEFAULT: restore refuses if the current file has rows added or edited since the snapshot, and audited human/tool deletions stay deleted. Re-run with merge=true to restore AND keep divergent rows, or force=true for an explicit exact rollback. Blocklisted rows remain inactive in every mode.",
+          "List memory snapshots, or restore one (rollback). Only snapshots inside this store's snapshots directory are accepted: pass a bare name from the list or its full path. Non-standard files in snapshots/ are not listed or restorable. SAFE BY DEFAULT: restore refuses if the current file has rows added or edited since the snapshot, and audited human/tool deletions stay deleted. Re-run with merge=true to restore AND keep divergent rows, or force=true for an explicit exact rollback. Blocklisted rows remain inactive in every mode.",
         options: direct,
         async execute(args): Promise<{ content: string }> {
           if (args.snapshot) {
@@ -481,7 +484,7 @@ const impl = {
       editor.add(validated(ExportArgs, {
         name: "memory_export",
         description:
-          "Export active memories as a JSONL file for backup or transfer to another machine. The first line is a metadata header ({_export,version,exportedAt,count}); each later line is one JSON object {ts,type,scope,content,status,tags,issue}. The header is what lets memory_import keep status:\"open\" frontier rows — a hand-written file without it imports such rows as settled. Defaults to <memory-root>/exports/<timestamp>.jsonl; pass `file` to choose the path, `scope` to export one scope. Superseded rows are not exported (history stays in the store).",
+          "Export active memories as a JSONL file for backup or transfer to another machine. The first line is a metadata header ({_export,version,exportedAt,count}); each later line is one JSON object {ts,type,scope,content,status,tags,issue}. The header is what lets memory_import keep repo-scoped status:\"open\" frontier rows — a hand-written file without it imports such rows as settled, as does an imported open row claiming repo:\"global\". Defaults to <memory-root>/exports/<timestamp>.jsonl; pass `file` to choose the path, `scope` to export one scope. Superseded rows are not exported (history stays in the store).",
         options: direct,
         async execute(args): Promise<{ content: string }> {
           const res = await exportMemories({ scope: args.scope, file: args.file });
@@ -492,7 +495,7 @@ const impl = {
       editor.add(validated(ImportArgs, {
         name: "memory_import",
         description:
-          "Import memories from a JSONL export (see memory_export). Every row goes through the same 4-gate write pipeline as memory_remember (tagged `import`, original tags preserved), so duplicates collapse and ungrounded rows are blocked exactly as usual — those are normal tallied outcomes, not errors. Malformed lines are skipped and counted. Frontier policy: status:\"open\" exempts a row from ref grounding, so it is honored ONLY if the file opens with a memory_export header; without one, open rows are downgraded to settled and tallied. Imported content is unverified by construction: injected rows surface a `[via import]` provenance marker.",
+          "Import memories from a JSONL export (see memory_export). Every row goes through the same 4-gate write pipeline as memory_remember (tagged `import`, original tags preserved), so duplicates collapse and ungrounded rows are blocked exactly as usual — those are normal tallied outcomes, not errors. Malformed lines are skipped and counted. Frontier policy: status:\"open\" exempts a row from ref grounding, so it requires a memory_export header and cannot claim global scope; imported repo stamps are kept only when they match the importing session's repo, otherwise the importing repo is stamped. A stamped open row is downgraded when there is no current repo scope to verify it. Imported content is unverified by construction: injected rows surface a `[via import]` provenance marker.",
         options: direct,
         async execute(args): Promise<{ content: string }> {
           try {
@@ -507,7 +510,7 @@ const impl = {
                 `Imported ${args.file}: ${t.promoted} promoted, ${t.collapsed} duplicates collapsed, ` +
                 `${t.blocked} blocked by the gate, ${t.skipped} malformed lines skipped.` +
                 (t.downgraded
-                  ? ` ${t.downgraded} open rows downgraded to settled (file has no memory_export header).`
+                  ? ` ${t.downgraded} open rows downgraded to settled (missing eligible memory_export header or verifiable repo scope).`
                   : ""),
             };
           } catch (err) {
@@ -605,13 +608,15 @@ const impl = {
     });
 
     // Per-session frozen injection epochs: the relevance block plus the store
-    // fingerprint it was computed against. Recomputed ONLY on the first prompt
-    // of a session, when injectable rows change, or after a compaction (see the
-    // prompt/context/compaction hooks) — so the system prefix, and with it the
-    // provider prompt cache, survives ordinary requests.
+    // fingerprint it was computed against. Recomputed on the first prompt of a
+    // tracked session, when injectable rows change, or after a compaction (see
+    // the prompt/context/compaction hooks) — so the system prefix, and with it
+    // the provider prompt cache, survives ordinary requests. The shared LRU
+    // below may evict the whole session state; a later prompt starts it fresh.
     const epoch = new Map<string, { version: string; block: string; at: string; reason: "first" | "store_changed" }>();
-    // Latest user prompt per session. A changed store is re-scored against it
-    // even when the change happened during a tool loop with no new prompt.
+    // Latest user prompt per tracked session. A changed store is re-scored
+    // against it even when the change happened during a tool loop with no new
+    // prompt. It is evicted together with the epoch and session ledgers.
     const latestPrompt = new Map<string, string>();
     // Recomputes since server start: every one invalidated a prompt cache, so
     // it is the honest cost number the surfaces show (status files / tools).
@@ -623,6 +628,13 @@ const impl = {
     // (memory_status, in-process).
     const sessionStats = new Map<string, SessionStats>();
     const measuredTurns = new Map<string, Measured>();
+    // Every map above is keyed by session and dropped together on eviction.
+    const sessions = new SessionLru(SESSION_CAP, (sid) => {
+      epoch.delete(sid);
+      latestPrompt.delete(sid);
+      sessionStats.delete(sid);
+      measuredTurns.delete(sid);
+    });
     const statsFor = (sid: string): SessionStats => {
       let st = sessionStats.get(sid);
       if (!st) {
@@ -725,7 +737,7 @@ const impl = {
         setCurrent(input);
         const out = { output: resultText(event?.result), metadata: resultMeta(event?.result) };
         await afterTool(input, out);
-        await contextualPull(input, out as { output?: unknown });
+        await contextualPull(input, out as { output?: unknown }, budget);
         // Write a contextual-pull append back when the tool result is text we own.
         if (event?.result && typeof event.result === "object" && typeof event.result.content === "string") {
           const text = resultText(event.result);
@@ -740,10 +752,15 @@ const impl = {
         // Route store reads in this hook through the right session's scope.
         setCurrent({ sessionID: event?.sessionID });
         const sid = event?.sessionID;
+        if (typeof sid === "string") sessions.touch(sid);
         const mems = await injectableRows();
         if (typeof sid === "string") await refreshEpoch(sid, mems);
         const parts: string[] = [];
-        await systemDigest({ sessionID: event?.sessionID }, { system: parts }, mems);
+        await systemDigest(
+          { sessionID: event?.sessionID },
+          { system: parts },
+          { rows: mems, frontierBudget: openBudget },
+        );
         for (const text of parts) event?.system?.push?.({ type: "text", text });
         // Deliver this epoch's relevance-ranked memory via the system channel.
         // The UI never renders system parts, unlike appended prompt text.
@@ -774,6 +791,7 @@ const impl = {
         setCurrent({ sessionID: event?.sessionID });
         const sid = event?.sessionID;
         if (typeof sid === "string") {
+          sessions.touch(sid);
           markTurn(sid);
           await checkNewSession(sid);
           await bindSessionFromMessages(sid);
@@ -840,6 +858,7 @@ const impl = {
             const sid = info.sessionID;
             const t = info.tokens;
             if (typeof sid !== "string" || !t) continue;
+            sessions.touch(sid);
             measuredTurns.set(sid, {
               at: new Date().toISOString(),
               input: Number(t.input) || 0,

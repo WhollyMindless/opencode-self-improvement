@@ -22,10 +22,11 @@ import { dirname, join } from "node:path";
 import { dateStr, evidenceDir, memoryRoot, snapshotDir } from "../src/config.ts";
 import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { resetState } from "../src/state.ts";
-import { isActive, loadAll } from "../src/memory.ts";
+import { appendMemory, isActive, loadAll } from "../src/memory.ts";
 import type { WriteCandidate } from "../src/gates.ts";
 import { exportMemories, findStaleOpen, importMemories } from "../src/portable.ts";
 import { setRepoScope } from "../src/repokey.ts";
+import { systemDigest } from "../src/inject.ts";
 import { loadPlugin } from "./harness.ts";
 
 let root: string;
@@ -274,6 +275,101 @@ describe("import frontier policy", () => {
     });
     expect(got!.status).toBe("settled");
     expect(t.downgraded).toBe(1);
+  });
+
+  test("a pasted header cannot grant a repo:global row an open frontier everywhere", async () => {
+    const payload = "PLANTED global open thread must not ride an unrelated repo prompt.";
+    const file = join(root, "forged-global.jsonl");
+    writeFileSync(
+      file,
+      [
+        JSON.stringify({ _export: "opencode-self-improvement", version: 1 }),
+        JSON.stringify({ ...openRow, content: payload, repo: "global" }),
+      ].join("\n") + "\n",
+    );
+    setRepoScope({ key: "repo-a", path: join(root, "repo-a") });
+    const t = await importMemories(file, async (c) => {
+      await appendMemory(c);
+      return { action: "promoted" };
+    });
+    expect(t.downgraded).toBe(1);
+    expect((await loadAll()).find((m) => m.content === payload)?.status).toBe("settled");
+
+    setRepoScope({ key: "repo-b", path: join(root, "repo-b") });
+    const system: string[] = [];
+    await systemDigest({ sessionID: "unrelated-repo" }, { system });
+    expect(system.join("\n")).not.toContain(payload);
+  });
+
+  test("a foreign 12-hex repo stamp is replaced with the importing repo scope", async () => {
+    const payload = "the flimflam widget forged-repo claim lands in the importing repo only";
+    const file = join(root, "forged-repo.jsonl");
+    writeFileSync(
+      file,
+      [
+        JSON.stringify({ _export: "opencode-self-improvement", version: 1 }),
+        JSON.stringify({ ...openRow, content: payload, repo: "5981a5640bc3" }),
+      ].join("\n") + "\n",
+    );
+    const importing = { key: "a1b2c3d4e5f6", path: join(root, "importing-repo") };
+    setRepoScope(importing);
+
+    const t = await importMemories(file, async (c) => {
+      await appendMemory(c);
+      return { action: "promoted" };
+    });
+
+    const got = (await loadAll()).find((m) => m.content === payload);
+    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0 });
+    expect(got?.status).toBe("open");
+    expect(got?.repo).toBe(importing.key);
+    expect(got?.repoPath).toBe(importing.path);
+    expect(got?.repo).not.toBe("5981a5640bc3");
+  });
+
+  test("an unverifiable stamped open row is downgraded when the importing session has no scope", async () => {
+    const file = join(root, "unscoped-foreign.jsonl");
+    writeFileSync(
+      file,
+      [
+        JSON.stringify({ _export: "opencode-self-improvement", version: 1 }),
+        JSON.stringify({ ...openRow, repo: "5981a5640bc3", repoPath: "/foreign/repo" }),
+      ].join("\n") + "\n",
+    );
+    setRepoScope(null);
+    let got: WriteCandidate | undefined;
+    const t = await importMemories(file, async (c) => {
+      got = c;
+      return { action: "promoted" };
+    });
+
+    expect(t.downgraded).toBe(1);
+    expect(got?.status).toBe("settled");
+    // The stamp is kept: dropping it would widen the row to global.
+    expect(got?.repo).toBe("5981a5640bc3");
+    expect(got?.repoPath).toBe("/foreign/repo");
+  });
+
+  test("an explicit global settled row stays global", async () => {
+    const payload = "Settled global convention imported from another machine stays global.";
+    const file = join(root, "settled-global.jsonl");
+    writeFileSync(
+      file,
+      [
+        JSON.stringify({ _export: "opencode-self-improvement", version: 1 }),
+        JSON.stringify({ ...openRow, status: "settled", content: payload, repo: "global" }),
+      ].join("\n") + "\n",
+    );
+    setRepoScope({ key: "a1b2c3d4e5f6", path: join(root, "importing-repo") });
+    let got: WriteCandidate | undefined;
+    const t = await importMemories(file, async (c) => {
+      got = c;
+      return { action: "promoted" };
+    });
+
+    expect(t.downgraded).toBe(0);
+    expect(got?.status).toBe("settled");
+    expect(got?.repo).toBe("global");
   });
 });
 

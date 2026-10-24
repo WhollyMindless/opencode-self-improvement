@@ -140,9 +140,9 @@ export interface AppendMemoryInput {
   issue?: string;
   tags?: string[];
   status?: MemoryStatus;
-  // "global" for explicit cross-project writes; imports carry the row's own
-  // origin stamp (hash survives the machine hop — see repokey.ts). Any other
-  // value is resolved by appendMemory against the live repo scope.
+  // "global" for explicit cross-project writes; imports may carry a validated
+  // same-repo origin stamp (see portable.ts). Any missing value is resolved by
+  // appendMemory against the live repo scope.
   repo?: string;
   repoPath?: string;
 }
