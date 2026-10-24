@@ -50,6 +50,33 @@ LLMs waste a lot of tokens reading and re-reading your code and asking you for c
 - Automatically looks for insights when you complete the verification gates (tests, linting, etc)
 - Always defaults to memories first before sending a prompt to the LLM, which saves tokens! 
 
+## Secret redaction
+
+`src/secrets.ts` provides one best-effort credential rule set. It runs over the
+auto-capture prompt before that prompt leaves the plugin, at the write gate
+before content is hashed or analysed, and again in `appendMemory`, the final
+write choke point used by gated writes and the viewer's edit/restore-entry
+paths. Credential-shaped values in memory content become `[redacted]`.
+Credential-shaped `scope`, `tags`, or `issue` metadata is rejected instead of
+being silently rewritten.
+
+The rules cover OpenAI `sk-` tokens; GitHub `ghp_`, `gho_`, and `github_pat_`
+tokens; Slack `xoxb-` and `xoxp-` tokens; AWS `AKIA` access-key IDs; Google
+`AIza` API keys; bearer tokens containing digits; PEM private-key blocks; and
+high-entropy values assigned to names ending in `_KEY`, `_TOKEN`, `_SECRET`,
+or `_PASSWORD` (plus `password`). This is deliberately best-effort, not a
+guarantee: it can miss hex-only secrets, passwords with few character classes,
+and credentials written in prose without an assignment.
+
+`memory_remember` still replies `Remembered` when content was redacted, so the
+stored text can differ from what was sent. Redaction is forward-only: existing
+stores are not scrubbed, and `memory_export` writes whatever is already stored
+verbatim. See [issue #74](https://github.com/abogartz/opencode-self-improvement/issues/74)
+for the separate existing-store work.
+
+Auto-capture is off by default, so capture-prompt redaction protects opt-in
+installs. The write-gate and `appendMemory` checks apply to every install.
+
 ## Token cost, on purpose
 
 Memory plugins have a reputation for burning tokens and busting the provider's

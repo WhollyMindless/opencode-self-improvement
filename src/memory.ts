@@ -11,6 +11,7 @@ import { getCurrent } from "./state.ts";
 import { appendLog, ensureDir, formatLine, parseLine, readLines, writeAtomic, type Fields } from "./logfmt.ts";
 import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 import { blockedTs } from "./blocklist.ts";
+import { containsSecret, redactSecrets } from "./secrets.ts";
 import { flattenMemoryText } from "./sanitize.ts";
 
 export type MemoryStatus = "open" | "settled";
@@ -159,11 +160,12 @@ async function existingTs(file: string): Promise<Set<string>> {
   return set;
 }
 
-// Append a durable memory. Only the gate's GATE-4 promotion step calls this.
+// Append a durable memory. GATE-4 promotions and the viewer's edit/restore-entry
+// paths all call this single write choke point.
 export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   // Absolute floor: every write SHOULD arrive through the gate,
-  // which rejects oversized content politely; the viewer's restore/edit paths
-  // do not, so nothing oversized leaves this function either.
+  // which rejects invalid input politely; viewer writes do not, so enforce the
+  // same storage rules here before anything reaches disk.
   if (typeof input.content !== "string") throw new Error("memory content must be a string");
   if (input.content.length > MAX_CONTENT_CHARS) {
     throw new Error(`memory content exceeds ${MAX_CONTENT_CHARS} chars (${input.content.length})`);
@@ -180,11 +182,22 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   if (input.tags?.some((tag) => flattenMemoryText(tag) !== tag)) {
     throw new Error("memory tags must not contain control characters");
   }
-  // Repo stamp at the single write choke point: gated writes, viewer restores
-  // and edits all pass through here. Explicit "global" survives; an unscoped
-  // process (viewer) stamps nothing = global. Session identity wins over the
-  // module scope so a server hosting several workspaces stamps the writing
-  // session's repo.
+  const credentialMetadata = [
+    containsSecret(input.scope) ? "scope" : undefined,
+    input.tags?.some(containsSecret) ? "tags" : undefined,
+    containsSecret(input.issue) ? "issue" : undefined,
+  ].filter((field): field is string => field !== undefined);
+  if (credentialMetadata.length) {
+    throw new Error(
+      `memory metadata contains credential-shaped value in: ${credentialMetadata.join(", ")}`,
+    );
+  }
+  const content = redactSecrets(input.content);
+  // Repo stamp at the single write choke point: gated writes plus viewer edits
+  // and restore-entry writes all pass through here. Explicit "global" survives;
+  // an unscoped process (viewer) stamps nothing = global. Session identity wins
+  // over the module scope so a server hosting several workspaces stamps the
+  // writing session's repo.
   let repo = input.repo;
   let repoPath = input.repoPath;
   if (repo === undefined) {
@@ -214,7 +227,7 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
         ts,
         type: input.type,
         scope: input.scope,
-        content: input.content,
+        content,
         issue: input.issue,
         tags: input.tags?.length ? input.tags.join(",") : undefined,
         status: input.status,

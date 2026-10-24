@@ -165,6 +165,32 @@ describe("buildCapturePrompt", () => {
     }
     expect(p).toContain("hello world");
   });
+
+  test("redacts common secrets without treating ordinary code identifiers as secrets", () => {
+    // Fixtures are split so secret scanners (GitHub push protection) skip them.
+    const secrets = [
+      "sk-" + "proj-AbCdEf0123456789AbCdEf0123456789xyz",
+      "sk-" + "ant-api03-AbCdEf0123456789AbCdEf0123456789",
+      "gh" + "p_AbCdEf0123456789AbCdEf0123456789AbCd",
+      "gh" + "o_AbCdEf0123456789AbCdEf0123456789AbCd",
+      "github" + "_pat_11AAAAAA0AbCdEf0123456789AbCdEf0123456789",
+      "xo" + "xb-123456789012-123456789012-AbCdEf0123456789",
+      "AK" + "IAIOSFODNN7EXAMPLE",
+      "AI" + "zaSyD-1234567890abcdefghijklmnopqrstuvwxyz",
+      "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+      "DATABASE_PASSWORD=f9Kx2mQ7vN4pL8sR1wZ6",
+      "-----BEGIN " + "PRIVATE KEY-----\nprivate-key-material\n-----END PRIVATE KEY-----",
+    ];
+    const ordinary = [
+      "const API_TOKEN = resolveTokenName;",
+      "API_KEY=process.env.OPENAI_API_KEY",
+      "the Bearer authentication-scheme-description",
+    ];
+    const p = buildCapturePrompt(`user: ${secrets.join("\n")}\n${ordinary.join("\n")}`, 3);
+    for (const secret of secrets) expect(p).not.toContain(secret);
+    expect(p).toContain("[redacted]");
+    for (const line of ordinary) expect(p).toContain(line);
+  });
 });
 
 describe("flattenTranscript", () => {
@@ -180,6 +206,26 @@ describe("flattenTranscript", () => {
     expect(flattenTranscript(msgs)).toBe(
       "user: do the thing please\nassistant: done: make all worked\nassistant: fallback text",
     );
+  });
+
+  test("omits reasoning and thinking parts while retaining user and assistant text", () => {
+    const msgs = [
+      {
+        info: { role: "assistant" },
+        parts: [
+          { type: "reasoning", text: "private chain of thought" },
+          { type: "thinking", text: "hidden scratch work" },
+          { type: "text", text: "The public answer is ready." },
+        ],
+      },
+      {
+        role: "assistant",
+        parts: [{ type: "reasoning", text: "another private thought" }],
+        content: "another private thought",
+      },
+    ];
+    const out = flattenTranscript(msgs);
+    expect(out).toBe("assistant: The public answer is ready.");
   });
 
   test("non-arrays yield \"\" and the cap is 40 user turns", () => {
@@ -302,6 +348,84 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
     expect(loaded.capture.generate.calls.length).toBe(1);
     expect(loaded.capture.context.calls.length).toBe(1);
 
+    await loaded.cleanup();
+  });
+
+  test("a credential-shaped captured scope is blocked and never reaches evidence", async () => {
+    const key = "sk-" + "proj-ZyXwVu9876543210ZyXwVu9876543210abc";
+    const loaded = await loadCapturePlugin({ autoCapture: true, captureModel: "fake/model" });
+    loaded.capture.context.messages = [
+      {
+        role: "user",
+        content: "The durable public detail is that releases run from the repository root. ".repeat(4),
+      },
+    ];
+    loaded.capture.generate.response = JSON.stringify([
+      { type: "context", scope: `OPENAI_API_KEY=${key}`, content: "releases run from the repository root", status: "open" },
+    ]);
+
+    loaded.capture.events.push({ type: "session.idle", sessionID: "ses-scope-secret" });
+    await waitFor(() => evidence().some((l) => l.ev === "auto_capture_blocked"));
+
+    const blocked = evidence().find((l) => l.ev === "auto_capture_blocked");
+    expect(String(blocked?.reason)).toBe("credential_in_metadata");
+    expect((await loadAll()).some((m) => m.tags?.includes("auto-capture"))).toBe(false);
+    const evidenceText = readFileSync(join(evidenceDir(), `${dateStr()}.logfmt`), "utf8");
+    expect(evidenceText).not.toContain(key);
+
+    await loaded.cleanup();
+  });
+
+  test("secrets and reasoning never reach the model, and returned secrets are redacted", async () => {
+    const key = "sk-" + "proj-AbCdEf0123456789AbCdEf0123456789xyz";
+    const reasoning = "INTERNAL_REASONING_SENTINEL should remain private";
+    const loaded = await loadCapturePlugin({ autoCapture: true, captureModel: "fake/model" });
+    loaded.capture.context.messages = [
+      {
+        info: { role: "user" },
+        parts: [
+          {
+            type: "text",
+            text:
+              `The deployment is complete. OPENAI_API_KEY=${key}. ` +
+              "The durable public detail is that releases run from the repository root. ".repeat(3),
+          },
+          { type: "reasoning", text: reasoning },
+        ],
+      },
+    ];
+    loaded.capture.generate.response = JSON.stringify([
+      {
+        type: "context",
+        scope: "env",
+        content: `The OpenAI key for this project is OPENAI_API_KEY=${key}`,
+        status: "open",
+      },
+    ]);
+
+    loaded.capture.events.push({ type: "session.idle", sessionID: "ses-secret" });
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+    await waitFor(() => evidence().some((l) => l.ev === "auto_capture_promoted"));
+
+    const prompt = loaded.capture.generate.calls[0].prompt;
+    expect(prompt).not.toContain(key);
+    expect(prompt).not.toContain(reasoning);
+    expect(prompt).toContain("[redacted]");
+
+    const captured = (await loadAll()).find((m) => m.tags?.includes("auto-capture"));
+    expect(captured?.content).toContain("[redacted]");
+    expect(captured?.content).not.toContain(key);
+
+    const manual = await loaded.tool.memory_remember.execute({
+      type: "learning",
+      scope: "manual-credentials",
+      content: `The manual deployment credential is SERVICE_TOKEN=${key}`,
+      status: "open",
+    });
+    expect(manual).toBe("Remembered: learning in manual-credentials");
+    const store = readFileSync(join(memoryRoot(), `${dateStr()}.logfmt`), "utf8");
+    expect(store).not.toContain(key);
+    expect(store.match(/\[redacted\]/g)?.length).toBe(2);
     await loaded.cleanup();
   });
 
