@@ -3,12 +3,14 @@
 // appends and whole-file rewrites concurrently, exactly as two live sessions
 // would, and reports what it believes it wrote.
 import { appendMemory, markSuperseded } from "../../src/memory.ts";
+import { requireTempPath } from "./temp-root.ts";
 
 const [dir, countRaw, supersededRaw] = process.argv.slice(2);
 if (!dir) {
   console.error("usage: writer.ts <memory-dir> <appends> <ts,ts,...>");
   process.exit(2);
 }
+requireTempPath(dir, "writer");
 process.env.OPENCODE_MEMORY_DIR = dir;
 
 const appends = Number(countRaw ?? 0);
