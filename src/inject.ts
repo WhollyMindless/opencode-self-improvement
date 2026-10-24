@@ -7,7 +7,7 @@
 // start at the previous session's frontier instead of re-deriving it.
 import { isActive, loadAll, visibleHere, type Memory } from "./memory.ts";
 import { record } from "./evidence.ts";
-import { dateStr, injectBudget } from "./config.ts";
+import { dateStr, frontierBudget, injectBudget } from "./config.ts";
 import { bracketList } from "./logfmt.ts";
 import { recentConvergenceSummary } from "./triggers.ts";
 
@@ -135,10 +135,53 @@ function openRank(m: Memory): number {
 const OPEN_THREAD_LIMIT = 3;
 const frontierInjectedSessions = new Set<string>();
 
+function omittedLine(count: number): string {
+  return `+ ${count} open ${count === 1 ? "thread" : "threads"} omitted: over budget`;
+}
+
+function cappedFrontier(open: Memory[], budget: number): {
+  block: string;
+  shown: Memory[];
+  omitted: number;
+} {
+  const header = `## Open threads (frontier)${FRAME}`;
+  const rendered = open.map(formatMemory);
+  const full = [header, ...rendered].join("\n");
+  if (full.length <= budget) return { block: full, shown: open, omitted: 0 };
+
+  // Keep a strict newest-first prefix. Budget the omission marker alongside
+  // each candidate row so an older row can never replace a newer one that did
+  // not fit, and the drop is always visible.
+  const kept: string[] = [];
+  let used = header.length;
+  for (let i = 0; i < rendered.length; i++) {
+    const row = rendered[i];
+    if (row === undefined) break;
+    const remaining = rendered.length - i - 1;
+    const marker = remaining ? omittedLine(remaining) : "";
+    const projected = used + 1 + row.length + (marker ? 1 + marker.length : 0);
+    if (projected > budget) break;
+    kept.push(row);
+    used += 1 + row.length;
+  }
+
+  const omitted = open.length - kept.length;
+  const lines = [header, ...kept];
+  if (omitted) lines.push(omittedLine(omitted));
+  // The header plus omission marker is the minimum useful diagnostic. For a
+  // tiny budget that cannot hold even those two lines, emit them anyway rather
+  // than silently making an existing frontier disappear.
+  return { block: lines.join("\n"), shown: open.slice(0, kept.length), omitted };
+}
+
+export interface DigestOptions {
+  frontierBudget?: number;
+}
+
 export async function systemDigest(
   _input: unknown,
   output: TransformOutput,
-  budget = injectBudget(),
+  opts: DigestOptions = {},
 ): Promise<void> {
   // Repo-scoped: model-facing reads see this repo + global rows.
   const mems = visibleHere((await loadAll()).filter(isActive));
@@ -156,14 +199,8 @@ export async function systemDigest(
     .slice(0, OPEN_THREAD_LIMIT);
   if (!open.length) return;
 
-  // capToBudget keeps whole rows and skips any that don't fit, so evidence
-  // records only the rows that were actually shown.
-  const rendered = open.map(formatMemory);
-  const frontier = capToBudget(`## Open threads (frontier)${FRAME}\n${rendered.join("\n")}`, budget);
-  if (!frontier) return;
-  const keptLines = new Set(frontier.split("\n"));
-  const shown = open.filter((_, i) => keptLines.has(rendered[i]));
-  output.system.push(`\n${frontier}`);
+  const frontier = cappedFrontier(open, opts.frontierBudget ?? frontierBudget());
+  output.system.push(`\n${frontier.block}`);
 
   // Aggregate of past sessions' convergence (one line, gated on data existing;
   // I3: it is a derived fact, never the raw log). Gives the next session the
@@ -184,8 +221,10 @@ export async function systemDigest(
     "frontier_injected",
     {
       session: sid,
-      scopes: bracketList([...new Set(shown.map((m) => m.scope))]),
-      shown: shown.length,
+      scopes: bracketList([...new Set(frontier.shown.map((m) => m.scope))]),
+      shown: frontier.shown.length,
+      omitted: frontier.omitted,
+      ...(frontier.omitted ? { reason: "over_budget" } : {}),
       open_total: openMems.length,
       ts_since: dateStr(),
     },

@@ -6,6 +6,8 @@
 import { join } from "node:path";
 import { memoryRoot } from "./config.ts";
 import { isActive, isVisibleHere, loadAll, type Memory } from "./memory.ts";
+import { repoScopeFor } from "./repokey.ts";
+import { getCurrent } from "./state.ts";
 import { TYPES } from "./types.ts";
 import type { WriteCandidate } from "./gates.ts";
 
@@ -62,8 +64,8 @@ export async function exportMemories(opts: ExportOptions = {}): Promise<ExportRe
       status: m.status,
       tags: m.tags,
       issue: m.issue,
-      // Origin stamps ride along so scoping survives the machine hop (the
-      // repo key is a remote-URL hash; the path is the secondary match).
+      // Origin stamps ride along so a same-repo machine hop can retain them.
+      // Import validates them against its current repo before promotion.
       repo: m.repo,
       repoPath: m.repoPath,
     }),
@@ -133,10 +135,12 @@ function parseRow(line: string): WriteCandidate | null {
 // Frontier policy: status="open" exempts a row from ref grounding
 // at the gate, so it is honored ONLY when the file opens with our export
 // header (version <= ours); otherwise every open row is downgraded to settled
-// and tallied. Even with a header, an imported row cannot claim a global open
-// frontier: unlike a local repo stamp, that would make unverified file content
-// ride every repo's system prompt. Explicit global-open memories can still be
-// created locally with memory_remember. Only a missing file throws.
+// and tallied. Imported origin stamps are honored only when they match the
+// importing session's current repo (or are an explicit "global"); foreign
+// stamps are removed so the write choke point stamps the importing repo
+// instead. With no current scope, stamps are kept (removing them would widen
+// the row to global) and a stamped open row is downgraded, since its stamp
+// cannot be verified. Only a missing file throws.
 export async function importMemories(
   path: string,
   gate: (c: WriteCandidate) => Promise<{ action: string }>,
@@ -144,6 +148,7 @@ export async function importMemories(
   const file = Bun.file(path);
   if (!(await file.exists())) throw new Error(`import file not found: ${path}`);
   const tally: ImportTally = { promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0 };
+  const currentScope = repoScopeFor(getCurrent().sid);
   let allowFrontier = false;
   let first = true;
   for (const line of (await file.text()).split("\n")) {
@@ -161,7 +166,18 @@ export async function importMemories(
       tally.skipped++;
       continue;
     }
-    if (c.status === "open" && (!allowFrontier || c.repo === "global")) {
+    const claimedGlobal = c.repo === "global";
+    const hadStamp = c.repo !== undefined || c.repoPath !== undefined;
+    // A foreign stamp is treated like no stamp, so appendMemory stamps the
+    // importing repo. Explicit "global" is not a foreign repo and is kept (open
+    // global rows are downgraded below). With no current scope there is nothing
+    // to re-stamp with: dropping the stamp would widen the row to global, so it
+    // is kept and only the open-row exemption is withdrawn.
+    if (currentScope && !claimedGlobal) {
+      if (c.repo !== currentScope.key) delete c.repo;
+      if (c.repoPath !== currentScope.path) delete c.repoPath;
+    }
+    if (c.status === "open" && (!allowFrontier || claimedGlobal || (hadStamp && !currentScope))) {
       c.status = "settled";
       tally.downgraded++;
     }
