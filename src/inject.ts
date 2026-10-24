@@ -5,11 +5,13 @@
 // results. Evidence is never injected. Open threads (status=
 // "open") get a single capped frontier block in the digest so planning sessions
 // start at the previous session's frontier instead of re-deriving it.
+import { createHash } from "node:crypto";
 import { isActive, loadAll, visibleHere, type Memory } from "./memory.ts";
 import { record } from "./evidence.ts";
 import { dateStr } from "./config.ts";
 import { bracketList } from "./logfmt.ts";
 import { recentConvergenceSummary } from "./triggers.ts";
+import { flattenMemoryText } from "./sanitize.ts";
 
 export interface TransformOutput {
   system: string[];
@@ -53,9 +55,12 @@ export function formatMemory(m: Memory): string {
   // One memory is ONE line in every injected block: the store round-trips real
   // newlines, so a planted "\n## Fake header" would forge its own section and
   // escape the framing (and throw capToBudget's line accounting off). Line
-  // breaks collapse to spaces; ordinary spacing survives.
-  const content = m.content.replace(/[\r\n\t]+/g, " ");
-  return `- [${dateOf(m.ts)}]${tag}${src} ${m.type}/${m.scope}: ${content}`;
+  // breaks and other controls collapse to spaces; ordinary spacing survives.
+  const date = flattenMemoryText(dateOf(m.ts));
+  const type = flattenMemoryText(m.type);
+  const scope = flattenMemoryText(m.scope);
+  const content = flattenMemoryText(m.content);
+  return `- [${date}]${tag}${src} ${type}/${scope}: ${content}`;
 }
 
 function argText(args: unknown): string {
@@ -137,11 +142,12 @@ const frontierInjectedSessions = new Set<string>();
 export async function systemDigest(
   _input: unknown,
   output: TransformOutput,
+  rows?: Memory[],
 ): Promise<void> {
   // Repo-scoped: model-facing reads see this repo + global rows.
-  const mems = visibleHere((await loadAll()).filter(isActive));
+  const mems = rows ?? visibleHere((await loadAll()).filter(isActive));
   if (!mems.length) return;
-  const latest = mems.map((m) => m.ts).sort().pop() ?? "?";
+  const latest = flattenMemoryText(mems.map((m) => m.ts).sort().pop() ?? "?");
   output.system.push(
     "\n## Persistent memory (opencode-self-improvement)\n" +
       `${mems.length} durable memories; latest: ${latest}. ` +
@@ -177,7 +183,7 @@ export async function systemDigest(
     "frontier_injected",
     {
       session: sid,
-      scopes: bracketList([...new Set(open.map((m) => m.scope))]),
+      scopes: bracketList([...new Set(open.map((m) => flattenMemoryText(m.scope)))]),
       shown: open.length,
       open_total: openMems.length,
       ts_since: dateStr(),
@@ -186,26 +192,33 @@ export async function systemDigest(
   );
 }
 
-export async function relevantKnowledge(message: string, limit = 3): Promise<string> {
+export async function relevantKnowledge(message: string, limit = 3, rows?: Memory[]): Promise<string> {
   const text = message.trim();
   if (!text) return "";
   // Repo-scoped: model-facing reads see this repo + global rows.
-  const mems = visibleHere((await loadAll()).filter(isActive));
+  const mems = rows ?? visibleHere((await loadAll()).filter(isActive));
   const top = scoreMemories(text, mems, limit);
   if (!top.length) return "";
   return `## Relevant durable memory${FRAME}\n${top.map(formatMemory).join("\n")}`;
 }
 
-// Deterministic fingerprint of the active store: `${activeCount}:${maxActiveTs}`.
-// Cheap change detector for the per-session epoch cache in index.ts: the frozen
-// injection block is recomputed only when this string changes (or after a
-// compaction). Evidence and superseded rows never affect it (I3, memory.ts).
-export async function storeVersion(): Promise<string> {
+// Deterministic fingerprint of the rows that can affect injection. Hash the
+// exact rendered row plus its full id, in load order: content edits, blocklist
+// changes and supersession all invalidate an epoch, while evidence, hidden
+// rows and non-rendered metadata do not. This is only a linear hash over rows
+// loadAll() already had to read and parse for the request.
+export async function storeVersion(rows?: Memory[]): Promise<string> {
   // Repo-scoped: model-facing reads see this repo + global rows.
-  const mems = visibleHere((await loadAll()).filter(isActive));
+  const mems = rows ?? visibleHere((await loadAll()).filter(isActive));
+  if (!mems.length) return "0:";
   let max = "";
-  for (const m of mems) if (m.ts > max) max = m.ts;
-  return `${mems.length}:${max}`;
+  const hash = createHash("sha256");
+  for (const m of mems) {
+    if (m.ts > max) max = m.ts;
+    hash.update(JSON.stringify([m.ts, formatMemory(m)]));
+    hash.update("\n");
+  }
+  return `${mems.length}:${max}:${hash.digest("hex")}`;
 }
 
 // Trim an injection block to `budget` characters at WHOLE-line boundaries:

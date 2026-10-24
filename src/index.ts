@@ -65,6 +65,7 @@ import { getCurrent, setCurrent } from "./state.ts";
 import { resolveRepo, setRepoScope, rememberSessionDir, sessionDir } from "./repokey.ts";
 import { readLines } from "./logfmt.ts";
 import { buildCapturePrompt, flattenTranscript, parseCandidates, parseModelRef } from "./capture.ts";
+import { flattenMemoryText } from "./sanitize.ts";
 
 // Tool/input boundaries are zod schemas (src/schema.ts): the JSON Schema the
 // host sees is GENERATED from them, and raw args are re-parsed at execution.
@@ -387,7 +388,10 @@ const impl = {
             types.set(m.type, (types.get(m.type) ?? 0) + 1);
           }
           const fmt = (map: Map<string, number>) =>
-            [...map.entries()].sort((a, b) => b[1] - a[1]).map(([k, c]) => `  ${k}: ${c}`).join("\n");
+            [...map.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .map(([k, c]) => `  ${flattenMemoryText(k)}: ${c}`)
+              .join("\n");
           return { content: `Total: ${mems.length}\n\nScopes:\n${fmt(scopes)}\n\nTypes:\n${fmt(types)}` };
         },
       }));
@@ -526,7 +530,10 @@ const impl = {
             return { content: `No active open threads older than ${days} days.` };
           }
           const listing = stale
-            .map((m) => `  ${m.ts} ${m.type}/${m.scope}: ${m.content.slice(0, 100)}`)
+            .map(
+              (m) =>
+                `  ${flattenMemoryText(m.ts)} ${flattenMemoryText(m.type)}/${flattenMemoryText(m.scope)}: ${flattenMemoryText(m.content).slice(0, 100)}`,
+            )
             .join("\n");
           if (dryRun) {
             await record(
@@ -598,10 +605,13 @@ const impl = {
 
     // Per-session frozen injection epochs: the relevance block plus the store
     // fingerprint it was computed against. Recomputed ONLY on the first prompt
-    // of a session, when the store changes, or after a compaction (see the
-    // prompt/compaction hooks) — so the system prefix, and with it the
-    // provider prompt cache, survives ordinary turns.
+    // of a session, when injectable rows change, or after a compaction (see the
+    // prompt/context/compaction hooks) — so the system prefix, and with it the
+    // provider prompt cache, survives ordinary requests.
     const epoch = new Map<string, { version: string; block: string; at: string; reason: "first" | "store_changed" }>();
+    // Latest user prompt per session. A changed store is re-scored against it
+    // even when the change happened during a tool loop with no new prompt.
+    const latestPrompt = new Map<string, string>();
     // Recomputes since server start: every one invalidated a prompt cache, so
     // it is the honest cost number the surfaces show (status files / tools).
     let epochRecomputes = 0;
@@ -650,6 +660,47 @@ const impl = {
     const flushStatus = (sid: string): Promise<void> =>
       buildPayload(sid).then((p) => (p ? writeStatus(p) : undefined));
 
+    // Called when a prompt arrives (to keep status surfaces current) and again
+    // at the injection decision on every model request. The latter keeps
+    // removals fail-closed: an out-of-band redaction or a block during a tool
+    // loop cannot ride one more request waiting for another user prompt.
+    const injectableRows = async (): Promise<Memory[]> =>
+      (await loadAll()).filter((m) => isActive(m) && isVisibleHere(m));
+    const refreshEpoch = async (sid: string, rows?: Memory[]): Promise<void> => {
+      if (!latestPrompt.has(sid)) return;
+      const mems = rows ?? await injectableRows();
+      const version = await storeVersion(mems);
+      const cached = epoch.get(sid);
+      if (cached?.version === version) return;
+      const raw = await relevantKnowledge(latestPrompt.get(sid) ?? "", 5, mems); // widen candidate pool
+      const block = raw ? capToBudget(raw, budget) : "";
+      const at = new Date().toISOString();
+      const reason: "first" | "store_changed" = cached ? "store_changed" : "first";
+      epoch.set(sid, { version, block, at, reason });
+      await record(
+        "epoch_recompute",
+        {
+          session: sid,
+          reason,
+          chars: block.length,
+        },
+        false,
+      );
+      epochRecomputes++;
+      // Ledger: a store_changed recompute of a live epoch is an
+      // invalidation (the first epoch of a session busts nothing). The
+      // epoch request count restarts with the new block.
+      const st = statsFor(sid);
+      st.epochRequests = 0;
+      if (reason === "store_changed") {
+        st.invalidations++;
+        st.lastInvalidation = { at, reason };
+      }
+      // Status hand-off for the terminal panel (src/tui.tsx) and any
+      // out-of-process surface. Best-effort; never breaks injection.
+      await flushStatus(sid);
+    };
+
     // ---- hooks (all fail-closed) -------------------------------------------
     // Bookkeeping: track the active session/tool/call before a tool runs.
     await ctx.tool?.hook("execute.before", (event: any) =>
@@ -687,12 +738,14 @@ const impl = {
       guarded("session.context (systemDigest)", async () => {
         // Route store reads in this hook through the right session's scope.
         setCurrent({ sessionID: event?.sessionID });
+        const sid = event?.sessionID;
+        const mems = await injectableRows();
+        if (typeof sid === "string") await refreshEpoch(sid, mems);
         const parts: string[] = [];
-        await systemDigest({ sessionID: event?.sessionID }, { system: parts });
+        await systemDigest({ sessionID: event?.sessionID }, { system: parts }, mems);
         for (const text of parts) event?.system?.push?.({ type: "text", text });
         // Deliver this epoch's relevance-ranked memory via the system channel.
         // The UI never renders system parts, unlike appended prompt text.
-        const sid = event?.sessionID;
         const knowledge = typeof sid === "string" ? epoch.get(sid)?.block : undefined;
         if (knowledge) event?.system?.push?.({ type: "text", text: knowledge });
         // Count AT THE INJECTION DECISION so badge/panel numbers match exactly
@@ -708,10 +761,11 @@ const impl = {
       }),
     );
 
-    // Memory-first injection, frozen per epoch (cache-safe). The block is
-    // relevance-scored against the prompt that STARTED the epoch — accepted
-    // staleness, traded for a stable system prefix across ordinary turns. An
-    // epoch is invalidated only on first prompt, store change, or compaction.
+    // Memory-first injection, frozen per epoch (cache-safe). Remember the
+    // latest user prompt here; the request-time context hook builds or
+    // invalidates the epoch immediately before delivery. Relevance staleness
+    // is accepted while the injectable rows stay unchanged, preserving a
+    // stable system prefix across ordinary turns.
     // Never mutate event.prompt.text — it is stored verbatim and rendered in
     // the UI.
     await ctx.session?.hook("prompt", (event: any) =>
@@ -722,38 +776,8 @@ const impl = {
           markTurn(sid);
           await checkNewSession(sid);
           await bindSessionFromMessages(sid);
-          const version = await storeVersion();
-          const cached = epoch.get(sid);
-          if (!cached || cached.version !== version) {
-            const text = event?.prompt?.text ?? "";
-            const raw = await relevantKnowledge(text, 5); // widen candidate pool
-            const block = raw ? capToBudget(raw, budget) : "";
-            const at = new Date().toISOString();
-            const reason: "first" | "store_changed" = cached ? "store_changed" : "first";
-            epoch.set(sid, { version, block, at, reason });
-            await record(
-              "epoch_recompute",
-              {
-                session: sid,
-                reason,
-                chars: block.length,
-              },
-              false,
-            );
-            epochRecomputes++;
-            // Ledger: a store_changed recompute of a live epoch is an
-            // invalidation (the first epoch of a session busts nothing). The
-            // epoch request count restarts with the new block.
-            const st = statsFor(sid);
-            st.epochRequests = 0;
-            if (reason === "store_changed") {
-              st.invalidations++;
-              st.lastInvalidation = { at, reason };
-            }
-            // Status hand-off for the terminal panel (src/tui.tsx) and any
-            // out-of-process surface. Best-effort; never breaks injection.
-            await flushStatus(sid);
-          }
+          latestPrompt.set(sid, event?.prompt?.text ?? "");
+          await refreshEpoch(sid);
         }
       }),
     );
@@ -768,7 +792,10 @@ const impl = {
       guarded("session.compaction (onCompacting)", async () => {
         setCurrent({ sessionID: event?.sessionID });
         await onCompacting({ sessionID: event?.sessionID });
-        if (typeof event?.sessionID === "string") epoch.delete(event.sessionID);
+        if (typeof event?.sessionID === "string") {
+          epoch.delete(event.sessionID);
+          latestPrompt.delete(event.sessionID);
+        }
         const anchor = await compactionAnchor();
         if (anchor) event?.system?.push?.({ type: "text", text: anchor });
       }),
