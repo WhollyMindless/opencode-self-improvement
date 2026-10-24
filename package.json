@@ -61,7 +61,7 @@
     "test:e2e": "bun test ./e2e/ --timeout 240000",
     "gate": "bun scripts/merge-gate.ts",
     "gate:hooks": "git config core.hooksPath .githooks",
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "typecheck": "bun x tsc --noEmit -p tsconfig.json",
     "bench": "bun bench/inject-cost.ts",
     "bench:recall": "bun bench/recall-quality.ts",
     "bench:write": "bun bench/write-latency.ts",
