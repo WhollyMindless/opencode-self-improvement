@@ -112,7 +112,7 @@ const EXPECTED_WIRE = {
       list: { type: "boolean", description: "List snapshots" },
       snapshot: {
         type: "string",
-        description: "Snapshot to restore (bare name from list, or a full path)",
+        description: "Store-owned snapshot to restore (bare name from list, or its full path)",
       },
       merge: {
         type: "boolean",

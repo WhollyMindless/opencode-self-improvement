@@ -11,6 +11,7 @@ import { getCurrent } from "./state.ts";
 import { appendLog, ensureDir, formatLine, parseLine, readLines, writeAtomic, type Fields } from "./logfmt.ts";
 import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 import { blockedTs } from "./blocklist.ts";
+import { flattenMemoryText } from "./sanitize.ts";
 
 export type MemoryStatus = "open" | "settled";
 
@@ -166,6 +167,18 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   if (typeof input.content !== "string") throw new Error("memory content must be a string");
   if (input.content.length > MAX_CONTENT_CHARS) {
     throw new Error(`memory content exceeds ${MAX_CONTENT_CHARS} chars (${input.content.length})`);
+  }
+  for (const [field, value] of [
+    ["type", input.type],
+    ["scope", input.scope],
+    ["issue", input.issue],
+  ] as const) {
+    if (value !== undefined && flattenMemoryText(value) !== value) {
+      throw new Error(`memory ${field} must not contain control characters`);
+    }
+  }
+  if (input.tags?.some((tag) => flattenMemoryText(tag) !== tag)) {
+    throw new Error("memory tags must not contain control characters");
   }
   // Repo stamp at the single write choke point: gated writes, viewer restores
   // and edits all pass through here. Explicit "global" survives; an unscoped

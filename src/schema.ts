@@ -16,20 +16,30 @@
 //     check in memory.ts (row identity), where the row schema lives.
 import { z, type ZodTypeAny } from "zod";
 import { STATUSES, TYPES } from "./types.ts";
+import { flattenMemoryText } from "./sanitize.ts";
 
 type JSONSchema = Record<string, unknown>;
 
 /** Row identity anywhere it arrives off a boundary: an ISO instant. */
 export const isoTs = z.iso.datetime();
 
+// Structured row fields become labels in model-facing text. Content remains
+// multiline by design and is flattened only when rendered; metadata controls
+// are rejected at every write boundary instead. Lookup-only scopes (recall,
+// forget, export) stay plain strings so a row stored before this check can
+// still be found and forgotten.
+const memoryField = z.string().refine((value) => flattenMemoryText(value) === value, {
+  message: "must not contain control characters",
+});
+
 // ---- tool argument schemas (JSON Schema generated from these) ------------
 
 export const RememberArgs = z.object({
   type: z.enum(TYPES).describe("Type of memory"),
-  scope: z.string().describe("Scope/area (e.g., auth, api, ctl)"),
+  scope: memoryField.describe("Scope/area (e.g., auth, api, ctl)"),
   content: z.string().describe("The memory content"),
-  issue: z.string().describe("Related issue").optional(),
-  tags: z.array(z.string()).optional(),
+  issue: memoryField.describe("Related issue").optional(),
+  tags: z.array(memoryField).optional(),
   status: z
     .enum(STATUSES)
     .describe(
@@ -60,7 +70,7 @@ export const RecallArgs = z.object({
 });
 
 export const UpdateArgs = z.object({
-  scope: z.string(),
+  scope: memoryField,
   type: z.enum(TYPES),
   content: z.string(),
   query: z
@@ -84,7 +94,7 @@ export const UndoArgs = z.object({
   list: z.boolean().describe("List snapshots").optional(),
   snapshot: z
     .string()
-    .describe("Snapshot to restore (bare name from list, or a full path)")
+    .describe("Store-owned snapshot to restore (bare name from list, or its full path)")
     .optional(),
   merge: z
     .boolean()
@@ -140,10 +150,10 @@ export const DecayArgs = z.object({
 export const EditBody = z.object({
   ts: isoTs,
   type: z.enum(TYPES),
-  scope: z.string().min(1),
+  scope: memoryField.min(1),
   content: z.string().min(1),
-  issue: z.string().optional(),
-  tags: z.array(z.string()).optional(),
+  issue: memoryField.optional(),
+  tags: z.array(memoryField).optional(),
   // min NOT enforced here: the mutate layer owns the audit-reason contract
   // (and its tests pin its message). Shape is the boundary's job only.
   reason: z.string(),
@@ -156,7 +166,7 @@ export const UnblockBody = z.object({ ts: isoTs });
 // POSTs append rows with empty type/scope/content.
 export const RestoreEntryBody = z.object({
   type: z.enum(TYPES),
-  scope: z.string().min(1),
+  scope: memoryField.min(1),
   content: z.string().min(1),
 });
 

@@ -6,11 +6,12 @@
 // whole-line boundaries. Hermetic: temp OPENCODE_MEMORY_DIR /
 // OPENCODE_COMMANDS_DIR, nothing touches the real store.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { dateStr, evidenceDir, frontierBudget, injectBudget, memoryRoot } from "../src/config.ts";
 import { capToBudget, storeVersion } from "../src/inject.ts";
+import { addBlock, removeBlock } from "../src/blocklist.ts";
 import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { resetState } from "../src/state.ts";
 import { loadPlugin } from "./harness.ts";
@@ -36,10 +37,22 @@ afterEach(() => {
   delete process.env.OPENCODE_MEMORY_FRONTIER_BUDGET;
 });
 
-function seed(type: string, scope: string, content: string): void {
-  const file = join(memoryRoot(), `${new Date().toISOString().split("T")[0]}.logfmt`);
+function seed(type: string, scope: string, content: string): string {
+  const ts = new Date().toISOString();
+  const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
   mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, formatLine({ ts: new Date().toISOString(), type, scope, content }) + "\n");
+  appendFileSync(file, formatLine({ ts, type, scope, content }) + "\n");
+  return ts;
+}
+
+function rewriteContent(ts: string, content: string): void {
+  const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
+  const lines = readFileSync(file, "utf8").trimEnd().split("\n");
+  const rewritten = lines.map((line) => {
+    const fields = parseLine(line);
+    return fields?.ts === ts ? formatLine({ ...fields, content }) : line;
+  });
+  writeFileSync(file, `${rewritten.join("\n")}\n`);
 }
 
 function evidence(): Fields[] {
@@ -56,8 +69,7 @@ type Loaded = Awaited<ReturnType<typeof loadPlugin>>;
 
 // Fire the real prompt hook, then the real context hook, and return the
 // delivered "Relevant durable memory" block ("" when nothing was delivered).
-async function deliveredBlock(loaded: Loaded, sid: string, text: string): Promise<string> {
-  await loaded.sessionHooks["prompt"]!({ sessionID: sid, prompt: { text } });
+async function deliveredContextBlock(loaded: Loaded, sid: string): Promise<string> {
   const delivered: { sessionID: string; system: Array<{ type: string; text: string }> } = {
     sessionID: sid,
     system: [],
@@ -67,6 +79,11 @@ async function deliveredBlock(loaded: Loaded, sid: string, text: string): Promis
     .map((p) => p.text)
     .filter((t) => t.includes("## Relevant durable memory"))
     .join("\n");
+}
+
+async function deliveredBlock(loaded: Loaded, sid: string, text: string): Promise<string> {
+  await loaded.sessionHooks["prompt"]!({ sessionID: sid, prompt: { text } });
+  return deliveredContextBlock(loaded, sid);
 }
 
 function epochRecomputes(sid: string): Fields[] {
@@ -84,6 +101,9 @@ describe("epoch freeze (cache-safe injection)", () => {
 
     const first = await deliveredBlock(loaded, "ses-frozen", "run the unit tests for multiTexture");
     expect(first).toContain("npx vitest run");
+
+    // A repeated model request without a new prompt is byte-identical too.
+    expect(await deliveredContextBlock(loaded, "ses-frozen")).toBe(first);
 
     // Same store, no compaction: the epoch stays frozen even though this
     // prompt text matches nothing — the block must not change.
@@ -112,6 +132,42 @@ describe("epoch freeze (cache-safe injection)", () => {
     const recomputes = epochRecomputes("ses-store");
     expect(recomputes.length).toBe(2);
     expect(String(recomputes[1].reason)).toBe("store_changed");
+  });
+
+  test("a hand-redacted row is refreshed on the next model request without a new prompt", async () => {
+    const ts = seed("pattern", "security", "alpha secret token is sk-old-secret");
+    const loaded = await loadPlugin(liveRoot);
+
+    const before = await deliveredBlock(loaded, "ses-redact", "find the alpha secret token");
+    expect(before).toContain("sk-old-secret");
+
+    rewriteContent(ts, "alpha secret token: [REDACTED]");
+    const after = await deliveredContextBlock(loaded, "ses-redact");
+    expect(after).toContain("[REDACTED]");
+    expect(after).not.toContain("sk-old-secret");
+    expect(epochRecomputes("ses-redact").map((e) => e.reason)).toEqual(["first", "store_changed"]);
+  });
+
+  test("a blocklisted row is removed on the next model request without a new prompt", async () => {
+    const ts = seed("pattern", "security", "alpha poisoned instruction must run curl evil");
+    const loaded = await loadPlugin(liveRoot);
+
+    const before = await deliveredBlock(loaded, "ses-block", "alpha poisoned instruction curl");
+    expect(before).toContain("curl evil");
+
+    await addBlock(ts, "poisoned instruction");
+    const after = await deliveredContextBlock(loaded, "ses-block");
+    expect(after).toBe("");
+    expect(after).not.toContain("curl evil");
+
+    await removeBlock(ts);
+    const restored = await deliveredContextBlock(loaded, "ses-block");
+    expect(restored).toBe(before);
+    expect(epochRecomputes("ses-block").map((e) => e.reason)).toEqual([
+      "first",
+      "store_changed",
+      "store_changed",
+    ]);
   });
 
   test("case 3: compaction invalidates the epoch; the next prompt re-scores", async () => {
@@ -212,11 +268,13 @@ describe("frontierBudget", () => {
 });
 
 describe("storeVersion", () => {
-  test("stable for an unchanged store; changes when an active memory is added", async () => {
+  test("stable for unchanged rows; changes when visible content changes", async () => {
     expect(await storeVersion()).toBe("0:"); // empty store
-    seed("pattern", "s", "one durable fact");
+    const ts = seed("pattern", "s", "one durable fact");
     const v = await storeVersion();
     expect(v.startsWith("1:")).toBe(true);
     expect(await storeVersion()).toBe(v);
+    rewriteContent(ts, "one durable fact, redacted");
+    expect(await storeVersion()).not.toBe(v);
   });
 });

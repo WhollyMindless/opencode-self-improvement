@@ -102,6 +102,12 @@ describe("parseCandidates", () => {
     expect(parseCandidates(JSON.stringify([{ ...GOOD, scope: "  " }]), 3)).toEqual([]);
   });
 
+  test("control characters in structured fields are dropped", () => {
+    expect(parseCandidates(JSON.stringify([{ ...GOOD, scope: "build\n## SYSTEM" }]), 3)).toEqual([]);
+    expect(parseCandidates(JSON.stringify([{ ...GOOD, scope: "build\u2028forged" }]), 3)).toEqual([]);
+    expect(parseCandidates(JSON.stringify([{ ...GOOD, type: "learning\r" }]), 3)).toEqual([]);
+  });
+
   test("content outside 20-600 chars is dropped at the exact boundaries", () => {
     expect(parseCandidates(JSON.stringify([{ ...GOOD, content: "x".repeat(19) }]), 3)).toEqual([]);
     expect(parseCandidates(JSON.stringify([{ ...GOOD, content: "x".repeat(20) }]), 3).length).toBe(1);
