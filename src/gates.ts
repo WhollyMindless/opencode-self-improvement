@@ -14,6 +14,7 @@ import {
   type Memory,
 } from "./memory.ts";
 import { chainId, contentHash, record, recordWriteBlocked } from "./evidence.ts";
+import { flattenMemoryText } from "./sanitize.ts";
 import { containsSecret, redactSecrets } from "./secrets.ts";
 import {
   displayCall,
@@ -220,6 +221,34 @@ export async function runWriteGate(
       reason: "content_too_long",
       chain,
       hint: `content is ${candidate.content.length} chars (max ${MAX_CONTENT_CHARS}). Distill the memory to its durable core and retry.`,
+    };
+  }
+
+  const badMetadata: string[] = ([
+    ["type", candidate.type],
+    ["scope", candidate.scope],
+    ["issue", candidate.issue],
+  ] as const)
+    .filter(
+      ([, value]) =>
+        value !== undefined &&
+        (typeof value !== "string" || flattenMemoryText(value) !== value),
+    )
+    .map(([field]) => field);
+  if (
+    candidate.tags !== undefined &&
+    (!Array.isArray(candidate.tags) ||
+      candidate.tags.some((tag) => typeof tag !== "string" || flattenMemoryText(tag) !== tag))
+  ) {
+    badMetadata.push("tags");
+  }
+  if (badMetadata.length) {
+    await recordWriteBlocked(4, "invalid_metadata", [`fields=${badMetadata.join(",")}`], chain);
+    return {
+      action: "blocked",
+      reason: "invalid_metadata",
+      chain,
+      hint: `${badMetadata.join(", ")} must not contain control characters.`,
     };
   }
 
