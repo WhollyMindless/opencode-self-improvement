@@ -68,6 +68,7 @@ import { readLines } from "./logfmt.ts";
 import { buildCapturePrompt, flattenTranscript, parseCandidates, parseModelRef } from "./capture.ts";
 import { redactSecrets } from "./secrets.ts";
 import { flattenMemoryText } from "./sanitize.ts";
+import { bunFloorWarning } from "./runtime.ts";
 
 // Tool/input boundaries are zod schemas (src/schema.ts): the JSON Schema the
 // host sees is GENERATED from them, and raw args are re-parsed at execution.
@@ -167,6 +168,10 @@ function resultMeta(result: unknown): Record<string, unknown> {
 
 const PLUGIN_ID = "opencode-self-improvement";
 
+// The setup-time Bun-floor warning fires once per process (setup can run for
+// more than one location).
+let bunFloorChecked = false;
+
 // The real setup implementation, written against the loose local PluginCtx
 // (the only members of the V2 context this plugin actually touches).
 const impl = {
@@ -185,6 +190,15 @@ const impl = {
     // effective injection budget.
     const budget = Number(ctx.options?.injectBudget) || injectBudget();
     const openBudget = Number(ctx.options?.frontierBudget) || frontierBudget(budget);
+
+    // Warn-once Bun floor check (same setup-time warning style as the
+    // captureModel warnings below): opencode embeds Bun, and the store code's
+    // fs failure modes are Bun-version dependent, so flag an old host.
+    if (!bunFloorChecked) {
+      bunFloorChecked = true;
+      const floorWarning = bunFloorWarning(typeof Bun === "undefined" ? undefined : Bun.version);
+      if (floorWarning) console.warn(floorWarning);
+    }
 
     // Mirror the /repo-init slash command into opencode's global commands dir
     // (idempotent, write-if-missing). OpenCode 2.x loads `*.md` from
