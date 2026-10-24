@@ -325,6 +325,34 @@ describe("memory_status tool + epoch wiring", () => {
     await p.cleanup();
   });
 
+  test("2.x message.updated data envelope lands measured usage", async () => {
+    const p = await loadPlugin(process.cwd());
+    await appendMemory({
+      type: "pattern",
+      scope: "build",
+      content: "run bun test from the repo root to execute the suite",
+      status: "settled",
+    });
+    const promptHook = p.sessionHooks.prompt;
+    if (!promptHook) throw new Error("prompt hook not registered");
+    await promptHook({ sessionID: "ses_data", prompt: { text: "how do I run bun test" } });
+    p.capture.events.push({
+      type: "message.updated",
+      data: {
+        info: {
+          id: "msg_data",
+          role: "assistant",
+          sessionID: "ses_data",
+          tokens: { input: 250, output: 40, reasoning: 0, cache: { read: 9000, write: 750 } },
+        },
+      },
+    });
+
+    const s = await poll(() => readStatus("ses_data").then((r) => (r?.measured ? r : null)));
+    expect(s?.measured).toEqual(expect.objectContaining({ input: 250, read: 9000, write: 750 }));
+    await p.cleanup();
+  });
+
   test("a non-assistant message.updated is ignored", async () => {
     const p = await loadPlugin(process.cwd());
     await appendMemory({
