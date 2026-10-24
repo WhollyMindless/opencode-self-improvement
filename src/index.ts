@@ -867,7 +867,7 @@ const impl = {
               continue;
             }
             if (ev?.type !== "message.updated") continue;
-            const info = ev.properties?.info ?? ev.info;
+            const info = ev.properties?.info ?? ev.info ?? ev.data?.info;
             if (!info || info.role !== "assistant") continue;
             const sid = info.sessionID;
             const t = info.tokens;
@@ -930,7 +930,7 @@ const impl = {
             for await (const raw of eventApi.subscribe({ signal: controller.signal })) {
               const event = raw as Record<string, any>;
               if (event?.type !== "session.idle") continue;
-              const sid = event.sessionID ?? event.properties?.sessionID;
+              const sid = event.sessionID ?? event.properties?.sessionID ?? event.data?.sessionID;
               if (typeof sid !== "string") continue;
               // Bind the idle session so captures stamp (and gate against)
               // that session's repo, not whatever tool call ran last.

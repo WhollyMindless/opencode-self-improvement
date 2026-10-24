@@ -285,6 +285,32 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
     await loaded.cleanup();
   });
 
+  test("2.x data envelope calls the capture model and writes evidence", async () => {
+    const loaded = await loadCapturePlugin({ autoCapture: true, captureModel: "fake/model" });
+    await loaded["tool.execute.after"](
+      { tool: "read", sessionID: "ses-data", callID: "C1", args: { filePath: "x.ts" } },
+      { title: "read", output: "content", metadata: {} },
+    );
+    loaded.capture.context.messages = [{ role: "user", content: "x".repeat(300) }];
+    loaded.capture.generate.response = JSON.stringify([
+      {
+        type: "learning",
+        scope: "capture",
+        content: "OpenCode 2.x session idle events carry their session identifier under data.",
+      },
+    ]);
+
+    loaded.capture.events.push({ type: "session.idle", data: { sessionID: "ses-data" } });
+    await waitFor(() => evidence().some((l) => String(l.ev).startsWith("auto_capture_")));
+
+    expect(loaded.capture.generate.calls.length).toBe(1);
+    expect(loaded.capture.context.calls).toEqual(["ses-data"]);
+    expect(evidence().some((l) => String(l.ev).startsWith("auto_capture_") && l.session === "ses-data")).toBe(
+      true,
+    );
+    await loaded.cleanup();
+  });
+
   test("dupe collapses via the gate, fresh candidate lands tagged, cooldown holds", async () => {
     seed("pattern", "build", DUP_CONTENT); // the dupe target, already in the store
     const loaded = await loadCapturePlugin({
