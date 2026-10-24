@@ -54,6 +54,19 @@ export function injectBudget(): number {
   return 1200;
 }
 
+// Character budget for the session-start open-thread frontier. Kept separate
+// from relevance injection and contextual pulls: planning rows are often much
+// longer, and raising this cap must not raise those per-request surfaces too.
+// Defaults to 3x the effective injection budget.
+export function frontierBudget(baseBudget = injectBudget()): number {
+  const raw = process.env.OPENCODE_MEMORY_FRONTIER_BUDGET;
+  if (raw) {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return baseBudget * 3;
+}
+
 // Optional live-graph binary. When present the resolver cross-checks the local
 // source scan against the codebase-memory-mcp file graph; when absent the local
 // scan alone is authoritative (install-from-scratch requirement).

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryRoot } from "../src/config.ts";
 import { formatLine } from "../src/logfmt.ts";
-import { relevantKnowledge } from "../src/inject.ts";
+import { contextualPull, relevantKnowledge } from "../src/inject.ts";
 
 let root: string;
 
@@ -92,5 +92,33 @@ describe("relevantKnowledge (memory-first injection)", () => {
     const block = await relevantKnowledge("the build output salt");
     const lines = block.split("\n").filter((l) => l.startsWith("- ["));
     expect(lines[0]).toContain("salt");
+  });
+});
+
+describe("contextualPull budget", () => {
+  test("caps the complete appended block at whole-memory boundaries", async () => {
+    const budget = 260;
+    for (let i = 0; i < 3; i++) {
+      seed(
+        "learning",
+        "search",
+        `needle budget result ${i}: ${String.fromCharCode(97 + i).repeat(80)}`,
+      );
+    }
+    const original = "grep: 3 matches";
+    const out = { output: original };
+    await contextualPull(
+      { tool: "grep", args: { pattern: "needle budget" } },
+      out,
+      budget,
+    );
+
+    const appended = String(out.output).slice(original.length);
+    expect(appended.length).toBeGreaterThan(0);
+    expect(appended.length).toBeLessThanOrEqual(budget);
+    expect(appended).toContain("## Related durable memory (pull)");
+    for (const line of appended.trimStart().split("\n").slice(1)) {
+      expect(line.startsWith("- ")).toBe(true);
+    }
   });
 });

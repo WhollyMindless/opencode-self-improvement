@@ -1,6 +1,6 @@
 {
   "name": "opencode-self-improvement",
-  "version": "0.8.1",
+  "version": "0.8.12",
   "description": "Durable memory for opencode: remember facts, decisions, and commands across sessions, plus a one-command per-repo setup (/repo-init).",
   "main": "index.ts",
   "exports": {
@@ -10,6 +10,9 @@
   "module": "index.ts",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "bun": ">=1.3.0"
+  },
   "author": "Alex Bogartz",
   "repository": {
     "type": "git",
@@ -61,7 +64,7 @@
     "test:e2e": "bun test ./e2e/ --timeout 240000",
     "gate": "bun scripts/merge-gate.ts",
     "gate:hooks": "git config core.hooksPath .githooks",
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "typecheck": "bun x tsc --noEmit -p tsconfig.json",
     "bench": "bun bench/inject-cost.ts",
     "bench:recall": "bun bench/recall-quality.ts",
     "bench:write": "bun bench/write-latency.ts",

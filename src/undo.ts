@@ -10,11 +10,31 @@
 // MERGE replays them on top of the snapshot; FORCE is the old exact rollback,
 // and additionally snapshots the file it replaces, so the state it drops stays
 // undoable (result.safety).
-import { basename, join, resolve, sep } from "node:path";
-import { snapshotDir } from "./config.ts";
-import { ensureDir, writeAtomic } from "./logfmt.ts";
+import { lstat, realpath, stat } from "node:fs/promises";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { deletionsFile, snapshotDir } from "./config.ts";
+import { ensureDir, parseLine, readLines, writeAtomic } from "./logfmt.ts";
 import { withStoreLock, LOCK_RESTORE } from "./lock.ts";
 import { snapshotFiles } from "./memory.ts";
+
+const SNAPSHOT_NAME = /^(\d+)-(\d{4}-\d{2}-\d{2}\.logfmt)$/;
+
+function matchSnapshotName(name: string): RegExpExecArray | null {
+  const match = SNAPSHOT_NAME.exec(name);
+  if (!match) return null;
+  const original = match[2];
+  if (!original) return null;
+  const year = Number(original.slice(0, 4));
+  const month = Number(original.slice(5, 7));
+  const day = Number(original.slice(8, 10));
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+    ? match
+    : null;
+}
 
 export interface SnapshotInfo {
   file: string;
@@ -28,6 +48,7 @@ export async function listSnapshots(): Promise<SnapshotInfo[]> {
   const out: SnapshotInfo[] = [];
   try {
     for await (const f of glob.scan(snapshotDir())) {
+      if (!matchSnapshotName(f)) continue;
       const info = Bun.file(join(snapshotDir(), f));
       out.push({
         file: join(snapshotDir(), f),
@@ -55,6 +76,9 @@ export interface RestoreResult {
   // (added after it — or in-place edits, listed under their original ts).
   concurrentAdded: string[];
   concurrentChanged: string[];
+  // ts of rows intentionally deleted after this snapshot. CHECK and MERGE
+  // leave them deleted; FORCE is the explicit recovery path.
+  deletedOmitted: string[];
 }
 
 // Rows are keyed by their ts= field; unparseable lines key on the whole line.
@@ -66,33 +90,113 @@ function rows(text: string): string[] {
   return text.split("\n").filter((l) => l.trim());
 }
 
-// Restore `snapshot` over its original file. The snapshot name is
-// `<stamp>-<original>.logfmt`; strip the stamp to recover the target. A bare
-// name (as printed by the list) resolves against <memory-root>/snapshots/.
+function isWithin(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+async function resolveSnapshot(
+  snapshot: string,
+  memoryRootDir: string,
+): Promise<{ path: string; original: string }> {
+  const name = basename(snapshot);
+  const match = matchSnapshotName(name);
+  const original = match?.[2];
+  const stamp = match ? Number(match[1]) : Number.NaN;
+  if (!original || !Number.isSafeInteger(stamp)) {
+    throw new Error(`invalid snapshot name: ${name}`);
+  }
+  if (!isAbsolute(snapshot) && snapshot !== name) {
+    throw new Error("snapshot must be a bare name from memory_undo list or a full path");
+  }
+
+  const rootResolved = resolve(memoryRootDir);
+  const snapshotsResolved = resolve(rootResolved, "snapshots");
+  const requestedResolved = isAbsolute(snapshot)
+    ? resolve(snapshot)
+    : resolve(snapshotsResolved, name);
+  if (!isWithin(snapshotsResolved, requestedResolved)) {
+    throw new Error(`snapshot is outside the snapshots directory: ${snapshot}`);
+  }
+
+  let rootReal: string;
+  let snapshotsReal: string;
+  let snapshotReal: string;
+  try {
+    [rootReal, snapshotsReal, snapshotReal] = await Promise.all([
+      realpath(rootResolved),
+      realpath(snapshotsResolved),
+      realpath(requestedResolved),
+    ]);
+  } catch {
+    throw new Error(`snapshot not found: ${snapshot}`);
+  }
+  if (!isWithin(rootReal, snapshotsReal)) {
+    throw new Error("snapshots directory escapes the memory root");
+  }
+  if (!isWithin(snapshotsReal, snapshotReal)) {
+    throw new Error(`snapshot is outside the snapshots directory: ${snapshot}`);
+  }
+
+  const [linkInfo, fileInfo] = await Promise.all([
+    lstat(requestedResolved),
+    stat(snapshotReal),
+  ]);
+  if (linkInfo.isSymbolicLink() || !fileInfo.isFile()) {
+    throw new Error(`snapshot is not a regular file: ${snapshot}`);
+  }
+
+  return { path: snapshotReal, original };
+}
+
+// ts of every row memory_forget or a viewer delete has removed. Ordering
+// against the snapshot is not needed: a snapshot row with a deletion audit
+// that is absent from the live file was removed on purpose.
+async function auditedDeletions(): Promise<Set<string>> {
+  const deleted = new Set<string>();
+  for (const line of await readLines(deletionsFile())) {
+    const fields = parseLine(line);
+    if (fields?.action !== "deleted" || typeof fields.original_ts !== "string") continue;
+    deleted.add(fields.original_ts);
+  }
+  return deleted;
+}
+
+// Restore `snapshot` over its original file. Only `<stamp>-<YYYY-MM-DD>.logfmt`
+// files inside <memory-root>/snapshots/ are accepted (the viewer restore's
+// grammar); the stamp is stripped to recover the target day file. A bare name
+// (as printed by the list) resolves against <memory-root>/snapshots/.
 export async function restoreSnapshot(
   snapshot: string,
   memoryRootDir: string,
   mode: RestoreMode = "check",
 ): Promise<RestoreResult> {
-  const name = basename(snapshot);
-  let snapPath = snapshot;
-  if (!(await Bun.file(snapPath).exists())) {
-    const candidate = join(memoryRootDir, "snapshots", name);
-    if (await Bun.file(candidate).exists()) snapPath = candidate;
+  const snap = await resolveSnapshot(snapshot, memoryRootDir);
+  const rootReal = await realpath(resolve(memoryRootDir));
+  const realTarget = resolve(rootReal, snap.original);
+  if (!isWithin(rootReal, realTarget)) {
+    throw new Error(`snapshot target escapes the memory root: ${snap.original}`);
   }
-  const f = Bun.file(snapPath);
-  if (!(await f.exists())) throw new Error(`snapshot not found: ${snapshot}`);
-
-  const original = name.replace(/^\d+-/, "");
-  // Defense in depth: `name` is basenamed above, so `original`
-  // carries no separators — but a restore must never write outside the memory
-  // root no matter what a future caller passes.
-  const rootAbs = resolve(memoryRootDir);
-  const target = resolve(rootAbs, original);
-  if (!target.startsWith(rootAbs + sep)) {
-    throw new Error(`snapshot target escapes the memory root: ${original}`);
+  let targetInfo: Awaited<ReturnType<typeof lstat>> | undefined;
+  try {
+    targetInfo = await lstat(realTarget);
+  } catch (err) {
+    if (!(err instanceof Error && "code" in err && err.code === "ENOENT")) throw err;
   }
-  const snapLines = rows(await f.text());
+  if (targetInfo) {
+    if (targetInfo.isSymbolicLink()) {
+      throw new Error(`snapshot target must not be a symbolic link: ${snap.original}`);
+    }
+    const targetReal = await realpath(realTarget);
+    if (relative(realTarget, targetReal) !== "") {
+      throw new Error(`snapshot target must not be a symbolic link: ${snap.original}`);
+    }
+    if (!targetInfo.isFile()) throw new Error(`snapshot target is not a file: ${snap.original}`);
+  }
+  // Checks above ran on real paths; lock and write through the same lexical
+  // path every other writer uses, so the in-process lock queue is shared.
+  const target = resolve(memoryRootDir, snap.original);
+  const rawSnapLines = rows(await Bun.file(snap.path).text());
 
   // Comparing and publishing happen under the same lock: a divergence check on
   // a stale read would wave through a row that landed after it. A restore waits
@@ -104,6 +208,17 @@ export async function restoreSnapshot(
     async () => {
       const cur = Bun.file(target);
       const curLines = (await cur.exists()) ? rows(await cur.text()) : [];
+      // Deliberate deletions are read inside the lock too, so a forget that
+      // finished just before this restore is honoured.
+      const audited = mode !== "force" ? await auditedDeletions() : new Set<string>();
+      const live = new Set(curLines.map(rowKey));
+      const deletedOmitted: string[] = [];
+      const snapLines = rawSnapLines.filter((line) => {
+        const key = rowKey(line);
+        if (!audited.has(key) || live.has(key)) return true;
+        deletedOmitted.push(key);
+        return false;
+      });
 
       const snapByKey = new Map(snapLines.map((l) => [rowKey(l), l]));
       const concurrentAdded: string[] = [];
@@ -118,7 +233,7 @@ export async function restoreSnapshot(
       }
 
       if (mode === "check" && (concurrentAdded.length || concurrentChanged.length)) {
-        return { target, restored: false, mode, concurrentAdded, concurrentChanged };
+        return { target, restored: false, mode, concurrentAdded, concurrentChanged, deletedOmitted };
       }
 
       // FORCE is the mode that drops rows, so the file it replaces is
@@ -140,7 +255,7 @@ export async function restoreSnapshot(
       }
       await ensureDir(memoryRootDir);
       await writeAtomic(target, out.length ? out.join("\n") + "\n" : "");
-      return { target, restored: true, mode, safety, concurrentAdded, concurrentChanged };
+      return { target, restored: true, mode, safety, concurrentAdded, concurrentChanged, deletedOmitted };
     },
     LOCK_RESTORE,
   );

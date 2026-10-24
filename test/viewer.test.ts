@@ -144,6 +144,24 @@ describe("edit — non-destructive", () => {
     expect(all.find((m) => m.ts === T1)?.content).toBe("use bcrypt");
     expect(all).toHaveLength(1);
   });
+
+  test("edit redacts credential-shaped content before appending the replacement", async () => {
+    const secret = "sk-" + "abcdef1234567890ABCDEFGH";
+    const T1 = seed("learning", "auth", "deployment uses a managed credential");
+    const r = await post("/api/edit", {
+      ts: T1,
+      type: "learning",
+      scope: "auth",
+      content: `deployment credential is ${secret}`,
+      reason: "document the deployment credential",
+    });
+
+    const all = await loadAll();
+    const edited = all.find((m) => m.ts === r.superseded_by);
+    expect(edited?.content).toBe("deployment credential is [redacted]");
+    if (!edited) throw new Error("edited row was not written");
+    expect(readFileSync(edited.file, "utf8")).not.toContain(secret);
+  });
 });
 
 describe("delete — non-destructive", () => {

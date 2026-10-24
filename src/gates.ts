@@ -14,6 +14,8 @@ import {
   type Memory,
 } from "./memory.ts";
 import { chainId, contentHash, record, recordWriteBlocked } from "./evidence.ts";
+import { flattenMemoryText } from "./sanitize.ts";
+import { containsSecret, redactSecrets } from "./secrets.ts";
 import {
   displayCall,
   extractCallForms,
@@ -221,6 +223,62 @@ export async function runWriteGate(
       hint: `content is ${candidate.content.length} chars (max ${MAX_CONTENT_CHARS}). Distill the memory to its durable core and retry.`,
     };
   }
+
+  const badMetadata: string[] = ([
+    ["type", candidate.type],
+    ["scope", candidate.scope],
+    ["issue", candidate.issue],
+  ] as const)
+    .filter(
+      ([, value]) =>
+        value !== undefined &&
+        (typeof value !== "string" || flattenMemoryText(value) !== value),
+    )
+    .map(([field]) => field);
+  if (
+    candidate.tags !== undefined &&
+    (!Array.isArray(candidate.tags) ||
+      candidate.tags.some((tag) => typeof tag !== "string" || flattenMemoryText(tag) !== tag))
+  ) {
+    badMetadata.push("tags");
+  }
+  if (badMetadata.length) {
+    await recordWriteBlocked(4, "invalid_metadata", [`fields=${badMetadata.join(",")}`], chain);
+    return {
+      action: "blocked",
+      reason: "invalid_metadata",
+      chain,
+      hint: `${badMetadata.join(", ")} must not contain control characters.`,
+    };
+  }
+
+  const credentialMetadata = [
+    containsSecret(candidate.scope) ? "scope" : undefined,
+    candidate.tags?.some(containsSecret) ? "tags" : undefined,
+    containsSecret(candidate.issue) ? "issue" : undefined,
+  ].filter((field): field is string => field !== undefined);
+  if (credentialMetadata.length) {
+    await recordWriteBlocked(
+      4,
+      "credential_in_metadata",
+      credentialMetadata.map((field) => `field=${field}`),
+      chain,
+    );
+    return {
+      action: "blocked",
+      reason: "credential_in_metadata",
+      chain,
+      hint: `Credential-shaped value in ${credentialMetadata.join(", ")}; remove it and retry. Only memory content is redacted automatically.`,
+    };
+  }
+
+  // This is the common boundary for manual, imported and auto-captured writes.
+  // Scrub content before hashing, analysis and persistence. Metadata is
+  // rejected above rather than silently changing where a row can be found.
+  candidate = {
+    ...candidate,
+    content: redactSecrets(candidate.content),
+  };
 
   const ch = contentHash(candidate.content);
   await record("gate_start", {
