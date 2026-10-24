@@ -8,8 +8,8 @@ name: Release
 # automatic. Pushes with no releasable commits are a no-op.
 #
 # Requires the trusted publisher on npmjs.com to point at THIS workflow file
-# and environment (owner abogartz / repo opencode-self-improvement /
-# release.yml / npm-publish) with "npm publish" allowed.
+# (owner abogartz / repo opencode-self-improvement / release.yml) with
+# "npm publish" allowed.
 #
 # WHY NOT GITHUB_TOKEN: the Main branch ruleset requires a pull request, and
 # GitHub gives the default workflow token no bypass — the version-bump push
@@ -39,7 +39,9 @@ jobs:
     # config ever widen or a second publish path appear.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: npm-publish
+    # No `environment:` deliberately: its name enters the OIDC token claims,
+    # and the npm trusted publisher is configured for the workflow file alone.
+    # Adding one silently breaks the next publish until npm is reconfigured.
     permissions:
       contents: read # checkout only; release writes use the App token below
       id-token: write # npm Trusted Publishing (OIDC) + provenance
