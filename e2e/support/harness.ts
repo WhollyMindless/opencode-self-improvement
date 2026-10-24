@@ -161,6 +161,26 @@ export function resolveOpencode(): string {
     throw new Error(
       "opencode CLI not found — install it (or set OPENCODE_BIN). The terminal merge gate cannot run without a real host.",
     );
+  return exeBehindCmdShim(bin);
+}
+
+// On Windows, PATH resolution usually lands on the npm cmd-shim (opencode.cmd),
+// which runs the bundled opencode.exe through cmd.exe: newer runtimes reject
+// spawning a .cmd with an argv array at all (Bun >= 1.4 throws EINVAL, like
+// Node's CVE-2024-27980 guard), cmd.exe itself mangles quoted arguments, and
+// every shim probed splits a multi-word prompt across argv. Prefer the real
+// executable the shim calls; shims in other formats fall through untouched.
+function exeBehindCmdShim(bin: string): string {
+  if (process.platform !== "win32" || !/\.(cmd|bat)$/i.test(bin)) return bin;
+  try {
+    const m = readFileSync(bin, "utf8").match(/"%(?:~?dp0)%\\([^"]+\.exe)"/i);
+    if (m) {
+      const target = join(dirname(bin), m[1]);
+      if (existsSync(target)) return target;
+    }
+  } catch {
+    // unreadable shim: spawn it and hope the runtime allows .cmd
+  }
   return bin;
 }
 
@@ -172,25 +192,31 @@ export async function turn(
   timeoutMs = 180_000,
 ): Promise<Run> {
   await fake.reset(); // per-run episode: clean counters + clean request log
-  const child = spawn(
-    resolveOpencode(),
-    ["run", "--standalone", "--format", "json", "-m", "fake/scripted", prompt],
-    { cwd: guest.projDir, env: guest.env, stdio: ["ignore", "pipe", "pipe"] },
+  // Native spawn, not node:child_process: on Windows the resolved CLI is
+  // often the npm cmd-shim, which node's spawn rejects outright (EINVAL) on
+  // newer runtimes, while Bun's own spawn still runs it (with quoting kept
+  // correct); resolveOpencode() usually has already unwrapped it to the exe.
+  const child = Bun.spawn(
+    [resolveOpencode(), "run", "--standalone", "--format", "json", "-m", "fake/scripted", prompt],
+    { cwd: guest.projDir, env: guest.env, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
   );
-  let out = "";
-  let stderr = "";
-  child.stdout.on("data", (d) => (out += d));
-  child.stderr.on("data", (d) => (stderr += d));
-  const exit: number | null = await new Promise((res) => {
-    const t = setTimeout(() => {
-      child.kill("SIGKILL");
-      res(null);
-    }, timeoutMs);
-    child.on("close", (code) => {
-      clearTimeout(t);
-      res(code);
-    });
-  });
+  const reading = Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]).catch(() => ["", ""] as [string, string]); // pipes die with a killed child
+  let killer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut: boolean = await Promise.race([
+    new Promise<true>((res) => {
+      killer = setTimeout(() => {
+        child.kill(9);
+        res(true);
+      }, timeoutMs);
+    }),
+    child.exited.then(() => false),
+  ]);
+  clearTimeout(killer);
+  const [out, stderr] = await reading;
+  const exit: number | null = timedOut ? null : await child.exited;
 
   const events = out
     .split("\n")

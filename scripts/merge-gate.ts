@@ -8,8 +8,8 @@ import { join } from "node:path";
 const REPO = join(import.meta.dir, "..");
 
 const steps: [string, string[]][] = [
-  ["typecheck (tsc)", ["bunx", "tsc", "--noEmit", "-p", "tsconfig.json"]],
-  ["lint (biome)", ["bunx", "biome", "lint"]],
+  ["typecheck (tsc)", ["bun", "x", "tsc", "--noEmit", "-p", "tsconfig.json"]],
+  ["lint (biome)", ["bun", "x", "biome", "lint"]],
   ["unit tests", ["bun", "test", "./test/"]],
   ["terminal smoke + BDD (real opencode host)", ["bun", "test", "./e2e/", "--timeout", "240000"]],
 ];
