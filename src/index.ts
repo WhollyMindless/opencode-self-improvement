@@ -664,6 +664,7 @@ const impl = {
           // Reported, never acted on — retirement is a decision, not a metric.
           const ledger = await readLedger();
           store.neverRetrieved = neverRetrieved(act, ledger).length;
+          store.ledgerSince = ledger.since;
           return {
             content: renderMemoryReport({ status, store, blocked: await blockedRecent(6) }),
           };
@@ -718,6 +719,7 @@ const impl = {
       if (!ep) return null;
       const all = await loadAll();
       const act = all.filter(isActive);
+      const led = await readLedger();
       return {
         at: ep.at,
         sessionID: sid,
@@ -732,7 +734,8 @@ const impl = {
           open: act.filter((m) => m.status === "open").length,
           scopes: new Set(act.map((m) => m.scope)).size,
           malformed: malformedCount(),
-          neverRetrieved: neverRetrieved(act, await readLedger()).length,
+          neverRetrieved: neverRetrieved(act, led).length,
+          ledgerSince: led.since,
         },
         stats: statsFor(sid),
         measured: measuredTurns.get(sid) ?? null,

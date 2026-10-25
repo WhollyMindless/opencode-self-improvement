@@ -30,6 +30,22 @@ export interface StoreCounts {
    * Undefined until #42's ledger is read — an absent number, never a zero.
    */
   neverRetrieved?: number;
+  /**
+   * Oldest line in the use ledger, or null when it holds none. The 30-day
+   * dead-weight number is only honest inside the ledger's coverage; a young
+   * ledger says so instead of inflating "never" (see `ledgerIsYoung`).
+   */
+  ledgerSince?: string | null;
+}
+
+/**
+ * True when the ledger cannot honestly cover the 30-day window: its first
+ * line is younger than the window, or there is no ledger at all. Every "never
+ * retrieved" surface must carry this qualifier when it returns true.
+ */
+export function ledgerIsYoung(ledgerSince: string | null | undefined, now = Date.now()): boolean {
+  if (!ledgerSince) return true;
+  return ledgerSince > new Date(now - 30 * 86_400_000).toISOString();
 }
 
 /**
@@ -399,8 +415,15 @@ export function renderMemoryReport(input: {
   if (store.neverRetrieved !== undefined) {
     const used = store.active - store.neverRetrieved;
     const share = store.active ? Math.round((store.neverRetrieved / store.active) * 100) : 0;
+    // A ledger younger than the window cannot honestly call anything "never"
+    // — it has not been watching long enough. Say what it covers instead of
+    // letting day-one readers see 100% dead weight.
+    const young = ledgerIsYoung(store.ledgerSince);
+    const basis = young
+      ? `, ledger only covers since ${store.ledgerSince ? store.ledgerSince.slice(0, 10) : "no lines yet"}`
+      : "";
     out.push(
-      `  retrieved ${used} rows in the last 30d; never retrieved ${store.neverRetrieved} (${share}%) — reported, not acted on`,
+      `  retrieved ${used} rows in the last 30d; never retrieved ${store.neverRetrieved} (${share}%)${basis} — reported, not acted on`,
     );
   }
   out.push("", "Terminal (CLI/TUI) users: /memory opens this as a live panel; the footer shows a one-line badge.");

@@ -28,9 +28,13 @@ export { HITS_FILENAME };
 // The ledger is a bounded ring, not a growing file: one line per (source,
 // session, row-set) per THROTTLE_MS, and at MAX_HITS_BYTES the older half is
 // dropped whole-line. Use data older than the window is not interesting — a
-// memory unused since before the window is the finding, not the record.
-const MAX_HITS_BYTES = 512_000;
-export const THROTTLE_MS = 60_000;
+// memory unused since before the window is the finding, not the record. The
+// size is sized for the hour throttle (worst case ~200 B/line × 24 h × dozens
+// of row-sets covering the 30-day dead-weight window for ordinary traffic);
+// when it is shorter than the window, the surfaces say so with the ledger's
+// own first line rather than inflating "never" (status.ledgerSince).
+const MAX_HITS_BYTES = 2_000_000;
+export const THROTTLE_MS = 3_600_000;
 const MAX_LOGGED_TERMS = 8;
 
 export function hitsFile(): string {
@@ -200,7 +204,10 @@ export async function useSignals(ttlMs = LEDGER_TTL_MS, now = Date.now()): Promi
   return ledgerCache.ledger.byRow;
 }
 
-/** Drop the cached ledger (tests; a write invalidates it automatically). */
+/** Drop the cached ledger (tests). There is no write hook: between resets the
+ * cache simply expires after `ttlMs`, so ranking can lag a new hit by up to
+ * one TTL — fine for a tie-break, and it keeps a pull from re-reading the
+ * ring on every grep/glob/read. */
 export function resetLedgerCache(): void {
   ledgerCache = null;
 }
