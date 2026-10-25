@@ -83,6 +83,28 @@ describe("keywords in the store", () => {
     expect(normalizeKeywords(undefined)).toBeUndefined();
   });
 
+  test("commas are the storage delimiter, not keyword content", async () => {
+    // kw serialises as one comma-joined scalar, so an item carrying a comma
+    // used to read back fragmented (["build, test"] -> ["build", " test"]).
+    expect(normalizeKeywords(["build, test", ",,", "solo,"])).toEqual(["build", "test", "solo"]);
+    await appendMemory({
+      type: "pattern",
+      scope: "deploys",
+      content: "deploy happens after the change approval clears",
+      kw: ["build, test"],
+    });
+    const [row] = await loadAll();
+    expect(row?.kw).toEqual(["build", "test"]);
+  });
+
+  test("a legacy row whose kw field was written fragmented reads back trimmed", async () => {
+    // Rows written before the delimiter fix can already sit on disk holding
+    // `kw=a, b`; the leading space must not survive into a scoring alias.
+    seedAt("2026-02-01T00:00:00.000Z", "learning", "deploys", "legacy row with fragmented keywords", { kw: "a, b" });
+    const [row] = await loadAll();
+    expect(row?.kw).toEqual(["a", "b"]);
+  });
+
   test("the absolute floor rejects control characters and credential-shaped keywords", async () => {
     await expect(
       appendMemory({ type: "learning", scope: "s", content: "row with a forged keyword line", kw: ["ok", "two\nlines"] }),
@@ -260,5 +282,16 @@ describe("recency tie-break", () => {
     seedAt(NEW, "learning", "reports", "alpha bravo reporting rule one");
     const top = scoreMemories("alpha bravo reporting molybdenum", await loadAll(), 2);
     expect(top[0]?.content).toContain("molybdenum");
+  });
+
+  test("the same instant written in two stamp formats is a tie, not a swap", async () => {
+    // String-comparing ISO stamps says "…:01Z" > "…:01.000Z", so a legacy
+    // second-precision row used to outrank a millisecond row from the very
+    // same instant. Recency compares instants, not glyphs: the tie falls
+    // through to insertion order.
+    seedAt("2026-03-01T09:00:01.000Z", "learning", "reports", "alpha bravo reporting rule one");
+    seedAt("2026-03-01T09:00:01Z", "learning", "reports", "alpha bravo reporting rule two");
+    const top = scoreMemories("alpha bravo reporting", await loadAll(), 2);
+    expect(top.map((m) => m.ts)).toEqual(["2026-03-01T09:00:01.000Z", "2026-03-01T09:00:01Z"]);
   });
 });

@@ -29,19 +29,26 @@ export const MAX_KEYWORDS = 8;
 export const MAX_KEYWORD_CHARS = 48;
 
 /**
- * Normalise author-supplied retrieval keywords: trim, lowercase, de-duplicate,
- * drop empties and over-long entries, cap the count. TOTAL on purpose — junk
- * yields a shorter list rather than a throw, because keywords only ever widen
- * recall and must never be able to fail a write the prose alone deserved.
+ * Normalise author-supplied retrieval keywords: trim, lowercase, split on the
+ * storage delimiter, de-duplicate, drop empties and over-long entries, cap the
+ * count. TOTAL on purpose — junk yields a shorter list rather than a throw,
+ * because keywords only ever widen recall and must never be able to fail a
+ * write the prose alone deserved.
  */
 export function normalizeKeywords(kw: unknown): string[] | undefined {
   if (!Array.isArray(kw)) return undefined;
   const out: string[] = [];
   for (const item of kw) {
     if (typeof item !== "string") continue;
-    const k = item.trim().toLowerCase();
-    if (!k || k.length > MAX_KEYWORD_CHARS) continue;
-    if (!out.includes(k)) out.push(k);
+    // Commas are the storage delimiter (kw serialises as one comma-joined
+    // scalar), so an item carrying one would read back fragmented. Treat them
+    // as separators: "build, test" becomes two aliases, never a " test".
+    for (const part of item.split(",")) {
+      const k = part.trim().toLowerCase();
+      if (!k || k.length > MAX_KEYWORD_CHARS) continue;
+      if (!out.includes(k)) out.push(k);
+      if (out.length === MAX_KEYWORDS) break;
+    }
     if (out.length === MAX_KEYWORDS) break;
   }
   return out.length ? out : undefined;
@@ -120,7 +127,7 @@ function toMemory(fields: Record<string, unknown>, file: string, index: number):
     issue: typeof fields.issue === "string" ? fields.issue : undefined,
     tags: typeof fields.tags === "string" ? fields.tags.split(",") : undefined,
     kw: typeof fields.kw === "string" && fields.kw
-      ? fields.kw.split(",").filter((k) => k.length > 0)
+      ? fields.kw.split(",").map((k) => k.trim()).filter((k) => k.length > 0)
       : undefined,
     superseded_by: typeof fields.superseded_by === "string" ? fields.superseded_by : undefined,
     reason: typeof fields.reason === "string" ? fields.reason : undefined,
