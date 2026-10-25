@@ -206,6 +206,40 @@ What the benchmark bought us:
 Full methodology, all store sizes: `bench/recall-results.md`
 (regenerate with `bun bench:recall`).
 
+## The store keeps score of itself
+
+Retrieval quality is a claim unless the store can show its receipts, so the
+plugin keeps a **use ledger** (`<memory-root>/hits.logfmt`, append-only, rotated
+at 512 KB, never ingested as a memory) and reports four numbers in
+`memory_status` and the `/memory` panel:
+
+```
+STORE
+  41 active · 12 superseded · 4 open · 6 scopes
+  retrieved 33 rows in the last 30d; never retrieved 8 (20%) — reported, not acted on
+  24.1 KB total · 604 B per row · 1.3 rows/day (30d) · capture lag p50 42 s / p95 6 min
+```
+
+- **Which memories were actually used.** A row is credited when it *rode the
+  injected block*, when `memory_recall` returned it, or when a grep/read pull
+  appended it — three sources, kept distinct, because "the model asked" and "the
+  harness offered" are different facts. Credit needs ≥2 shared terms with the
+  query, the same bar as scoring, and it is throttled to one line per memory per
+  session per source per hour so a retry storm cannot fake frequency.
+- **Nothing about you is in it.** The ledger stores a scan-truncated string from
+  the *memory* side, never your message. Grep it: your prompts are not there.
+- **Reinforcement is a tie-break, never a verdict.** A recently used row wins a
+  tie; it can never outrank a real score gap (`useBoost ≤ 1.0`). Consolidation
+  respects the same rule — the most recently used row in a cluster is never the
+  merge loser.
+- **Dead weight is stated, not deleted.** `never retrieved` is evidence about a
+  store that may need pruning, and pruning is a decision you make. Retired rows
+  cannot inherit reinforcement either: ledger rows are verified against the
+  store on read, so a resurrected identity earns nothing from its past life.
+- **Capture lag** is how stale the newest message was when auto-capture fired.
+  Sessions idle for an hour produce an hour-old capture; now you can see it
+  instead of guessing.
+
 ## Quick start
 
 1. Add the plugin to your Opencode config (see install below) and restart Opencode.
