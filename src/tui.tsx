@@ -14,6 +14,7 @@ import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import type { PanelInput } from "@opencode/plugin/tui/context";
 import { memoryRoot, evidenceDir } from "./config.ts";
 import {
+  attributionLines,
   blockedRecent,
   cacheHealth,
   cacheRate,
@@ -21,6 +22,7 @@ import {
   contextLines,
   readStatus,
   statusDir,
+  windowLines,
   type BlockedRow,
   type CacheHealth,
   type StatusPayload,
@@ -261,6 +263,11 @@ function MemoryPanel(props: {
         <For each={cacheLines(s()!)}>{(line) => <text fg={context.theme.text.base}>{line}</text>}</For>
       </Show>
 
+      <Section t="CONTEXT WINDOW — is memory bloating your context?" />
+      <Show when={s()} fallback={<text fg={context.theme.text.base}>  nothing injected yet</text>}>
+        <For each={windowLines(s()!)}>{(line) => <text fg={context.theme.text.base}>{line}</text>}</For>
+      </Show>
+
       <Section t="INJECTED BLOCK (VERBATIM)" />
       <Show when={s()}>
         <Show
@@ -273,6 +280,11 @@ function MemoryPanel(props: {
         >
           <For each={s()!.block.split("\n")}>{(line) => <text fg={context.theme.text.base}>{"  " + line}</text>}</For>
         </Show>
+      </Show>
+
+      <Section t="MEMORY ATTRIBUTION — answered from memory vs re-reading files" />
+      <Show when={s()} fallback={<text fg={context.theme.text.base}>  nothing injected yet</text>}>
+        <For each={attributionLines(s()!)}>{(line) => <text fg={context.theme.text.base}>{line}</text>}</For>
       </Show>
 
       <Section t="RECENT BLOCKED WRITES" />

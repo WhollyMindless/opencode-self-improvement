@@ -11,6 +11,7 @@ import { dateStr, evidenceDir, memoryRoot } from "../src/config.ts";
 import { formatLine } from "../src/logfmt.ts";
 import { appendMemory } from "../src/memory.ts";
 import {
+  attributionLines,
   blockedRecent,
   cacheHealth,
   cacheRate,
@@ -22,6 +23,7 @@ import {
   sessionStatusFile,
   statusDir,
   statusFile,
+  windowLines,
   writeStatus,
   type StatusPayload,
 } from "../src/status.ts";
@@ -236,6 +238,76 @@ describe("renderMemoryReport", () => {
     });
     expect(text).toContain("ref_path_missing");
   });
+
+  test("CONTEXT WINDOW + MEMORY ATTRIBUTION sections render with labels", () => {
+    const text = renderMemoryReport({
+      status: payload({
+        attribution: {
+          commandSaves: 2,
+          commandsMatched: 3,
+          pathsCited: 5,
+          pathsReRead: 1,
+          pathsSkipped: 4,
+          readsTotal: 9,
+          readsNotCovered: 7,
+        },
+      }),
+      store: payload().store,
+      blocked: [],
+    });
+    expect(text).toContain("CONTEXT WINDOW — is memory bloating your context?");
+    expect(text).toContain("MEMORY ATTRIBUTION — answered from memory vs re-reading files");
+    // measured vs inferred labels are explicit
+    expect(text).toContain("2 lookup(s) avoided [measured]");
+    expect(text).toContain("re-read 1 [measured] · not opened 4 [inferred]");
+    expect(text).toContain("7/9 file lookups had no memory coverage [measured]");
+  });
+
+  test("null attribution says not computed, never fabricates a number", () => {
+    const text = renderMemoryReport({ status: payload({ attribution: null }), store: payload().store, blocked: [] });
+    expect(text).toContain("not computed — no memory was injected this session");
+  });
+});
+
+describe("windowLines / attributionLines", () => {
+  test("memory slice is bounded and shown against the budget", () => {
+    const lines = windowLines(payload()).join("\n");
+    expect(lines).toContain("70c ≈ 18 tok");
+    expect(lines).toContain("6% of the 1200c inject budget");
+    // 42900 prompt tok sent, 96% from cache
+    expect(lines).toContain("≈ 42.9k prompt tok");
+    expect(lines).toContain("96% of that prompt from cache");
+    expect(lines).toContain("memory busts     1 this session");
+  });
+
+  test("no measurement yet degrades honestly, never 0%", () => {
+    const lines = windowLines(payload({ measured: null })).join("\n");
+    expect(lines).toContain("not measured yet");
+    expect(lines).not.toContain("0% of it");
+  });
+
+  test("zero busts is called out as the good case", () => {
+    const noBust = payload();
+    noBust.stats = { ...noBust.stats!, invalidations: 0 };
+    expect(windowLines(noBust).join("\n")).toContain("memory never invalidated your cache prefix");
+  });
+
+  test("attributionLines with no refs explains there is nothing to attribute", () => {
+    const lines = attributionLines(
+      payload({
+        attribution: {
+          commandSaves: 0,
+          commandsMatched: 0,
+          pathsCited: 0,
+          pathsReRead: 0,
+          pathsSkipped: 0,
+          readsTotal: 0,
+          readsNotCovered: 0,
+        },
+      }),
+    ).join("\n");
+    expect(lines).toContain("cited no file paths or commands yet");
+  });
 });
 
 function seedEvidence(day: string, rows: { ts: string; sid: string; reason: string; noise?: boolean }[]) {
@@ -351,6 +423,25 @@ describe("memory_status tool + epoch wiring", () => {
 
     const s = await poll(() => readStatus("ses_data").then((r) => (r?.measured ? r : null)));
     expect(s?.measured).toEqual(expect.objectContaining({ input: 250, read: 9000, write: 750 }));
+    await p.cleanup();
+  });
+
+  test("session.usage.updated (v2 host) lands measured usage", async () => {
+    const p = await loadPlugin(process.cwd());
+    await appendMemory({
+      type: "pattern",
+      scope: "build",
+      content: "run bun test from the repo root to execute the suite",
+      status: "settled",
+    });
+    await p.sessionHooks.prompt!({ sessionID: "ses_usage", prompt: { text: "how do I run bun test" } });
+    // Real v2.0.26 shape: usage on session.usage.updated, no message.updated.
+    p.capture.events.push({
+      type: "session.usage.updated",
+      data: { sessionID: "ses_usage", cost: 0, tokens: { input: 5, output: 15, reasoning: 0, cache: { read: 8507, write: 0 } } },
+    });
+    const s = await poll(() => readStatus("ses_usage").then((r) => (r?.measured ? r : null)));
+    expect(s?.measured).toEqual(expect.objectContaining({ input: 5, read: 8507, write: 0 }));
     await p.cleanup();
   });
 

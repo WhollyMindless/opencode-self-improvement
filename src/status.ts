@@ -16,6 +16,7 @@ import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { dateStr, evidenceDir, memoryRoot } from "./config.ts";
 import { parseLine, readLines } from "./logfmt.ts";
+import type { Attribution } from "./attribution.ts";
 
 export interface StoreCounts {
   active: number;
@@ -54,10 +55,10 @@ export function emptyStats(): SessionStats {
 }
 
 /**
- * Measured prompt-cache usage from the last completed assistant message
- * (message.updated -> tokens {input, cache.read, cache.write}). This is the
- * SESSION-WIDE prompt cache — the honest receipt for "are we busting cache",
- * never billed as our block's own rate.
+ * Measured prompt-cache usage from the last usage event — `session.usage.updated`
+ * (v2 hosts) or `message.updated` assistant info (older hosts) — carrying tokens
+ * {input, cache.read, cache.write}. This is the SESSION-WIDE prompt cache — the
+ * honest receipt for "are we busting cache", never billed as our block's own rate.
  */
 export interface Measured {
   at: string;
@@ -81,6 +82,8 @@ export interface StatusPayload {
   /** optional for backward-compatible reads of pre-v2 files. */
   stats?: SessionStats;
   measured?: Measured | null;
+  /** memory-vs-files attribution for the session; null/undefined = not computed. */
+  attribution?: Attribution | null;
 }
 
 export interface BlockedRow {
@@ -293,6 +296,59 @@ export function cacheLines(p: StatusPayload): string[] {
 }
 
 /**
+ * CONTEXT WINDOW — the "is memory bloating my context?" answer, built ONLY from
+ * numbers we trust: the exact injected block (we wrote those bytes), the
+ * provider's own cache receipts, and the memory-caused bust count. No estimated
+ * decomposition of the system prompt or history (we cannot measure those); the
+ * one honest share we can state is memory as a slice of what was actually sent.
+ */
+export function windowLines(p: StatusPayload): string[] {
+  const memTok = estTok(p.blockChars);
+  const pct = p.budget > 0 ? Math.round((p.blockChars / p.budget) * 100) : 0;
+  const out: string[] = [
+    `  memory slice   ${p.blockChars}c ≈ ${memTok} tok · ${pct}% of the ${p.budget}c inject budget (hard-capped by design)`,
+  ];
+  const m = p.measured;
+  const used = m ? (m.input || 0) + (m.read || 0) + (m.write || 0) : 0;
+  if (used > 0) {
+    const share = Math.round((memTok / used) * 1000) / 10;
+    const rate = cacheRate(m);
+    out.push(`  of what you sent  ≈ ${fmtCount(used)} prompt tok · memory is ${share}% of it`);
+    out.push(
+      rate
+        ? `  cache served     ${rate.pct}% of that prompt from cache → memory rides free after turn 1`
+        : "  cache served     provider has not reported a split yet",
+    );
+  } else {
+    out.push("  of what you sent  not measured yet — receipts appear after the first assistant turn");
+  }
+  const busts = p.stats?.invalidations ?? 0;
+  out.push(
+    `  memory busts     ${busts} this session${busts ? "" : " — memory never invalidated your cache prefix"}`,
+  );
+  return out;
+}
+
+/**
+ * MEMORY ATTRIBUTION — which answers came from memory instead of re-reading
+ * files. Every line is labeled [measured] (an observed tool-call fact) or
+ * [inferred] (a coverage statement). Misses are shown alongside saves so the
+ * panel reads as an audit, not marketing.
+ */
+export function attributionLines(p: StatusPayload): string[] {
+  const a = p.attribution;
+  if (!a) return ["  not computed — no memory was injected this session"];
+  if (a.pathsCited === 0 && a.commandsMatched === 0 && a.readsTotal === 0) {
+    return ["  the injected memory cited no file paths or commands yet — nothing to attribute"];
+  }
+  return [
+    `  Tier A · commands   ${a.commandSaves} lookup(s) avoided [measured] · ran a remembered command with no prior file lookup`,
+    `  Tier B · coverage   cited ${a.pathsCited} · re-read ${a.pathsReRead} [measured] · not opened ${a.pathsSkipped} [inferred]`,
+    `  new work            ${a.readsNotCovered}/${a.readsTotal} file lookups had no memory coverage [measured]`,
+  ];
+}
+
+/**
  * Plain-text rendering shared by the memory_status tool (and any other chat
  * client). Sections match the terminal /memory panel one-for-one.
  */
@@ -312,12 +368,14 @@ export function renderMemoryReport(input: {
   } else {
     out.push("CONTEXT", ...contextLines(status));
     out.push("", "CACHE — the receipts on your prompt-cache cost", ...cacheLines(status));
+    out.push("", "CONTEXT WINDOW — is memory bloating your context?", ...windowLines(status));
     out.push("", "INJECTED BLOCK (verbatim)");
     if (status.block) out.push(...status.block.split("\n").map((l) => `  ${l}`));
     else
       out.push(
         "  abstained — your prompt shares no content vocabulary with any memory, so nothing was injected (by design, no noise).",
       );
+    out.push("", "MEMORY ATTRIBUTION — answered from memory vs re-reading files", ...attributionLines(status));
   }
 
   out.push("", "RECENT BLOCKED WRITES");
