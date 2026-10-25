@@ -14,6 +14,14 @@
 //   bm25  — Okapi BM25, k1=1.2 b=0.75, fixed literature defaults, chosen and
 //           frozen BEFORE the eval; never tuned against it.
 //
+// Negative controls (#43, item 5). Silica's rule: "a metric that cannot fail
+// reports PASS regardless of the arm". The control arms below are DELIBERATELY
+// wrong (store order, reverse-of-naive) and are published alongside the real
+// arms, so the table proves the metric ranks rather than always passing.
+// test/negative-eval.test.ts turns that into an assertion, which is what makes
+// the numbers falsifiable: if a control ever catches up with prod, the eval is
+// broken and the test goes red.
+//
 // Query classes (lexical/near/strict) are assigned by MEASURED token overlap
 // with the gold memory, not by the dataset author's intent. Deterministic:
 // byte-identical output per run (fixed LCG, no Date.now, stable sorts).
@@ -25,14 +33,14 @@ import { scoreMemories, words } from "../src/inject.ts";
 import type { Memory } from "../src/memory.ts";
 import { buildStore, MEMORIES, QUERIES } from "./recall-dataset.ts";
 
-type Rank = (query: string, mems: Memory[]) => Memory[];
+export type Rank = (query: string, mems: Memory[]) => Memory[];
 
 function asMemory(type: string, scope: string, content: string): Memory {
   return { ts: "2026-01-01T00:00:00.000Z", type, scope, content, status: "settled", file: "", index: 0 };
 }
 
 // naive: pre-stopword-filter shipped matcher, kept verbatim as the baseline.
-const naive: Rank = (query, mems) => {
+export const naive: Rank = (query, mems) => {
   const q = new Set(words(query));
   return mems
     .map((m) => {
@@ -46,12 +54,12 @@ const naive: Rank = (query, mems) => {
     .map((s) => s.m);
 };
 
-const prod: Rank = (query, mems) => scoreMemories(query, mems, mems.length);
+export const prod: Rank = (query, mems) => scoreMemories(query, mems, mems.length);
 
-const BM25_K1 = 1.2;
-const BM25_B = 0.75;
+export const BM25_K1 = 1.2;
+export const BM25_B = 0.75;
 
-function bm25Rank(query: string, mems: Memory[]): Memory[] {
+export function bm25Rank(query: string, mems: Memory[]): Memory[] {
   const docs = mems.map((m) => words(`${m.scope} ${m.type} ${m.content}`));
   const N = docs.length || 1;
   const avgdl = docs.reduce((a, d) => a + d.length, 0) / N;
@@ -75,6 +83,22 @@ function bm25Rank(query: string, mems: Memory[]): Memory[] {
   return scored.sort((a, b) => b.s - a.s).filter((x) => x.s > 0).map((x) => x.m);
 }
 
+// --- negative controls --------------------------------------------------------
+// Both arms ignore the gold on purpose. They exist so the eval can FAIL: a
+// metric under which a random or inverted ranking scores like the shipped one
+// is not measuring retrieval.
+
+/** Ignores the query entirely: always the first k rows of the store. */
+export const constantArm: Rank = (_query, mems) => mems.slice(0, 3);
+
+/** The naive arm's ranking read backwards — worst-first by construction. */
+export const antiNaive: Rank = (query, mems) => naive(query, mems).reverse();
+
+export const CONTROL_ARMS: Record<string, Rank> = {
+  constant: constantArm,
+  "anti-naive": antiNaive,
+};
+
 // --- classification by measured overlap (anti-rigging rule 1) ------------------
 
 // Stopwords ONLY for LABELING the class; every scorer runs as it ships.
@@ -88,13 +112,63 @@ function contentTokens(text: string): Set<string> {
   return new Set(words(text).filter((t) => !STOP.has(t)));
 }
 
-type QClass = "lexical" | "near" | "strict";
-function measureClass(query: string, gold: string): QClass {
+export type QClass = "lexical" | "near" | "strict";
+export function measureClass(query: string, gold: string): QClass {
   const g = goldById.get(gold)!;
   const gt = contentTokens(`${g.scope} ${g.type} ${g.content}`);
   let shared = 0;
   for (const t of contentTokens(query)) if (gt.has(t)) shared++;
   return shared >= 2 ? "lexical" : shared === 1 ? "near" : "strict";
+}
+
+/** The store at `size` as Memory rows (shared by the arms and the tests). */
+export function storeAt(size: number): { rows: Memory[]; gold: Map<string, Memory> } {
+  const store = buildStore(size);
+  return {
+    rows: store.map((m) => asMemory(m.type, m.scope, m.content)),
+    gold: new Map(store.map((m) => [m.id, asMemory(m.type, m.scope, m.content)])),
+  };
+}
+
+export interface ArmScore {
+  n: number;
+  r1: number;
+  r3: number;
+  byClass: Record<QClass, { n: number; r1: number; r3: number }>;
+}
+
+/**
+ * Score ONE arm over every query whose gold is in the store. Used by the
+ * published control table and pinned by test/negative-eval.test.ts, so the
+ * "can this metric fail?" question is an assertion, not a comment.
+ */
+export function scoreArm(size: number, rank: Rank): ArmScore {
+  const { rows, gold } = storeAt(size);
+  const score: ArmScore = {
+    n: 0,
+    r1: 0,
+    r3: 0,
+    byClass: {
+      lexical: { n: 0, r1: 0, r3: 0 },
+      near: { n: 0, r1: 0, r3: 0 },
+      strict: { n: 0, r1: 0, r3: 0 },
+    },
+  };
+  for (const { q, gold: goldId } of QUERIES) {
+    const goldMem = gold.get(goldId);
+    if (!goldMem) continue; // gold not in this store
+    const list = rank(q, rows);
+    const idx = list.findIndex((m) => m.content === goldMem.content);
+    const cls = measureClass(q, goldId);
+    score.n++;
+    if (idx === 0) score.r1++;
+    if (idx >= 0 && idx < 3) score.r3++;
+    const c = score.byClass[cls];
+    c.n++;
+    if (idx === 0) c.r1++;
+    if (idx >= 0 && idx < 3) c.r3++;
+  }
+  return score;
 }
 
 // --- metrics -------------------------------------------------------------------
@@ -113,7 +187,7 @@ interface Row {
   silent: number; // prod abstains entirely (no block injected — noise avoided)
 }
 
-function evaluate(size: number) {
+export function evaluate(size: number) {
   const store = buildStore(size);
   const mems = store.map((m) => asMemory(m.type, m.scope, m.content));
   const byClass = new Map<QClass, Row>();
@@ -157,47 +231,66 @@ function r2list(m: Map<QClass, Row>): Row[] {
 const pct = (hit: number, n: number) => (n ? `${Math.round((hit / n) * 100)}%` : "-");
 
 const SIZES = [50, 200, 500];
-const lines: string[] = [];
-lines.push("# Recall quality: shipped matcher vs alternatives (zero dependencies, zero models)");
-lines.push("");
-lines.push(
-  `Dataset: ${MEMORIES.length} gold memories, ${QUERIES.length} queries; classes assigned by ` +
-    "MEASURED token overlap with the gold (>=2 shared content tokens = lexical, 1 = near, " +
-    "0 = strict paraphrase). k=3 mirrors the production injection limit. BM25 k1=1.2 b=0.75 " +
-    "fixed before the eval. naive = previous shipped matcher; prod = current shipped " +
-    "matcher (query-side stopword abstention, two-concept evidence gate for free-text " +
-    "queries, IDF-weighted ranking).",
-);
-lines.push("");
 
-for (const size of SIZES) {
-  const { rows, noiseNaive, noiseProd } = evaluate(size);
-  lines.push(`## Store size ${size}`);
+function report(): string {
+  const lines: string[] = [];
+  lines.push("# Recall quality: shipped matcher vs alternatives (zero dependencies, zero models)");
   lines.push("");
-  lines.push("| Query class | n | naive R@3 | prod R@1 | prod R@3 | BM25 R@1 | BM25 R@3 | prod recovers | BM25 recovers | all miss | prod abstains |");
-  lines.push("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
-  const tot = { n: 0, nv: 0, p1: 0, p3: 0, b1: 0, b3: 0, pr: 0, rec: 0, miss: 0, sil: 0 };
-  for (const r of rows) {
-    tot.n += r.n; tot.nv += r.naiveR3; tot.p1 += r.prodR1; tot.p3 += r.prodR3;
-    tot.b1 += r.bm25R1; tot.b3 += r.bm25R3; tot.pr += r.prodRecovers; tot.rec += r.bm25Recovers;
-    tot.miss += r.allMiss; tot.sil += r.silent;
+  lines.push(
+    `Dataset: ${MEMORIES.length} gold memories, ${QUERIES.length} queries; classes assigned by ` +
+      "MEASURED token overlap with the gold (>=2 shared content tokens = lexical, 1 = near, " +
+      "0 = strict paraphrase). k=3 mirrors the production injection limit. BM25 k1=1.2 b=0.75 " +
+      "fixed before the eval. naive = previous shipped matcher; prod = current shipped " +
+      "matcher (query-side stopword abstention, two-concept evidence gate for free-text " +
+      "queries, IDF-weighted ranking).",
+  );
+  lines.push("");
+
+  for (const size of SIZES) {
+    const { rows, noiseNaive, noiseProd } = evaluate(size);
+    lines.push(`## Store size ${size}`);
+    lines.push("");
+    lines.push("| Query class | n | naive R@3 | prod R@1 | prod R@3 | BM25 R@1 | BM25 R@3 | prod recovers | BM25 recovers | all miss | prod abstains |");
+    lines.push("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+    const tot = { n: 0, nv: 0, p1: 0, p3: 0, b1: 0, b3: 0, pr: 0, rec: 0, miss: 0, sil: 0 };
+    for (const r of rows) {
+      tot.n += r.n; tot.nv += r.naiveR3; tot.p1 += r.prodR1; tot.p3 += r.prodR3;
+      tot.b1 += r.bm25R1; tot.b3 += r.bm25R3; tot.pr += r.prodRecovers; tot.rec += r.bm25Recovers;
+      tot.miss += r.allMiss; tot.sil += r.silent;
+      lines.push(
+        `| ${r.cls} | ${r.n} | ${pct(r.naiveR3, r.n)} | ${pct(r.prodR1, r.n)} | ${pct(r.prodR3, r.n)} | ` +
+          `${pct(r.bm25R1, r.n)} | ${pct(r.bm25R3, r.n)} | ${r.prodRecovers} | ${r.bm25Recovers} | ${r.allMiss} | ${r.silent} |`,
+      );
+    }
     lines.push(
-      `| ${r.cls} | ${r.n} | ${pct(r.naiveR3, r.n)} | ${pct(r.prodR1, r.n)} | ${pct(r.prodR3, r.n)} | ` +
-        `${pct(r.bm25R1, r.n)} | ${pct(r.bm25R3, r.n)} | ${r.prodRecovers} | ${r.bm25Recovers} | ${r.allMiss} | ${r.silent} |`,
+      `| **all** | ${tot.n} | ${pct(tot.nv, tot.n)} | ${pct(tot.p1, tot.n)} | ${pct(tot.p3, tot.n)} | ` +
+        `${pct(tot.b1, tot.n)} | ${pct(tot.b3, tot.n)} | ${tot.pr} | ${tot.rec} | ${tot.miss} | ${tot.sil} |`,
     );
+    lines.push("");
+    lines.push(
+      `Wrong-memory-first (top-1 noise): naive ${pct(noiseNaive, QUERIES.length)} -> ` +
+        `prod ${pct(noiseProd, QUERIES.length)}.`,
+    );
+    lines.push("");
+    lines.push("Negative controls (the metric must rank, not always pass):");
+    lines.push("");
+    lines.push("| Arm | R@1 | R@3 |");
+    lines.push("| --- | ---: | ---: |");
+    for (const [name, arm] of [["prod (shipped)", prod], ["naive (previous)", naive]] as const) {
+      const s = scoreArm(size, arm);
+      lines.push(`| ${name} | ${pct(s.r1, s.n)} | ${pct(s.r3, s.n)} |`);
+    }
+    for (const [name, arm] of Object.entries(CONTROL_ARMS)) {
+      const s = scoreArm(size, arm);
+      lines.push(`| ${name} (control, must be lower) | ${pct(s.r1, s.n)} | ${pct(s.r3, s.n)} |`);
+    }
+    lines.push("");
   }
-  lines.push(
-    `| **all** | ${tot.n} | ${pct(tot.nv, tot.n)} | ${pct(tot.p1, tot.n)} | ${pct(tot.p3, tot.n)} | ` +
-      `${pct(tot.b1, tot.n)} | ${pct(tot.b3, tot.n)} | ${tot.pr} | ${tot.rec} | ${tot.miss} | ${tot.sil} |`,
-  );
-  lines.push("");
-  lines.push(
-    `Wrong-memory-first (top-1 noise): naive ${pct(noiseNaive, QUERIES.length)} -> ` +
-      `prod ${pct(noiseProd, QUERIES.length)}.`,
-  );
-  lines.push("");
+  return lines.join("\n") + "\n";
 }
 
-const out = lines.join("\n") + "\n";
-process.stdout.write(out);
-writeFileSync(join(import.meta.dir, "recall-results.md"), out);
+if (import.meta.main) {
+  const out = report();
+  process.stdout.write(out);
+  writeFileSync(join(import.meta.dir, "recall-results.md"), out);
+}

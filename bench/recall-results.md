@@ -13,6 +13,15 @@ Dataset: 52 gold memories, 105 queries; classes assigned by MEASURED token overl
 
 Wrong-memory-first (top-1 noise): naive 46% -> prod 6%.
 
+Negative controls (the metric must rank, not always pass):
+
+| Arm | R@1 | R@3 |
+| --- | ---: | ---: |
+| prod (shipped) | 49% | 50% |
+| naive (previous) | 50% | 60% |
+| constant (control, must be lower) | 3% | 7% |
+| anti-naive (control, must be lower) | 12% | 20% |
+
 ## Store size 200
 
 | Query class | n | naive R@3 | prod R@1 | prod R@3 | BM25 R@1 | BM25 R@3 | prod recovers | BM25 recovers | all miss | prod abstains |
@@ -24,6 +33,15 @@ Wrong-memory-first (top-1 noise): naive 46% -> prod 6%.
 
 Wrong-memory-first (top-1 noise): naive 49% -> prod 6%.
 
+Negative controls (the metric must rank, not always pass):
+
+| Arm | R@1 | R@3 |
+| --- | ---: | ---: |
+| prod (shipped) | 50% | 50% |
+| naive (previous) | 50% | 57% |
+| constant (control, must be lower) | 3% | 7% |
+| anti-naive (control, must be lower) | 0% | 0% |
+
 ## Store size 500
 
 | Query class | n | naive R@3 | prod R@1 | prod R@3 | BM25 R@1 | BM25 R@3 | prod recovers | BM25 recovers | all miss | prod abstains |
@@ -34,4 +52,13 @@ Wrong-memory-first (top-1 noise): naive 49% -> prod 6%.
 | **all** | 105 | 57% | 50% | 50% | 58% | 59% | 3 | 10 | 43 | 47 |
 
 Wrong-memory-first (top-1 noise): naive 49% -> prod 6%.
+
+Negative controls (the metric must rank, not always pass):
+
+| Arm | R@1 | R@3 |
+| --- | ---: | ---: |
+| prod (shipped) | 50% | 50% |
+| naive (previous) | 50% | 57% |
+| constant (control, must be lower) | 3% | 7% |
+| anti-naive (control, must be lower) | 0% | 0% |
 
