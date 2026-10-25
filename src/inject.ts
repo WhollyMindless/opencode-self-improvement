@@ -239,14 +239,39 @@ export async function systemDigest(
   );
 }
 
-export async function relevantKnowledge(message: string, limit = 3, rows?: Memory[]): Promise<string> {
+// Select the rows relevant to a prompt and render the injection block, AND
+// return the rows themselves so attribution (src/attribution.ts) can join the
+// injected facts against the session's later tool calls. `relevantKnowledge`
+// keeps its string contract for every existing caller; this is the richer seam.
+export async function selectRelevant(
+  message: string,
+  limit = 3,
+  rows?: Memory[],
+): Promise<{ block: string; selected: Memory[] }> {
   const text = message.trim();
-  if (!text) return "";
+  if (!text) return { block: "", selected: [] };
   // Repo-scoped: model-facing reads see this repo + global rows.
   const mems = rows ?? visibleHere((await loadAll()).filter(isActive));
   const top = scoreMemories(text, mems, limit);
-  if (!top.length) return "";
-  return `## Relevant durable memory${FRAME}\n${top.map(formatMemory).join("\n")}`;
+  if (!top.length) return { block: "", selected: [] };
+  return {
+    block: `## Relevant durable memory${FRAME}\n${top.map(formatMemory).join("\n")}`,
+    selected: top,
+  };
+}
+
+export async function relevantKnowledge(message: string, limit = 3, rows?: Memory[]): Promise<string> {
+  return (await selectRelevant(message, limit, rows)).block;
+}
+
+// The candidate rows that ACTUALLY survived capToBudget into `block`, in order.
+// capToBudget drops whole lines, so attribution must key off these — not the
+// pre-budget candidates — or it would credit the model with paths and commands
+// it was never shown. capToBudget keeps whole lines verbatim, so a candidate is
+// present iff its rendered line is a substring of the block.
+export function injectedRows(block: string, candidates: Memory[]): Memory[] {
+  if (!block) return [];
+  return candidates.filter((m) => block.includes(formatMemory(m)));
 }
 
 // Deterministic fingerprint of the rows that can affect injection. Hash the

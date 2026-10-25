@@ -36,10 +36,12 @@ import {
   compactionAnchor,
   contextualPull,
   formatMemory,
-  relevantKnowledge,
+  injectedRows,
+  selectRelevant,
   storeVersion,
   systemDigest,
 } from "./inject.ts";
+import { attributeSession, deriveMemoryRefs, type MemoryRefs } from "./attribution.ts";
 import { formatInit, runInit } from "./init.ts";
 import { ensureInitCommand, ensureMemoryReportCommand } from "./command.ts";
 import {
@@ -53,6 +55,7 @@ import {
 } from "./status.ts";
 import {
   afterTool,
+  callsFor,
   checkNewSession,
   evidenceCalls,
   firstFrontierTap,
@@ -131,6 +134,7 @@ interface PluginCtx {
       delivery?: "steer" | "queue";
     }) => Promise<unknown>;
     context?: (input: { sessionID: string }) => Promise<unknown>;
+    get?: (input: { sessionID: string }) => Promise<unknown>;
   };
   event?: {
     subscribe: (o?: { signal?: AbortSignal }) => AsyncIterable<unknown>;
@@ -226,8 +230,10 @@ const impl = {
     // Identity-event race backstop: a resumed session's FIRST turn can write
     // before the subscription has delivered its execution.started, and the
     // module-scope fallback is the last setup instance — possibly another
-    // workspace. The session context API is synchronous and its messages
-    // carry location.directory, so bind once from them for unmapped sids.
+    // workspace. Bind once from the session context API for unmapped sids —
+    // but note host 2.1.4 sends message payloads WITHOUT any location field,
+    // so this path is a legacy-shape best-effort; the session-row fallback
+    // below is what actually resolves serve-host sessions.
     // One-shot: never overwrites an event-bound entry.
     const bindingSids = new Set<string>();
     async function bindSessionFromMessages(sid: string | undefined): Promise<void> {
@@ -253,6 +259,37 @@ const impl = {
       }
     }
 
+    // Serve-host reality (recorded on 2.1.4 `serve --service`): the plugin
+    // instance loads AFTER the session was created, so `session.created` — the
+    // only event carrying a location — is never delivered; `execution.started`
+    // arrives with just {sessionID}. The session ROW is the remaining source
+    // of truth: the host's session get returns `location.directory`. One
+    // lookup per session; a miss is remembered so a host without the API is
+    // not re-asked on every turn (bounded LRU, same cap as the scope cache).
+    const apiBindTried = new Set<string>();
+    const apiBindOrder = new SessionLru(SESSION_CAP, (evicted) => apiBindTried.delete(evicted));
+    async function bindSessionFromApi(sid: string | undefined): Promise<void> {
+      if (!sid || sid === "?" || sessionDir(sid) || apiBindTried.has(sid)) return;
+      apiBindTried.add(sid);
+      apiBindOrder.touch(sid);
+      try {
+        const got = (await ctx.session?.get?.({ sessionID: sid })) as Record<string, any> | undefined;
+        const row = (got?.data ?? got) as Record<string, any> | undefined;
+        const dir = row?.location?.directory ?? row?.directory;
+        if (typeof dir === "string" && dir) rememberSessionDir(sid, dir);
+      } catch {
+        // no session.get on this host (or unknown session): stay unbound
+      }
+    }
+
+    // Identity must resolve BEFORE a row is stamped or a read is partitioned:
+    // try the (legacy) message payloads, then the session row.
+    async function bindSessionIdentity(sid: string | undefined): Promise<void> {
+      if (!sid || sid === "?" || sessionDir(sid)) return;
+      await bindSessionFromMessages(sid);
+      if (!sessionDir(sid)) await bindSessionFromApi(sid);
+    }
+
     // ---- tools --------------------------------------------------------------
     await ctx.tool?.transform((editor) => {
       const direct = { codemode: false } as const;
@@ -272,7 +309,7 @@ const impl = {
             status: args.status,
             repo: args.global ? "global" : undefined,
           };
-          await bindSessionFromMessages(getCurrent().sid);
+          await bindSessionIdentity(getCurrent().sid);
           const outcome = await runWriteGate(candidate, gateContext());
           if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
           if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
@@ -290,7 +327,7 @@ const impl = {
           "Initialize repository memory and knowledge graph. Ensures the codebase-memory graph for this repo is indexed (one-shot `cli` spawn; no session MCP needed) and re-derives build/lint/test/typecheck command memories through the write gate, then stores an init stamp keyed on git HEAD. Idempotent: a no-op when the stamp matches HEAD, unless force=true (refresh after a refactor).",
         options: direct,
         async execute(args): Promise<{ content: string }> {
-          await bindSessionFromMessages(getCurrent().sid);
+          await bindSessionIdentity(getCurrent().sid);
           const summary = await runInit({ liveRoot: gateContext().liveRoot, force: args.force, mode: args.mode });
           return { content: formatInit(summary) };
         },
@@ -337,7 +374,7 @@ const impl = {
           "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing.",
         options: direct,
         async execute(args): Promise<{ content: string }> {
-          await bindSessionFromMessages(getCurrent().sid);
+          await bindSessionIdentity(getCurrent().sid);
           const prior = (await loadAll()).filter(
             (m) => m.scope === args.scope && m.type === args.type && isActive(m) && isVisibleHere(m),
           );
@@ -627,7 +664,10 @@ const impl = {
     // the prompt/context/compaction hooks) — so the system prefix, and with it
     // the provider prompt cache, survives ordinary requests. The shared LRU
     // below may evict the whole session state; a later prompt starts it fresh.
-    const epoch = new Map<string, { version: string; block: string; at: string; reason: "first" | "store_changed" }>();
+    const epoch = new Map<
+      string,
+      { version: string; block: string; at: string; reason: "first" | "store_changed"; refs: MemoryRefs }
+    >();
     // Latest user prompt per tracked session. A changed store is re-scored
     // against it even when the change happened during a tool loop with no new
     // prompt. It is evicted together with the epoch and session ledgers.
@@ -682,6 +722,7 @@ const impl = {
         },
         stats: statsFor(sid),
         measured: measuredTurns.get(sid) ?? null,
+        attribution: attributeSession(callsFor(sid), ep.refs),
       };
     };
     const flushStatus = (sid: string): Promise<void> =>
@@ -699,11 +740,15 @@ const impl = {
       const version = await storeVersion(mems);
       const cached = epoch.get(sid);
       if (cached?.version === version) return;
-      const raw = await relevantKnowledge(latestPrompt.get(sid) ?? "", 5, mems); // widen candidate pool
-      const block = raw ? capToBudget(raw, budget) : "";
+      const sel = await selectRelevant(latestPrompt.get(sid) ?? "", 5, mems); // widen candidate pool
+      const block = sel.block ? capToBudget(sel.block, budget) : "";
+      // Refs the ACTUALLY-injected rows assert (paths + commands), the join key
+      // for attribution. Derived from the budget-surviving rows, not the wider
+      // candidate pool — crediting paths the model never saw would overclaim.
+      const refs = deriveMemoryRefs(injectedRows(block, sel.selected));
       const at = new Date().toISOString();
       const reason: "first" | "store_changed" = cached ? "store_changed" : "first";
-      epoch.set(sid, { version, block, at, reason });
+      epoch.set(sid, { version, block, at, reason, refs });
       await record(
         "epoch_recompute",
         {
@@ -808,7 +853,7 @@ const impl = {
           sessions.touch(sid);
           markTurn(sid);
           await checkNewSession(sid);
-          await bindSessionFromMessages(sid);
+          await bindSessionIdentity(sid);
           latestPrompt.set(sid, event?.prompt?.text ?? "");
           await refreshEpoch(sid);
         }
@@ -834,15 +879,16 @@ const impl = {
       }),
     );
 
-    // ---- measured prompt-cache health (message.updated usage) --------------
-    // Zero-model by design: assistant messages carry tokens {input, output,
-    // reasoning, cache.read/write}; the session-wide read/(read+input+write)
-    // share is the honest receipt behind the byte-stability proxy. Streaming
-    // updates for one message arrive repeatedly — overwriting with the latest
-    // is correct because the final update carries the complete usage. Flushes
-    // the per-session status file so the TUI badge refreshes once per turn
-    // instead of per step. Degrades to "not measured" when the host exposes
-    // no event stream.
+    // ---- measured prompt-cache health (usage events) -----------------------
+    // Zero-model by design: usage arrives on `session.usage.updated` (v2 hosts)
+    // or `message.updated` assistant info (older hosts), carrying tokens
+    // {input, output, reasoning, cache.read/write}; the session-wide
+    // read/(read+input+write) share is the honest receipt behind the
+    // byte-stability proxy. Streaming updates arrive repeatedly — overwriting
+    // with the latest is correct because the final update carries the complete
+    // usage. Flushes the per-session status file so the TUI badge refreshes
+    // once per turn instead of per step. Degrades to "not measured" when the
+    // host exposes no event stream.
     const measuredController = new AbortController();
     if (ctx.event?.subscribe) {
       const eventApi = ctx.event;
@@ -864,22 +910,38 @@ const impl = {
               const dir =
                 info.location?.directory ?? d.location?.directory ?? ev.location?.directory ?? info.directory;
               if (typeof sid === "string" && typeof dir === "string") rememberSessionDir(sid, dir);
+              // 2.1.4 serve sends execution.started with no location at all:
+              // resolve the session row instead of leaving the session unbound.
+              else if (typeof sid === "string") void guarded("session bind (api)", () => bindSessionFromApi(sid));
               continue;
             }
-            if (ev?.type !== "message.updated") continue;
-            const info = ev.properties?.info ?? ev.info ?? ev.data?.info;
-            if (!info || info.role !== "assistant") continue;
-            const sid = info.sessionID;
-            const t = info.tokens;
-            if (typeof sid !== "string" || !t) continue;
-            sessions.touch(sid);
-            measuredTurns.set(sid, {
+            // Token usage: v2 hosts (>=2.0.x) emit `session.usage.updated` with
+            // data.{sessionID, tokens}; older hosts carried the same TokenUsage
+            // on message.updated's assistant info. Accept both so `measured`
+            // populates regardless of host version.
+            let usid: unknown;
+            let ut: { input?: number; cache?: { read?: number; write?: number } } | undefined;
+            if (ev?.type === "session.usage.updated") {
+              usid = ev.data?.sessionID;
+              ut = ev.data?.tokens;
+            } else if (ev?.type === "message.updated") {
+              const info = ev.properties?.info ?? ev.info ?? ev.data?.info;
+              if (info && info.role === "assistant") {
+                usid = info.sessionID;
+                ut = info.tokens;
+              }
+            } else {
+              continue;
+            }
+            if (typeof usid !== "string" || !ut) continue;
+            sessions.touch(usid);
+            measuredTurns.set(usid, {
               at: new Date().toISOString(),
-              input: Number(t.input) || 0,
-              read: Number(t.cache?.read) || 0,
-              write: Number(t.cache?.write) || 0,
+              input: Number(ut.input) || 0,
+              read: Number(ut.cache?.read) || 0,
+              write: Number(ut.cache?.write) || 0,
             });
-            await guarded("status flush (measured)", () => flushStatus(sid));
+            await guarded("status flush (measured)", () => flushStatus(usid));
           }
         } catch {
           // the subscription ended (abort or host error); nothing to do
