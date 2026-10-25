@@ -30,7 +30,7 @@ import { pruneMemory } from "./prune.ts";
 import { exportMemories, findStaleOpen, importMemories } from "./portable.ts";
 import { listSnapshots, restoreSnapshot } from "./undo.ts";
 import { SESSION_CAP, SessionLru } from "./sessions.ts";
-import { record } from "./evidence.ts";
+import { record, recordCaptureLag } from "./evidence.ts";
 import {
   capToBudget,
   compactionAnchor,
@@ -54,6 +54,9 @@ import {
   writeStatus,
   type Measured,
   type SessionStats,
+  captureLag,
+  captureLagLines,
+  rowsPerDay,
   type StatusPayload,
   type StoreCounts,
 } from "./status.ts";
@@ -72,7 +75,7 @@ import {
 import { getCurrent, setCurrent } from "./state.ts";
 import { resolveRepo, setRepoScope, rememberSessionDir, sessionDir } from "./repokey.ts";
 import { readLines } from "./logfmt.ts";
-import { buildCapturePrompt, flattenTranscript, parseCandidates, parseModelRef } from "./capture.ts";
+import { buildCapturePrompt, flattenTranscript, lagSince, parseCandidates, parseModelRef } from "./capture.ts";
 import { redactSecrets } from "./secrets.ts";
 import { flattenMemoryText } from "./sanitize.ts";
 import { bunFloorWarning } from "./runtime.ts";
@@ -665,6 +668,13 @@ const impl = {
           const ledger = await readLedger();
           store.neverRetrieved = neverRetrieved(act, ledger).length;
           store.ledgerSince = ledger.since;
+          // Self-metrics (#44): what the store costs, how fast it grows, and how
+          // stale a capture is when it fires. Same rule as above — the numbers
+          // are the point, not a verdict on them.
+          store.bytes = act.reduce((n, m) => n + new TextEncoder().encode(formatMemory(m)).length, 0);
+          store.bytesPerRow = act.length ? Math.round(store.bytes / act.length) : 0;
+          store.rowsPerDay = rowsPerDay(act) ?? undefined;
+          store.captureLag = captureLag(await captureLagLines());
           return {
             content: renderMemoryReport({ status, store, blocked: await blockedRecent(6) }),
           };
@@ -1037,12 +1047,17 @@ const impl = {
                 const msgs = await contextFn({ sessionID: sid });
                 const transcript = flattenTranscript(msgs);
                 if (transcript.length < 200) continue; // too thin to mine reliably
+                // #44: how stale is a capture? Distance from the last message of
+                // the transcript to this instant. Sessions idle for an hour
+                // produce an hour-old capture, and the surfaces now say so.
+                const lagMs = lagSince(msgs);
                 const out = await generateApi.text({
                   model: modelRef,
                   prompt: buildCapturePrompt(transcript.slice(-8000), captureMax),
                 });
                 const text = typeof out === "string" ? out : out?.text ?? "";
-                for (const c of parseCandidates(text, captureMax)) {
+                const candidates = parseCandidates(text, captureMax);
+                for (const c of candidates) {
                   const outcome = await runWriteGate(
                     { ...c, tags: ["auto-capture"] },
                     gateContext(),
@@ -1054,6 +1069,7 @@ const impl = {
                     false,
                   );
                 }
+                await recordCaptureLag(sid, lagMs, candidates.length ? "candidates" : "empty");
               } catch {
                 // fail-closed: a broken capture attempt is invisible to the session
               }

@@ -168,6 +168,22 @@ export function parseModelRef(ref: unknown): { providerID: string; id: string } 
 // only); capped at 40 user turns. Never throws.
 const TRANSCRIPT_USER_TURN_CAP = 40;
 
+/**
+ * Age of the newest message in a session context, in ms, or null when no
+ * message carries a timestamp. Capture uses this to say how stale a transcript
+ * was at the moment the model was asked for candidates (#44).
+ */
+export function lagSince(messages: unknown, now = Date.now()): number | null {
+  let newest = 0;
+  for (const raw of Array.isArray(messages) ? messages : []) {
+    const m = raw as Record<string, any>;
+    const at = m?.time?.updated ?? m?.createdAt ?? m?.created ?? m?.timestamp;
+    const ms = typeof at === "number" ? at : typeof at === "string" ? Date.parse(at) : Number.NaN;
+    if (Number.isFinite(ms) && ms > newest) newest = ms;
+  }
+  return newest ? now - newest : null;
+}
+
 export function flattenTranscript(msgs: unknown): string {
   try {
     if (!Array.isArray(msgs)) return "";

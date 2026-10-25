@@ -13,6 +13,7 @@ import { For, Show, createSignal } from "solid-js";
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import type { PanelInput } from "@opencode/plugin/tui/context";
 import { memoryRoot, evidenceDir } from "./config.ts";
+import { fmtBytes, fmtMs } from "./status.ts";
 import {
   attributionLines,
   blockedRecent,
@@ -307,6 +308,12 @@ function MemoryPanel(props: {
                 (ledgerIsYoung(s()!.store.ledgerSince)
                   ? " never retrieved (ledger since " + (s()!.store.ledgerSince?.slice(0, 10) ?? "no lines") + ")"
                   : " never retrieved (30d)")
+              : "") +
+            ((s()?.store.bytes ?? 0) > 0
+              ? " · " + fmtBytes(s()!.store.bytes!) + " · " + s()!.store.bytesPerRow + " B/row"
+              : "") +
+            ((s()?.store.captureLag?.n ?? 0) > 0
+              ? " · capture p50 " + fmtMs(s()!.store.captureLag!.p50)
               : "")}
         </text>
       </Show>
