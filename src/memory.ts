@@ -5,7 +5,7 @@
 import { existsSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { join, basename } from "node:path";
-import { dateStr, memoryRoot, deletionsFile, snapshotDir } from "./config.ts";
+import { dateStr, memoryRoot, deletionsFile, snapshotDir, HITS_FILENAME } from "./config.ts";
 import { repoScopeFor } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
 import { appendLog, ensureDir, formatLine, parseLine, readLines, writeAtomic, type Fields } from "./logfmt.ts";
@@ -87,6 +87,9 @@ const RESERVED = new Set([
   "deleted.logfmt",
   "canonical.logfmt",
   "blocklist.logfmt",
+  // The use ledger (src/hits.ts): telemetry, not memory. A hit line must never
+  // be able to become a row — or to be superseded, exported, or injected.
+  HITS_FILENAME,
 ]);
 
 // Row identity is `ts`: supersede chains, the blocklist, undo matching, and
