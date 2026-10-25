@@ -8,10 +8,11 @@ import {
   appendMemory,
   loadAll,
   loadScope,
-  markSuperseded,
+  markManySuperseded,
   snapshotFiles,
   MAX_CONTENT_CHARS,
   type Memory,
+  type SupersedeFields,
 } from "./memory.ts";
 import { chainId, contentHash, record, recordWriteBlocked } from "./evidence.ts";
 import { flattenMemoryText } from "./sanitize.ts";
@@ -345,6 +346,7 @@ export async function runWriteGate(
   });
 
   let supersededTs: string | undefined;
+  const driftPlan: { s: StaleRef; target: string; fields: SupersedeFields }[] = [];
   for (const s of stale) {
     await record("ref_stale", {
       gate: 2,
@@ -356,27 +358,33 @@ export async function runWriteGate(
       chain,
     });
     // Drift-fed supersession is AUTO (provable) and target depends on whether a
-    // valid write will land; stale data is neutralized either way.
+    // valid write will land; stale data is neutralized either way. One batch
+    // publish for the whole set (#61): a row marked out-of-band between the scan
+    // and the pass is skipped by the batch (it re-reads under the lock).
     const target = g1.candidateStale ? "<-" : chain;
-    const marked = await markSuperseded(s.memory.ts, {
-      superseded_by: target,
-      reason: "drift",
-      symbol: s.symbol,
-      from: s.from,
-      to: s.to,
+    if (typeof s.memory.superseded_by === "string") continue;
+    driftPlan.push({
+      s,
+      target,
+      fields: { superseded_by: target, reason: "drift", symbol: s.symbol, from: s.from, to: s.to },
     });
-    if (marked) {
-      supersededTs = s.memory.ts;
-      await record("superseded_by", {
-        gate: 2,
-        mem: s.memory.ts,
-        target,
-        reason: "drift",
-        symbol: s.symbol,
-        from: s.from,
-        to: s.to,
-        chain,
-      });
+  }
+  if (driftPlan.length > 0) {
+    const markedCount = await markManySuperseded(driftPlan.map((p) => ({ ts: p.s.memory.ts, fields: p.fields })));
+    if (markedCount > 0) {
+      for (const p of driftPlan) {
+        supersededTs = p.s.memory.ts;
+        await record("superseded_by", {
+          gate: 2,
+          mem: p.s.memory.ts,
+          target: p.target,
+          reason: "drift",
+          symbol: p.s.symbol,
+          from: p.s.from,
+          to: p.s.to,
+          chain,
+        });
+      }
     }
   }
 
@@ -392,29 +400,31 @@ export async function runWriteGate(
     // Any in-scope entry that contradicts the canonical value is neutralized.
     const entitySet = new Set(tokens(canon.entry.entity));
     const valueSet = new Set(tokens(canon.entry.value));
+    const target = canon.aligns ? chain : "<-";
+    const canonPlan: { ts: string; from: string | undefined }[] = [];
     for (const m of scopeMems) {
       if (m.superseded_by) continue;
       if (tokens(m.content).some((t) => valueSet.has(t))) continue;
       const from = rawTokens(m.content).find(
         (t) => !STOPWORDS.has(t.toLowerCase()) && !entitySet.has(t.toLowerCase()) && !valueSet.has(t.toLowerCase()),
       );
-      const target = canon.aligns ? chain : "<-";
-      const marked = await markSuperseded(m.ts, {
-        superseded_by: target,
-        reason: "canonical",
-        entity: canon.entry.entity,
-        from: from ?? undefined,
-        to: canon.entry.value,
-      });
-      if (marked) {
-        if (!supersededTs) supersededTs = m.ts;
+      canonPlan.push({ ts: m.ts, from });
+    }
+    // One batch publish for the whole neutralization set (#61); rows marked
+    // out-of-band since the scan are skipped by the batch (re-read under lock).
+    if ((await markManySuperseded(canonPlan.map((p) => ({
+      ts: p.ts,
+      fields: { superseded_by: target, reason: "canonical", entity: canon.entry.entity, from: p.from, to: canon.entry.value },
+    })))) > 0) {
+      for (const p of canonPlan) {
+        if (!supersededTs) supersededTs = p.ts;
         await record("superseded_by", {
           gate: 2,
-          mem: m.ts,
+          mem: p.ts,
           target,
           reason: "canonical",
           entity: canon.entry.entity,
-          from: from ?? undefined,
+          from: p.from,
           to: canon.entry.value,
           chain,
         });
