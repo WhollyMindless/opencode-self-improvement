@@ -1,12 +1,13 @@
 // Deterministic memory-first: chat.message injection. Hermetic setup mirrors
 // scenarios.test.ts (temp OPENCODE_MEMORY_DIR, no repo touch).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryRoot } from "../src/config.ts";
 import { formatLine } from "../src/logfmt.ts";
-import { contextualPull, relevantKnowledge } from "../src/inject.ts";
+import { capToBudget, contextualPull, formatMemory, injectedRows, relevantKnowledge, selectRelevant } from "../src/inject.ts";
+import type { Memory } from "../src/memory.ts";
 
 let root: string;
 
@@ -18,6 +19,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.OPENCODE_MEMORY_DIR;
+  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
 function seed(type: string, scope: string, content: string): void {
@@ -29,7 +31,30 @@ function seed(type: string, scope: string, content: string): void {
   );
 }
 
+describe("injectedRows (attribution must key off what was actually injected)", () => {
+  test("keeps only candidates whose rendered line survived capToBudget", () => {
+    const a = { ts: "2026-01-01T00:00:00.000Z", type: "pattern", scope: "s", content: "short one" } as unknown as Memory;
+    const b = { ts: "2026-01-02T00:00:00.000Z", type: "pattern", scope: "s", content: "x".repeat(200) } as unknown as Memory;
+    const raw = ["## Relevant durable memory", formatMemory(a), formatMemory(b)].join("\n");
+    const block = capToBudget(raw, formatMemory(a).length + 30); // fits header + a, drops b
+    expect(block).toContain(formatMemory(a));
+    expect(block).not.toContain(formatMemory(b));
+    expect(injectedRows(block, [a, b]).map((m) => m.ts)).toEqual([a.ts]);
+  });
+  test("empty block keeps nothing", () => {
+    expect(injectedRows("", [{ ts: "t" } as unknown as Memory])).toEqual([]);
+  });
+});
+
 describe("relevantKnowledge (memory-first injection)", () => {
+  test("selectRelevant returns the matching rows, not just the block (attribution seam)", async () => {
+    seed("pattern", "build", "run `bun test` for the suite; see src/gates.ts");
+    const { block, selected } = await selectRelevant("how do I run bun test", 3);
+    expect(block).toContain("bun test");
+    expect(selected.length).toBe(1);
+    expect(selected[0]?.content).toContain("bun test");
+  });
+
   test("injects the matching command memory for a lookup-style message", async () => {
     seed(
       "pattern",
