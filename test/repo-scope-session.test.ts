@@ -74,17 +74,26 @@ describe("repoScopeFor precedence", () => {
     expect(repoScopeFor("s1")).toBe(repoScopeFor("s2"));
   });
 
-  test("the session map is bounded; the oldest entry falls back", () => {
-    const dirs: string[] = [];
-    for (let i = 0; i < 70; i++) {
-      const d = join(root, `r${i}`);
-      mkdirSync(d, { recursive: true });
-      dirs.push(d);
-      rememberSessionDir(`s${i}`, d);
-    }
-    expect(repoScopeFor("s0")).toBe(MODULE_SCOPE); // evicted
-    expect(repoScopeFor("s69")).toEqual({ key: keyOf(dirs[69]), path: dirs[69] });
-  });
+  // 70 real mkdirs: under Windows Defender timing on CI runners this leg
+  // measurably exceeds the 5s default (observed 5.2-5.3s, killed after the
+  // dangling process) - that is AV load, not a hang, and the family is a
+  // known pre-existing flake. One wider timeout for the one heavy test;
+  // every other test in this file keeps the default.
+  test(
+    "the session map is bounded; the oldest entry falls back",
+    () => {
+      const dirs: string[] = [];
+      for (let i = 0; i < 70; i++) {
+        const d = join(root, `r${i}`);
+        mkdirSync(d, { recursive: true });
+        dirs.push(d);
+        rememberSessionDir(`s${i}`, d);
+      }
+      expect(repoScopeFor("s0")).toBe(MODULE_SCOPE); // evicted
+      expect(repoScopeFor("s69")).toEqual({ key: keyOf(dirs[69]), path: dirs[69] });
+    },
+    20_000,
+  );
 });
 
 describe("stamping follows the writing session", () => {
