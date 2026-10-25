@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryRoot } from "../src/config.ts";
 import { formatLine } from "../src/logfmt.ts";
-import { contextualPull, relevantKnowledge } from "../src/inject.ts";
+import { contextualPull, relevantKnowledge, selectRelevant } from "../src/inject.ts";
 
 let root: string;
 
@@ -30,6 +30,14 @@ function seed(type: string, scope: string, content: string): void {
 }
 
 describe("relevantKnowledge (memory-first injection)", () => {
+  test("selectRelevant returns the matching rows, not just the block (attribution seam)", async () => {
+    seed("pattern", "build", "run `bun test` for the suite; see src/gates.ts");
+    const { block, selected } = await selectRelevant("how do I run bun test", 3);
+    expect(block).toContain("bun test");
+    expect(selected.length).toBe(1);
+    expect(selected[0]?.content).toContain("bun test");
+  });
+
   test("injects the matching command memory for a lookup-style message", async () => {
     seed(
       "pattern",

@@ -36,10 +36,11 @@ import {
   compactionAnchor,
   contextualPull,
   formatMemory,
-  relevantKnowledge,
+  selectRelevant,
   storeVersion,
   systemDigest,
 } from "./inject.ts";
+import { attributeSession, deriveMemoryRefs, type MemoryRefs } from "./attribution.ts";
 import { formatInit, runInit } from "./init.ts";
 import { ensureInitCommand, ensureMemoryReportCommand } from "./command.ts";
 import {
@@ -53,6 +54,7 @@ import {
 } from "./status.ts";
 import {
   afterTool,
+  callsFor,
   checkNewSession,
   evidenceCalls,
   firstFrontierTap,
@@ -661,7 +663,10 @@ const impl = {
     // the prompt/context/compaction hooks) — so the system prefix, and with it
     // the provider prompt cache, survives ordinary requests. The shared LRU
     // below may evict the whole session state; a later prompt starts it fresh.
-    const epoch = new Map<string, { version: string; block: string; at: string; reason: "first" | "store_changed" }>();
+    const epoch = new Map<
+      string,
+      { version: string; block: string; at: string; reason: "first" | "store_changed"; refs: MemoryRefs }
+    >();
     // Latest user prompt per tracked session. A changed store is re-scored
     // against it even when the change happened during a tool loop with no new
     // prompt. It is evicted together with the epoch and session ledgers.
@@ -716,6 +721,7 @@ const impl = {
         },
         stats: statsFor(sid),
         measured: measuredTurns.get(sid) ?? null,
+        attribution: attributeSession(callsFor(sid), ep.refs),
       };
     };
     const flushStatus = (sid: string): Promise<void> =>
@@ -733,11 +739,14 @@ const impl = {
       const version = await storeVersion(mems);
       const cached = epoch.get(sid);
       if (cached?.version === version) return;
-      const raw = await relevantKnowledge(latestPrompt.get(sid) ?? "", 5, mems); // widen candidate pool
-      const block = raw ? capToBudget(raw, budget) : "";
+      const sel = await selectRelevant(latestPrompt.get(sid) ?? "", 5, mems); // widen candidate pool
+      const block = sel.block ? capToBudget(sel.block, budget) : "";
+      // Refs the injected rows assert (paths + commands), the join key for
+      // attribution. Derived once per epoch — the block is frozen, so is this.
+      const refs = deriveMemoryRefs(sel.selected);
       const at = new Date().toISOString();
       const reason: "first" | "store_changed" = cached ? "store_changed" : "first";
-      epoch.set(sid, { version, block, at, reason });
+      epoch.set(sid, { version, block, at, reason, refs });
       await record(
         "epoch_recompute",
         {
