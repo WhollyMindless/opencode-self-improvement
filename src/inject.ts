@@ -104,15 +104,22 @@ const LONG_QUERY_TOKENS = 3;
 // piles of common ones — the same idf form the bench's BM25 row uses).
 // Exported for bench/recall-quality.ts — the benchmark measures the shipped
 // matcher.
+//
+// Superseded rows are dropped HERE, not only by the callers. Every model-facing
+// sink already passes isActive() rows, but a scorer that can be handed a raw
+// loadAll() result must not be the one place a retired memory leaks back into
+// an injected block (#43 item 1: forbidden hits). The drop also keeps a
+// retired row from diluting the document frequencies the ranking depends on.
 export function scoreMemories(term: string, mems: Memory[], limit: number): Memory[] {
+  const live = mems.filter((m) => !m.superseded_by);
   const query = new Set(words(term).filter((t) => !QUERY_STOPWORDS.has(t)));
   if (!query.size) return [];
   const needShared = query.size >= LONG_QUERY_TOKENS ? 2 : 1;
-  const hays = mems.map((m) => new Set(words(`${m.scope} ${m.type} ${m.content}`)));
+  const hays = live.map((m) => new Set(words(`${m.scope} ${m.type} ${m.content}`)));
   const df = new Map<string, number>();
   for (const h of hays) for (const t of h) df.set(t, (df.get(t) ?? 0) + 1);
-  const n = mems.length || 1;
-  return mems
+  const n = live.length || 1;
+  return live
     .map((m, i) => {
       let shared = 0;
       let score = 0;
