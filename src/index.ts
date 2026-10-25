@@ -37,11 +37,14 @@ import {
   contextualPull,
   formatMemory,
   injectedRows,
+  pullQuery,
   selectRelevant,
+  sharedTerms,
   storeVersion,
   systemDigest,
 } from "./inject.ts";
 import { attributeSession, deriveMemoryRefs, type MemoryRefs } from "./attribution.ts";
+import { readLedger, neverRetrieved, recordHits, useSignals, type HitSource } from "./hits.ts";
 import { formatInit, runInit } from "./init.ts";
 import { ensureInitCommand, ensureMemoryReportCommand } from "./command.ts";
 import {
@@ -52,6 +55,7 @@ import {
   type Measured,
   type SessionStats,
   type StatusPayload,
+  type StoreCounts,
 } from "./status.ts";
 import {
   afterTool,
@@ -368,6 +372,7 @@ const impl = {
               turn: firstFrontierTap(cur.sid)?.turn,
             });
           }
+          if (args.query) await noteHits("recall", getCurrent().sid, limited, args.query);
           return { content: `Found ${results.length} (${total} total)\n\n${limited.map(formatMemory).join("\n")}` };
         },
       }));
@@ -648,13 +653,18 @@ const impl = {
           const status = sid === "?" ? null : await buildPayload(sid);
           const all = await loadAll();
           const act = all.filter(isActive);
-          const store = {
+          const store: StoreCounts = {
             active: act.length,
             superseded: all.length - act.length,
             open: act.filter((m) => m.status === "open").length,
             scopes: new Set(act.map((m) => m.scope)).size,
             malformed: malformedCount(),
           };
+          // Use ledger (#42): how much of the store has never been surfaced.
+          // Reported, never acted on — retirement is a decision, not a metric.
+          const ledger = await readLedger();
+          store.neverRetrieved = neverRetrieved(act, ledger).length;
+          store.ledgerSince = ledger.since;
           return {
             content: renderMemoryReport({ status, store, blocked: await blockedRecent(6) }),
           };
@@ -709,6 +719,7 @@ const impl = {
       if (!ep) return null;
       const all = await loadAll();
       const act = all.filter(isActive);
+      const led = await readLedger();
       return {
         at: ep.at,
         sessionID: sid,
@@ -723,6 +734,8 @@ const impl = {
           open: act.filter((m) => m.status === "open").length,
           scopes: new Set(act.map((m) => m.scope)).size,
           malformed: malformedCount(),
+          neverRetrieved: neverRetrieved(act, led).length,
+          ledgerSince: led.since,
         },
         stats: statsFor(sid),
         measured: measuredTurns.get(sid) ?? null,
@@ -738,18 +751,33 @@ const impl = {
     // loop cannot ride one more request waiting for another user prompt.
     const injectableRows = async (): Promise<Memory[]> =>
       (await loadAll()).filter((m) => isActive(m) && isVisibleHere(m));
+    // Use ledger (#42). `query` is what retrieval was asked with; what gets
+    // stored is the vocabulary the answer SHARES with the query, taken from the
+    // memory side, so the ledger can never become a copy of user prompts.
+    // Fail-soft inside recordHits: telemetry must not break a read path.
+    const noteHits = async (src: HitSource, sid: string, rows: Memory[], query: string): Promise<void> => {
+      if (!rows.length || !query.trim()) return;
+      const terms: string[] = [];
+      for (const m of rows) for (const t of sharedTerms(query, m)) if (!terms.includes(t)) terms.push(t);
+      await recordHits(src, sid, rows, terms);
+    };
     const refreshEpoch = async (sid: string, rows?: Memory[]): Promise<void> => {
       if (!latestPrompt.has(sid)) return;
       const mems = rows ?? await injectableRows();
       const version = await storeVersion(mems);
       const cached = epoch.get(sid);
       if (cached?.version === version) return;
-      const sel = await selectRelevant(latestPrompt.get(sid) ?? "", 5, mems); // widen candidate pool
+      const prompt = latestPrompt.get(sid) ?? "";
+      const sel = await selectRelevant(prompt, 5, mems, await useSignals()); // widen candidate pool
       const block = sel.block ? capToBudget(sel.block, budget) : "";
       // Refs the ACTUALLY-injected rows assert (paths + commands), the join key
       // for attribution. Derived from the budget-surviving rows, not the wider
       // candidate pool — crediting paths the model never saw would overclaim.
-      const refs = deriveMemoryRefs(injectedRows(block, sel.selected));
+      const rode = injectedRows(block, sel.selected);
+      const refs = deriveMemoryRefs(rode);
+      // Use ledger (#42): the rows that actually rode the block, credited with
+      // the terms the prompt and those rows shared (never the prompt itself).
+      await noteHits("inject", sid, rode, prompt);
       const at = new Date().toISOString();
       const reason: "first" | "store_changed" = cached ? "store_changed" : "first";
       epoch.set(sid, { version, block, at, reason, refs });
@@ -800,7 +828,8 @@ const impl = {
         setCurrent(input);
         const out = { output: resultText(event?.result), metadata: resultMeta(event?.result) };
         await afterTool(input, out);
-        await contextualPull(input, out as { output?: unknown }, budget);
+        const pulled = await contextualPull(input, out as { output?: unknown }, budget, await useSignals());
+        if (pulled.length) await noteHits("pull", String(event?.sessionID ?? ""), pulled, pullQuery(input.args));
         // Write a contextual-pull append back when the tool result is text we own.
         if (event?.result && typeof event.result === "object" && typeof event.result.content === "string") {
           const text = resultText(event.result);

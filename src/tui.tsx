@@ -20,6 +20,7 @@ import {
   cacheRate,
   cacheLines,
   contextLines,
+  ledgerIsYoung,
   readStatus,
   statusDir,
   windowLines,
@@ -299,7 +300,14 @@ function MemoryPanel(props: {
         <text fg={context.theme.text.base}>
           {"  " + (s()?.store.active ?? 0) + " active · " + (s()?.store.superseded ?? 0) + " superseded · " +
             (s()?.store.open ?? 0) + " open · " + (s()?.store.scopes ?? 0) + " scopes" +
-            ((s()?.store.malformed ?? 0) > 0 ? " · " + s()!.store.malformed + " malformed (skipped)" : "")}
+            ((s()?.store.malformed ?? 0) > 0 ? " · " + s()!.store.malformed + " malformed (skipped)" : "") +
+            ((s()?.store.neverRetrieved ?? 0) > 0
+              ? " · " +
+                s()!.store.neverRetrieved +
+                (ledgerIsYoung(s()!.store.ledgerSince)
+                  ? " never retrieved (ledger since " + (s()!.store.ledgerSince?.slice(0, 10) ?? "no lines") + ")"
+                  : " never retrieved (30d)")
+              : "")}
         </text>
       </Show>
 
