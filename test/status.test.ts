@@ -425,6 +425,25 @@ describe("memory_status tool + epoch wiring", () => {
     await p.cleanup();
   });
 
+  test("session.usage.updated (v2 host) lands measured usage", async () => {
+    const p = await loadPlugin(process.cwd());
+    await appendMemory({
+      type: "pattern",
+      scope: "build",
+      content: "run bun test from the repo root to execute the suite",
+      status: "settled",
+    });
+    await p.sessionHooks.prompt!({ sessionID: "ses_usage", prompt: { text: "how do I run bun test" } });
+    // Real v2.0.26 shape: usage on session.usage.updated, no message.updated.
+    p.capture.events.push({
+      type: "session.usage.updated",
+      data: { sessionID: "ses_usage", cost: 0, tokens: { input: 5, output: 15, reasoning: 0, cache: { read: 8507, write: 0 } } },
+    });
+    const s = await poll(() => readStatus("ses_usage").then((r) => (r?.measured ? r : null)));
+    expect(s?.measured).toEqual(expect.objectContaining({ input: 5, read: 8507, write: 0 }));
+    await p.cleanup();
+  });
+
   test("a non-assistant message.updated is ignored", async () => {
     const p = await loadPlugin(process.cwd());
     await appendMemory({
