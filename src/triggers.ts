@@ -93,8 +93,16 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
   const status = classify(tool, out);
   const ts = new Date().toISOString();
 
-  const rec: ToolResult = { call, tool, summary: summarize(text), ts, status: null };
   const s = session(sid);
+  const rec: ToolResult = {
+    call,
+    tool,
+    summary: summarize(text),
+    ts,
+    status: null,
+    arg: cmd || undefined,
+    turn: s.turns,
+  };
   const family = tool === "bash" || tool === "shell" ? gateCmd(cmd) : null;
 
   // Generic capture (data, not chat).
@@ -181,6 +189,11 @@ export async function onCompacting(input: AfterInput): Promise<void> {
 
 export function evidenceCalls(sid: string): string[] {
   return session(sid).calls.map((c) => c.call);
+}
+
+// The full per-session tool ledger, for memory attribution (src/attribution.ts).
+export function callsFor(sid: string): ToolResult[] {
+  return session(sid).calls;
 }
 
 export function hasGateCheck(sid: string): boolean {

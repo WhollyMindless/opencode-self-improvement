@@ -225,6 +225,10 @@ Opencode installs the package (and its dependencies) automatically with Bun at
 startup. Quit and restart opencode; the plugin loads and `/repo-init` installs
 itself. Nothing else to do.
 
+The plugin runs on the Bun embedded in your opencode build; if that Bun is
+older than 1.3.0 (this repo's tested floor) the plugin says so once at startup
+and memory features may misbehave.
+
 An unpinned entry resolves `@latest` exactly once and is never re-resolved
 afterwards, so updates are deliberate: `opencode plugin update
 opencode-self-improvement`. To install a specific release, append

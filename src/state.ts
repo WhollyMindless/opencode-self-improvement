@@ -10,6 +10,11 @@ export interface ToolResult {
   status: "FAIL" | "PASS" | null;
   cmd?: string;
   gateCheck?: boolean;
+  // Input arg that identifies the target (command / pattern / path), kept for
+  // memory attribution (src/attribution.ts): what the call was looking at.
+  arg?: string;
+  // Turn index (from markTurn) at the time of the call, for ordering.
+  turn?: number;
 }
 
 export interface FirstTap {
