@@ -36,6 +36,7 @@ import {
   compactionAnchor,
   contextualPull,
   formatMemory,
+  injectedRows,
   selectRelevant,
   storeVersion,
   systemDigest,
@@ -741,9 +742,10 @@ const impl = {
       if (cached?.version === version) return;
       const sel = await selectRelevant(latestPrompt.get(sid) ?? "", 5, mems); // widen candidate pool
       const block = sel.block ? capToBudget(sel.block, budget) : "";
-      // Refs the injected rows assert (paths + commands), the join key for
-      // attribution. Derived once per epoch — the block is frozen, so is this.
-      const refs = deriveMemoryRefs(sel.selected);
+      // Refs the ACTUALLY-injected rows assert (paths + commands), the join key
+      // for attribution. Derived from the budget-surviving rows, not the wider
+      // candidate pool — crediting paths the model never saw would overclaim.
+      const refs = deriveMemoryRefs(injectedRows(block, sel.selected));
       const at = new Date().toISOString();
       const reason: "first" | "store_changed" = cached ? "store_changed" : "first";
       epoch.set(sid, { version, block, at, reason, refs });
@@ -877,15 +879,16 @@ const impl = {
       }),
     );
 
-    // ---- measured prompt-cache health (message.updated usage) --------------
-    // Zero-model by design: assistant messages carry tokens {input, output,
-    // reasoning, cache.read/write}; the session-wide read/(read+input+write)
-    // share is the honest receipt behind the byte-stability proxy. Streaming
-    // updates for one message arrive repeatedly — overwriting with the latest
-    // is correct because the final update carries the complete usage. Flushes
-    // the per-session status file so the TUI badge refreshes once per turn
-    // instead of per step. Degrades to "not measured" when the host exposes
-    // no event stream.
+    // ---- measured prompt-cache health (usage events) -----------------------
+    // Zero-model by design: usage arrives on `session.usage.updated` (v2 hosts)
+    // or `message.updated` assistant info (older hosts), carrying tokens
+    // {input, output, reasoning, cache.read/write}; the session-wide
+    // read/(read+input+write) share is the honest receipt behind the
+    // byte-stability proxy. Streaming updates arrive repeatedly — overwriting
+    // with the latest is correct because the final update carries the complete
+    // usage. Flushes the per-session status file so the TUI badge refreshes
+    // once per turn instead of per step. Degrades to "not measured" when the
+    // host exposes no event stream.
     const measuredController = new AbortController();
     if (ctx.event?.subscribe) {
       const eventApi = ctx.event;
@@ -912,20 +915,33 @@ const impl = {
               else if (typeof sid === "string") void guarded("session bind (api)", () => bindSessionFromApi(sid));
               continue;
             }
-            if (ev?.type !== "message.updated") continue;
-            const info = ev.properties?.info ?? ev.info ?? ev.data?.info;
-            if (!info || info.role !== "assistant") continue;
-            const sid = info.sessionID;
-            const t = info.tokens;
-            if (typeof sid !== "string" || !t) continue;
-            sessions.touch(sid);
-            measuredTurns.set(sid, {
+            // Token usage: v2 hosts (>=2.0.x) emit `session.usage.updated` with
+            // data.{sessionID, tokens}; older hosts carried the same TokenUsage
+            // on message.updated's assistant info. Accept both so `measured`
+            // populates regardless of host version.
+            let usid: unknown;
+            let ut: { input?: number; cache?: { read?: number; write?: number } } | undefined;
+            if (ev?.type === "session.usage.updated") {
+              usid = ev.data?.sessionID;
+              ut = ev.data?.tokens;
+            } else if (ev?.type === "message.updated") {
+              const info = ev.properties?.info ?? ev.info ?? ev.data?.info;
+              if (info && info.role === "assistant") {
+                usid = info.sessionID;
+                ut = info.tokens;
+              }
+            } else {
+              continue;
+            }
+            if (typeof usid !== "string" || !ut) continue;
+            sessions.touch(usid);
+            measuredTurns.set(usid, {
               at: new Date().toISOString(),
-              input: Number(t.input) || 0,
-              read: Number(t.cache?.read) || 0,
-              write: Number(t.cache?.write) || 0,
+              input: Number(ut.input) || 0,
+              read: Number(ut.cache?.read) || 0,
+              write: Number(ut.cache?.write) || 0,
             });
-            await guarded("status flush (measured)", () => flushStatus(sid));
+            await guarded("status flush (measured)", () => flushStatus(usid));
           }
         } catch {
           // the subscription ended (abort or host error); nothing to do

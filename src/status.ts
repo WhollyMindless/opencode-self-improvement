@@ -55,10 +55,10 @@ export function emptyStats(): SessionStats {
 }
 
 /**
- * Measured prompt-cache usage from the last completed assistant message
- * (message.updated -> tokens {input, cache.read, cache.write}). This is the
- * SESSION-WIDE prompt cache — the honest receipt for "are we busting cache",
- * never billed as our block's own rate.
+ * Measured prompt-cache usage from the last usage event — `session.usage.updated`
+ * (v2 hosts) or `message.updated` assistant info (older hosts) — carrying tokens
+ * {input, cache.read, cache.write}. This is the SESSION-WIDE prompt cache — the
+ * honest receipt for "are we busting cache", never billed as our block's own rate.
  */
 export interface Measured {
   at: string;
