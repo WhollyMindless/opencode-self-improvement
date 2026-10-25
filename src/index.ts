@@ -20,6 +20,7 @@ import {
   isVisibleHere,
   loadAll,
   malformedCount,
+  markManySuperseded,
   markSuperseded,
   resolveMemoryTarget,
   snapshotFiles,
@@ -644,29 +645,28 @@ const impl = {
           }
           // Snapshot-before-mutate: the SAME helper prune() uses in memory.ts,
           // one whole-file copy per affected file, taken before the first
-          // mutation. markSuperseded also snapshots internally per row; this
-          // pass guarantees a pre-decay copy exists even if a later row fails.
+          // mutation. The batch pass snapshots again per file it touches; this
+          // pass guarantees a pre-decay copy exists even if a later file fails.
           const snapshot = await snapshotFiles([...new Set(stale.map((m) => m.file))]);
-          const retiredTs: string[] = [];
-          for (const m of stale) {
-            // Idempotent (a no-op on already-superseded rows), so a re-run
-            // cannot double-mark. No successor row exists — decay retires.
-            const ok = await markSuperseded(m.ts, { superseded_by: "decay", reason: "decay" });
-            if (ok) retiredTs.push(m.ts);
-          }
+          // One lock/read/snapshot/publish per file for the whole decay run (#61):
+          // N retired rows are one undo point, not N. Idempotent (a no-op on rows
+          // already superseded, out-of-band ones skipped under the lock).
+          const retired = await markManySuperseded(
+            stale.map((m) => ({ ts: m.ts, fields: { superseded_by: "decay", reason: "decay" } })),
+          );
           await record(
             "decay_applied",
             {
               days,
-              retired: retiredTs.length,
-              mem: retiredTs.join(",") || "-",
+              retired,
+              mem: stale.map((m) => m.ts).join(",") || "-",
               snapshot: snapshot.join(",") || "-",
             },
             false,
           );
           return {
             content:
-              `Decayed ${retiredTs.length} open thread(s) older than ${days} days ` +
+              `Decayed ${retired} open thread(s) older than ${days} days ` +
               `(superseded, not deleted; snapshot: ${snapshot[0] ?? "-"}). ` +
               "Recover with memory_undo.",
           };
