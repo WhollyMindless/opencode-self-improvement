@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryRoot } from "../src/config.ts";
 import { formatLine } from "../src/logfmt.ts";
-import { contextualPull, relevantKnowledge, selectRelevant } from "../src/inject.ts";
+import { capToBudget, contextualPull, formatMemory, injectedRows, relevantKnowledge, selectRelevant } from "../src/inject.ts";
+import type { Memory } from "../src/memory.ts";
 
 let root: string;
 
@@ -28,6 +29,21 @@ function seed(type: string, scope: string, content: string): void {
     formatLine({ ts: new Date().toISOString(), type, scope, content }) + "\n",
   );
 }
+
+describe("injectedRows (attribution must key off what was actually injected)", () => {
+  test("keeps only candidates whose rendered line survived capToBudget", () => {
+    const a = { ts: "2026-01-01T00:00:00.000Z", type: "pattern", scope: "s", content: "short one" } as unknown as Memory;
+    const b = { ts: "2026-01-02T00:00:00.000Z", type: "pattern", scope: "s", content: "x".repeat(200) } as unknown as Memory;
+    const raw = ["## Relevant durable memory", formatMemory(a), formatMemory(b)].join("\n");
+    const block = capToBudget(raw, formatMemory(a).length + 30); // fits header + a, drops b
+    expect(block).toContain(formatMemory(a));
+    expect(block).not.toContain(formatMemory(b));
+    expect(injectedRows(block, [a, b]).map((m) => m.ts)).toEqual([a.ts]);
+  });
+  test("empty block keeps nothing", () => {
+    expect(injectedRows("", [{ ts: "t" } as unknown as Memory])).toEqual([]);
+  });
+});
 
 describe("relevantKnowledge (memory-first injection)", () => {
   test("selectRelevant returns the matching rows, not just the block (attribution seam)", async () => {

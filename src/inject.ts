@@ -264,6 +264,16 @@ export async function relevantKnowledge(message: string, limit = 3, rows?: Memor
   return (await selectRelevant(message, limit, rows)).block;
 }
 
+// The candidate rows that ACTUALLY survived capToBudget into `block`, in order.
+// capToBudget drops whole lines, so attribution must key off these — not the
+// pre-budget candidates — or it would credit the model with paths and commands
+// it was never shown. capToBudget keeps whole lines verbatim, so a candidate is
+// present iff its rendered line is a substring of the block.
+export function injectedRows(block: string, candidates: Memory[]): Memory[] {
+  if (!block) return [];
+  return candidates.filter((m) => block.includes(formatMemory(m)));
+}
+
 // Deterministic fingerprint of the rows that can affect injection. Hash the
 // exact rendered row plus its full id, in load order: content edits, blocklist
 // changes and supersession all invalidate an epoch, while evidence, hidden

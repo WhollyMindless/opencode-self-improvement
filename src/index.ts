@@ -36,6 +36,7 @@ import {
   compactionAnchor,
   contextualPull,
   formatMemory,
+  injectedRows,
   selectRelevant,
   storeVersion,
   systemDigest,
@@ -741,9 +742,10 @@ const impl = {
       if (cached?.version === version) return;
       const sel = await selectRelevant(latestPrompt.get(sid) ?? "", 5, mems); // widen candidate pool
       const block = sel.block ? capToBudget(sel.block, budget) : "";
-      // Refs the injected rows assert (paths + commands), the join key for
-      // attribution. Derived once per epoch — the block is frozen, so is this.
-      const refs = deriveMemoryRefs(sel.selected);
+      // Refs the ACTUALLY-injected rows assert (paths + commands), the join key
+      // for attribution. Derived from the budget-surviving rows, not the wider
+      // candidate pool — crediting paths the model never saw would overclaim.
+      const refs = deriveMemoryRefs(injectedRows(block, sel.selected));
       const at = new Date().toISOString();
       const reason: "first" | "store_changed" = cached ? "store_changed" : "first";
       epoch.set(sid, { version, block, at, reason, refs });
