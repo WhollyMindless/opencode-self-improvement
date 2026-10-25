@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { repoScopeFor, resetSessionScopes, setRepoScope } from "../src/repokey.ts";
+import { repoScopeFor, resetSessionScopes, resolveRepo, setRepoScope } from "../src/repokey.ts";
 import { loadPlugin } from "./harness.ts";
 
 let root: string;
@@ -43,6 +43,10 @@ async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
     await sleep(5);
   }
 }
+
+// Plain dirs key by hash of the normalized path (#92); the session row still
+// supplies the PATH, which the scope machinery resolves through this.
+const keyOf = (d: string) => resolveRepo(d).key;
 
 // Recorded serve-mode event: identity WITHOUT any location payload.
 const executionStarted = (sid: string) => ({
@@ -93,8 +97,10 @@ describe("serve-host replay: execution.started carries no location", () => {
       const out = await writeOne(loaded, "ses_rec0rded", `replayed serve fact ${Date.now()}`);
       expect(out.content).toContain("Remembered");
       const raw = readFileSync(dayFile(), "utf8");
-      expect(raw).toContain(`repo=${sessionRepo}`);
+      expect(raw).toContain(`repo=${keyOf(sessionRepo)}`);
+      expect(raw).toContain(`repoPath=${sessionRepo}`);
       expect(raw).not.toContain(serveRoot); // the #90 signature must not appear
+      expect(raw).not.toContain(`repo=${keyOf(serveRoot)}`); // nor its hashed key
     } finally {
       await loaded.cleanup();
     }
@@ -139,7 +145,7 @@ describe("serve-host replay: execution.started carries no location", () => {
       // Degraded behavior pinned: with no session identity anywhere, the write
       // lands in the MODULE scope (the documented fallback), not unscoped.
       const raw = readFileSync(dayFile(), "utf8");
-      expect(raw).toContain(`repo=${serveRoot}`);
+      expect(raw).toContain(`repo=${keyOf(serveRoot)}`);
     } finally {
       await loaded.cleanup();
     }
