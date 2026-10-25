@@ -99,20 +99,42 @@ const QUERY_STOPWORDS = new Set(
 // quiet unless the vocabulary genuinely agrees twice.
 const LONG_QUERY_TOKENS = 3;
 
-// Production relevance ranking: candidates must clear the concept-overlap
+// Production relevance ranking. Candidates must clear the concept-overlap
 // gate, then rank by Robertson-IF of the shared tokens (rare concepts beat
 // piles of common ones — the same idf form the bench's BM25 row uses).
+// Ties break deliberately, in this order: open threads first (a pinned frontier
+// row beats an equal-scoring settled one — that is what the frontier is for),
+// then rows the use ledger has actually retrieved, most-recently-used first
+// (#42 reinforcement), then the newer row (#40 item 2: between two equally
+// relevant facts, the one stating what is true NOW is the better guess;
+// epoch-freeze-safe because ts never changes for a given row).
+// The haystack is `scope + type + content + kw`, where `kw` are the
+// author-supplied aliases indexed at write time (#40 item 3, the vocabulary
+// bridge for the bench's strict-paraphrase wall). Keywords are indexed, never
+// rendered, so they cannot change what a block costs.
 // Exported for bench/recall-quality.ts — the benchmark measures the shipped
 // matcher.
-export function scoreMemories(term: string, mems: Memory[], limit: number): Memory[] {
+//
+// Superseded rows are dropped HERE, not only by the callers. Every model-facing
+// sink already passes isActive() rows, but a scorer that can be handed a raw
+// loadAll() result must not be the one place a retired memory leaks back into
+// an injected block (#43 item 1: forbidden hits). The drop also keeps a
+// retired row from diluting the document frequencies the ranking depends on.
+export function scoreMemories(
+  term: string,
+  mems: Memory[],
+  limit: number,
+  use?: UseSignals,
+): Memory[] {
+  const live = mems.filter((m) => !m.superseded_by);
   const query = new Set(words(term).filter((t) => !QUERY_STOPWORDS.has(t)));
   if (!query.size) return [];
   const needShared = query.size >= LONG_QUERY_TOKENS ? 2 : 1;
-  const hays = mems.map((m) => new Set(words(`${m.scope} ${m.type} ${m.content}`)));
+  const hays = live.map((m) => new Set(words(haystack(m))));
   const df = new Map<string, number>();
   for (const h of hays) for (const t of h) df.set(t, (df.get(t) ?? 0) + 1);
-  const n = mems.length || 1;
-  return mems
+  const n = live.length || 1;
+  return live
     .map((m, i) => {
       let shared = 0;
       let score = 0;
@@ -125,9 +147,72 @@ export function scoreMemories(term: string, mems: Memory[], limit: number): Memo
       return { m, shared, score };
     })
     .filter((s) => s.shared >= needShared)
-    .sort((a, b) => b.score - a.score || openRank(b.m) - openRank(a.m))
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        openRank(b.m) - openRank(a.m) ||
+        useBoost(b.m, use) - useBoost(a.m, use) ||
+        cmpTs(use?.get(b.m.ts)?.last ?? "", use?.get(a.m.ts)?.last ?? "") ||
+        cmpTs(b.m.ts, a.m.ts),
+    )
     .slice(0, limit)
     .map((s) => s.m);
+}
+
+// What a row is matched against. Kept in one place so the bench's arms and
+// production can never disagree about the indexed fields.
+export function haystack(m: Memory): string {
+  return `${m.scope} ${m.type} ${m.content}${m.kw?.length ? ` ${m.kw.join(" ")}` : ""}`;
+}
+
+/**
+ * The content concepts a query and a row actually share (stopwords dropped,
+ * capped, `ts` never included). This is what the use ledger records (#42):
+ * every term in it already exists inside the row, so a hit line reveals
+ * nothing about the prompt beyond the memory it points at — and it is enough
+ * for #45 to replay a merge and prove the same reads would still land.
+ */
+/** The text a contextual pull actually searched with, for hit bookkeeping. */
+export function pullQuery(args: unknown): string {
+  return argText(args);
+}
+
+export function sharedTerms(query: string, m: Memory, cap = 8): string[] {
+  const q = new Set(words(query).filter((t) => !QUERY_STOPWORDS.has(t)));
+  if (!q.size) return [];
+  const hay = new Set(words(haystack(m)));
+  const out: string[] = [];
+  for (const t of q) {
+    if (hay.has(t) && !out.includes(t)) out.push(t);
+    if (out.length === cap) break;
+  }
+  return out;
+}
+
+// Reinforcement (#42): a row the ledger has seen used breaks a tie over a row
+// nobody ever read, and the more recently used one breaks it first. A TIE-BREAK
+// only — the two-concept gate and IDF score still decide relevance, because
+// popularity is not truth: reinforcement without evidence just amplifies
+// whatever was retrieved first.
+export interface UseSignals {
+  get(ts: string): { count: number; last: string } | undefined;
+}
+
+function useBoost(a: Memory | undefined, use?: UseSignals): number {
+  if (!use || !a) return 0;
+  return use.get(a.ts) ? 1 : 0;
+}
+
+// Numeric compare, with the string compare kept as fallback for non-dates
+// (the ledger hands "" when a row was never used). ISO strings agree with
+// Date.parse only while the FORMAT agrees: a legacy second-precision stamp
+// ("…:01Z") and a millisecond stamp ("…:01.000Z") for the same instant order
+// wrong as strings, which would silently mis-rank the recency tie-break.
+function cmpTs(a: string, b: string): number {
+  const na = Date.parse(a);
+  const nb = Date.parse(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb)) return na < nb ? -1 : na > nb ? 1 : 0;
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function openRank(m: Memory): number {
@@ -202,7 +287,7 @@ export async function systemDigest(
 
   const open = mems
     .filter((m) => m.status === "open")
-    .sort((a, b) => (a.ts < b.ts ? 1 : -1))
+    .sort((a, b) => cmpTs(b.ts, a.ts))
     .slice(0, OPEN_THREAD_LIMIT);
   if (!open.length) return;
 
@@ -247,12 +332,13 @@ export async function selectRelevant(
   message: string,
   limit = 3,
   rows?: Memory[],
+  use?: UseSignals,
 ): Promise<{ block: string; selected: Memory[] }> {
   const text = message.trim();
   if (!text) return { block: "", selected: [] };
   // Repo-scoped: model-facing reads see this repo + global rows.
   const mems = rows ?? visibleHere((await loadAll()).filter(isActive));
-  const top = scoreMemories(text, mems, limit);
+  const top = scoreMemories(text, mems, limit, use);
   if (!top.length) return { block: "", selected: [] };
   return {
     block: `## Relevant durable memory${FRAME}\n${top.map(formatMemory).join("\n")}`,
@@ -286,7 +372,7 @@ export async function storeVersion(rows?: Memory[]): Promise<string> {
   let max = "";
   const hash = createHash("sha256");
   for (const m of mems) {
-    if (m.ts > max) max = m.ts;
+    if (cmpTs(m.ts, max) > 0) max = m.ts;
     hash.update(JSON.stringify([m.ts, formatMemory(m)]));
     hash.update("\n");
   }
@@ -328,7 +414,7 @@ export async function compactionAnchor(limit = 12): Promise<string> {
   // Repo-scoped: model-facing reads see this repo + global rows.
   const mems = visibleHere((await loadAll()).filter(isActive));
   if (!mems.length) return "";
-  const byNewest = (a: Memory, b: Memory) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0);
+  const byNewest = (a: Memory, b: Memory) => cmpTs(b.ts, a.ts);
   const open = mems
     .filter((m) => m.status === "open")
     .sort(byNewest)
@@ -350,18 +436,23 @@ export async function contextualPull(
   input: PullInput,
   output: PullOutput,
   budget = injectBudget(),
-): Promise<void> {
+  use?: UseSignals,
+): Promise<Memory[]> {
   const tool = typeof input.tool === "string" ? input.tool : "";
-  if (!["grep", "glob", "read"].includes(tool)) return;
+  if (!["grep", "glob", "read"].includes(tool)) return [];
   const term = argText(input.args);
-  if (!term) return;
+  if (!term) return [];
   // Repo-scoped: model-facing reads see this repo + global rows.
   const mems = visibleHere((await loadAll()).filter(isActive));
-  const top = scoreMemories(term, mems, 3);
-  if (!top.length) return;
+  const top = scoreMemories(term, mems, 3, use);
+  if (!top.length) return [];
   // Held to the injection budget too: three long rows were ~12 KB per call.
   const block = capToBudget(`## Related durable memory (pull)${FRAME}\n${top.map(formatMemory).join("\n")}`, budget);
   if (block && typeof output.output === "string") {
     output.output += `\n${block}`;
+    // What the ledger counts is what actually rode the result — the budget can
+    // drop rows, and crediting a memory the model never saw would inflate it.
+    return injectedRows(block, top);
   }
+  return [];
 }

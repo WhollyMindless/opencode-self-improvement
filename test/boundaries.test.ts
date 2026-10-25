@@ -17,7 +17,20 @@ import { appendMemory, loadAll, malformedCount } from "../src/memory.ts";
 import { loadPlugin } from "./harness.ts";
 import { startViewer, type ViewerServer } from "../src/viewer/server.ts";
 
-// Captured from main (v0.4.1) via loadPlugin() before the zod migration.
+// Captured from main (v0.4.1) via loadPlugin() before the zod migration, then
+// re-captured for each deliberate move of the model-facing contract — recorded
+// here rather than silently, because this test exists precisely so that a wire
+// change has to be *said* out loud:
+//   * #40 — `kw` added to memory_remember and memory_update (write-time
+//     retrieval keywords: indexed by the store, never rendered).
+const KW_WIRE = {
+  type: "array",
+  items: { type: "string" },
+  maxItems: 8,
+  description:
+    "3-5 keywords for how a FUTURE session would search for this row: aliases and alternate names, verb forms, synonyms of the words you used, the literal command or file name. Indexed for matching only — never shown in an injected block. Skip it when the prose already says it.",
+};
+
 const EXPECTED_WIRE = {
   memory_remember: {
     type: "object",
@@ -31,6 +44,7 @@ const EXPECTED_WIRE = {
       content: { type: "string", description: "The memory content" },
       issue: { type: "string", description: "Related issue" },
       tags: { type: "array", items: { type: "string" } },
+      kw: KW_WIRE,
       status: {
         type: "string",
         enum: ["open", "settled"],
@@ -82,6 +96,7 @@ const EXPECTED_WIRE = {
         enum: ["decision", "learning", "preference", "blocker", "context", "pattern"],
       },
       content: { type: "string" },
+      kw: KW_WIRE,
       query: {
         type: "string",
         description:
@@ -215,6 +230,28 @@ describe("tool boundary — malformed calls are clean errors that do nothing", (
     });
     expect(out).toContain("invalid arguments");
     expect(out).toContain("nothing was done");
+    expect(await loadAll()).toHaveLength(0);
+  });
+
+  test("kw as a string: rejected, nothing written (#40 — the same floor as tags)", async () => {
+    const { tool } = await loadPlugin(root);
+    const out = await tool.memory_remember!.execute({
+      type: "learning",
+      scope: "s",
+      content: "a fact whose keywords arrived as one string instead of a list",
+      kw: "not-an-array",
+    });
+    expect(out).toContain("invalid arguments");
+    expect(out).toContain("nothing was done");
+    expect(await loadAll()).toHaveLength(0);
+
+    const tooMany = await tool.memory_remember!.execute({
+      type: "learning",
+      scope: "s",
+      content: "a fact with an unbounded keyword list that must not land either",
+      kw: Array.from({ length: 9 }, (_, i) => `alias ${i}`),
+    });
+    expect(tooMany).toContain("invalid arguments");
     expect(await loadAll()).toHaveLength(0);
   });
 

@@ -25,6 +25,89 @@ export interface StoreCounts {
   scopes: number;
   /** Rows skipped as malformed by the most recent store read. */
   malformed: number;
+  /**
+   * Active rows the use ledger has never credited (or not inside the window).
+   * Undefined until #42's ledger is read — an absent number, never a zero.
+   */
+  neverRetrieved?: number;
+  /**
+   * Oldest line in the use ledger, or null when it holds none. The 30-day
+   * dead-weight number is only honest inside the ledger's coverage; a young
+   * ledger says so instead of inflating "never" (see `ledgerIsYoung`).
+   */
+  ledgerSince?: string | null;
+  /** Bytes of store the active rows occupy (canonical logfmt rendering). */
+  bytes?: number;
+  /** Per-row average of the same, the "what does a row cost" number. */
+  bytesPerRow?: number;
+  /** Rows created per day over the trailing window. */
+  rowsPerDay?: number;
+  /** Capture latency in ms, p50/p95, from `capture_lag` evidence. */
+  captureLag?: { p50: number; p95: number; n: number };
+}
+
+/**
+ * True when the ledger cannot honestly cover the 30-day window: its first
+ * line is younger than the window, or there is no ledger at all. Every "never
+ * retrieved" surface must carry this qualifier when it returns true.
+ */
+export function ledgerIsYoung(ledgerSince: string | null | undefined, now = Date.now()): boolean {
+  if (!ledgerSince) return true;
+  return ledgerSince > new Date(now - 30 * 86_400_000).toISOString();
+}
+
+/** Human byte count, base 1024, one decimal above a kilobyte. */
+export function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 102.4) / 10} KB`;
+  return `${Math.round(n / (1024 * 102.4)) / 10} MB`;
+}
+
+/** Duration in the unit a reader actually parses: s / min / h. */
+export function fmtMs(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60_000) return `${Math.round(ms / 100) / 10} s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} min`;
+  return `${Math.round(ms / 360_000) / 10} h`;
+}
+
+/** Percentile of an unsorted list, nearest-rank. Empty input has no answer. */
+export function percentile(values: number[], q: number): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1));
+  return sorted[idx];
+}
+
+/** Rows created per day across `days`, counting only days the store saw activity. */
+export function rowsPerDay(rows: { ts: string }[], days = 30, now = Date.now()): number | null {
+  if (!rows.length) return null;
+  const cutoff = new Date(now - days * 86_400_000).toISOString().slice(0, 10);
+  const inWindow = rows.filter((m) => m.ts.slice(0, 10) >= cutoff);
+  if (!inWindow.length) return null;
+  const dates = new Set(inWindow.map((m) => m.ts.slice(0, 10)));
+  return Math.round((inWindow.length / dates.size) * 10) / 10;
+}
+
+/**
+ * Capture latency from `capture_lag` evidence lines: how stale the newest
+ * message was when the capture model was asked. Lag-less lines (a session with
+ * no timestamped message) are counted in `n` only through their outcome, never
+ * as a zero lag.
+ */
+export function captureLag(lines: string[], days = 30, now = Date.now()): { p50: number; p95: number; n: number } {
+  const cutoff = new Date(now - days * 86_400_000).toISOString();
+  const lags: number[] = [];
+  for (const line of lines) {
+    const f = parseLine(line);
+    if (!f || f.ev !== "capture_lag") continue;
+    if (typeof f.ts === "string" && f.ts < cutoff) continue;
+    const lag = Number(f.lag);
+    if (Number.isFinite(lag) && lag >= 0) lags.push(lag);
+  }
+  const p50 = percentile(lags, 0.5);
+  const p95 = percentile(lags, 0.95);
+  return { p50: p50 ?? 0, p95: p95 ?? 0, n: lags.length };
 }
 
 /**
@@ -198,6 +281,17 @@ export async function blockedRecent(limit = 6): Promise<BlockedRow[]> {
     }
   }
   return rows.slice(-limit).reverse();
+}
+
+/** `capture_lag` lines for the trailing window, newest evidence files first. */
+export async function captureLagLines(days = 30): Promise<string[]> {
+  const dir = evidenceDir();
+  const out: string[] = [];
+  for (let d = 0; d < days; d++) {
+    const day = new Date(Date.now() - d * 86_400_000).toISOString().split("T")[0]!;
+    out.push(...(await readLines(join(dir, `${day}.logfmt`))));
+  }
+  return out;
 }
 
 function ago(iso: string): string {
@@ -391,6 +485,29 @@ export function renderMemoryReport(input: {
     `  ${store.active} active · ${store.superseded} superseded · ${store.open} open · ${store.scopes} scopes` +
       (store.malformed ? ` · ${store.malformed} malformed (skipped; fix the ts= field or undo)` : ""),
   );
+  if (store.neverRetrieved !== undefined) {
+    const used = store.active - store.neverRetrieved;
+    const share = store.active ? Math.round((store.neverRetrieved / store.active) * 100) : 0;
+    // A ledger younger than the window cannot honestly call anything "never"
+    // — it has not been watching long enough. Say what it covers instead of
+    // letting day-one readers see 100% dead weight.
+    const young = ledgerIsYoung(store.ledgerSince);
+    const basis = young
+      ? `, ledger only covers since ${store.ledgerSince ? store.ledgerSince.slice(0, 10) : "no lines yet"}`
+      : "";
+    out.push(
+      `  retrieved ${used} rows in the last 30d; never retrieved ${store.neverRetrieved} (${share}%)${basis} — reported, not acted on`,
+    );
+  }
+  const sizing: string[] = [];
+  if (store.bytes !== undefined) {
+    sizing.push(`${fmtBytes(store.bytes)} total · ${fmtBytes(store.bytesPerRow ?? 0)} per row`);
+  }
+  if (store.rowsPerDay !== undefined) sizing.push(`${store.rowsPerDay} rows/day (30d)`);
+  if (store.captureLag && store.captureLag.n) {
+    sizing.push(`capture lag p50 ${fmtMs(store.captureLag.p50)} / p95 ${fmtMs(store.captureLag.p95)}`);
+  }
+  if (sizing.length) out.push(`  ${sizing.join(" · ")}`);
   out.push("", "Terminal (CLI/TUI) users: /memory opens this as a live panel; the footer shows a one-line badge.");
   return out.join("\n");
 }
