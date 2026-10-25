@@ -14,12 +14,98 @@ export interface GoldMemory {
   type: string;
   scope: string;
   content: string;
+  /**
+   * Write-time retrieval keywords (#40), attached by buildStore from KEYWORDS.
+   * Authored rows and their variants carry the SAME set: a variant is a copy of
+   * that memory, so it would carry the same keywords in a real store — that is
+   * what keeps the vocabulary bridge competing against equals.
+   */
+  kw?: string[];
 }
 
 export interface EvalQuery {
   q: string;
   gold: string; // id of the memory that should surface
 }
+
+/**
+ * Write-time retrieval keywords (#40 item 3) — the vocabulary bridge the bench's
+ * strict-paraphrase wall exists to measure.
+ *
+ * AUTHORING RULE (read this before adding an entry): a keyword set is written
+ * from the MEMORY'S OWN CONTENT, in the words a different person might use for
+ * the same fact — naming aliases, other verb forms, jargon synonyms, the
+ * literal command or file name. The query list is deliberately NOT an input:
+ * keywords tuned to the eval's phrasing would measure authorship, not the
+ * bridge. test/recall-dataset.test.ts enforces the mechanical half of that
+ * promise (no authored keyword appears word-bounded in any query, every set is
+ * 3-5 long, every entry ≤ 48 chars, every gold has a set), so a query-shaped
+ * keyword fails CI rather than quietly inflating a published number.
+ *
+ * Distractor variants inherit their base memory's keywords in buildStore(), so
+ * the bridge competes against equally well-tagged neighbours instead of a
+ * strawman.
+ */
+export const KEYWORDS: Record<string, string[]> = {
+  m01: ["api tests", "how to run the suite", "test command", "docker compose up", "integration test setup"],
+  m02: ["throttling", "rate limit store", "redis database number", "abuse protection", "limiter backend"],
+  m03: ["paging", "relay connections", "why cursors", "pagination strategy", "skipped rows bug"],
+  m04: ["health check", "readiness probe", "liveness endpoint", "pool saturation", "falsely healthy"],
+  m05: ["generate types", "schema regeneration", "code generation", "types out of date", "resolver type errors"],
+  m06: ["staging release", "promote to staging", "which branch ships", "environment branch", "cherry pick flow"],
+  m07: ["logging out", "token revocation", "session invalidation delay", "jwt denylist", "still signed in"],
+  m08: ["seed data", "fixtures", "fake users", "database seeding command", "test data setup"],
+  m09: ["http framework choice", "why fastify", "express alternative", "server framework decision", "tail latency"],
+  m10: ["csv download", "export runs out of memory", "chunked flag", "bulk export", "pod oom kill"],
+  m11: ["database migration command", "schema change workflow", "down migration", "reversible migration policy", "migrate up"],
+  m12: ["query statistics", "statement truncation", "normalise query text", "performance monitoring", "stats views"],
+  m13: ["timezone handling", "utc storage rule", "local time conversion", "date storage convention", "timestamp column"],
+  m14: ["create index", "indexing without locking", "writes blocked", "online index build", "table lock"],
+  m15: ["read replica lag", "stale reads", "analytics database", "replication delay", "read after write"],
+  m16: ["snapshot mismatch", "refresh snapshots", "golden file update", "component test baseline", "intentional copy change"],
+  m17: ["slow dashboard", "excessive rerenders", "memoization", "websocket frames", "selector performance"],
+  m18: ["date library choice", "moment replacement", "bundle size", "tree shaking", "datetime dependency"],
+  m19: ["component explorer", "ui catalog", "visual regression", "screenshot diffs", "dev server port"],
+  m20: ["missing key prop", "console warning", "list rendering", "table row keys", "index as key anti-pattern"],
+  m21: ["production release", "ship to prod", "approval workflow", "how to deploy", "promotion gate"],
+  m22: ["infrastructure drift", "iac plan", "security group changed", "terraform apply", "cloud config drift"],
+  m23: ["who is on call", "pager rotation", "incident escalation", "paging schedule", "support rota"],
+  m24: ["namespace split", "cluster organisation", "k8s tenancy", "when to separate namespaces", "single namespace decision"],
+  m25: ["ci runner image", "flaky pipeline", "arm64 builds", "actions failures", "runner architecture"],
+  m26: ["scheduled notebook", "batch notebooks", "dag schedule", "parameterised runs", "nightly job"],
+  m27: ["pandas upgrade", "copy on write", "inplace mutation", "fillna not working", "dataframe mutation"],
+  m28: ["table format", "lakehouse format", "why iceberg", "delta lake alternative", "feature store storage"],
+  m29: ["xcode version", "ios build failure", "codesign archive", "apple toolchain", "app store build"],
+  m30: ["push notification certificate", "apns expiry", "certificate renewal", "expired push cert", "secret location"],
+  m31: ["session storage", "where the jwt lives", "xss audit findings", "cookie based auth", "token in localstorage"],
+  m32: ["key rotation window", "mass logout", "clock drift", "token invalidation", "rotation grace period"],
+  m33: ["key rotation command", "signing key renewal", "grace window", "jwks update", "rotate signing secrets"],
+  m34: ["database access layer", "why not an orm", "query builder", "raw sql decision", "prisma alternative"],
+  m35: ["unstable tests", "retry policy", "test quarantine", "intermittent failure", "flake list"],
+  m36: ["linter command", "code style check", "formatter", "fix lint errors", "eslint replacement"],
+  m37: ["package publishing", "npm organisation name", "release to npm", "two factor bypass", "publish token"],
+  m38: ["shell alias", "rg versus grep", "portable scripts", "search tool choice", "script breaks locally"],
+  m39: ["workspace tooling", "task runner choice", "monorepo manager", "why not turbo", "build caching"],
+  m40: ["pre-pr checks", "pull request checklist command", "run everything locally", "all checks green", "before raising a pr"],
+  m41: ["schema library upgrade", "validation breaking change", "zod 4", "union helpers", "import path workaround"],
+  m42: ["accidental drop", "database restore", "point in time recovery", "backup recovery", "undelete a column"],
+  m43: ["deploy freeze hours", "sync blocked", "change window", "nightly deploy lock", "gitops freeze"],
+  m44: ["design system variables", "colour tokens", "figma sync", "theme values", "generated styles"],
+  m45: ["reprocessing old dags", "backfill logs missing", "historical run", "log retention", "catchup runs"],
+  m46: ["fake admin token", "local auth bypass", "dev jwt", "sign in as admin locally", "test credentials"],
+  m47: ["queue versus sync", "async processing threshold", "when to add a queue", "architecture simplicity", "requests per second threshold"],
+  m48: ["react native bundler", "stale bundle", "clear the cache", "module resolution after install", "bundler cache files"],
+  m49: ["commit message style", "semver automation", "changelog generation", "automatic version bump", "conventional commit rules"],
+  m50: ["shared cache danger", "flushdb risk", "redis cluster db 7", "wipe cache in staging", "production cache impact"],
+  m51: ["import sorting", "formatter disagreement", "autofix churn", "prettier migration", "reformat after merge"],
+  m52: ["replica routing", "reporting queries only", "analytics reads", "oltp versus olap split", "primary load"],
+};
+
+/** Keywords for a store entry: variants inherit their base's set. */
+export function keywordsFor(id: string): string[] | undefined {
+  return KEYWORDS[id.split("#")[0]!];
+}
+
 
 export const MEMORIES: GoldMemory[] = [
   { id: "m01", type: "pattern", scope: "widget-api", content: "run the widget-api test suite with make test-api; it boots postgres in docker compose first" },
@@ -256,7 +342,7 @@ const MUT_WORDS = ["zz", "qv", "xt", "plu", "nk", "rb", "dex", "wm", "ka", "tr"]
 // they keep the original topic and scope but are never any query's gold.
 export function buildStore(size: number, seed = 20261020): GoldMemory[] {
   const rand = lcg(seed);
-  const out: GoldMemory[] = MEMORIES.slice();
+  const out: GoldMemory[] = MEMORIES.map((m) => ({ ...m, kw: keywordsFor(m.id) }));
   let v = 0;
   while (out.length < size) {
     const base = MEMORIES[v % MEMORIES.length]!;
@@ -264,7 +350,13 @@ export function buildStore(size: number, seed = 20261020): GoldMemory[] {
     const content =
       base.content.replace(/\d+/g, (d) => String(Math.floor(rand() * 900) + 100)) +
       " note-" + tag;
-    out.push({ id: `${base.id}#${v}`, type: base.type, scope: base.scope, content });
+    out.push({
+      id: `${base.id}#${v}`,
+      type: base.type,
+      scope: base.scope,
+      content,
+      kw: keywordsFor(base.id),
+    });
     v++;
   }
   return out.slice(0, size);
