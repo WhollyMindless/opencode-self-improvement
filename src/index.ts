@@ -186,6 +186,12 @@ function resultMeta(result: unknown): Record<string, unknown> {
 
 const PLUGIN_ID = "opencode-self-improvement";
 
+// Tag on store rows captured by the COMPACTION trigger (issue #41). Rows keep
+// the shared "auto-capture" provenance tag (src/inject.ts renders it) and add
+// this one so decay/status can tell which trigger wrote them — the same
+// distinction the auto_capture_compaction_* evidence lines carry.
+const CAPTURE_COMPACT_TAG = "auto_capture_compaction";
+
 // The setup-time Bun-floor warning fires once per process (setup can run for
 // more than one location).
 let bunFloorChecked = false;
@@ -844,6 +850,12 @@ const impl = {
     };
 
     // ---- hooks (all fail-closed) -------------------------------------------
+    // Seam set by the auto-capture wiring below ONLY when the compaction
+    // trigger is live (autoCapture on, captureOnCompact not false, valid
+    // captureModel). The compaction hook calls it fire-and-forget; undefined
+    // means "off". Declared here because the hook registers before capture.
+    let onCompactCapture: ((sid: string, messages: unknown) => void) | undefined;
+
     // Bookkeeping: track the active session/tool/call before a tool runs.
     await ctx.tool?.hook("execute.before", (event: any) =>
       guarded("tool.execute.before", async () => {
@@ -936,7 +948,9 @@ const impl = {
     // compaction: the durable-memory anchor is pushed onto the hook's system
     // parts (visible to the summarizer model, which runs AFTER hooks) so the
     // summary preserves the facts. Never sets event.result — that would skip
-    // the summarizer call entirely.
+    // the summarizer call entirely. Also fires the context-death auto-capture
+    // (issue #41, opt-in; see the capture section): the transcript is mined
+    // while it still exists, BEFORE the summarizer replaces it.
     await ctx.session?.hook("compaction", (event: any) =>
       guarded("session.compaction (onCompacting)", async () => {
         setCurrent({ sessionID: event?.sessionID });
@@ -947,6 +961,13 @@ const impl = {
         }
         const anchor = await compactionAnchor();
         if (anchor) event?.system?.push?.({ type: "text", text: anchor });
+        // Fire-and-forget: a capture model call must never delay the compaction
+        // the user is waiting for, and failures stay inside the guarded path.
+        // The payload's own messages ride along so the mining sees the
+        // pre-compaction transcript even if the store moves under it.
+        if (onCompactCapture && typeof event?.sessionID === "string") {
+          onCompactCapture(event.sessionID, event.messages);
+        }
       }),
     );
 
@@ -1020,22 +1041,27 @@ const impl = {
       })();
     }
 
-    // ---- opt-in auto-capture on session idle --------------------------------
+    // ---- opt-in auto-capture (idle + compaction triggers) ------------------
     // Default OFF: capture never reads sessions and never calls a model. (The
     // measured-cache listener above does subscribe to the event stream by
     // default, but it is zero-model: pure bookkeeping of message usage.) When
     // enabled (options.autoCapture === true AND a valid captureModel), each
-    // session.idle event runs ONE cheap ctx.generate.text call whose reply is
-    // parsed into candidates that go through the SAME runWriteGate as
+    // session.idle event — and, unless captureOnCompact === false, each
+    // compaction hook call too — runs ONE cheap ctx.generate.text call whose
+    // reply is parsed into candidates that go through the SAME runWriteGate as
     // model-authored writes — capture can never bypass the moat, and it only
-    // ever writes through the gate. A per-session cooldown bounds the cost.
-    // Every failure inside the loop is swallowed: capture must never be able
-    // to break a session.
+    // ever writes through the gate. A per-session, per-trigger cooldown bounds
+    // the cost. Compaction-triggered rows carry the CAPTURE_COMPACT_TAG tag and
+    // auto_capture_compaction_* evidence lines, idle rows keep auto_capture_*,
+    // so decay/status — and bench/capture-trigger-compare.ts — can measure
+    // which trigger earns its tokens. Every failure is swallowed: capture must
+    // never be able to break a session.
     let captureCleanup: Cleanup | undefined;
     if (ctx.options?.autoCapture === true) {
       const captureModel =
         typeof ctx.options.captureModel === "string" ? ctx.options.captureModel : "";
       const captureMax = Number(ctx.options.captureMax) || 3;
+      const captureOnCompact = ctx.options?.captureOnCompact !== false;
       const modelRef = parseModelRef(captureModel);
       if (!modelRef) {
         // Invalid/missing model: skip registering the whole subscription
@@ -1058,6 +1084,63 @@ const impl = {
         // setup guard proves it exists, but property narrowing does not survive
         // into the closure, and undefined degrades safely (empty transcript).
         const contextFn = (input: { sessionID: string }) => ctx.session?.context?.(input);
+
+        // ONE capture pass, shared by both triggers. `seeded` is a transcript
+        // already in hand — the compaction hook carries the PRE-compaction
+        // messages, which is the whole point (Compaction Cliff: one round
+        // retains 53% of exact-wording rules); when it is absent (older host
+        // shapes) or too thin, the session context is read instead, the same
+        // source the idle trigger mines.
+        async function captureSession(
+          sid: string,
+          seeded: string,
+          trigger: "idle" | "compaction",
+          seededMsgs?: unknown,
+        ): Promise<void> {
+          // Bind the capturing session so captures stamp (and gate against)
+          // that session's repo, not whatever tool call ran last.
+          setCurrent({ sessionID: sid });
+          let transcript = seeded;
+          let msgs = seededMsgs;
+          if (transcript.length < 200) {
+            msgs = await contextFn({ sessionID: sid });
+            transcript = flattenTranscript(msgs);
+          }
+          if (transcript.length < 200) return; // too thin to mine reliably
+          // #44: how stale is a capture? Distance from the newest message of
+          // the mined transcript to this instant - measured on whatever the
+          // trigger actually mined (the hook payload for compaction, the
+          // session context for idle), so both triggers' lag is comparable.
+          const lagMs = lagSince(msgs);
+          const out = await generateApi.text({
+            model: modelRef,
+            prompt: buildCapturePrompt(transcript.slice(-8000), captureMax),
+          });
+          const text = typeof out === "string" ? out : out?.text ?? "";
+          const candidates = parseCandidates(text, captureMax);
+          for (const c of candidates) {
+            const outcome = await runWriteGate(
+              {
+                ...c,
+                tags:
+                  trigger === "compaction"
+                    ? ["auto-capture", CAPTURE_COMPACT_TAG]
+                    : ["auto-capture"],
+              },
+              gateContext(),
+            );
+            await record(
+              trigger === "compaction"
+                ? `auto_capture_compaction_${outcome.action}`
+                : `auto_capture_${outcome.action}`,
+              // A blocked credential-shaped scope must not reach the evidence log either.
+              { session: sid, trigger, type: c.type, scope: redactSecrets(c.scope), reason: outcome.reason ?? "" },
+              false,
+            );
+          }
+          await recordCaptureLag(sid, lagMs, candidates.length ? "candidates" : "empty");
+        }
+
         void (async () => {
           try {
             for await (const raw of eventApi.subscribe({ signal: controller.signal })) {
@@ -1065,39 +1148,12 @@ const impl = {
               if (event?.type !== "session.idle") continue;
               const sid = event.sessionID ?? event.properties?.sessionID ?? event.data?.sessionID;
               if (typeof sid !== "string") continue;
-              // Bind the idle session so captures stamp (and gate against)
-              // that session's repo, not whatever tool call ran last.
               setCurrent({ sessionID: sid });
               const now = Date.now();
               if (now - (lastRun.get(sid) ?? 0) < 5 * 60_000) continue; // 5-min cooldown
               lastRun.set(sid, now);
               try {
-                const msgs = await contextFn({ sessionID: sid });
-                const transcript = flattenTranscript(msgs);
-                if (transcript.length < 200) continue; // too thin to mine reliably
-                // #44: how stale is a capture? Distance from the last message of
-                // the transcript to this instant. Sessions idle for an hour
-                // produce an hour-old capture, and the surfaces now say so.
-                const lagMs = lagSince(msgs);
-                const out = await generateApi.text({
-                  model: modelRef,
-                  prompt: buildCapturePrompt(transcript.slice(-8000), captureMax),
-                });
-                const text = typeof out === "string" ? out : out?.text ?? "";
-                const candidates = parseCandidates(text, captureMax);
-                for (const c of candidates) {
-                  const outcome = await runWriteGate(
-                    { ...c, tags: ["auto-capture"] },
-                    gateContext(),
-                  );
-                  await record(
-                    `auto_capture_${outcome.action}`,
-                    // A blocked credential-shaped scope must not reach the evidence log either.
-                    { session: sid, type: c.type, scope: redactSecrets(c.scope), reason: outcome.reason ?? "" },
-                    false,
-                  );
-                }
-                await recordCaptureLag(sid, lagMs, candidates.length ? "candidates" : "empty");
+                await captureSession(sid, "", "idle");
               } catch {
                 // fail-closed: a broken capture attempt is invisible to the session
               }
@@ -1107,7 +1163,29 @@ const impl = {
           }
         })();
         captureCleanup = () => controller.abort();
+
+        // The compaction trigger needs no extra subscription: the session
+        // compaction hook (registered above) calls through this seam. Separate
+        // cooldown map from idle, so measuring a trigger is not confounded by
+        // the other trigger having fired moments ago.
+        if (captureOnCompact) {
+          const lastCompactRun = new Map<string, number>();
+          onCompactCapture = (sid, messages) => {
+            if (controller.signal.aborted) return;
+            const now = Date.now();
+            if (now - (lastCompactRun.get(sid) ?? 0) < 5 * 60_000) return; // 5-min cooldown
+            lastCompactRun.set(sid, now);
+            void guarded("session.compaction (auto-capture)", () =>
+              captureSession(sid, flattenTranscript(messages), "compaction", messages),
+            );
+          };
+        }
       }
+    } else if (ctx.options?.captureOnCompact === true) {
+      // autoCapture is the master switch (zero-token default preserved).
+      console.warn(
+        "[opencode-self-improvement] captureOnCompact is on but autoCapture is off; compaction capture stays disabled (autoCapture is the master switch).",
+      );
     }
     // Single cleanup returned by setup: tears down the measured listener and,
     // when enabled, the capture subscription. Future teardowns merge in here.

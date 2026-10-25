@@ -211,10 +211,17 @@ export async function loadPlugin(
     },
     // Drive the real session.compaction hook (guarded), mirroring the context
     // adapter: the hook sees a `system` parts array and pushed part texts are
-    // copied back onto `output.system` when the caller provided one.
+    // copied back onto `output.system` when the caller provided one. `messages`
+    // (the V2 SessionCompaction payload the real host carries) passes through
+    // so compaction-triggered auto-capture can be replayed with a
+    // pre-compaction transcript.
     "experimental.session.compacting": async (input: any, output: any) => {
       const parts: Array<{ type: string; text: string }> = [];
-      await sessionHooks["compaction"]?.({ sessionID: input?.sessionID, system: parts });
+      await sessionHooks["compaction"]?.({
+        sessionID: input?.sessionID,
+        system: parts,
+        messages: input?.messages,
+      });
       if (Array.isArray(output?.system)) for (const p of parts) output.system.push(p.text);
     },
   };
