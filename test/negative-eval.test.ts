@@ -397,6 +397,23 @@ describe("metric negative controls — the eval can fail", () => {
     }
   });
 
+  test("write-time keywords earn their gain from meaning, not token volume (#40 control)", () => {
+    // The `kw` number is the only claim in this benchmark where a human wrote
+    // extra text that helps the gold row win, so it gets a real control: every
+    // row is given the SAME number of alias tokens with the WRONG meanings
+    // (rotated assignment, deterministic). If plausible-but-wrong aliases
+    // bought the same recall, the bridge would be measuring extra text.
+    for (const size of SIZES) {
+      const bare = scoreArm(size, prod, "none");
+      const kw = scoreArm(size, prod, "kw");
+      const shuffled = scoreArm(size, prod, "shuffled");
+      expect(kw.r1, `size ${size}`).toBeGreaterThan(bare.r1);
+      expect(kw.r3, `size ${size}`).toBeGreaterThan(bare.r3);
+      expect(shuffled.r1, `size ${size}`).toBeLessThan(kw.r1);
+      expect(shuffled.r3, `size ${size}`).toBeLessThan(kw.r3);
+    }
+  });
+
   test("the eval is deterministic run to run", () => {
     const a = scoreArm(200, prod);
     const b = scoreArm(200, prod);

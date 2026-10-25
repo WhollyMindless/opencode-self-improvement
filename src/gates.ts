@@ -33,6 +33,10 @@ export interface WriteCandidate {
   content: string;
   issue?: string;
   tags?: string[];
+  // Retrieval keywords (#40) — indexed for recall, never rendered. Normalised
+  // (trim/lowercase/cap) at promotion, so a caller may hand junk without
+  // changing the verdict the prose deserves.
+  kw?: string[];
   status?: "open" | "settled";
   // "global" = cross-project (memory_remember global:true; imports carry a
   // row's origin stamp). Any other value (including undefined) is resolved by
@@ -242,6 +246,13 @@ export async function runWriteGate(
   ) {
     badMetadata.push("tags");
   }
+  if (
+    candidate.kw !== undefined &&
+    (!Array.isArray(candidate.kw) ||
+      candidate.kw.some((k) => typeof k !== "string" || flattenMemoryText(k) !== k))
+  ) {
+    badMetadata.push("kw");
+  }
   if (badMetadata.length) {
     await recordWriteBlocked(4, "invalid_metadata", [`fields=${badMetadata.join(",")}`], chain);
     return {
@@ -255,6 +266,7 @@ export async function runWriteGate(
   const credentialMetadata = [
     containsSecret(candidate.scope) ? "scope" : undefined,
     candidate.tags?.some(containsSecret) ? "tags" : undefined,
+    candidate.kw?.some(containsSecret) ? "kw" : undefined,
     containsSecret(candidate.issue) ? "issue" : undefined,
   ].filter((field): field is string => field !== undefined);
   if (credentialMetadata.length) {
