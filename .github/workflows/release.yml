@@ -82,10 +82,10 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
-      # Analyze -> bump -> commit -> tag -> npm publish -> GitHub release.
+      # Analyze -> prepare -> publish (in .releaserc.json plugin order).
       # The version-bump commit carries [skip ci], so it does not re-trigger this
-      # workflow. semantic-release pushes the commit and tag before npm publish;
-      # if npm fails, they remain, but no GitHub release is created.
+      # workflow. Publish plugins run npm -> git -> github, so if the npm publish
+      # fails, the bump commit, tag and GitHub release are never created.
       - run: npx semantic-release
         env:
           # semantic-release uses the App token for Git pushes, the GitHub
