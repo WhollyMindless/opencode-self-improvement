@@ -32,9 +32,14 @@ LLMs waste a lot of tokens reading and re-reading your code and asking you for c
   exemption is only honored for files carrying a machine-made export header.
 - **Decay** — `memory_decay` retires stale open threads. Dry run by default;
   supersede-not-delete, snapshot-first, undoable.
-- **Auto-capture (opt-in)** — with `autoCapture` on, session-idle events get one
-  cheap model pass that proposes memory candidates; every candidate still faces
-  the same write gates. Off by default, so the install stays zero-token.
+- **Auto-capture (opt-in)** — with `autoCapture` on, two cheap model passes can
+  propose memory candidates: one per session-idle event, and one at each
+  compaction (where episodic detail actually dies - see
+  [`bench/capture-trigger-results.md`](bench/capture-trigger-results.md)). Each
+  pass faces the same write gates, and a 5-minute cooldown per session and
+  trigger bounds the spend. Off by default, so the install stays zero-token:
+  with `autoCapture` on and a compaction-then-idle session, budget up to two
+  capture calls per 5-minute window, not one.
 - Automatically de-dupes similar memories and avoids contradictions by searching for existing memories before saving new ones.
 - **Write gates** — every memory passes 4 checks before it sticks: code references are
   verified against your actual repo, near-duplicates are collapsed, contradictions with
@@ -381,6 +386,7 @@ the plugin entry in `opencode.json(c)` instead of the plain string:
 | `autoCapture` | `false` (off) | When on, each session-idle event makes one cheap model pass that proposes memory candidates. Every candidate still goes through the 4-gate write pipeline — capture can never bypass the gates. Off by default: the zero-token install stays zero-token. |
 | `captureModel` | — | `"provider/id"` model used for auto-capture. Required when `autoCapture` is on; a missing or invalid value disables capture with a startup warning. |
 | `captureMax` | `3` | Maximum candidates proposed per idle event. |
+| `captureOnCompact` | `true` (under `autoCapture`) | Also capture at the compaction moment, mining the PRE-compaction transcript the summarizer is about to lose. Has its own 5-minute cooldown, separate from the idle one, so trigger hit-rates stay measurable. Setting it while `autoCapture` is off only warns (the zero-token default is the promise); turning it off isolates the idle trigger's numbers. |
 | `notifyBlocked` | `true` (on) | Terminal (TUI) half only: toast when the write gate blocks a memory write. `false` keeps the panel quiet; blocks are always in `memory_evidence` regardless. |
 
 ## Code graph (optional)

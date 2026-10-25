@@ -196,6 +196,34 @@ const CAPTURE_COMPACT_TAG = "auto_capture_compaction";
 // more than one location).
 let bunFloorChecked = false;
 
+// Auto-capture cooldown, shared by EVERY setup() registration (#108): setup
+// runs for more than one location, and per-closure cooldown maps made those
+// registrations strangers - one compaction could pay for two model calls on
+// one transcript. Same module-level shape as `turns` in src/lock.ts; the key
+// names the trigger, so measuring one trigger is still not confounded by the
+// other having fired moments ago.
+const lastCaptureRun = new Map<string, number>();
+
+const CAPTURE_COOLDOWN_MS = 5 * 60_000;
+
+/** True if this trigger may fire for this session now; records the fire. */
+function captureCooldownPasses(trigger: "idle" | "compaction", sid: string, now: number): boolean {
+  const key = `${trigger}:${sid}`;
+  if (now - (lastCaptureRun.get(key) ?? 0) < CAPTURE_COOLDOWN_MS) return false;
+  // Sessions churn and a long-lived server must not grow one entry per
+  // session forever; oldest-inserted go first (the ledger throttle's rule).
+  if (lastCaptureRun.size > 2000) {
+    for (const k of [...lastCaptureRun.keys()].slice(0, 1000)) lastCaptureRun.delete(k);
+  }
+  lastCaptureRun.set(key, now);
+  return true;
+}
+
+/** Clear the cooldown windows (tests; also what a process restart does). */
+export function resetCaptureCooldowns(): void {
+  lastCaptureRun.clear();
+}
+
 // The real setup implementation, written against the loose local PluginCtx
 // (the only members of the V2 context this plugin actually touches).
 const impl = {
@@ -1075,7 +1103,6 @@ const impl = {
         );
       } else {
         const controller = new AbortController();
-        const lastRun = new Map<string, number>();
         const eventApi = ctx.event;
         const generateApi = ctx.generate;
         // Arrow wrapper: keep the receiver bound. The harness fakes are closures,
@@ -1150,8 +1177,7 @@ const impl = {
               if (typeof sid !== "string") continue;
               setCurrent({ sessionID: sid });
               const now = Date.now();
-              if (now - (lastRun.get(sid) ?? 0) < 5 * 60_000) continue; // 5-min cooldown
-              lastRun.set(sid, now);
+              if (!captureCooldownPasses("idle", sid, now)) continue; // 5-min cooldown, shared across setups
               try {
                 await captureSession(sid, "", "idle");
               } catch {
@@ -1165,16 +1191,16 @@ const impl = {
         captureCleanup = () => controller.abort();
 
         // The compaction trigger needs no extra subscription: the session
-        // compaction hook (registered above) calls through this seam. Separate
-        // cooldown map from idle, so measuring a trigger is not confounded by
-        // the other trigger having fired moments ago.
+        // compaction hook (registered above) calls through this seam. The
+        // cooldown names the trigger, so measuring a compaction capture is
+        // not confounded by an idle fire moments before - and lives at
+        // module level, so a second setup() cannot double-pay one
+        // compaction (#108).
         if (captureOnCompact) {
-          const lastCompactRun = new Map<string, number>();
           onCompactCapture = (sid, messages) => {
             if (controller.signal.aborted) return;
             const now = Date.now();
-            if (now - (lastCompactRun.get(sid) ?? 0) < 5 * 60_000) return; // 5-min cooldown
-            lastCompactRun.set(sid, now);
+            if (!captureCooldownPasses("compaction", sid, now)) return; // 5-min cooldown
             void guarded("session.compaction (auto-capture)", () =>
               captureSession(sid, flattenTranscript(messages), "compaction", messages),
             );

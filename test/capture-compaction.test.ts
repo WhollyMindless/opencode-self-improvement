@@ -29,6 +29,7 @@ import { dirname, join } from "node:path";
 import { dateStr, evidenceDir, memoryRoot } from "../src/config.ts";
 import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { resetState } from "../src/state.ts";
+import { resetCaptureCooldowns } from "../src/index.ts";
 import { isActive, loadAll } from "../src/memory.ts";
 import { setRepoScope } from "../src/repokey.ts";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
@@ -44,6 +45,7 @@ beforeEach(() => {
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
   resetState();
+  resetCaptureCooldowns(); // cooldown truth is module-level since #108; a fresh test is a fresh process
 });
 
 afterEach(() => {
@@ -317,5 +319,69 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
 
     // The hook contract (T2 rollup + anchor) still runs after cleanup.
     expect(evidence().some((l) => l.ev === "t2_compaction")).toBe(true);
+  });
+});
+
+// #108: cooldown state used to live inside setup()'s closure, and the file's
+// own Bun-floor comment records that setup runs for more than one location.
+// Two live registrations meant one compaction reached two cooldown maps that
+// were strangers: two generate.text calls on one transcript - the gate
+// collapses the duplicate rows, so store state was safe while the TOKENS
+// were not. The truth is now module-level (the `turns` shape from lock.ts),
+// keyed `${trigger}:${sid}`.
+describe("cooldown shared across setup() registrations (#108)", () => {
+  test("one compaction, two live setups, exactly ONE model call", async () => {
+    seed("pattern", "build", DUP_CONTENT);
+    const a = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    const b = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    await ground(a, "ses-twin");
+    a.capture.generate.response = JSON.stringify([{ type: "learning", scope: "api", content: FRESH_CONTENT }]);
+    b.capture.generate.response = JSON.stringify([{ type: "learning", scope: "api", content: FRESH_CONTENT }]);
+
+    // A real host dispatches ONE compaction to every registered plugin; this
+    // is exactly that, across the two registrations sharing one module.
+    const messages = thickMessages();
+    await a.sessionHooks["compaction"]?.({ sessionID: "ses-twin", system: [], messages });
+    await b.sessionHooks["compaction"]?.({ sessionID: "ses-twin", system: [], messages });
+    await waitFor(() => evidence().some((l) => String(l.ev).startsWith("auto_capture_compaction_")));
+    await sleep(100); // a second, uncooled fire would have reached generate by now
+
+    // Red pre-fix: BOTH setups' fresh cooldown maps let BOTH pay for the same
+    // transcript (2 calls). The rows would have collapsed - the bug is the
+    // spend, invisible in the store.
+    expect(a.capture.generate.calls.length + b.capture.generate.calls.length).toBe(1);
+    expect((await loadAll()).filter(isActive).length).toBe(2); // seed + ONE promotion
+  });
+
+  test("an idle broadcast reaches every live subscription, and pays exactly ONE model call", async () => {
+    seed("pattern", "build", DUP_CONTENT);
+    const a = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    const b = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    await ground(b, "ses-twin-idle");
+    a.capture.generate.response = JSON.stringify([{ type: "learning", scope: "api", content: FRESH_CONTENT }]);
+    b.capture.generate.response = JSON.stringify([{ type: "pattern", scope: "build", content: DUP_CONTENT }]);
+    const idleTranscript = [
+      {
+        role: "user",
+        content:
+          "We finished the alpha build switch. Remember that alpha builds are run with make all " +
+          "from the repository root directory. Also the staging API rate limit is 120 requests " +
+          "per minute per key as of October 2026, which matters for the batch importer.",
+      },
+    ];
+    a.capture.context.messages = idleTranscript;
+    b.capture.context.messages = idleTranscript;
+
+    // The event bus broadcasts session.idle to EVERY live subscription -
+    // pre-fix, each subscription carried its own cooldown closure, so both
+    // loops passed their own check and BOTH paid for one transcript (red).
+    // Post-fix they share one truth: the first loop through the door records
+    // the fire and the other skips.
+    a.capture.events.push({ type: "session.idle", sessionID: "ses-twin-idle" });
+    b.capture.events.push({ type: "session.idle", sessionID: "ses-twin-idle" });
+    await waitFor(() => a.capture.generate.calls.length + b.capture.generate.calls.length > 0);
+    await sleep(150); // a second, uncooled fire would have reached generate by now
+    expect(a.capture.generate.calls.length + b.capture.generate.calls.length).toBe(1);
+    expect((await loadAll()).filter(isActive).length).toBe(2); // seed + ONE row, whichever loop got there first
   });
 });
