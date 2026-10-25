@@ -7,13 +7,16 @@
 // Two keys, both cheap, with opposite failure modes:
 //   key  — sha1 of the normalized origin URL: survives re-clone, moves, and
 //          export/import to another machine. Absent when the repo has no
-//          origin (fresh or remote-less), where the path is used as the key.
-//   path — resolved git toplevel: the secondary match, so rows stamped
-//          before an origin was added keep recognizing their repo.
+//          origin (fresh or remote-less): sha1 of the NORMALIZED resolved
+//          path instead, so repo= is always a bare token — a raw path with
+//          a space gets logfmt-quoted, which breaks naive field extraction
+//          and can't be hash-compared (#92). path stays the human-readable
+//          secondary, so rows stamped before the hash keep matching.
 // Rows carry no stamp when their writer had no scope (viewer process,
 // tests) and legacy rows predate the field: both read as GLOBAL — visible
 // everywhere — which keeps every upgrade non-breaking.
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 
 export interface RepoScope {
   key: string;
@@ -56,14 +59,31 @@ function git(args: string[], cwd: string): string | null {
   }
 }
 
+// Normalize a directory for hashing: symlinks, junctions, and Windows 8.3
+// aliases collapse to the real path (realpath), separators unify to "/",
+// a trailing separator disappears, and case folds ONLY on the
+// case-insensitive filesystems (win32/darwin) where two spellings are the
+// same directory — Linux folds nothing, there "Foo" and "foo" are two dirs.
+export function normalizeDirPath(p: string): string {
+  let r = p;
+  try {
+    r = realpathSync(r);
+  } catch {
+    // deleted/unreadable mid-resolve: hash the given spelling rather than throw
+  }
+  r = r.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (process.platform === "win32" || process.platform === "darwin") r = r.toLowerCase();
+  return r || "/";
+}
+
 // Resolve the current repo from any start dir (never throws; a non-git dir
-// simply scopes by its own path).
+// simply scopes by the hash of its own normalized path).
 export function resolveRepo(startDir: string): RepoScope {
   const path = git(["git", "rev-parse", "--show-toplevel"], startDir) ?? startDir;
   const remote = git(["git", "remote", "get-url", "origin"], path);
   const key = remote
     ? createHash("sha1").update(normalizeRemote(remote)).digest("hex").slice(0, 12)
-    : path;
+    : createHash("sha1").update(normalizeDirPath(path)).digest("hex").slice(0, 12);
   return { key, path };
 }
 

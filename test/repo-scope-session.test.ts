@@ -10,12 +10,16 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rememberSessionDir, repoScopeFor, resetSessionScopes, setRepoScope } from "../src/repokey.ts";
+import { rememberSessionDir, repoScopeFor, resetSessionScopes, resolveRepo, setRepoScope } from "../src/repokey.ts";
 import { appendMemory, isVisibleHere, loadAll } from "../src/memory.ts";
 import { resetState, setCurrent } from "../src/state.ts";
 import { loadPlugin } from "./harness.ts";
 
 const MODULE_SCOPE = { key: "mod111", path: "/work/module" };
+
+// Non-git dirs key by hash of the normalized path (#92) — what the session
+// machinery resolves a plain dir to, independent of this PR's hashing choice.
+const keyOf = (d: string) => resolveRepo(d).key;
 
 let root: string;
 beforeEach(() => {
@@ -57,9 +61,9 @@ describe("repoScopeFor precedence", () => {
     mkdirSync(a, { recursive: true });
     mkdirSync(b, { recursive: true });
     rememberSessionDir("s1", a);
-    expect(repoScopeFor("s1")).toEqual({ key: a, path: a });
+    expect(repoScopeFor("s1")).toEqual({ key: keyOf(a), path: a });
     rememberSessionDir("s1", b);
-    expect(repoScopeFor("s1")).toEqual({ key: b, path: b });
+    expect(repoScopeFor("s1")).toEqual({ key: keyOf(b), path: b });
   });
 
   test("two sessions in one dir share one resolution", () => {
@@ -86,7 +90,7 @@ describe("repoScopeFor precedence", () => {
         rememberSessionDir(`s${i}`, d);
       }
       expect(repoScopeFor("s0")).toBe(MODULE_SCOPE); // evicted
-      expect(repoScopeFor("s69")).toEqual({ key: dirs[69], path: dirs[69] });
+      expect(repoScopeFor("s69")).toEqual({ key: keyOf(dirs[69]), path: dirs[69] });
     },
     20_000,
   );
@@ -100,7 +104,8 @@ describe("stamping follows the writing session", () => {
     setCurrent({ sessionID: "s1", callID: "c1", tool: "memory_remember" });
     await appendMemory({ type: "learning", scope: "s", content: "written by session one in repo A" });
     const raw = readFileSync(dayFile(), "utf8");
-    expect(raw).toContain(`repo=${a}`);
+    expect(raw).toContain(`repo=${keyOf(a)}`);
+    expect(raw).toContain(`repoPath=${a}`);
     expect(raw).not.toContain(MODULE_SCOPE.key);
   });
 
@@ -160,7 +165,7 @@ describe("server-start window: setup with no location", () => {
       );
       expect(out.content).toContain("Remembered");
       raw = readFileSync(dayFile(), "utf8");
-      expect(raw).toContain(`repo=${repo}`);
+      expect(raw).toContain(`repo=${keyOf(repo)}`);
     } finally {
       await loaded.cleanup();
     }
@@ -189,7 +194,7 @@ describe("first-turn event-race backstop", () => {
       );
       expect(out.content).toContain("Remembered");
       const raw = readFileSync(dayFile(), "utf8");
-      expect(raw).toContain(`repo=${sessionWs}`);
+      expect(raw).toContain(`repo=${keyOf(sessionWs)}`);
       expect(raw).not.toContain(moduleDir);
     } finally {
       await loaded.cleanup();
