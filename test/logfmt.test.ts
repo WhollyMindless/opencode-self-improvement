@@ -2,11 +2,12 @@
 // backslashes or quotes must come back intact and must never split into a
 // second record.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryRoot } from "../src/config.ts";
-import { appendLog, formatLine, parseLine, readLines } from "../src/logfmt.ts";
+import { appendLog, fileIdentity, formatLine, parseLine, readLines, writeAtomic } from "../src/logfmt.ts";
 import { appendMemory, loadAll, markSuperseded } from "../src/memory.ts";
 
 let tmpDir: string;
@@ -128,6 +129,75 @@ describe("store rows cannot be forged through content", () => {
     expect(lines).toHaveLength(50);
     for (let i = 0; i < 50; i++) {
       expect(lines.some((l) => l.includes(`ts=t${i}`))).toBe(true);
+    }
+  });
+});
+
+describe.skipIf(process.platform !== "win32")("Windows handover: concurrent writers on one file", () => {
+  // A starved in-process waiter runs its write WITHOUT the lock (lock.ts
+  // proceeds on budget expiry), so two writers of one file can be inside
+  // writeAtomic at the same instant even inside one process. These pin the
+  // two properties that make that survivable: per-call temp files, and a
+  // retry window that backs off the moment the destination moves.
+  function held(file: string): { release: () => void } {
+    const fd = openSync(file, "r"); // node shares read/write but NOT delete: rename is blocked
+    let closed = false;
+    return {
+      release: () => {
+        if (!closed) {
+          closed = true;
+          closeSync(fd);
+        }
+      },
+    };
+  }
+
+  test("a retried publish renames its own temp file, not the degraded writer's", async () => {
+    const root = mkdtempSync(join(tmpdir(), "osi-handover-"));
+    const file = join(root, "store.logfmt");
+    writeFileSync(file, "seed\n");
+    const h = held(file);
+    setTimeout(h.release, 400);
+    try {
+      const since = await fileIdentity(file);
+      // The degraded writer goes first: with a per-process temp name it is
+      // the one whose bytes sit in the name the retry keeps renaming.
+      const degraded = writeAtomic(file, "seed\ndegraded\n").then(
+        () => "ok",
+        () => "failed",
+      );
+      const anchored = writeAtomic(file, "seed\nanchored\n", since).then(
+        () => "ok",
+        () => "failed",
+      );
+      expect(await degraded).toBe("failed"); // one blocked rename: fails by design
+      expect(await anchored).toBe("ok"); // retried once the reader handle closes
+      expect(await readLines(file)).toEqual(["seed", "anchored"]);
+    } finally {
+      h.release();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a degraded append during the retry window aborts the publish and survives", async () => {
+    const root = mkdtempSync(join(tmpdir(), "osi-append-"));
+    const file = join(root, "store.logfmt");
+    writeFileSync(file, "seed\n");
+    const h = held(file);
+    setTimeout(h.release, 1500); // never reached: the staleness check fires first
+    try {
+      const since = await fileIdentity(file);
+      const appended = Bun.sleep(60).then(() => appendFile(file, "APPENDED\n"));
+      const publish = writeAtomic(file, "seed\nrewrite\n", since).then(
+        () => "ok",
+        () => "failed",
+      );
+      await appended;
+      expect(await publish).toBe("failed"); // the destination grew past the anchor
+      expect(await readLines(file)).toEqual(["seed", "APPENDED"]); // append intact
+    } finally {
+      h.release();
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
