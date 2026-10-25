@@ -120,11 +120,18 @@ export async function fileIdentity(file: string): Promise<string> {
 // deriving `content` from. With it, a Windows handover that fails on reader
 // contention can retry without risking a stale publish (see handoverRename).
 // Without it, publishing behaves exactly as it always has: one rename.
+let tmpSeq = 0;
+
 export async function writeAtomic(file: string, content: string, since?: string): Promise<void> {
   await ensureDir(dirname(file));
-  // One writer per file (the store lock), so the temp name is stable per
-  // process and a crash leaves one leftover instead of one per attempt.
-  const tmp = `${file}.${process.pid}.tmp`;
+  // Unique PER CALL, not per process: the store lock guarantees one writer
+  // only until a starved waiter's budget expires and lock.ts lets it proceed
+  // anyway. That degraded writer can be inside writeAtomic for the same file
+  // at the same instant - with a pid-stable name its bytes would sit in the
+  // very temp the anchored publish's ≤2s retry keeps renaming, and the retry
+  // would publish THOSE bytes under our success report. One extra leftover
+  // per failed attempt is the (unlinkable) price of that safety.
+  const tmp = `${file}.${process.pid}.${++tmpSeq}.tmp`;
   try {
     await Bun.write(tmp, content);
     await handoverRename(tmp, file, since);
