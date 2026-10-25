@@ -17,6 +17,7 @@
 import { z, type ZodTypeAny } from "zod";
 import { STATUSES, TYPES } from "./types.ts";
 import { flattenMemoryText } from "./sanitize.ts";
+import { MAX_KEYWORDS } from "./memory.ts";
 
 type JSONSchema = Record<string, unknown>;
 
@@ -32,6 +33,17 @@ const memoryField = z.string().refine((value) => flattenMemoryText(value) === va
   message: "must not contain control characters",
 });
 
+// Retrieval keywords (#40). The shape cap mirrors MAX_KEYWORDS in memory.ts,
+// which is the authority at write time (it also lowercases, de-dupes and drops
+// over-long entries rather than rejecting the write).
+const keywordList = z
+  .array(memoryField)
+  .max(MAX_KEYWORDS)
+  .describe(
+    "3-5 keywords for how a FUTURE session would search for this row: aliases and alternate names, verb forms, synonyms of the words you used, the literal command or file name. Indexed for matching only — never shown in an injected block. Skip it when the prose already says it.",
+  )
+  .optional();
+
 // ---- tool argument schemas (JSON Schema generated from these) ------------
 
 export const RememberArgs = z.object({
@@ -40,6 +52,7 @@ export const RememberArgs = z.object({
   content: z.string().describe("The memory content"),
   issue: memoryField.describe("Related issue").optional(),
   tags: z.array(memoryField).optional(),
+  kw: keywordList,
   status: z
     .enum(STATUSES)
     .describe(
@@ -73,6 +86,7 @@ export const UpdateArgs = z.object({
   scope: memoryField,
   type: z.enum(TYPES),
   content: z.string(),
+  kw: keywordList,
   query: z
     .string()
     .describe(

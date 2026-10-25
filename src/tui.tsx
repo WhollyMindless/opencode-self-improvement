@@ -13,6 +13,7 @@ import { For, Show, createSignal } from "solid-js";
 import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import type { PanelInput } from "@opencode/plugin/tui/context";
 import { memoryRoot, evidenceDir } from "./config.ts";
+import { fmtBytes, fmtMs } from "./status.ts";
 import {
   attributionLines,
   blockedRecent,
@@ -20,6 +21,7 @@ import {
   cacheRate,
   cacheLines,
   contextLines,
+  ledgerIsYoung,
   readStatus,
   statusDir,
   windowLines,
@@ -299,7 +301,20 @@ function MemoryPanel(props: {
         <text fg={context.theme.text.base}>
           {"  " + (s()?.store.active ?? 0) + " active · " + (s()?.store.superseded ?? 0) + " superseded · " +
             (s()?.store.open ?? 0) + " open · " + (s()?.store.scopes ?? 0) + " scopes" +
-            ((s()?.store.malformed ?? 0) > 0 ? " · " + s()!.store.malformed + " malformed (skipped)" : "")}
+            ((s()?.store.malformed ?? 0) > 0 ? " · " + s()!.store.malformed + " malformed (skipped)" : "") +
+            ((s()?.store.neverRetrieved ?? 0) > 0
+              ? " · " +
+                s()!.store.neverRetrieved +
+                (ledgerIsYoung(s()!.store.ledgerSince)
+                  ? " never retrieved (ledger since " + (s()!.store.ledgerSince?.slice(0, 10) ?? "no lines") + ")"
+                  : " never retrieved (30d)")
+              : "") +
+            ((s()?.store.bytes ?? 0) > 0
+              ? " · " + fmtBytes(s()!.store.bytes!) + " · " + s()!.store.bytesPerRow + " B/row"
+              : "") +
+            ((s()?.store.captureLag?.n ?? 0) > 0
+              ? " · capture p50 " + fmtMs(s()!.store.captureLag!.p50)
+              : "")}
         </text>
       </Show>
 

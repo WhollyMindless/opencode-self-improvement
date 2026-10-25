@@ -5,7 +5,7 @@
 import { existsSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { join, basename } from "node:path";
-import { dateStr, memoryRoot, deletionsFile, snapshotDir } from "./config.ts";
+import { dateStr, memoryRoot, deletionsFile, snapshotDir, HITS_FILENAME } from "./config.ts";
 import { repoScopeFor } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
 import {
@@ -33,6 +33,37 @@ export type MemoryStatus = "open" | "settled";
 // absolutely in appendMemory (throws, covering gate-bypassing callers).
 export const MAX_CONTENT_CHARS = 4000;
 
+/** How many retrieval keywords a row may carry, and how long each one may be. */
+export const MAX_KEYWORDS = 8;
+export const MAX_KEYWORD_CHARS = 48;
+
+/**
+ * Normalise author-supplied retrieval keywords: trim, lowercase, split on the
+ * storage delimiter, de-duplicate, drop empties and over-long entries, cap the
+ * count. TOTAL on purpose — junk yields a shorter list rather than a throw,
+ * because keywords only ever widen recall and must never be able to fail a
+ * write the prose alone deserved.
+ */
+export function normalizeKeywords(kw: unknown): string[] | undefined {
+  if (!Array.isArray(kw)) return undefined;
+  const out: string[] = [];
+  for (const item of kw) {
+    if (typeof item !== "string") continue;
+    // Commas are the storage delimiter (kw serialises as one comma-joined
+    // scalar), so an item carrying one would read back fragmented. Treat them
+    // as separators: "build, test" becomes two aliases, never a " test".
+    for (const part of item.split(",")) {
+      const k = part.trim().toLowerCase();
+      if (!k || k.length > MAX_KEYWORD_CHARS) continue;
+      if (!out.includes(k)) out.push(k);
+      if (out.length === MAX_KEYWORDS) break;
+    }
+    if (out.length === MAX_KEYWORDS) break;
+  }
+  return out.length ? out : undefined;
+}
+
+
 export interface Memory {
   ts: string;
   type: string;
@@ -40,6 +71,13 @@ export interface Memory {
   content: string;
   issue?: string;
   tags?: string[];
+  // Retrieval keywords (#40): author-supplied aliases, verb forms and synonyms
+  // for this row, written at capture time. They widen the scoring haystack
+  // ONLY — a row is never rendered through them, so injection bytes and the
+  // content cap stay exactly what the prose says. This is the zero-embedding
+  // answer to the bench's strict-paraphrase wall (0% R@1: the user's words are
+  // not the memory's words).
+  kw?: string[];
   superseded_by?: string;
   reason?: string;
   status?: MemoryStatus;
@@ -58,6 +96,9 @@ const RESERVED = new Set([
   "deleted.logfmt",
   "canonical.logfmt",
   "blocklist.logfmt",
+  // The use ledger (src/hits.ts): telemetry, not memory. A hit line must never
+  // be able to become a row — or to be superseded, exported, or injected.
+  HITS_FILENAME,
 ]);
 
 // Row identity is `ts`: supersede chains, the blocklist, undo matching, and
@@ -97,6 +138,9 @@ function toMemory(fields: Record<string, unknown>, file: string, index: number):
     content: typeof fields.content === "string" ? fields.content : "",
     issue: typeof fields.issue === "string" ? fields.issue : undefined,
     tags: typeof fields.tags === "string" ? fields.tags.split(",") : undefined,
+    kw: typeof fields.kw === "string" && fields.kw
+      ? fields.kw.split(",").map((k) => k.trim()).filter((k) => k.length > 0)
+      : undefined,
     superseded_by: typeof fields.superseded_by === "string" ? fields.superseded_by : undefined,
     reason: typeof fields.reason === "string" ? fields.reason : undefined,
     status:
@@ -148,6 +192,8 @@ export interface AppendMemoryInput {
   content: string;
   issue?: string;
   tags?: string[];
+  /** Retrieval keywords (#40); normalised and capped by appendMemory. */
+  kw?: string[];
   status?: MemoryStatus;
   // "global" for explicit cross-project writes; imports may carry a validated
   // same-repo origin stamp (see portable.ts). Any missing value is resolved by
@@ -191,9 +237,15 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   if (input.tags?.some((tag) => flattenMemoryText(tag) !== tag)) {
     throw new Error("memory tags must not contain control characters");
   }
+  // Keywords are indexed, never rendered, but they still live on the row's
+  // single line, so the same control-character floor applies.
+  if (input.kw?.some((k) => typeof k !== "string" || flattenMemoryText(k) !== k)) {
+    throw new Error("memory keywords must not contain control characters");
+  }
   const credentialMetadata = [
     containsSecret(input.scope) ? "scope" : undefined,
     input.tags?.some(containsSecret) ? "tags" : undefined,
+    input.kw?.some(containsSecret) ? "kw" : undefined,
     containsSecret(input.issue) ? "issue" : undefined,
   ].filter((field): field is string => field !== undefined);
   if (credentialMetadata.length) {
@@ -230,6 +282,7 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
     while (taken.has(ts) && guard++ < 1000) {
       ts = new Date(new Date(ts).getTime() + 1).toISOString();
     }
+    const kw = normalizeKeywords(input.kw);
     await appendLog(
       file,
       formatLine({
@@ -239,6 +292,7 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
         content,
         issue: input.issue,
         tags: input.tags?.length ? input.tags.join(",") : undefined,
+        kw: kw?.join(","),
         status: input.status,
         repo,
         repoPath,

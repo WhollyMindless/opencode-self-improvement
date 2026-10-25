@@ -64,6 +64,7 @@ export async function exportMemories(opts: ExportOptions = {}): Promise<ExportRe
       content: m.content,
       status: m.status,
       tags: m.tags,
+      kw: m.kw,
       issue: m.issue,
       // Origin stamps ride along so a same-repo machine hop can retain them.
       // Import validates them against its current repo before promotion.
@@ -124,9 +125,18 @@ function parseRow(line: string): WriteCandidate | null {
     r.tags.some((t) => typeof t === "string" && flattenMemoryText(t) !== t)
   ) return null;
   if (typeof r.issue === "string" && flattenMemoryText(r.issue) !== r.issue) return null;
+  // Keywords widen recall only, so a malformed entry costs them, never the row
+  // (contrast scope/content, where a bad value makes the line malformed).
+  const kw = Array.isArray(r.kw)
+    ? r.kw.filter(
+        (k): k is string =>
+          typeof k === "string" && !!k.trim() && flattenMemoryText(k.trim()) === k.trim(),
+      )
+    : undefined;
   const c: WriteCandidate = { type: r.type, scope: r.scope, content: r.content };
   if (r.status === "open" || r.status === "settled") c.status = r.status;
   if (Array.isArray(r.tags) && r.tags.every((t) => typeof t === "string")) c.tags = r.tags;
+  if (kw?.length) c.kw = kw;
   if (typeof r.issue === "string" && r.issue) c.issue = r.issue;
   // Origin stamps survive an export/import hop (repokey.ts): a row written
   // for repo X stays visible only where repo X is opened, even on a new
