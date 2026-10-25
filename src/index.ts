@@ -20,6 +20,7 @@ import {
   isVisibleHere,
   loadAll,
   malformedCount,
+  markManySuperseded,
   markSuperseded,
   resolveMemoryTarget,
   snapshotFiles,
@@ -31,6 +32,8 @@ import { exportMemories, findStaleOpen, importMemories } from "./portable.ts";
 import { listSnapshots, restoreSnapshot } from "./undo.ts";
 import { SESSION_CAP, SessionLru } from "./sessions.ts";
 import { record, recordCaptureLag } from "./evidence.ts";
+import { proposeConsolidations, renderProposals } from "./consolidate.ts";
+import { readReads } from "./hits.ts";
 import {
   capToBudget,
   compactionAnchor,
@@ -90,6 +93,7 @@ import {
   ForgetArgs,
   ImportArgs,
   InitArgs,
+  ConsolidateArgs,
   MergeReviewArgs,
   RecallArgs,
   RememberArgs,
@@ -335,6 +339,31 @@ const impl = {
               outcome.hint ?? "Evidence recorded; inspect with memory_evidence."
             }`,
           };
+        },
+      }));
+
+      editor.add(validated(ConsolidateArgs, {
+        name: "memory_consolidate",
+        description:
+          "Propose consolidations of near-duplicate settled rows — read-only, nothing is written. Clusters same-scope same-type rows by jaccard, picks the most recently used member as canonical (#42's rule: the row retrieval keeps landing on), and proposes it ONLY when replaying the cluster's own logged reads proves the merged row catches at least as many reads as the best single member did. A cluster with no recorded reads is reported as unmeasured, never merged on resemblance. Resolve a proposal with memory_merge_review; absorbed rows stay recoverable. The merge is deterministic — the canonical row is the survivor's prose plus the absorbed rows' aliases — because this plugin ships no model and a rewritten row cannot be diffed or audited.",
+        options: direct,
+        async execute(args): Promise<{ content: string }> {
+          const all = (await loadAll()).filter(isActive).filter(isVisibleHere);
+          const rows = args.scope ? all.filter((m) => m.scope === args.scope) : all;
+          const ledger = await readLedger();
+          const use = ledger.byRow;
+          const reads = await readReads();
+          const report = proposeConsolidations(rows, use, reads, {
+            ...(args.jaccard !== undefined ? { jaccard: args.jaccard } : {}),
+          });
+          const shown = report.plans.slice(0, args.limit ?? 10);
+          const out = renderProposals({ ...report, plans: shown });
+          await record(
+            "consolidate_propose",
+            { clusters: shown.length, rows: report.rowsBefore, would_drop: report.rowsBefore - report.rowsAfter },
+            false,
+          );
+          return { content: out };
         },
       }));
 
@@ -622,29 +651,28 @@ const impl = {
           }
           // Snapshot-before-mutate: the SAME helper prune() uses in memory.ts,
           // one whole-file copy per affected file, taken before the first
-          // mutation. markSuperseded also snapshots internally per row; this
-          // pass guarantees a pre-decay copy exists even if a later row fails.
+          // mutation. The batch pass snapshots again per file it touches; this
+          // pass guarantees a pre-decay copy exists even if a later file fails.
           const snapshot = await snapshotFiles([...new Set(stale.map((m) => m.file))]);
-          const retiredTs: string[] = [];
-          for (const m of stale) {
-            // Idempotent (a no-op on already-superseded rows), so a re-run
-            // cannot double-mark. No successor row exists — decay retires.
-            const ok = await markSuperseded(m.ts, { superseded_by: "decay", reason: "decay" });
-            if (ok) retiredTs.push(m.ts);
-          }
+          // One lock/read/snapshot/publish per file for the whole decay run (#61):
+          // N retired rows are one undo point, not N. Idempotent (a no-op on rows
+          // already superseded, out-of-band ones skipped under the lock).
+          const retired = await markManySuperseded(
+            stale.map((m) => ({ ts: m.ts, fields: { superseded_by: "decay", reason: "decay" } })),
+          );
           await record(
             "decay_applied",
             {
               days,
-              retired: retiredTs.length,
-              mem: retiredTs.join(",") || "-",
+              retired,
+              mem: stale.map((m) => m.ts).join(",") || "-",
               snapshot: snapshot.join(",") || "-",
             },
             false,
           );
           return {
             content:
-              `Decayed ${retiredTs.length} open thread(s) older than ${days} days ` +
+              `Decayed ${retired} open thread(s) older than ${days} days ` +
               `(superseded, not deleted; snapshot: ${snapshot[0] ?? "-"}). ` +
               "Recover with memory_undo.",
           };
