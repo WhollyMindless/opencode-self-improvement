@@ -17,6 +17,7 @@
 import { join } from "node:path";
 import { memoryRoot, HITS_FILENAME } from "./config.ts";
 import { appendLog, bracketList, formatLine, parseLine, readLines, writeAtomic } from "./logfmt.ts";
+import type { UseSignals } from "./inject.ts";
 import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 import type { Memory } from "./memory.ts";
 

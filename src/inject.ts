@@ -172,6 +172,11 @@ export function haystack(m: Memory): string {
  * nothing about the prompt beyond the memory it points at — and it is enough
  * for #45 to replay a merge and prove the same reads would still land.
  */
+/** The text a contextual pull actually searched with, for hit bookkeeping. */
+export function pullQuery(args: unknown): string {
+  return argText(args);
+}
+
 export function sharedTerms(query: string, m: Memory, cap = 8): string[] {
   const q = new Set(words(query).filter((t) => !QUERY_STOPWORDS.has(t)));
   if (!q.size) return [];

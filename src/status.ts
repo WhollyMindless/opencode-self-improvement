@@ -25,6 +25,11 @@ export interface StoreCounts {
   scopes: number;
   /** Rows skipped as malformed by the most recent store read. */
   malformed: number;
+  /**
+   * Active rows the use ledger has never credited (or not inside the window).
+   * Undefined until #42's ledger is read — an absent number, never a zero.
+   */
+  neverRetrieved?: number;
 }
 
 /**
@@ -391,6 +396,13 @@ export function renderMemoryReport(input: {
     `  ${store.active} active · ${store.superseded} superseded · ${store.open} open · ${store.scopes} scopes` +
       (store.malformed ? ` · ${store.malformed} malformed (skipped; fix the ts= field or undo)` : ""),
   );
+  if (store.neverRetrieved !== undefined) {
+    const used = store.active - store.neverRetrieved;
+    const share = store.active ? Math.round((store.neverRetrieved / store.active) * 100) : 0;
+    out.push(
+      `  retrieved ${used} rows in the last 30d; never retrieved ${store.neverRetrieved} (${share}%) — reported, not acted on`,
+    );
+  }
   out.push("", "Terminal (CLI/TUI) users: /memory opens this as a live panel; the footer shows a one-line badge.");
   return out.join("\n");
 }
