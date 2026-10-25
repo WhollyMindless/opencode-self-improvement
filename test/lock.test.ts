@@ -3,7 +3,7 @@
 // timeout either fails closed or proceeds; and a holder whose lock was taken
 // over never deletes the new one.
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendLog } from "../src/logfmt.ts";
@@ -166,5 +166,95 @@ describe("withStoreLock", () => {
     expect(lines).toHaveLength(21);
     expect(lines[20]).toContain("writer=child"); // never interleaved
     expect(lines[19]).toContain("writer=parent");
+  });
+});
+
+describe("deadline races", () => {
+  test("an ordinary write never dies at the deadline on a just-released lock", async () => {
+    // Regression: when the budget expired right after a failed-create probe
+    // had proven the lock file ENOENT (holder releasing, unlink still in
+    // flight), the expiry path used to rethrow the stale creation error, so
+    // a plain LOCK_WRITE-style call lost its write to contention (pre-fix:
+    // it threw on a measurable slice of deadline hits on both platforms).
+    const file = join(tmp(), "release-race.logfmt");
+    const lockPath = lockFileFor(file);
+    writeFileSync(file, "");
+    let cycling = true;
+    const holder = (async () => {
+      while (cycling) {
+        try {
+          writeFileSync(lockPath, "holder");
+        } catch {}
+        await sleep(1);
+        try {
+          unlinkSync(lockPath);
+        } catch {}
+        await sleep(1);
+      }
+    })();
+    let threw = 0;
+    for (let i = 0; i < 40; i++) {
+      try {
+        await withStoreLock(file, async () => "ok", { timeoutMs: 30 });
+      } catch {
+        threw++;
+      }
+    }
+    cycling = false;
+    await holder;
+    try {
+      unlinkSync(lockPath);
+    } catch {}
+    expect(threw).toBe(0);
+  });
+});
+
+describe.skipIf(process.platform !== "win32")("broken store directory (Windows ACL)", () => {
+  test("fails fast with the real error and never runs the writer", async () => {
+    // A directory we cannot create files in is NOT a contention case: the
+    // lock file is provably absent every probe, so the strike rule must
+    // surface the live EPERM in tens of ms — not decay into the budget
+    // timeout, whose "proceed" would run the write with no lock anywhere.
+    const dir = tmp();
+    const store = join(dir, "memory");
+    mkdirSync(store);
+    const file = join(store, "a.logfmt");
+    const me = Bun.spawnSync(["whoami"], { stdout: "pipe" }).stdout?.toString().trim() ?? "";
+    const icacls = (args: string[]) =>
+      Bun.spawnSync(["icacls", store, ...args], { stdout: "pipe", stderr: "pipe" });
+    const deny = icacls(["/deny", `${me}:(WD)`]);
+    if (deny.exitCode !== 0) return; // runner cannot manage ACLs: skip rather than misclaim
+    try {
+      let denied = false;
+      try {
+        writeFileSync(join(store, "probe.txt"), "x");
+      } catch {
+        denied = true;
+      }
+      if (!denied) return; // the denial did not stick on this runner
+      let ran = false;
+      const t0 = Date.now();
+      let failed = false;
+      let message = "";
+      try {
+        await withStoreLock(
+          file,
+          async () => {
+            ran = true;
+            await Bun.write(file, "x");
+          },
+          { timeoutMs: 5000 },
+        );
+      } catch (e) {
+        failed = true;
+        message = String((e as Error).message ?? e);
+      }
+      expect(ran).toBe(false);
+      expect(failed).toBe(true);
+      expect(Date.now() - t0).toBeLessThan(2000);
+      expect(message).toMatch(/EPERM|EACCES|permission/i);
+    } finally {
+      icacls(["/remove:d", me]);
+    }
   });
 });

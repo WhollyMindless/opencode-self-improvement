@@ -8,7 +8,16 @@ import { join, basename } from "node:path";
 import { dateStr, memoryRoot, deletionsFile, snapshotDir, HITS_FILENAME } from "./config.ts";
 import { repoScopeFor } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
-import { appendLog, ensureDir, formatLine, parseLine, readLines, writeAtomic, type Fields } from "./logfmt.ts";
+import {
+  appendLog,
+  ensureDir,
+  fileIdentity,
+  formatLine,
+  parseLine,
+  readLines,
+  writeAtomic,
+  type Fields,
+} from "./logfmt.ts";
 import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 import { blockedTs } from "./blocklist.ts";
 import { containsSecret, redactSecrets } from "./secrets.ts";
@@ -319,6 +328,10 @@ async function stampRow(
   return withStoreLock(
     file,
     async () => {
+      // Identity BEFORE the read: it pins the state `lines` was derived from,
+      // so writeAtomic can refuse to publish if anything moved the file
+      // meanwhile (Windows retry path — see logfmt.ts handoverRename).
+      const since = await fileIdentity(file);
       const lines = await readLines(file);
       const idx = lines.findIndex((l) => {
         const f = parseLine(l);
@@ -331,7 +344,7 @@ async function stampRow(
       if (next === null) return false;
       lines[idx] = next;
       await snapshotBefore(file);
-      await writeAtomic(file, lines.join("\n") + "\n");
+      await writeAtomic(file, lines.join("\n") + "\n", since);
       return true;
     },
     LOCK_WRITE,
@@ -528,6 +541,7 @@ export async function prune(scope: string, type: string, reason: string): Promis
     await withStoreLock(
       file,
       async () => {
+        const since = await fileIdentity(file);
         const lines = await readLines(file);
         const kept: string[] = [];
         let changed = false;
@@ -547,7 +561,7 @@ export async function prune(scope: string, type: string, reason: string): Promis
         }
         if (!changed) return;
         snapshot.push(...(await snapshotFiles([file])));
-        await writeAtomic(file, kept.join("\n") + (kept.length ? "\n" : ""));
+        await writeAtomic(file, kept.join("\n") + (kept.length ? "\n" : ""), since);
       },
       LOCK_WRITE,
     );
