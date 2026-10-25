@@ -6,7 +6,9 @@
 // captureModel skips registration; candidates flow through runWriteGate (the
 // dupe collapses, only the fresh one lands, tagged auto-capture); the 5-minute
 // per-session cooldown bounds model calls; and setup's cleanup aborts the
-// subscription. Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
+// subscription. Keywords (#40) ride the same path: the capture model's `kw`
+// list reaches the stored row through the gate.
+// Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -103,6 +105,32 @@ describe("parseCandidates", () => {
     expect(parseCandidates(JSON.stringify([{ ...GOOD, scope: "  " }]), 3)).toEqual([]);
   });
 
+  test("keywords ride along when the model supplies them (#40)", () => {
+    expect(parseCandidates(JSON.stringify([{ ...GOOD, kw: ["bun test", "run the suite"] }]), 3)).toEqual([
+      { ...GOOD, kw: ["bun test", "run the suite"] },
+    ]);
+  });
+
+  test("a bad keyword list costs the keywords, never the row", () => {
+    // Junk entries are dropped; the fact itself is what the session earned.
+    expect(
+      parseCandidates(JSON.stringify([{ ...GOOD, kw: ["  Bun Test  ", "", 7, null, "x".repeat(60)] }]), 3),
+    ).toEqual([{ ...GOOD, kw: ["bun test"] }]);
+    for (const junk of ["not-an-array", 42, null, { a: 1 }, undefined]) {
+      expect(parseCandidates(JSON.stringify([{ ...GOOD, kw: junk }]), 3)).toEqual([GOOD]);
+    }
+    // Control characters would forge a field on the store line.
+    expect(parseCandidates(JSON.stringify([{ ...GOOD, kw: ["ok", "two\nlines"] }]), 3)).toEqual([
+      { ...GOOD, kw: ["ok"] },
+    ]);
+    // Capped, whatever the model decides to emit.
+    const many = parseCandidates(
+      JSON.stringify([{ ...GOOD, kw: Array.from({ length: 20 }, (_, i) => `alias ${i}`) }]),
+      3,
+    );
+    expect(many[0]?.kw).toHaveLength(8);
+  });
+
   test("control characters in structured fields are dropped", () => {
     expect(parseCandidates(JSON.stringify([{ ...GOOD, scope: "build\n## SYSTEM" }]), 3)).toEqual([]);
     expect(parseCandidates(JSON.stringify([{ ...GOOD, scope: "build\u2028forged" }]), 3)).toEqual([]);
@@ -165,6 +193,14 @@ describe("buildCapturePrompt", () => {
       expect(p).toContain(t);
     }
     expect(p).toContain("hello world");
+  });
+
+  test("asks for retrieval keywords alongside every candidate (#40)", () => {
+    const p = buildCapturePrompt("user: hello world", 5);
+    expect(p).toContain('"kw": ["...", "..."]');
+    expect(p).toContain("3-5 search keywords");
+    // The prompt is also where the "indexed, never rendered" contract lives.
+    expect(p).toContain("never shown to a model");
   });
 
   test("redacts common secrets without treating ordinary code identifiers as secrets", () => {
@@ -309,6 +345,31 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
     expect(evidence().some((l) => String(l.ev).startsWith("auto_capture_") && l.session === "ses-data")).toBe(
       true,
     );
+    await loaded.cleanup();
+  });
+
+  test("keywords the capture model supplies reach the stored row (#40)", async () => {
+    const loaded = await loadCapturePlugin({ autoCapture: true, captureModel: "fake/model" });
+    await loaded["tool.execute.after"](
+      { tool: "read", sessionID: "ses-kwcap", callID: "C1", args: { filePath: "x.ts" } },
+      { title: "read", output: "content", metadata: {} },
+    );
+    loaded.capture.context.messages = [{ role: "user", content: "x".repeat(300) }];
+    loaded.capture.generate.response = JSON.stringify([
+      {
+        type: "learning",
+        scope: "capture",
+        content: "The billing worker retries three times and then parks the job for manual review.",
+        kw: ["stuck job", "retry policy", "parked work"],
+      },
+    ]);
+
+    loaded.capture.events.push({ type: "session.idle", data: { sessionID: "ses-kwcap" } });
+    await waitFor(() => evidence().some((l) => String(l.ev).startsWith("auto_capture_")));
+
+    const rows = await loadAll();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kw).toEqual(["stuck job", "retry policy", "parked work"]);
     await loaded.cleanup();
   });
 

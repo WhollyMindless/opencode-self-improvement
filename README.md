@@ -161,11 +161,14 @@ A deterministic, auditable eval of the **shipped** matcher against classic
 BM25, on query classes assigned by *measured* vocabulary overlap with the
 right memory (store of 200; k=3 = the production injection limit):
 
-| Query, vs. the stored memory | share | R@1 | R@3 |
-| --- | ---: | ---: | ---: |
-| lexical — reuses your project's words | 46% | 98% | 98% |
-| near — reworded, one overlap | 17% | 28% | 28% |
-| strict — zero shared words | 37% | 0% | 0% |
+| Query, vs. the stored memory | share | R@1 | R@3 | with `kw` R@1 | with `kw` R@3 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| lexical — reuses your project's words | 46% | 98% | 98% | 98% | 98% |
+| near — reworded, one overlap | 17% | 28% | 28% | 67% | 72% |
+| strict — zero shared words | 37% | 0% | 0% | 26% | 26% |
+
+"with `kw`" is the same matcher over the same store, with each row's write-time
+keywords indexed — the only changed variable is the index.
 
 What the benchmark bought us:
 
@@ -183,14 +186,19 @@ What the benchmark bought us:
   exactly: near-class R@3 83% → 28% (the remainder is keyword-length queries,
   which still inject on one concept) for the 34% → 6% wrong-memory number
   above. A quiet turn beats a confident wrong one.
-- **Strict paraphrase is the real lexical wall**, and we won't pretend
-  otherwise. Nothing keyword-side crosses it. So instead of confident noise the
-  matcher now goes *silent* when the vocabulary shares nothing (35 of 39
-  strict queries inject nothing at all), and the agent's `memory_recall` loop
-  remains as the pull path. Embeddings are the only known crossing — the bench
-  exposes a scorer seam if you want to measure them — but requiring an
-  inference engine just to remember things is a non-starter for a zero-dependency
-  plugin.
+- **Strict paraphrase was the real lexical wall, and write-time keywords
+  cracked part of it.** Nothing that reads-only ever crossed it: the matcher
+  went *silent* when the vocabulary shared nothing (35 of 39 strict queries
+  injected nothing at all), leaving `memory_recall` as the pull path. So the
+  fix moved to write time — `memory_remember` and auto-capture ask each row for
+  3-5 `kw` aliases (other names, other verb forms, the literal command), which
+  are indexed and never rendered. Result: strict R@1 0% → 26% and near R@1 28% →
+  67%, top-1 wrong-memory noise unchanged at 6%, abstentions 47 → 30. A
+  permutation control (every row given someone else's aliases) scores 29%/35%,
+  so the gain is meaning, not extra tokens. The wall is not gone — 26% is a
+  third of it, and embeddings remain the only general crossing (the bench
+  exposes a scorer seam if you want to measure them; requiring an inference
+  engine just to remember things is a non-starter for a zero-dependency plugin).
 - Caveats, honestly: the dataset is synthetic (52 memories / 105 queries, a
   fictional project), its class mix is deliberately adversarial (far richer in
   zero-overlap paraphrases than real prompts), and scoring is single-gold.

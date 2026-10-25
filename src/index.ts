@@ -92,7 +92,10 @@ import {
 } from "./schema.ts";
 
 function scoreMemory(m: Memory, q: string): number {
-  const hay = `${m.type} ${m.scope} ${m.content}`.toLowerCase();
+  // Same indexed fields as the injection scorer (#40): a row recalled by one of
+  // its keywords is the same row recalled by the prose that keyword stands for.
+  const kw = m.kw?.length ? ` ${m.kw.join(" ")}` : "";
+  const hay = `${m.type} ${m.scope} ${m.content}${kw}`.toLowerCase();
   let score = 0;
   for (const w of q.toLowerCase().split(/\s+/).filter(Boolean)) {
     if (hay.includes(w)) score++;
@@ -297,7 +300,7 @@ const impl = {
       editor.add(validated(RememberArgs, {
         name: "memory_remember",
         description:
-          "Store a memory after the 4-gate write pipeline validates it (canonical graph, stale refs, dupes). Blocked writes record evidence instead of persisting.",
+          "Store a memory after the 4-gate write pipeline validates it (canonical graph, stale refs, dupes). Blocked writes record evidence instead of persisting. Add `kw` — 3-5 aliases, synonyms, verb forms or the literal command a FUTURE session would search with — to make a row findable when the wording differs; keywords are indexed, never injected.",
         options: direct,
         async execute(args): Promise<{ content: string }> {
           const candidate: WriteCandidate = {
@@ -306,6 +309,7 @@ const impl = {
             content: args.content,
             issue: args.issue,
             tags: args.tags,
+            kw: args.kw,
             status: args.status,
             repo: args.global ? "global" : undefined,
           };
@@ -398,7 +402,7 @@ const impl = {
           }
           const target = resolved.target;
           const outcome = await runWriteGate(
-            { type: args.type, scope: args.scope, content: args.content, status: args.status },
+            { type: args.type, scope: args.scope, content: args.content, kw: args.kw, status: args.status },
             gateContext(),
           );
           if (outcome.action === "promoted" && outcome.ts && target) {

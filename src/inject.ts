@@ -99,9 +99,18 @@ const QUERY_STOPWORDS = new Set(
 // quiet unless the vocabulary genuinely agrees twice.
 const LONG_QUERY_TOKENS = 3;
 
-// Production relevance ranking: candidates must clear the concept-overlap
+// Production relevance ranking. Candidates must clear the concept-overlap
 // gate, then rank by Robertson-IF of the shared tokens (rare concepts beat
 // piles of common ones — the same idf form the bench's BM25 row uses).
+// Ties break deliberately, in this order: open threads first (a pinned frontier
+// row beats an equal-scoring settled one — that is what the frontier is for),
+// then the newer row (#40 item 2: between two equally relevant facts, the one
+// stating what is true NOW is the better guess; epoch-freeze-safe because ts
+// never changes for a given row).
+// The haystack is `scope + type + content + kw`, where `kw` are the
+// author-supplied aliases indexed at write time (#40 item 3, the vocabulary
+// bridge for the bench's strict-paraphrase wall). Keywords are indexed, never
+// rendered, so they cannot change what a block costs.
 // Exported for bench/recall-quality.ts — the benchmark measures the shipped
 // matcher.
 //
@@ -115,7 +124,7 @@ export function scoreMemories(term: string, mems: Memory[], limit: number): Memo
   const query = new Set(words(term).filter((t) => !QUERY_STOPWORDS.has(t)));
   if (!query.size) return [];
   const needShared = query.size >= LONG_QUERY_TOKENS ? 2 : 1;
-  const hays = live.map((m) => new Set(words(`${m.scope} ${m.type} ${m.content}`)));
+  const hays = live.map((m) => new Set(words(haystack(m))));
   const df = new Map<string, number>();
   for (const h of hays) for (const t of h) df.set(t, (df.get(t) ?? 0) + 1);
   const n = live.length || 1;
@@ -132,9 +141,27 @@ export function scoreMemories(term: string, mems: Memory[], limit: number): Memo
       return { m, shared, score };
     })
     .filter((s) => s.shared >= needShared)
-    .sort((a, b) => b.score - a.score || openRank(b.m) - openRank(a.m))
+    .sort((a, b) => b.score - a.score || openRank(b.m) - openRank(a.m) || cmpTs(b.m.ts, a.m.ts))
     .slice(0, limit)
     .map((s) => s.m);
+}
+
+// What a row is matched against. Kept in one place so the bench's arms and
+// production can never disagree about the indexed fields.
+export function haystack(m: Memory): string {
+  return `${m.scope} ${m.type} ${m.content}${m.kw?.length ? ` ${m.kw.join(" ")}` : ""}`;
+}
+
+// Numeric compare, with the string compare kept as fallback for non-dates
+// (the ledger hands "" when a row was never used). ISO strings agree with
+// Date.parse only while the FORMAT agrees: a legacy second-precision stamp
+// ("…:01Z") and a millisecond stamp ("…:01.000Z") for the same instant order
+// wrong as strings, which would silently mis-rank the recency tie-break.
+function cmpTs(a: string, b: string): number {
+  const na = Date.parse(a);
+  const nb = Date.parse(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb)) return na < nb ? -1 : na > nb ? 1 : 0;
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function openRank(m: Memory): number {
@@ -209,7 +236,7 @@ export async function systemDigest(
 
   const open = mems
     .filter((m) => m.status === "open")
-    .sort((a, b) => (a.ts < b.ts ? 1 : -1))
+    .sort((a, b) => cmpTs(b.ts, a.ts))
     .slice(0, OPEN_THREAD_LIMIT);
   if (!open.length) return;
 
@@ -293,7 +320,7 @@ export async function storeVersion(rows?: Memory[]): Promise<string> {
   let max = "";
   const hash = createHash("sha256");
   for (const m of mems) {
-    if (m.ts > max) max = m.ts;
+    if (cmpTs(m.ts, max) > 0) max = m.ts;
     hash.update(JSON.stringify([m.ts, formatMemory(m)]));
     hash.update("\n");
   }
@@ -335,7 +362,7 @@ export async function compactionAnchor(limit = 12): Promise<string> {
   // Repo-scoped: model-facing reads see this repo + global rows.
   const mems = visibleHere((await loadAll()).filter(isActive));
   if (!mems.length) return "";
-  const byNewest = (a: Memory, b: Memory) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0);
+  const byNewest = (a: Memory, b: Memory) => cmpTs(b.ts, a.ts);
   const open = mems
     .filter((m) => m.status === "open")
     .sort(byNewest)

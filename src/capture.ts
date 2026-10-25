@@ -26,6 +26,28 @@ export interface CaptureCandidate {
   scope: string;
   content: string;
   status?: "open" | "settled";
+  /** Retrieval keywords (#40): indexed by the store, never rendered. */
+  kw?: string[];
+}
+
+// Keywords are the vocabulary bridge for the strict-paraphrase wall, mined from
+// the transcript the model just saw. Cap and shape mirror the store's own
+// limits; the store normalises again at write, so this only has to stay
+// junk-proof (capture.ts never imports the store — it stays dependency-free).
+const CAPTURE_KEYWORD_CAP = 8;
+const CAPTURE_KEYWORD_CHARS = 48;
+
+function cleanKeywords(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const k = item.trim().toLowerCase();
+    if (!k || k.length > CAPTURE_KEYWORD_CHARS || flattenMemoryText(k) !== k) continue;
+    if (!out.includes(k)) out.push(k);
+    if (out.length === CAPTURE_KEYWORD_CAP) break;
+  }
+  return out.length ? out : undefined;
 }
 
 // Prompt for the cheap capture model. The output contract is a bare JSON
@@ -35,13 +57,14 @@ export function buildCapturePrompt(transcript: string, max = 3): string {
     "You mine one coding-agent session transcript for durable memories worth keeping across future sessions.",
     "",
     `Output ONLY a JSON array of at most ${max} objects (a fenced json block is fine), each:`,
-    '{"type": "...", "scope": "...", "content": "...", "status": "..."}',
+    '{"type": "...", "scope": "...", "content": "...", "status": "...", "kw": ["...", "..."]}',
     "",
     "Rules:",
     `- type: one of ${TYPES.join(", ")}.`,
     "- scope: short area name (e.g. auth, api, build).",
     '- status: "open" for a live planning thread; otherwise "settled".',
     "- content: one self-contained fact, 20-600 characters, useful in a NEW session.",
+    '- kw: 3-5 search keywords for how a DIFFERENT session would ask for this — synonyms and alternate names, other verb forms, the literal command or file name. They are indexed for retrieval and never shown to a model. Omit (or []) when the content already uses those words.',
     "- Keep: decisions made, working commands, user preferences, blockers hit, durable context, conventions.",
     "- Skip: anything derivable from the code or git history, small talk, and details that only mattered inside this conversation.",
     "- If nothing is worth remembering, output [ ].",
@@ -112,7 +135,12 @@ export function parseCandidates(raw: string, max: number): CaptureCandidate[] {
       if (!VALID_TYPES.has(type)) continue;
       if (content.length < 20 || content.length > 600) continue;
       const status = o.status === "open" || o.status === "settled" ? o.status : undefined;
-      out.push(status ? { type, scope, content, status } : { type, scope, content });
+      // A bad kw list costs the row its keywords, never the row itself.
+      const kw = cleanKeywords(o.kw);
+      out.push({
+        ...(status ? { type, scope, content, status } : { type, scope, content }),
+        ...(kw ? { kw } : {}),
+      });
     }
     return out;
   } catch {
