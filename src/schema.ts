@@ -127,8 +127,10 @@ export const EvidenceArgs = z.object({
 });
 
 export const MergeReviewArgs = z.object({
-  loser: z.string().describe("Evidence id of the rival/overlap write to supersede"),
-  survivor: z.string().describe("Evidence id of the canonical winning write"),
+  loser: z
+    .string()
+    .describe("Ts id of the stored losing row to supersede (a blocked write was never stored and has no id)"),
+  survivor: z.string().describe("Ts id of the stored canonical winning row"),
   reason: z.string().describe("Why the survivor is canonical over the loser (written to evidence)"),
 });
 

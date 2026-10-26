@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dateStr, memoryRoot, snapshotDir } from "../src/config.ts";
+import { dateStr, evidenceDir, memoryRoot, snapshotDir } from "../src/config.ts";
 import { parseLine, readLines } from "../src/logfmt.ts";
 import {
   appendMemory,
@@ -172,6 +172,176 @@ describe("memory_update row targeting", () => {
     expect(resolveMemoryTarget(all, "nothing matches this")).toEqual({ status: "not_found" });
     expect(resolveMemoryTarget([], "anything")).toEqual({ status: "not_found" });
     expect(resolveMemoryTarget(all)).toMatchObject({ status: "ok", target: { ts: b } });
+  });
+});
+
+describe("memory_update on conflict-prone rows", () => {
+  test("a reworded preference update rewrites its target instead of conflicting with it", async () => {
+    // The target and the rewrite overlap well past the conflict floor: before
+    // the gate knew the update's target, GATE-3 cited the row being replaced as
+    // the rival and blocked the update forever (preference rows were frozen
+    // after creation).
+    const p = await appendMemory({
+      type: "preference",
+      scope: "reviews",
+      content: "prefer small focused pull requests that ship one reviewable change each",
+    });
+    const loaded = await tools();
+    const out = await loaded.memory_update.execute({
+      type: "preference",
+      scope: "reviews",
+      status: "open",
+      query: p,
+      content: "prefer small focused pull requests that ship one reviewable change and pass ci before merge",
+    });
+    expect(out).toContain(`superseded ${p}`);
+
+    const rows = (await loadAll()).filter((m) => m.scope === "reviews" && m.type === "preference");
+    expect(isActive(rows.find((m) => m.ts === p)!)).toBe(false);
+    const fresh = rows.filter(isActive);
+    expect(fresh.length).toBe(1);
+    expect(fresh[0]!.content).toContain("pass ci before merge");
+  });
+});
+
+describe("memory_update supersession edges surfaced by the #125 review", () => {
+  // The superseded_overlap hint advertises memory_update as THE remedy for a
+  // review-gated conflict. These tests pin what that path actually does today.
+
+  test("ADVERSARIAL pin: an update swaps its target's value with rival content, no review (the rivalry gate is advisory for updates)", async () => {
+    // Same payload through two tools: memory_remember is review-gated, while
+    // memory_update on the rival's ts promotes with NO similarity requirement
+    // between update content and target. Per the #122 ruling the update IS the
+    // sanctioned supersession — but that makes gate-3 skippable by any caller
+    // that reads the block hint. If updates are ever required to stay near
+    // their target's content, this pin flips alongside the hint text.
+    const X = await appendMemory({
+      type: "decision",
+      scope: "pivot",
+      status: "open",
+      content: "decided to use postgres for the primary datastore with pgbouncer pooling",
+    });
+    const loaded = await tools();
+    const blocked = await loaded.memory_remember.execute({
+      type: "decision",
+      scope: "pivot",
+      status: "open",
+      content: "decided to use mysql for the primary datastore with proxysql pooling",
+    });
+    expect(blocked).toContain("superseded_overlap");
+
+    const out = await loaded.memory_update.execute({
+      type: "decision",
+      scope: "pivot",
+      status: "open",
+      query: X,
+      content: "decided to use mysql for the primary datastore with proxysql pooling",
+    });
+    expect(out).toContain(`superseded ${X}`);
+    const fresh = (await loadAll()).filter((m) => m.scope === "pivot" && isActive(m));
+    expect(fresh.length).toBe(1);
+    expect(fresh[0]!.content).toContain("mysql");
+  });
+
+  test("ADVERSARIAL pin: an update whose content byte-equals another live row silently no-ops; the target survives", async () => {
+    // "Duplicate ignored" reads like success but the requested rewrite did NOT
+    // happen: the target stays live with its old content, next to the row the
+    // content duplicated. If collapsed updates are ever folded into a real
+    // supersede (merge), this pin flips.
+    const a = await appendMemory({ type: "pattern", scope: "colupd", status: "open", content: ALPHA });
+    await appendMemory({ type: "pattern", scope: "colupd", status: "open", content: BETA });
+    const loaded = await tools();
+    const out = await loaded.memory_update.execute({
+      type: "pattern",
+      scope: "colupd",
+      status: "open",
+      query: a,
+      content: BETA,
+    });
+    expect(out).toContain("Duplicate ignored");
+    const after = (await loadAll()).filter((m) => m.scope === "colupd");
+    expect(isActive(after.find((m) => m.ts === a)!)).toBe(true);
+    expect(after.filter(isActive).length).toBe(2);
+  });
+
+  test("two concurrent updates on one target: the winner lands, the loser fails closed (no double-swap)", async () => {
+    // The race this replaced (measured 5/5 before the fix): both calls
+    // returned "Updated ... (superseded A)", the store kept BOTH replacement
+    // rows live, and superseded_by recorded only one. With the update-order
+    // lock the loser re-resolves its target AFTER the winner retired it, so
+    // it hits the documented not_found fail-closed path and appends nothing.
+    const A = await appendMemory({
+      type: "learning",
+      scope: "raceupd",
+      status: "open",
+      content: "alpha lint step runs eslint over packages cli",
+    });
+    const loaded = await tools();
+    const [o1, o2] = await Promise.all([
+      loaded.memory_update.execute({
+        type: "learning", scope: "raceupd", status: "open", query: A,
+        content: "alpha lint step runs oxlint over packages cli",
+      }),
+      loaded.memory_update.execute({
+        type: "learning", scope: "raceupd", status: "open", query: A,
+        content: "alpha lint step runs biome over packages cli",
+      }),
+    ]);
+    expect(o1).toContain(`superseded ${A}`);
+    expect(o2).toContain("blocked");
+    expect(o2).toContain("Nothing was written.");
+    const rows = (await loadAll()).filter((m) => m.scope === "raceupd");
+    expect(rows.length).toBe(2); // target + exactly one replacement, no orphan
+    const active = rows.filter(isActive);
+    expect(active.length).toBe(1);
+    expect(active[0]!.content).toContain("oxlint");
+    expect(isActive((await loadAll()).find((m) => m.ts === A)!)).toBe(false);
+  });
+});
+
+describe("memory_merge_review input integrity (#125 probe)", () => {
+  // Probed live: merge_review skipped every validation the update path has.
+  // A survivor id naming no row retired the loser toward nothing (scope ends
+  // with zero active rows) while the tool declared it canonical, and the
+  // success text promised "Evidence recorded" although the handler writes
+  // none (the host tool_result hook covers grep/read/edit/shell, not memory
+  // tools). These pins close both; stale-merge revival is a separate,
+  // pinned-contract question (see review notes), NOT touched here.
+
+  test("a survivor id that names no row retires NOTHING (phantom-survivor pin)", async () => {
+    const L = await seed("alpha lint step runs eslint over packages cli");
+    const loaded = await tools();
+    const out = await loaded.memory_merge_review.execute({
+      loser: L,
+      survivor: "2099-01-01T00:00:00.000Z",
+      reason: "phantom pin",
+    });
+    expect(out).toContain("blocked");
+    expect(out).not.toContain("canonical");
+    expect(isActive((await byId(L))!)).toBe(true);
+    expect((await byId(L))?.superseded_by).toBeUndefined();
+  });
+
+  test("loser and survivor being the same row is rejected (no self-supersede round-trip)", async () => {
+    const A = await seed("beta deploy builds the docker registry image");
+    const loaded = await tools();
+    const out = await loaded.memory_merge_review.execute({ loser: A, survivor: A, reason: "self pin" });
+    expect(out).toContain("blocked");
+    expect(isActive((await byId(A))!)).toBe(true);
+  });
+
+  test("a successful merge leaves an auditable evidence row, as the message claims", async () => {
+    const L = await seed("alpha lint step runs eslint over packages cli");
+    const S = await seed("beta deploy builds the docker registry image");
+    const loaded = await tools();
+    const out = await loaded.memory_merge_review.execute({ loser: L, survivor: S, reason: "audit pin" });
+    expect(out).toContain(`${S} is canonical`);
+    const rec = (await readLines(join(evidenceDir(), `${dateStr()}.logfmt`)))
+      .map((l) => parseLine(l))
+      .find((f) => f?.ev === "merge_resolved");
+    expect(rec).toBeTruthy();
+    expect(String(rec!.loser)).toBe(L);
+    expect(String(rec!.survivor)).toBe(S);
   });
 });
 

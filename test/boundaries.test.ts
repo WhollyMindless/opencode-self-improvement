@@ -154,8 +154,11 @@ const EXPECTED_WIRE = {
   memory_merge_review: {
     type: "object",
     properties: {
-      loser: { type: "string", description: "Evidence id of the rival/overlap write to supersede" },
-      survivor: { type: "string", description: "Evidence id of the canonical winning write" },
+      loser: {
+        type: "string",
+        description: "Ts id of the stored losing row to supersede (a blocked write was never stored and has no id)",
+      },
+      survivor: { type: "string", description: "Ts id of the stored canonical winning row" },
       reason: {
         type: "string",
         description: "Why the survivor is canonical over the loser (written to evidence)",
