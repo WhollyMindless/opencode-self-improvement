@@ -1,7 +1,8 @@
 // Evidence log writer. One logfmt line per event, appended in hook order to
 // ~/.config/opencode/memory/evidence/<date>.logfmt. Evidence is DATA: never
 // injected into chat, and stored outside every repo.
-import { join } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { dateStr, evidenceDir } from "./config.ts";
 import { appendLog, formatLine } from "./logfmt.ts";
@@ -10,6 +11,36 @@ import { getCurrent } from "./state.ts";
 import { redactSecrets } from "./secrets.ts";
 
 export type EvidenceEvent = string;
+
+// The ONLY path memory_evidence may read (#130): a real calendar date in
+// YYYY-MM-DD form, resolved INSIDE the evidence directory. The schema layer
+// already refuses non-date strings at the boundary; this is the second door —
+// impossible dates (2026-02-30, which Date would silently roll over) and
+// symlinked day files must not hand out files outside the evidence dir.
+// Returns null when the read must be refused; the forced .logfmt suffix is
+// the primitive's residual bound either way.
+export function evidenceFileFor(date?: string): string | null {
+  const d = date ?? dateStr();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+  if (!m) return null;
+  const [y, mo, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const probe = new Date(Date.UTC(y, mo - 1, day));
+  if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== mo - 1 || probe.getUTCDate() !== day) {
+    return null;
+  }
+  const dir = resolve(evidenceDir());
+  const file = resolve(dir, `${d}.logfmt`);
+  if (dirname(file) !== dir) return null; // containment, defense in depth
+  if (existsSync(file)) {
+    // A day file symlinked out of the store still has to land inside it.
+    try {
+      if (realpathSync(file) !== join(realpathSync(dir), `${d}.logfmt`)) return null;
+    } catch {
+      return null; // an unreadable link is not a file we will follow
+    }
+  }
+  return file;
+}
 
 // Credential scrub at the evidence WRITE boundary. Evidence fields routinely
 // carry caller-authored prose (gate reasons, block reasons, review notes) and

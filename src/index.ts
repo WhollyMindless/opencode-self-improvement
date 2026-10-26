@@ -12,7 +12,7 @@
 // helper modules.
 import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { basename, join } from "node:path";
-import { evidenceDir, frontierBudget, injectBudget, memoryRoot, dateStr } from "./config.ts";
+import { frontierBudget, injectBudget, memoryRoot } from "./config.ts";
 import { STATUSES, TYPES } from "./types.ts";
 import {
   clearSuperseded,
@@ -36,7 +36,7 @@ import { pruneMemory } from "./prune.ts";
 import { exportMemories, findStaleOpen, importMemories } from "./portable.ts";
 import { listSnapshots, restoreSnapshot } from "./undo.ts";
 import { SESSION_CAP, SessionLru } from "./sessions.ts";
-import { record, recordCaptureLag } from "./evidence.ts";
+import { evidenceFileFor, record, recordCaptureLag } from "./evidence.ts";
 import { proposeConsolidations, renderProposals } from "./consolidate.ts";
 import { readReads } from "./hits.ts";
 import {
@@ -717,7 +717,16 @@ const impl = {
         async execute(args, context): Promise<{ content: string }> {
           const { sid } = toolIds(context);
           const reader = readerFromSid(sid);
-          const file = join(evidenceDir(), `${args.date || dateStr()}.logfmt`);
+          // #130: the ONE path the schema-validated date can resolve to —
+          // a real calendar day inside the evidence dir, never a traversal
+          // into the raw store or the filesystem beyond it.
+          const file = evidenceFileFor(args.date);
+          if (!file) {
+            return {
+              content:
+                "memory_evidence blocked: date must be a real YYYY-MM-DD calendar date — nothing was read.",
+            };
+          }
           let lines = await readLines(file);
           // Data partitions too (#131's ownership rule, applied to evidence):
           // a line stamped to another repository is not this session's data,
@@ -740,54 +749,109 @@ const impl = {
       editor.add(validated(MergeReviewArgs, {
         name: "memory_merge_review",
         description:
-          "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor, and clear any supersession the survivor itself carries so the canonical row stays recallable. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. Fails closed (no partial apply) when the reason or the survivor id is missing, the survivor id names no row in the store, or the loser is already superseded or is the survivor itself.",
+          "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor, and clear any supersession the survivor itself carries so the canonical row stays recallable. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. A session may merge exactly the rows it may read: global rows are mergeable from anywhere, but a row belonging to another repository is refused in either seat. Fails closed (no partial apply) when the reason or the survivor id is missing, the survivor id names no row in the store, the loser is already superseded or is the survivor itself, or either seat names a foreign repository's row.",
         options: direct,
-        async execute(args): Promise<{ content: string }> {
+        async execute(args, context): Promise<{ content: string }> {
+          const { sid } = toolIds(context);
           if (!args.loser || !args.survivor || !args.reason) {
             return { content: "merge_review blocked: loser, survivor, and reason are all required (fail-closed)." };
           }
-          // Probed: marking with a survivor id that names no row retired the
-          // loser toward a pointer to nothing (the scope ended with zero
-          // active rows) while the response declared it canonical. Validate
-          // BEFORE touching the loser — a resolution must never retire real
-          // data for a phantom. (Same-row input would mark and then revive
-          // the same row: a silent no-op that reports full success.)
           if (args.loser === args.survivor) {
+            // (Same-row input would mark and then revive the same row: a
+            // silent no-op that reports full success.)
             return { content: "merge_review blocked: loser and survivor are the same row — nothing to resolve. No evidence written." };
           }
-          if (!(await loadAll()).some((m) => m.ts === args.survivor)) {
-            return { content: `merge_review blocked: survivor ${args.survivor} does not exist in the store — nothing to resolve. No evidence written.` };
+          // A row id is a pointer, not authority (#131): resolving and
+          // authorizing BOTH seats happens against the caller's Reader —
+          // captured at entry, never re-read after an await (#127) — and the
+          // whole resolve/check/mutate runs under the same update-order lock
+          // memory_update serializes on (#125), so the authorization is
+          // revalidated under the mutation lock instead of against a snapshot
+          // a concurrent update could have replaced. Acquisition order is
+          // always update-order then store-file locks, never the reverse, so
+          // this cannot deadlock against a plain writer; on timeout it fails
+          // closed with nothing written.
+          const reader = readerFromSid(sid);
+          try {
+            return await withStoreLock(
+              join(memoryRoot(), "update-order"),
+              async () => {
+                const all = await loadAll();
+                const survivorRow = all.find((m) => m.ts === args.survivor);
+                // Probed: marking with a survivor id that names no row retired
+                // the loser toward a pointer to nothing (the scope ended with
+                // zero active rows) while the response declared it canonical.
+                // Validate BEFORE touching the loser — a resolution must never
+                // retire real data for a phantom.
+                if (!survivorRow) {
+                  return { content: `merge_review blocked: survivor ${args.survivor} does not exist in the store — nothing to resolve. No evidence written.` };
+                }
+                const loserRow = all.find((m) => m.ts === args.loser);
+                // Visibility is the authorization contract (#131): a session
+                // may merge exactly the rows it may read. Global and legacy
+                // unstamped rows are visible everywhere and therefore
+                // mergeable from anywhere — stated here, not granted
+                // implicitly by store-wide reach. A foreign row in EITHER
+                // seat — including an attempt to revive another repository's
+                // superseded survivor — is refused before any mutation.
+                if (loserRow && !isVisibleTo(loserRow, reader)) {
+                  return { content: "merge_review blocked: the loser belongs to another repository — this session may not retire it. Nothing was done. No evidence written." };
+                }
+                if (!isVisibleTo(survivorRow, reader)) {
+                  return { content: "merge_review blocked: the survivor belongs to another repository — this session may not promote or revive it. Nothing was done. No evidence written." };
+                }
+                const ok = await markSuperseded(args.loser, {
+                  superseded_by: args.survivor,
+                  reason: args.reason,
+                  symbol: args.loser,
+                  from: args.loser,
+                  to: args.survivor,
+                });
+                if (!ok) {
+                  return { content: "merge_review: loser not found or already superseded — nothing to resolve. No evidence written." };
+                }
+                // The survivor may itself have been superseded earlier (e.g. by
+                // a row this very call just made the loser). Declaring it
+                // canonical has to make it recallable, so clear its own marker.
+                const revived = await clearSuperseded(args.survivor);
+                // The response has always claimed "Evidence recorded" — now it
+                // is true, and it names the session the merge ran FOR (#121's
+                // residue on this line). The host tool_result hook covers
+                // grep/read/edit/shell only, so a merge used to leave zero
+                // trace: which reviewer decision, on which reason, reviving
+                // what — unauditable.
+                await record(
+                  "merge_resolved",
+                  {
+                    loser: args.loser,
+                    survivor: args.survivor,
+                    revived,
+                    reason: args.reason,
+                  },
+                  true,
+                  sid,
+                );
+                return {
+                  content:
+                    `Resolved merge: ${args.survivor} is canonical; ${args.loser} superseded (recoverable via memory_undo). ` +
+                    (revived ? `Survivor's own supersession cleared, it is active again. ` : "") +
+                    `Evidence recorded for reason='${args.reason}'.`,
+                };
+              },
+              {
+                onTimeout: "fail",
+                onEvent: (event, waitedMs) => {
+                  void record("store_lock", { event, waited_ms: waitedMs, op: "merge" });
+                },
+              },
+            );
+          } catch {
+            // Only the fail-closed lock timeout throws here; nothing was
+            // written either way — the documented fail-closed contract.
+            return {
+              content: "merge_review blocked: the store was busy past the lock budget — nothing was done. Retry.",
+            };
           }
-          const ok = await markSuperseded(args.loser, {
-            superseded_by: args.survivor,
-            reason: args.reason,
-            symbol: args.loser,
-            from: args.loser,
-            to: args.survivor,
-          });
-          if (!ok) {
-            return { content: "merge_review: loser not found or already superseded — nothing to resolve. No evidence written." };
-          }
-          // The survivor may itself have been superseded earlier (e.g. by a row
-          // this very call just made the loser). Declaring it canonical has to
-          // make it recallable, so clear its own marker too.
-          const revived = await clearSuperseded(args.survivor);
-          // The response has always claimed "Evidence recorded" — now it is
-          // true. The host tool_result hook covers grep/read/edit/shell only,
-          // so a merge used to leave zero trace: which reviewer decision, on
-          // which reason, reviving what — unauditable.
-          await record("merge_resolved", {
-            loser: args.loser,
-            survivor: args.survivor,
-            revived,
-            reason: args.reason,
-          });
-          return {
-            content:
-              `Resolved merge: ${args.survivor} is canonical; ${args.loser} superseded (recoverable via memory_undo). ` +
-              (revived ? `Survivor's own supersession cleared, it is active again. ` : "") +
-              `Evidence recorded for reason='${args.reason}'.`,
-          };
         },
       }));
 
@@ -1373,7 +1437,12 @@ const impl = {
           const lagMs = lagSince(msgs);
           const out = await generateApi.text({
             model: modelRef,
-            prompt: buildCapturePrompt(transcript.slice(-8000), captureMax),
+            // Redact the COMPLETE transcript, THEN apply the character budget
+            // (#132). Cropping first can start the window INSIDE a credential:
+            // a PEM body whose BEGIN marker fell off, or a token whose prefix
+            // fell off, matches no pattern — buildCapturePrompt's own scrub
+            // (kept, defense in depth) cannot recognize a fragment.
+            prompt: buildCapturePrompt(redactSecrets(transcript).slice(-8000), captureMax),
           });
           const text = typeof out === "string" ? out : out?.text ?? "";
           const candidates = parseCandidates(text, captureMax);
