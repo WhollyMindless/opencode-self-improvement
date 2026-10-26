@@ -200,6 +200,9 @@ export interface AppendMemoryInput {
   // appendMemory against the live repo scope.
   repo?: string;
   repoPath?: string;
+  // Which session the write belongs to, when the caller knows it (the gate
+  // threads it from GateContext, #116). Preferred over the ambient current.
+  sessionID?: string;
 }
 
 // ts values already in `file`. An appended row's ts is "now", so the only rows
@@ -262,7 +265,11 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   let repo = input.repo;
   let repoPath = input.repoPath;
   if (repo === undefined) {
-    const cur = repoScopeFor(getCurrent().sid);
+    // The caller's session when it named one: capture awaits a model call, and
+    // the last setCurrent before persistence may belong to another session
+    // entirely (#116). Unnamed writers (tools, viewer, restore) keep the
+    // ambient binding.
+    const cur = repoScopeFor(input.sessionID ?? getCurrent().sid);
     if (cur) {
       repo = cur.key;
       repoPath = cur.path;

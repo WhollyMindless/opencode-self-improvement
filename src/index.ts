@@ -268,12 +268,21 @@ const impl = {
       }
     }
 
-    const gateContext = (): GateContext => ({
-      liveRoot: sessionDir(getCurrent().sid) ?? liveRoot,
-      evidenceCalls: evidenceCalls(getCurrent().sid),
-      hasGateCheck: hasGateCheck(getCurrent().sid),
-      hasEngagement: hasEngagement(getCurrent().sid),
-    });
+    const gateContext = (sid?: string): GateContext => {
+      // Every session-scoped member resolves for the CALLER's session when it
+      // knows one (#116): capture awaits a model call between setCurrent and
+      // persistence, and on a multi-session server the global current moves
+      // during that await. Falling back to getCurrent() is exactly today's
+      // behavior for callers whose current IS their session (tool hooks).
+      const bound = sid ?? getCurrent().sid;
+      return {
+        sessionID: sid,
+        liveRoot: sessionDir(bound) ?? liveRoot,
+        evidenceCalls: evidenceCalls(bound),
+        hasGateCheck: hasGateCheck(bound),
+        hasEngagement: hasEngagement(bound),
+      };
+    };
 
     // Identity-event race backstop: a resumed session's FIRST turn can write
     // before the subscription has delivered its execution.started, and the
@@ -1124,8 +1133,10 @@ const impl = {
           trigger: "idle" | "compaction",
           seededMsgs?: unknown,
         ): Promise<void> {
-          // Bind the capturing session so captures stamp (and gate against)
-          // that session's repo, not whatever tool call ran last.
+          // Bind the capturing session for the synchronous stretches of this
+          // path - but NOT as a promise: the awaits below let another session
+          // move current, so the gate context and the persisted rows thread
+          // `sid` explicitly instead of reading it back from the global (#116).
           setCurrent({ sessionID: sid });
           let transcript = seeded;
           let msgs = seededMsgs;
@@ -1154,7 +1165,7 @@ const impl = {
                     ? ["auto-capture", CAPTURE_COMPACT_TAG]
                     : ["auto-capture"],
               },
-              gateContext(),
+              gateContext(sid),
             );
             await record(
               trigger === "compaction"
