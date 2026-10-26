@@ -33,6 +33,10 @@ export interface CaptureFakes {
   generate: {
     calls: Array<{ prompt: string; model: unknown }>;
     response: string;
+    // Deterministic stall seam (#116): when set, the stub awaits this promise
+    // AFTER logging the call, so a test can park the plugin mid-model-call and
+    // interleave other work before releasing it — no sleep-based races.
+    park?: Promise<unknown>;
   };
   context: {
     calls: string[];
@@ -166,6 +170,7 @@ export async function loadPlugin(
           prompt: String(input?.prompt ?? ""),
           model: input?.model,
         });
+        if (capture.generate.park) await capture.generate.park;
         return { text: capture.generate.response };
       },
     },
