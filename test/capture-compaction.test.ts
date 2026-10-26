@@ -103,6 +103,10 @@ async function ground(loaded: LoadedPlugin, sessionID: string): Promise<void> {
 
 const DUP_CONTENT = "Alpha builds are run with make all from the repository root directory.";
 const FRESH_CONTENT = "The staging API rate limit is 120 requests per minute per key as of October 2026.";
+// A second genuinely-new payload: in the two-setups idle test BOTH canned replies
+// must append, so the store assertion does not depend on which loop wins the
+// shared cooldown (#117).
+const FRESH_CONTENT_B = "The nightly archive job runs at 02:30 UTC and keeps fourteen days of tarballs.";
 
 // A pre-compaction transcript: both facts are still spelled out verbatim —
 // exactly the detail the summarizer is about to lose.
@@ -358,8 +362,13 @@ describe("cooldown shared across setup() registrations (#108)", () => {
     const a = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
     const b = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
     await ground(b, "ses-twin-idle");
+    // Both replies are genuinely new: the harness bus queues both subscribers
+    // independently, so which loop wins the shared cooldown is scheduling luck -
+    // with a DUP twin on either side, a collapse could legitimately leave the
+    // store at one row and the assertion was red on correct code (#117). The
+    // one-spend invariant this test pins is the CALL COUNT, not the content.
     a.capture.generate.response = JSON.stringify([{ type: "learning", scope: "api", content: FRESH_CONTENT }]);
-    b.capture.generate.response = JSON.stringify([{ type: "pattern", scope: "build", content: DUP_CONTENT }]);
+    b.capture.generate.response = JSON.stringify([{ type: "learning", scope: "ops", content: FRESH_CONTENT_B }]);
     const idleTranscript = [
       {
         role: "user",
@@ -379,9 +388,14 @@ describe("cooldown shared across setup() registrations (#108)", () => {
     // the fire and the other skips.
     a.capture.events.push({ type: "session.idle", sessionID: "ses-twin-idle" });
     b.capture.events.push({ type: "session.idle", sessionID: "ses-twin-idle" });
-    await waitFor(() => a.capture.generate.calls.length + b.capture.generate.calls.length > 0);
+    // Completion signal: the evidence line is recorded after runWriteGate
+    // returns, i.e. once the append has hit disk. The naked sleep this replaces
+    // doubled as the whole append budget and lost it on a loaded Windows
+    // runner; the compaction twin above already waits on evidence (#117).
+    await waitFor(() => evidence().some((l) => String(l.ev).startsWith("auto_capture_")));
+    expect(a.capture.generate.calls.length + b.capture.generate.calls.length).toBe(1);
     await sleep(150); // a second, uncooled fire would have reached generate by now
     expect(a.capture.generate.calls.length + b.capture.generate.calls.length).toBe(1);
-    expect((await loadAll()).filter(isActive).length).toBe(2); // seed + ONE row, whichever loop got there first
+    expect((await loadAll()).filter(isActive).length).toBe(2); // seed + the winner's row
   });
 });
