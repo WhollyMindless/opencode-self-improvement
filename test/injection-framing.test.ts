@@ -21,7 +21,7 @@ import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { isActive, loadAll } from "../src/memory.ts";
 import { resetState } from "../src/state.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
-import { setRepoScope } from "../src/repokey.ts";
+import { rememberSessionDir, setRepoScope } from "../src/repokey.ts";
 import { compactionAnchor, contextualPull, relevantKnowledge, systemDigest } from "../src/inject.ts";
 import { loadPlugin } from "./harness.ts";
 
@@ -380,6 +380,10 @@ describe("end-to-end: auto-captured memories surface their provenance", () => {
     expect(mined.tags).toContain("auto-capture");
 
     // It legitimately reaches the frontier (status open) — but framed and marked.
+    // fr-cap is a session OF this workspace: bind it, exactly as the prompt
+    // hook does in production (#127: an unbound named sid reads global rows
+    // only, never the module scope).
+    rememberSessionDir("fr-cap", liveRoot);
     const system: string[] = [];
     await systemDigest({ sessionID: "fr-cap" }, { system });
     const digest = system.join("\n");

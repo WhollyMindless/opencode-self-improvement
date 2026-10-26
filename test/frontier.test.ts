@@ -18,6 +18,7 @@ import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { appendMemory, loadAll } from "../src/memory.ts";
 import { runWriteGate, type GateContext } from "../src/gates.ts";
 import { relevantKnowledge, systemDigest } from "../src/inject.ts";
+import { resetSessionScopes, setRepoScope } from "../src/repokey.ts";
 import { resetState, setCurrent } from "../src/state.ts";
 
 let root: string;
@@ -28,6 +29,12 @@ beforeEach(() => {
   process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
+  // Hermetic identity: seeded rows are GLOBAL (no scope to inherit) and no
+  // session carries a leftover binding from an earlier file (#127 made an
+  // unbound named sid global-only instead of module-scope — this file was
+  // silently depending on whatever module scope the last file left behind).
+  setRepoScope(null);
+  resetSessionScopes();
   resetState();
 });
 

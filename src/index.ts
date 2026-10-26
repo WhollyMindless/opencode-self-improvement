@@ -16,6 +16,7 @@ import { evidenceDir, frontierBudget, injectBudget, memoryRoot, dateStr } from "
 import { STATUSES, TYPES } from "./types.ts";
 import {
   clearSuperseded,
+  evidenceVisibleTo,
   isActive,
   isVisibleHere,
   isVisibleTo,
@@ -80,8 +81,8 @@ import {
   onCompacting,
 } from "./triggers.ts";
 import { getCurrent, setCurrent } from "./state.ts";
-import { resolveRepo, setRepoScope, rememberSessionDir, sessionDir } from "./repokey.ts";
-import { readLines } from "./logfmt.ts";
+import { resolveRepo, setRepoScope, rememberSessionDir, sessionDir, sessionDirFirm, bindSessionProvisional } from "./repokey.ts";
+import { parseLine, readLines } from "./logfmt.ts";
 import { buildCapturePrompt, flattenTranscript, lagSince, parseCandidates, parseModelRef } from "./capture.ts";
 import { redactSecrets } from "./secrets.ts";
 import { flattenMemoryText } from "./sanitize.ts";
@@ -281,6 +282,10 @@ const impl = {
     const setupRoot = ctx?.location?.directory;
     const liveRoot = setupRoot ?? process.cwd();
     setRepoScope(setupRoot ? resolveRepo(setupRoot) : null);
+    // THIS instance's own workspace. The module scope says who loaded last;
+    // this says who I am. An unbound session that calls into THIS instance
+    // resolves here — never to another instance's scope (#127, multi-setup).
+    const instanceDir = typeof setupRoot === "string" && setupRoot ? setupRoot : undefined;
 
     // Character budgets: relevance injection and contextual pulls share the
     // existing cap; the session-start frontier has its own larger cap. Plugin
@@ -341,6 +346,13 @@ const impl = {
       const fromCtx = (context as { sessionID?: unknown; id?: unknown } | undefined)
         ?.sessionID;
       const call = (context as { id?: unknown } | undefined)?.id;
+      // Entry binding: a session this instance has never seen is resolved to
+      // THIS workspace (provisional — a firm event/API identity still
+      // replaces it), so the tool's reader partitions by the repository the
+      // call reached, not by the last setup's module scope (#127).
+      if (typeof fromCtx === "string" && fromCtx && fromCtx !== "?") {
+        bindSessionProvisional(fromCtx, instanceDir);
+      }
       return {
         sid: typeof fromCtx === "string" && fromCtx ? fromCtx : getCurrent().sid,
         call: typeof call === "string" && call ? call : getCurrent().call,
@@ -357,7 +369,7 @@ const impl = {
     // One-shot: never overwrites an event-bound entry.
     const bindingSids = new Set<string>();
     async function bindSessionFromMessages(sid: string | undefined): Promise<void> {
-      if (!sid || sid === "?" || sessionDir(sid) || bindingSids.has(sid)) return;
+      if (!sid || sid === "?" || sessionDirFirm(sid) || bindingSids.has(sid)) return;
       bindingSids.add(sid);
       try {
         const msgs = await ctx.session?.context?.({ sessionID: sid });
@@ -389,7 +401,7 @@ const impl = {
     const apiBindTried = new Set<string>();
     const apiBindOrder = new SessionLru(SESSION_CAP, (evicted) => apiBindTried.delete(evicted));
     async function bindSessionFromApi(sid: string | undefined): Promise<void> {
-      if (!sid || sid === "?" || sessionDir(sid) || apiBindTried.has(sid)) return;
+      if (!sid || sid === "?" || sessionDirFirm(sid) || apiBindTried.has(sid)) return;
       apiBindTried.add(sid);
       apiBindOrder.touch(sid);
       try {
@@ -403,11 +415,16 @@ const impl = {
     }
 
     // Identity must resolve BEFORE a row is stamped or a read is partitioned:
-    // try the (legacy) message payloads, then the session row.
+    // try the (legacy) message payloads, then the session row. A session the
+    // host cannot describe (fresh, or a host without the lookup) is bound to
+    // THIS instance's workspace — the caller's repository as the flow knows
+    // it, and strictly better than an unbound read inheriting the module
+    // scope of whoever loaded last (#127's multi-setup residue).
     async function bindSessionIdentity(sid: string | undefined): Promise<void> {
-      if (!sid || sid === "?" || sessionDir(sid)) return;
+      if (!sid || sid === "?" || sessionDirFirm(sid)) return;
       await bindSessionFromMessages(sid);
-      if (!sessionDir(sid)) await bindSessionFromApi(sid);
+      if (!sessionDirFirm(sid)) await bindSessionFromApi(sid);
+      bindSessionProvisional(sid, instanceDir);
     }
 
     // ---- tools --------------------------------------------------------------
@@ -689,9 +706,20 @@ const impl = {
         name: "memory_evidence",
         description: "Read captured evidence (data only) for a date, optionally filtered by event.",
         options: direct,
-        async execute(args): Promise<{ content: string }> {
+        async execute(args, context): Promise<{ content: string }> {
+          const { sid } = toolIds(context);
+          const reader = readerFromSid(sid);
           const file = join(evidenceDir(), `${args.date || dateStr()}.logfmt`);
           let lines = await readLines(file);
+          // Data partitions too (#131's ownership rule, applied to evidence):
+          // a line stamped to another repository is not this session's data,
+          // whatever the file it shares with the caller's lines.
+          if (reader.kind !== "admin") {
+            lines = lines.filter((l) => {
+              const fields = parseLine(l);
+              return !fields || evidenceVisibleTo(fields, reader);
+            });
+          }
           if (args.ev) lines = lines.filter((l) => l.includes(`ev=${args.ev}`));
           if (!lines.length) return { content: "No evidence" };
           const limit = args.limit || 50;
@@ -1067,6 +1095,13 @@ const impl = {
           args: event?.input,
         };
         setCurrent(input);
+        // Evidence lines written below stamp the RECORDING repository. Bind
+        // an unbound caller to this instance first (SYNC provisional; the
+        // prompt hook / events bind firmly in production) so a tool_result
+        // can never carry another instance's stamp (#127).
+        if (typeof event?.sessionID === "string") {
+          bindSessionProvisional(event.sessionID, instanceDir);
+        }
         const out = { output: resultText(event?.result), metadata: resultMeta(event?.result) };
         await afterTool(input, out);
         const pulled = await contextualPull(input, out as { output?: unknown }, budget, await useSignals());
@@ -1089,6 +1124,13 @@ const impl = {
         const sid = typeof event?.sessionID === "string" ? event.sessionID : undefined;
         setCurrent({ sessionID: event?.sessionID });
         if (typeof sid === "string") sessions.touch(sid);
+        // Resolve WHOSE repository this injection reads before the store
+        // read below: an unbound session would otherwise fall to global-only
+        // and silently lose its own frontier rows. SYNC provisional bind to
+        // this instance's workspace — the prompt hook (or an event) has
+        // already bound firmly in production, so no host lookup belongs in
+        // this hot path (#127).
+        if (typeof sid === "string") bindSessionProvisional(sid, instanceDir);
         const mems = await injectableRows(sid);
         if (typeof sid === "string") await refreshEpoch(sid, mems);
         const parts: string[] = [];
@@ -1149,6 +1191,10 @@ const impl = {
       guarded("session.compaction (onCompacting)", async () => {
         const sid = typeof event?.sessionID === "string" ? event.sessionID : undefined;
         setCurrent({ sessionID: event?.sessionID });
+        // The anchor read and the capture pass below partition by the session's
+        // repository; SYNC provisional bind only — a host lookup from this
+        // hook would violate the zero-token promise (#127, see capture).
+        if (typeof sid === "string") bindSessionProvisional(sid, instanceDir);
         await onCompacting({ sessionID: event?.sessionID });
         if (typeof event?.sessionID === "string") {
           epoch.delete(event.sessionID);
@@ -1296,6 +1342,13 @@ const impl = {
           // move current, so the gate context and the persisted rows thread
           // `sid` explicitly instead of reading it back from the global (#116).
           setCurrent({ sessionID: sid });
+          // The capture's dedup reads and the rows it writes partition by the
+          // CAPTURED session's repository — an unbound sid would otherwise
+          // read global-only and mine duplicates into the store (#127; in
+          // production the prompt hook already bound it firmly, so this is a
+          // no-op there). SYNC only: a lookup call here would break the
+          // zero-token promise of the capture tests.
+          bindSessionProvisional(sid, instanceDir);
           let transcript = seeded;
           let msgs = seededMsgs;
           if (transcript.length < 200) {

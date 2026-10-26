@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
 import { appendMemory } from "../src/memory.ts";
-import { resetSessionScopes, resolveRepo, setRepoScope } from "../src/repokey.ts";
+import { rememberSessionDir, resetSessionScopes, resolveRepo, setRepoScope } from "../src/repokey.ts";
 import { resetState, setCurrent } from "../src/state.ts";
 import { dateStr, deletionsFile, evidenceDir } from "../src/config.ts";
 import { redactSecrets } from "../src/secrets.ts";
@@ -41,6 +41,8 @@ beforeEach(() => {
   resetSessionScopes();
   resetCaptureCooldowns();
   setRepoScope(resolveRepo(a));
+  // ses-a IS a session OF repo-a — bound, not module-scope-borrowed (#127).
+  rememberSessionDir("ses-a", a);
   setCurrent({ sessionID: "ses-a" });
 });
 

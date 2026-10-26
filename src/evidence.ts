@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { dateStr, evidenceDir } from "./config.ts";
 import { appendLog, formatLine } from "./logfmt.ts";
+import { repoScopeFor } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
 import { redactSecrets } from "./secrets.ts";
 
@@ -39,10 +40,18 @@ export async function record(
   // this is exactly the old ambient read.
   const sid = sessionID ?? cur.sid;
   const call = sessionID !== undefined && sessionID !== cur.sid ? undefined : cur.call;
+  // Read-side partitioning of the shared log (#131's rule, applied to
+  // evidence): every line carries the repository that RECORDED it — the
+  // session's when known, else this process's scope, exactly like a store
+  // write stamps it. A reader from another repository then filters the line
+  // out (memory.ts evidenceVisibleTo); lines from a scope-less process stay
+  // unstamped and global.
+  const scope = repoScopeFor(typeof sid === "string" ? sid : undefined);
   const line = formatLine({
     ev,
     ts: new Date().toISOString(),
     ...(includeContext ? { sid, call } : {}),
+    ...(scope ? { repo: scope.key, repoPath: scope.path } : {}),
     ...scrubFields(fields),
   });
   await appendLog(join(evidenceDir(), `${dateStr()}.logfmt`), line);

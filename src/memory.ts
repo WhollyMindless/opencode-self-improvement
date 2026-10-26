@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { dateStr, memoryRoot, deletionsFile, snapshotDir, HITS_FILENAME } from "./config.ts";
-import { repoScopeFor, repoScope, sessionScope, type RepoScope } from "./repokey.ts";
+import { repoScopeFor, sessionScope, type RepoScope } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
 import {
   appendLog,
@@ -398,7 +398,18 @@ export async function markManySuperseded(
           if (!fields) continue;
           // Whole line rewritten, not extended: an old-format line comes out in
           // the current format with its values unchanged (as markSuperseded did).
-          lines[i] = formatLine({ ...parsed, ...fields });
+          // The one exception is SECRET SCRUB (#128, review probe 4): the
+          // fields a merge/decay/update copies into the loser's row carry
+          // caller-authored prose (the rotation note "key ghp_... rotated"),
+          // and content already scrubs at this same boundary (line 260). The
+          // durable row must not be the one place a credential survives when
+          // the evidence line beside it was cleaned.
+          const clean: SupersedeFields = { ...fields };
+          for (const k of Object.keys(clean)) {
+            const v = (clean as unknown as Record<string, unknown>)[k];
+            if (typeof v === "string") (clean as unknown as Record<string, unknown>)[k] = redactSecrets(v);
+          }
+          lines[i] = formatLine({ ...parsed, ...clean });
           touched++;
         }
         if (touched === 0) return 0;
@@ -624,9 +635,13 @@ export const ADMIN_READER: Reader = { kind: "admin" };
 
 // Reader for a plugin-session flow, resolved from the caller's OWN session id
 // captured synchronously at flow entry. Bound session → its repo; unbound →
-// the setup module scope (single-workspace plugin); neither → global-only.
+// global-only. The module scope is NOT a fallback here: in a process that
+// loaded more than one plugin instance it belongs to whoever set up LAST,
+// which is another workspace (#127's multi-setup gap). Plugin flows bind an
+// unbound caller to their OWN setup location at entry (index.ts), so ordinary
+// single-workspace sessions resolve through the session map, never here.
 export function readerForSession(sid?: unknown): Reader {
-  const scope = sessionScope(sid) ?? repoScope();
+  const scope = sessionScope(sid);
   return scope ? { kind: "repo", scope } : { kind: "global-only" };
 }
 
@@ -662,6 +677,25 @@ export function isVisibleTo(m: Memory, reader: Reader): boolean {
 
 export function visibleTo(mems: Memory[], reader: Reader): Memory[] {
   return mems.filter((m) => isVisibleTo(m, reader));
+}
+
+// The evidence-line twin of isVisibleTo: a stamped line belongs to the
+// repository that recorded it; unstamped lines (legacy, or written by a
+// scope-less process) are global, visible everywhere. Same visibility rule,
+// different data shape — kept next to isVisibleTo so the two cannot drift.
+export function evidenceVisibleTo(
+  fields: Record<string, unknown>,
+  reader: Reader,
+): boolean {
+  if (reader.kind === "admin") return true;
+  const repo = fields.repo;
+  if (typeof repo !== "string" || repo === "" || repo === "global") return true;
+  if (reader.kind === "global-only") return false;
+  const repoPath = fields.repoPath;
+  return (
+    repo === reader.scope.key ||
+    (typeof repoPath === "string" && !!repoPath && repoPath === reader.scope.path)
+  );
 }
 
 // Ambient (out-of-plugin) convenience: resolves the reader at CALL time.

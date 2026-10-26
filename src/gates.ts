@@ -333,8 +333,12 @@ export async function runWriteGate(
     ? await loadScope(
         candidate.scope,
         // Dedup/stale reads partition on the WRITE's session, captured at
-        // flow entry — not the ambient current after this await (#127).
-        ctx.sessionID !== undefined ? readerForSession(ctx.sessionID) : undefined,
+        // flow entry — not the ambient current after this await (#127). An
+        // unknown "?" (or absent) caller is the readerFromSid AMBIENT case,
+        // exactly as before: readerForSession is for named sessions only.
+        ctx.sessionID !== undefined && ctx.sessionID !== "?"
+          ? readerForSession(ctx.sessionID)
+          : undefined,
       )
     : [];
   // One tree index per write, shared by gate1 and every gate2 stale scan.

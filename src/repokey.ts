@@ -104,10 +104,33 @@ function scopeForDir(dir: string): RepoScope {
 }
 
 export function rememberSessionDir(sid: string, dir: string): void {
+  provisional.delete(sid);
   const prev = bySession.get(sid);
   if (prev && prev.dir === dir) return;
   bySession.set(sid, { dir, scope: scopeForDir(dir) });
   while (bySession.size > SESSION_CAP) bySession.delete(bySession.keys().next().value as string);
+}
+
+// A binding learned from a fallback, not from the session's own identity. A
+// plugin instance may resolve an UNKNOWN session to its own setup location —
+// the caller reached this instance, so this workspace is the caller's repo as
+// far as the flow can know (never the module scope, which belongs to whoever
+// loaded LAST, #127's residual multi-setup gap). Real identity from the event
+// stream or the session-row API always replaces a provisional binding.
+const provisional = new Set<string>();
+
+export function bindSessionProvisional(sid: string, dir: string | undefined): void {
+  if (!sid || sid === "?" || !dir || bySession.has(sid)) return;
+  rememberSessionDir(sid, dir);
+  provisional.add(sid);
+}
+
+// sessionDir, but only when the binding is FIRM (learned from the session's
+// own events or the session row) — the guard for lookups that must not stop
+// early on a provisional guess.
+export function sessionDirFirm(sid?: string): string | undefined {
+  if (sid && provisional.has(sid)) return undefined;
+  return sessionDir(sid);
 }
 
 export function sessionDir(sid?: string): string | undefined {
@@ -138,4 +161,5 @@ export function sessionScope(sid?: unknown): RepoScope | undefined {
 export function resetSessionScopes(): void {
   bySession.clear();
   byDir.clear();
+  provisional.clear();
 }
