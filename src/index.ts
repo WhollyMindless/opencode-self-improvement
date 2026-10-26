@@ -620,11 +620,23 @@ const impl = {
       editor.add(validated(MergeReviewArgs, {
         name: "memory_merge_review",
         description:
-          "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor, and clear any supersession the survivor itself carries so the canonical row stays recallable. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. Fails closed (no partial apply) when the reason or the survivor id is missing, or the loser is already superseded.",
+          "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor, and clear any supersession the survivor itself carries so the canonical row stays recallable. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. Fails closed (no partial apply) when the reason or the survivor id is missing, the survivor id names no row in the store, or the loser is already superseded or is the survivor itself.",
         options: direct,
         async execute(args): Promise<{ content: string }> {
           if (!args.loser || !args.survivor || !args.reason) {
             return { content: "merge_review blocked: loser, survivor, and reason are all required (fail-closed)." };
+          }
+          // Probed: marking with a survivor id that names no row retired the
+          // loser toward a pointer to nothing (the scope ended with zero
+          // active rows) while the response declared it canonical. Validate
+          // BEFORE touching the loser — a resolution must never retire real
+          // data for a phantom. (Same-row input would mark and then revive
+          // the same row: a silent no-op that reports full success.)
+          if (args.loser === args.survivor) {
+            return { content: "merge_review blocked: loser and survivor are the same row — nothing to resolve. No evidence written." };
+          }
+          if (!(await loadAll()).some((m) => m.ts === args.survivor)) {
+            return { content: `merge_review blocked: survivor ${args.survivor} does not exist in the store — nothing to resolve. No evidence written.` };
           }
           const ok = await markSuperseded(args.loser, {
             superseded_by: args.survivor,
@@ -640,6 +652,16 @@ const impl = {
           // this very call just made the loser). Declaring it canonical has to
           // make it recallable, so clear its own marker too.
           const revived = await clearSuperseded(args.survivor);
+          // The response has always claimed "Evidence recorded" — now it is
+          // true. The host tool_result hook covers grep/read/edit/shell only,
+          // so a merge used to leave zero trace: which reviewer decision, on
+          // which reason, reviving what — unauditable.
+          await record("merge_resolved", {
+            loser: args.loser,
+            survivor: args.survivor,
+            revived,
+            reason: args.reason,
+          });
           return {
             content:
               `Resolved merge: ${args.survivor} is canonical; ${args.loser} superseded (recoverable via memory_undo). ` +

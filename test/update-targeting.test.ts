@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dateStr, memoryRoot, snapshotDir } from "../src/config.ts";
+import { dateStr, evidenceDir, memoryRoot, snapshotDir } from "../src/config.ts";
 import { parseLine, readLines } from "../src/logfmt.ts";
 import {
   appendMemory,
@@ -296,6 +296,52 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
     expect(active.length).toBe(1);
     expect(active[0]!.content).toContain("oxlint");
     expect(isActive((await loadAll()).find((m) => m.ts === A)!)).toBe(false);
+  });
+});
+
+describe("memory_merge_review input integrity (#125 probe)", () => {
+  // Probed live: merge_review skipped every validation the update path has.
+  // A survivor id naming no row retired the loser toward nothing (scope ends
+  // with zero active rows) while the tool declared it canonical, and the
+  // success text promised "Evidence recorded" although the handler writes
+  // none (the host tool_result hook covers grep/read/edit/shell, not memory
+  // tools). These pins close both; stale-merge revival is a separate,
+  // pinned-contract question (see review notes), NOT touched here.
+
+  test("a survivor id that names no row retires NOTHING (phantom-survivor pin)", async () => {
+    const L = await seed("alpha lint step runs eslint over packages cli");
+    const loaded = await tools();
+    const out = await loaded.memory_merge_review.execute({
+      loser: L,
+      survivor: "2099-01-01T00:00:00.000Z",
+      reason: "phantom pin",
+    });
+    expect(out).toContain("blocked");
+    expect(out).not.toContain("canonical");
+    expect(isActive((await byId(L))!)).toBe(true);
+    expect((await byId(L))?.superseded_by).toBeUndefined();
+  });
+
+  test("loser and survivor being the same row is rejected (no self-supersede round-trip)", async () => {
+    const A = await seed("beta deploy builds the docker registry image");
+    const loaded = await tools();
+    const out = await loaded.memory_merge_review.execute({ loser: A, survivor: A, reason: "self pin" });
+    expect(out).toContain("blocked");
+    expect(isActive((await byId(A))!)).toBe(true);
+  });
+
+  test("a successful merge leaves an auditable evidence row, as the message claims", async () => {
+    const L = await seed("alpha lint step runs eslint over packages cli");
+    const S = await seed("beta deploy builds the docker registry image");
+    const loaded = await tools();
+    const out = await loaded.memory_merge_review.execute({ loser: L, survivor: S, reason: "audit pin" });
+    expect(out).toContain(`${S} is canonical`);
+    const rec = (await readLines(join(evidenceDir(), `${dateStr()}.logfmt`)))
+      .map((l) => parseLine(l))
+      .find((f) => f?.ev === "merge_resolved");
+    expect(rec).toBeTruthy();
+    expect(String(rec!.loser)).toBe(L);
+    expect(String(rec!.survivor)).toBe(S);
   });
 });
 
