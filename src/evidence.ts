@@ -6,8 +6,22 @@ import { createHash } from "node:crypto";
 import { dateStr, evidenceDir } from "./config.ts";
 import { appendLog, formatLine } from "./logfmt.ts";
 import { getCurrent } from "./state.ts";
+import { redactSecrets } from "./secrets.ts";
 
 export type EvidenceEvent = string;
+
+// Credential scrub at the evidence WRITE boundary. Evidence fields routinely
+// carry caller-authored prose (gate reasons, block reasons, review notes) and
+// tool-derived summaries; a recognized credential must not persist in the
+// durable log no matter which line carried it (#128). redactSecrets is a
+// no-op on ordinary text (ids, hashes, paths, counts).
+function scrubFields(fields: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    out[key] = typeof value === "string" ? redactSecrets(value) : value;
+  }
+  return out;
+}
 
 export async function record(
   ev: EvidenceEvent,
@@ -29,7 +43,7 @@ export async function record(
     ev,
     ts: new Date().toISOString(),
     ...(includeContext ? { sid, call } : {}),
-    ...fields,
+    ...scrubFields(fields),
   });
   await appendLog(join(evidenceDir(), `${dateStr()}.logfmt`), line);
 }
