@@ -204,6 +204,102 @@ describe("memory_update on conflict-prone rows", () => {
   });
 });
 
+describe("memory_update supersession edges surfaced by the #125 review", () => {
+  // The superseded_overlap hint advertises memory_update as THE remedy for a
+  // review-gated conflict. These tests pin what that path actually does today.
+
+  test("ADVERSARIAL pin: an update swaps its target's value with rival content, no review (the rivalry gate is advisory for updates)", async () => {
+    // Same payload through two tools: memory_remember is review-gated, while
+    // memory_update on the rival's ts promotes with NO similarity requirement
+    // between update content and target. Per the #122 ruling the update IS the
+    // sanctioned supersession — but that makes gate-3 skippable by any caller
+    // that reads the block hint. If updates are ever required to stay near
+    // their target's content, this pin flips alongside the hint text.
+    const X = await appendMemory({
+      type: "decision",
+      scope: "pivot",
+      status: "open",
+      content: "decided to use postgres for the primary datastore with pgbouncer pooling",
+    });
+    const loaded = await tools();
+    const blocked = await loaded.memory_remember.execute({
+      type: "decision",
+      scope: "pivot",
+      status: "open",
+      content: "decided to use mysql for the primary datastore with proxysql pooling",
+    });
+    expect(blocked).toContain("superseded_overlap");
+
+    const out = await loaded.memory_update.execute({
+      type: "decision",
+      scope: "pivot",
+      status: "open",
+      query: X,
+      content: "decided to use mysql for the primary datastore with proxysql pooling",
+    });
+    expect(out).toContain(`superseded ${X}`);
+    const fresh = (await loadAll()).filter((m) => m.scope === "pivot" && isActive(m));
+    expect(fresh.length).toBe(1);
+    expect(fresh[0]!.content).toContain("mysql");
+  });
+
+  test("ADVERSARIAL pin: an update whose content byte-equals another live row silently no-ops; the target survives", async () => {
+    // "Duplicate ignored" reads like success but the requested rewrite did NOT
+    // happen: the target stays live with its old content, next to the row the
+    // content duplicated. If collapsed updates are ever folded into a real
+    // supersede (merge), this pin flips.
+    const a = await appendMemory({ type: "pattern", scope: "colupd", status: "open", content: ALPHA });
+    await appendMemory({ type: "pattern", scope: "colupd", status: "open", content: BETA });
+    const loaded = await tools();
+    const out = await loaded.memory_update.execute({
+      type: "pattern",
+      scope: "colupd",
+      status: "open",
+      query: a,
+      content: BETA,
+    });
+    expect(out).toContain("Duplicate ignored");
+    const after = (await loadAll()).filter((m) => m.scope === "colupd");
+    expect(isActive(after.find((m) => m.ts === a)!)).toBe(true);
+    expect(after.filter(isActive).length).toBe(2);
+  });
+
+  test.failing("RED (#125 review): two concurrent updates on one target must leave exactly ONE active replacement", async () => {
+    // Measured on the PR branch (5/5 deterministic): both calls return
+    // "Updated ... (superseded A)" and the store keeps BOTH replacement rows
+    // live; superseded_by records only one of them. Both callers believe they
+    // rewrote the row. The resolve -> gate -> markSuperseded sequence is not
+    // atomic per target. This test fails on purpose; when the sequence lands
+    // atomically, bun reports the unexpected pass and forces this into a
+    // normal test.
+    const A = await appendMemory({
+      type: "learning",
+      scope: "raceupd",
+      status: "open",
+      content: "alpha lint step runs eslint over packages cli",
+    });
+    const loaded = await tools();
+    const [o1, o2] = await Promise.all([
+      loaded.memory_update.execute({
+        type: "learning", scope: "raceupd", status: "open", query: A,
+        content: "alpha lint step runs oxlint over packages cli",
+      }),
+      loaded.memory_update.execute({
+        type: "learning", scope: "raceupd", status: "open", query: A,
+        content: "alpha lint step runs biome over packages cli",
+      }),
+    ]);
+    // Current behavior: both claim success (these pins stay true even after a
+    // fix that rejects the loser — then they should be rewritten to assert the
+    // rejection instead).
+    expect(o1).toContain("superseded");
+    expect(o2).toContain("superseded");
+    // The store must not end in a state neither caller asked for.
+    const active = (await loadAll()).filter((m) => m.scope === "raceupd" && isActive(m));
+    expect(active.length).toBe(1);
+  });
+});
+
 describe("memory_merge_review survivor revival", () => {
   test("a survivor that was itself superseded becomes recallable", async () => {
     const stale = await seed("epsilon test runner is jest with coverage thresholds");
