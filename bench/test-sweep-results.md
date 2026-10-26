@@ -23,6 +23,9 @@ review fixes (`git clean` no longer deletes the scratch's symlinked node_modules
 anchored summary lines, not first matches that echoed test titles can poison), and they legitimately
 diverge - `publish-rename-to-truncate` for instance is killed 1/1 here but survives on Linux/macOS, where
 a truncating direct publish never opens the window the kill stands in. Same suite, different syscalls.
+`publish-rename-since-blind` is the vacuous class: `handoverRename` throws immediately for
+`!IS_WINDOWS`, so the anchored retry loop - and with it the identity recheck the mutant blinds -
+is never entered; a POSIX sweeper must not be filed against it as a catalog gap.
 
 ## Score
 
