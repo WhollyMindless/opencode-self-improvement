@@ -13,8 +13,18 @@ export async function record(
   ev: EvidenceEvent,
   fields: Record<string, unknown> = {},
   includeContext = true,
+  sessionID?: string,
 ): Promise<void> {
-  const { sid, call } = getCurrent();
+  const cur = getCurrent();
+  // An explicitly threaded session outranks the ambient one: gate-authored
+  // lines must name the session the gate runs FOR, not whichever setCurrent
+  // fired last during the gate's own awaits (#118 review note 1 — the rows
+  // were fixed in #118, these lines were the residue). When the two disagree,
+  // the ambient call belongs to the OTHER session's flow, so it is dropped
+  // rather than borrowed. With sessionID undefined (tool paths — issue #121)
+  // this is exactly the old ambient read.
+  const sid = sessionID ?? cur.sid;
+  const call = sessionID !== undefined && sessionID !== cur.sid ? undefined : cur.call;
   const line = formatLine({
     ev,
     ts: new Date().toISOString(),
@@ -63,11 +73,17 @@ export async function recordWriteBlocked(
   reason: string,
   flags: string[],
   chain?: string,
+  sessionID?: string,
 ): Promise<void> {
-  await record("write_blocked", {
-    gate,
-    reason,
-    flags: `[${flags.join(",")}]`,
-    ...(chain ? { chain } : {}),
-  });
+  await record(
+    "write_blocked",
+    {
+      gate,
+      reason,
+      flags: `[${flags.join(",")}]`,
+      ...(chain ? { chain } : {}),
+    },
+    true,
+    sessionID,
+  );
 }

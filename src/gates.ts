@@ -215,16 +215,26 @@ export async function runWriteGate(
   ctx: GateContext,
 ): Promise<GateOutcome> {
   const chain = chainId();
+  // Gate audit lines thread the session: runWriteGate awaits (analysis, the
+  // locked append), and another session's dispatch can move the ambient
+  // current mid-gate — ambient-read lines would then name the wrong session
+  // (#118 review note 1; the rows were fixed in #118, these were the
+  // residue). Where ctx.sessionID is unset (tool paths — issue #121) record()
+  // keeps the ambient read, exactly as before.
+  const rec = (ev: string, fields: Record<string, unknown> = {}, includeContext = true) =>
+    record(ev, fields, includeContext, ctx.sessionID);
+  const recBlocked = (gate: number, reason: string, flags: string[], chain?: string) =>
+    recordWriteBlocked(gate, reason, flags, chain, ctx.sessionID);
 
   // Size/type floor BEFORE any scanning: gate analysis regexes
   // over megabyte content backtrack super-linearly and freeze the service
   // event loop (100KB write = 6s, 2MB = never returned).
   if (typeof candidate.content !== "string") {
-    await recordWriteBlocked(4, "invalid_content", [`content_type=${typeof candidate.content}`], chain);
+    await recBlocked(4, "invalid_content", [`content_type=${typeof candidate.content}`], chain);
     return { action: "blocked", reason: "invalid_content", chain, hint: "content must be a string." };
   }
   if (candidate.content.length > MAX_CONTENT_CHARS) {
-    await recordWriteBlocked(4, "content_too_long", [`len=${candidate.content.length}`, `max=${MAX_CONTENT_CHARS}`], chain);
+    await recBlocked(4, "content_too_long", [`len=${candidate.content.length}`, `max=${MAX_CONTENT_CHARS}`], chain);
     return {
       action: "blocked",
       reason: "content_too_long",
@@ -259,7 +269,7 @@ export async function runWriteGate(
     badMetadata.push("kw");
   }
   if (badMetadata.length) {
-    await recordWriteBlocked(4, "invalid_metadata", [`fields=${badMetadata.join(",")}`], chain);
+    await recBlocked(4, "invalid_metadata", [`fields=${badMetadata.join(",")}`], chain);
     return {
       action: "blocked",
       reason: "invalid_metadata",
@@ -275,7 +285,7 @@ export async function runWriteGate(
     containsSecret(candidate.issue) ? "issue" : undefined,
   ].filter((field): field is string => field !== undefined);
   if (credentialMetadata.length) {
-    await recordWriteBlocked(
+    await recBlocked(
       4,
       "credential_in_metadata",
       credentialMetadata.map((field) => `field=${field}`),
@@ -298,7 +308,7 @@ export async function runWriteGate(
   };
 
   const ch = contentHash(candidate.content);
-  await record("gate_start", {
+  await rec("gate_start", {
     chain,
     op: "write",
     scope: candidate.scope,
@@ -319,7 +329,7 @@ export async function runWriteGate(
     tree,
   });
   if (g1.drift) {
-    await record("graph_drift", {
+    await rec("graph_drift", {
       gate: 1,
       symbol: g1.drift.symbol,
       from: g1.drift.from,
@@ -329,7 +339,7 @@ export async function runWriteGate(
       chain,
     });
   } else {
-    await record("graph_current", {
+    await rec("graph_current", {
       gate: 1,
       refs: g1.refs,
       resolved: g1.resolved.length ? g1.resolved.join(",") : undefined,
@@ -351,7 +361,7 @@ export async function runWriteGate(
     if (s) stale.push(s);
   }
   const bailed = scopeMems.length === 0;
-  await record("ref_stale_scan", {
+  await rec("ref_stale_scan", {
     gate: 2,
     scope: candidate.scope,
     delta: bracketList(delta),
@@ -364,7 +374,7 @@ export async function runWriteGate(
   let supersededTs: string | undefined;
   const driftPlan: { s: StaleRef; target: string; fields: SupersedeFields }[] = [];
   for (const s of stale) {
-    await record("ref_stale", {
+    await rec("ref_stale", {
       gate: 2,
       mem: s.memory.ts,
       scope: candidate.scope,
@@ -390,7 +400,7 @@ export async function runWriteGate(
     if (markedCount > 0) {
       for (const p of driftPlan) {
         supersededTs = p.s.memory.ts;
-        await record("superseded_by", {
+        await rec("superseded_by", {
           gate: 2,
           mem: p.s.memory.ts,
           target: p.target,
@@ -405,7 +415,7 @@ export async function runWriteGate(
   }
 
   if (canon) {
-    await record("canonical_hit", {
+    await rec("canonical_hit", {
       gate: 2,
       entity: canon.entry.entity,
       value: canon.entry.value,
@@ -434,7 +444,7 @@ export async function runWriteGate(
     })))) > 0) {
       for (const p of canonPlan) {
         if (!supersededTs) supersededTs = p.ts;
-        await record("superseded_by", {
+        await rec("superseded_by", {
           gate: 2,
           mem: p.ts,
           target,
@@ -501,7 +511,7 @@ export async function runWriteGate(
   }
 
   if (collapseMatch) {
-    await record("dedup_collapse", {
+    await rec("dedup_collapse", {
       gate: 3,
       survivors: scopeMems.length,
       match: collapseMatch.ts,
@@ -511,7 +521,7 @@ export async function runWriteGate(
       chain,
     });
   } else if (overlapMatch) {
-    await record("dedup_overlap", {
+    await rec("dedup_overlap", {
       gate: 3,
       survivors: scopeMems.length,
       candidate: overlapMatch.ts,
@@ -520,7 +530,7 @@ export async function runWriteGate(
       chain,
     });
   } else {
-    await record("dedup_clean", {
+    await rec("dedup_clean", {
       gate: 3,
       survivors: scopeMems.length,
       candidate: 0,
@@ -580,10 +590,10 @@ export async function runWriteGate(
   }
 
   if (blockReason) {
-    await recordWriteBlocked(4, blockReason, blockFlags, chain);
+    await recBlocked(4, blockReason, blockFlags, chain);
     if (blockReason === "superseded_overlap" && overlapMatch) {
       const newest = scopeMems[scopeMems.length - 1] ?? overlapMatch;
-      await record("merge_proposal", {
+      await rec("merge_proposal", {
         candidate: overlapMatch.ts,
         incoming: chain,
         canonical: newest.ts,
@@ -606,14 +616,14 @@ export async function runWriteGate(
     g1.refs === 0 && !ctx.hasGateCheck &&
     ctx.hasEngagement === true && candidate.scope !== "";
   if (groundedByEngagement) {
-    await record("gate_injected", { gate: 4, chain });
+    await rec("gate_injected", { gate: 4, chain });
   }
 
   const snapshot = await snapshotFiles([join(memoryRoot(), `${new Date().toISOString().split("T")[0]}.logfmt`)]);
   // The write carries the CALLER's session, not whatever current says after
   // the gate's own awaits - capture's stamp must follow the captured session.
   const ts = await appendMemory({ ...candidate, sessionID: ctx.sessionID });
-  await record("write_promoted", {
+  await rec("write_promoted", {
     gate: 4,
     op: "write",
     mem: ts,
