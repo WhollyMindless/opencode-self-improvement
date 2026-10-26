@@ -17,6 +17,7 @@ import {
 import { chainId, contentHash, record, recordWriteBlocked } from "./evidence.ts";
 import { flattenMemoryText } from "./sanitize.ts";
 import { containsSecret, redactSecrets } from "./secrets.ts";
+import { readerForSession } from "./memory.ts";
 import {
   displayCall,
   extractCallForms,
@@ -328,7 +329,14 @@ export async function runWriteGate(
     ch,
   });
 
-  const scopeMems = candidate.scope ? await loadScope(candidate.scope) : [];
+  const scopeMems = candidate.scope
+    ? await loadScope(
+        candidate.scope,
+        // Dedup/stale reads partition on the WRITE's session, captured at
+        // flow entry — not the ambient current after this await (#127).
+        ctx.sessionID !== undefined ? readerForSession(ctx.sessionID) : undefined,
+      )
+    : [];
   // One tree index per write, shared by gate1 and every gate2 stale scan.
   const tree = memoTree(ctx.liveRoot);
 

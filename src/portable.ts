@@ -5,7 +5,7 @@
 // moat. Decay is supersede-not-delete and snapshot-first, mirroring prune.
 import { join } from "node:path";
 import { memoryRoot } from "./config.ts";
-import { isActive, isVisibleHere, loadAll, type Memory } from "./memory.ts";
+import { isActive, isVisibleTo, loadAll, readerFromSid, type Memory } from "./memory.ts";
 import { repoScopeFor } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
 import { TYPES } from "./types.ts";
@@ -162,11 +162,16 @@ function parseRow(line: string): WriteCandidate | null {
 export async function importMemories(
   path: string,
   gate: (c: WriteCandidate) => Promise<{ action: string }>,
+  // The importing session, captured at tool entry (#127): "the importing
+  // session's current repo" must be the CALLER's repo even though this loop
+  // awaits the gate on every row, during which a concurrent session can move
+  // the ambient current.
+  sessionID?: string,
 ): Promise<ImportTally> {
   const file = Bun.file(path);
   if (!(await file.exists())) throw new Error(`import file not found: ${path}`);
   const tally: ImportTally = { promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0 };
-  const currentScope = repoScopeFor(getCurrent().sid);
+  const currentScope = repoScopeFor(sessionID ?? getCurrent().sid);
   let allowFrontier = false;
   let first = true;
   for (const line of (await file.text()).split("\n")) {
@@ -211,11 +216,12 @@ export async function importMemories(
 
 // Active open threads with ts older than `days` days, oldest first (both sides
 // are UTC-Z ISO strings, so plain lexicographic compare is correct).
-export async function findStaleOpen(days: number): Promise<Memory[]> {
+export async function findStaleOpen(days: number, sid?: string): Promise<Memory[]> {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  const reader = readerFromSid(sid);
   return (await loadAll())
     // Decay is repo-scoped: running it here must not retire
     // another repo's open threads.
-    .filter((m) => isActive(m) && isVisibleHere(m) && m.status === "open" && m.ts < cutoff)
+    .filter((m) => isActive(m) && isVisibleTo(m, reader) && m.status === "open" && m.ts < cutoff)
     .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 }

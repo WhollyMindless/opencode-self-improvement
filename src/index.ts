@@ -18,12 +18,15 @@ import {
   clearSuperseded,
   isActive,
   isVisibleHere,
+  isVisibleTo,
   loadAll,
   malformedCount,
   markManySuperseded,
   markSuperseded,
+  readerFromSid,
   resolveMemoryTarget,
   snapshotFiles,
+  visibleTo,
   type Memory,
 } from "./memory.ts";
 import { runWriteGate, type GateContext, type WriteCandidate } from "./gates.ts";
@@ -285,6 +288,23 @@ const impl = {
       };
     };
 
+    // Identity of a tool call, captured SYNCHRONOUSLY at the tool's entry —
+    // the first await of the call comes after this. The V2 host hands every
+    // execute a per-call ToolContext carrying sessionID; the harness and any
+    // host that omits it fall back to the ambient current, which is correct
+    // exactly because execute.before ran immediately before this tool with
+    // no await between (#116's documented fallback). Never re-read the global
+    // after an await to learn who is calling (#127).
+    const toolIds = (context?: unknown): { sid: string; call: string } => {
+      const fromCtx = (context as { sessionID?: unknown; id?: unknown } | undefined)
+        ?.sessionID;
+      const call = (context as { id?: unknown } | undefined)?.id;
+      return {
+        sid: typeof fromCtx === "string" && fromCtx ? fromCtx : getCurrent().sid,
+        call: typeof call === "string" && call ? call : getCurrent().call,
+      };
+    };
+
     // Identity-event race backstop: a resumed session's FIRST turn can write
     // before the subscription has delivered its execution.started, and the
     // module-scope fallback is the last setup instance — possibly another
@@ -357,7 +377,8 @@ const impl = {
         description:
           "Store a memory after the 4-gate write pipeline validates it (canonical graph, stale refs, dupes). Blocked writes record evidence instead of persisting. Add `kw` — 3-5 aliases, synonyms, verb forms or the literal command a FUTURE session would search with — to make a row findable when the wording differs; keywords are indexed, never injected.",
         options: direct,
-        async execute(args): Promise<{ content: string }> {
+        async execute(args, context): Promise<{ content: string }> {
+          const { sid } = toolIds(context);
           const candidate: WriteCandidate = {
             type: args.type,
             scope: args.scope,
@@ -368,8 +389,8 @@ const impl = {
             status: args.status,
             repo: args.global ? "global" : undefined,
           };
-          await bindSessionIdentity(getCurrent().sid);
-          const outcome = await runWriteGate(candidate, gateContext());
+          await bindSessionIdentity(sid);
+          const outcome = await runWriteGate(candidate, gateContext(sid));
           if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
           if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
           return {
@@ -385,8 +406,10 @@ const impl = {
         description:
           "Propose consolidations of near-duplicate settled rows — read-only, nothing is written. Clusters same-scope same-type rows by jaccard, picks the most recently used member as canonical (#42's rule: the row retrieval keeps landing on), and proposes it ONLY when replaying the cluster's own logged reads proves the merged row catches at least as many reads as the best single member did. A cluster with no recorded reads is reported as unmeasured, never merged on resemblance. Resolve a proposal with memory_merge_review; absorbed rows stay recoverable. The merge is deterministic — the canonical row is the survivor's prose plus the absorbed rows' aliases — because this plugin ships no model and a rewritten row cannot be diffed or audited.",
         options: direct,
-        async execute(args): Promise<{ content: string }> {
-          const all = (await loadAll()).filter(isActive).filter(isVisibleHere);
+        async execute(args, context): Promise<{ content: string }> {
+          const { sid } = toolIds(context);
+          const reader = readerFromSid(sid);
+          const all = (await loadAll()).filter(isActive).filter((m) => isVisibleTo(m, reader));
           const rows = args.scope ? all.filter((m) => m.scope === args.scope) : all;
           const ledger = await readLedger();
           const use = ledger.byRow;
@@ -410,9 +433,15 @@ const impl = {
         description:
           "Initialize repository memory and knowledge graph. Ensures the codebase-memory graph for this repo is indexed (one-shot `cli` spawn; no session MCP needed) and re-derives build/lint/test/typecheck command memories through the write gate, then stores an init stamp keyed on git HEAD. Idempotent: a no-op when the stamp matches HEAD, unless force=true (refresh after a refactor).",
         options: direct,
-        async execute(args): Promise<{ content: string }> {
-          await bindSessionIdentity(getCurrent().sid);
-          const summary = await runInit({ liveRoot: gateContext().liveRoot, force: args.force, mode: args.mode });
+        async execute(args, context): Promise<{ content: string }> {
+          const { sid } = toolIds(context);
+          await bindSessionIdentity(sid);
+          const summary = await runInit({
+            liveRoot: gateContext(sid).liveRoot,
+            force: args.force,
+            mode: args.mode,
+            sessionID: sid,
+          });
           return { content: formatInit(summary) };
         },
       }));
@@ -422,8 +451,10 @@ const impl = {
         description:
           "Look up durable project knowledge — build/test/lint commands, decisions, patterns, preferences, blockers — BEFORE searching the repo or reading files. Use for 'how do I run X', conventions, and past decisions. By scope, type, or free-text query; with no filters it returns the most recent memories.",
         options: direct,
-        async execute(args): Promise<{ content: string }> {
-          let results = (await loadAll()).filter(isActive).filter(isVisibleHere);
+        async execute(args, context): Promise<{ content: string }> {
+          const { sid, call } = toolIds(context);
+          const reader = readerFromSid(sid);
+          let results = (await loadAll()).filter(isActive).filter((m) => isVisibleTo(m, reader));
           if (!results.length) return { content: "No memories found" };
           const total = results.length;
           if (args.scope) results = results.filter((m) => m.scope.includes(args.scope!));
@@ -440,15 +471,19 @@ const impl = {
           if (!limited.length) return { content: "No matching memories" };
           const openIn = limited.filter((m) => m.status === "open").length;
           if (openIn > 0) {
-            const cur = getCurrent();
-            markFrontierTap(cur.sid, cur.call);
-            await record("frontier_tapped", {
-              n_open: openIn,
-              in_results: limited.length,
-              turn: firstFrontierTap(cur.sid)?.turn,
-            });
+            markFrontierTap(sid, call);
+            await record(
+              "frontier_tapped",
+              {
+                n_open: openIn,
+                in_results: limited.length,
+                turn: firstFrontierTap(sid)?.turn,
+              },
+              true,
+              sid,
+            );
           }
-          if (args.query) await noteHits("recall", getCurrent().sid, limited, args.query);
+          if (args.query) await noteHits("recall", sid, limited, args.query);
           return { content: `Found ${results.length} (${total} total)\n\n${limited.map(formatMemory).join("\n")}` };
         },
       }));
@@ -458,8 +493,10 @@ const impl = {
         description:
           "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing.",
         options: direct,
-        async execute(args): Promise<{ content: string }> {
-          await bindSessionIdentity(getCurrent().sid);
+        async execute(args, context): Promise<{ content: string }> {
+          const { sid } = toolIds(context);
+          await bindSessionIdentity(sid);
+          const reader = readerFromSid(sid);
           // The whole update — resolve, gate, supersede — runs under one
           // UPDATE-ORDER lock. Without it, two concurrent updates that both
           // resolved the same still-active target both promoted and both
@@ -478,7 +515,7 @@ const impl = {
               join(memoryRoot(), "update-order"),
               async () => {
                 const prior = (await loadAll()).filter(
-                  (m) => m.scope === args.scope && m.type === args.type && isActive(m) && isVisibleHere(m),
+                  (m) => m.scope === args.scope && m.type === args.type && isActive(m) && isVisibleTo(m, reader),
                 );
                 // Resolve the row BEFORE the gate: an update that cannot identify its
                 // target must write nothing, rather than silently superseding whichever
@@ -501,7 +538,7 @@ const impl = {
                 const target = resolved.target;
                 const outcome = await runWriteGate(
                   { type: args.type, scope: args.scope, content: args.content, kw: args.kw, status: args.status },
-                  { ...gateContext(), supersedesTs: target.ts },
+                  { ...gateContext(sid), supersedesTs: target.ts },
                 );
                 if (outcome.action === "promoted" && outcome.ts && target) {
                   await markSuperseded(target.ts, {
@@ -539,8 +576,9 @@ const impl = {
         description:
           "Delete memories by scope and type. Snapshots first, logs the reason for audit, never touches a repo.",
         options: direct,
-        async execute(args): Promise<{ content: string }> {
-          const res = await pruneMemory(args.scope, args.type, args.reason);
+        async execute(args, context): Promise<{ content: string }> {
+          const { sid } = toolIds(context);
+          const res = await pruneMemory(args.scope, args.type, args.reason, sid);
           if (!res.deleted.length) return { content: `No memories found for ${args.type} in ${args.scope}` };
           return { content: `Deleted ${res.deleted.length} ${args.type} memory(s) from ${args.scope}. Audit: ${res.audit}` };
         },
@@ -550,8 +588,10 @@ const impl = {
         name: "memory_list",
         description: "List memory scopes and types for discovery.",
         options: direct,
-        async execute(): Promise<{ content: string }> {
-          const mems = (await loadAll()).filter(isActive).filter(isVisibleHere);
+        async execute(_args, context): Promise<{ content: string }> {
+          const { sid } = toolIds(context);
+          const reader = readerFromSid(sid);
+          const mems = (await loadAll()).filter(isActive).filter((m) => isVisibleTo(m, reader));
           if (!mems.length) return { content: "No memories found" };
           const scopes = new Map<string, number>();
           const types = new Map<string, number>();
@@ -687,13 +727,17 @@ const impl = {
         description:
           "Import memories from a JSONL export (see memory_export). Every row goes through the same 4-gate write pipeline as memory_remember (tagged `import`, original tags preserved), so duplicates collapse and ungrounded rows are blocked exactly as usual — those are normal tallied outcomes, not errors. Malformed lines are skipped and counted. Frontier policy: status:\"open\" exempts a row from ref grounding, so it requires a memory_export header and cannot claim global scope; imported repo stamps are kept only when they match the importing session's repo, otherwise the importing repo is stamped. A stamped open row is downgraded when there is no current repo scope to verify it. Imported content is unverified by construction: injected rows surface a `[via import]` provenance marker.",
         options: direct,
-        async execute(args): Promise<{ content: string }> {
+        async execute(args, context): Promise<{ content: string }> {
+          const { sid } = toolIds(context);
           try {
-            const t = await importMemories(args.file, (c) =>
-              runWriteGate(
-                { ...c, tags: [...new Set([...(c.tags ?? []), "import"])] },
-                gateContext(),
-              ),
+            const t = await importMemories(
+              args.file,
+              (c) =>
+                runWriteGate(
+                  { ...c, tags: [...new Set([...(c.tags ?? []), "import"])] },
+                  gateContext(sid),
+                ),
+              sid,
             );
             return {
               content:
@@ -716,10 +760,11 @@ const impl = {
         description:
           "Retire stale open threads (status=open older than olderThanDays) by superseding them — never deleting; rows stay recoverable via memory_undo. DRY RUN BY DEFAULT: without an explicit dryRun=false this only LISTS what would retire and mutates nothing (fail-closed). A real run snapshots every affected file before the first mutation.",
         options: direct,
-        async execute(args): Promise<{ content: string }> {
+        async execute(args, context): Promise<{ content: string }> {
+          const { sid } = toolIds(context);
           const days = Number(args.olderThanDays) > 0 ? Number(args.olderThanDays) : 14;
           const dryRun = args.dryRun !== false; // only an explicit false mutates
-          const stale = await findStaleOpen(days);
+          const stale = await findStaleOpen(days, sid);
           if (!stale.length) {
             return { content: `No active open threads older than ${days} days.` };
           }
@@ -776,9 +821,9 @@ const impl = {
         description:
           "Plain-text memory report for chat clients (desktop/web/IDE), same sections as the terminal /memory panel: CONTEXT (this session's injected block, budget use, cumulative ride and abstentions), CACHE (plain-language cache receipts: bust count, and the provider-reported share of prompt tokens served from cache — the proof that memory never mutates your prefix), the block verbatim, recent blocked writes with gate reasons, and store stats. Reads only — no model call.",
         options: direct,
-        async execute(): Promise<{ content: string }> {
+        async execute(_args, context): Promise<{ content: string }> {
           // In-process truth: the live epoch + ledger, fresher than any file.
-          const sid = getCurrent().sid;
+          const sid = toolIds(context).sid;
           const status = sid === "?" ? null : await buildPayload(sid);
           const all = await loadAll();
           const act = all.filter(isActive);
@@ -885,8 +930,14 @@ const impl = {
     // at the injection decision on every model request. The latter keeps
     // removals fail-closed: an out-of-band redaction or a block during a tool
     // loop cannot ride one more request waiting for another user prompt.
-    const injectableRows = async (): Promise<Memory[]> =>
-      (await loadAll()).filter((m) => isActive(m) && isVisibleHere(m));
+    // The caller's sid is resolved to an immutable Reader BEFORE the store
+    // read (#127): while loadAll awaits, another session's hooks may dispatch
+    // and move the ambient current; filtering with THAT leaks the other
+    // session's repo into this one's system prompt.
+    const injectableRows = async (sid?: string): Promise<Memory[]> => {
+      const reader = readerFromSid(sid);
+      return (await loadAll()).filter((m) => isActive(m) && isVisibleTo(m, reader));
+    };
     // Use ledger (#42). `query` is what retrieval was asked with; what gets
     // stored is the vocabulary the answer SHARES with the query, taken from the
     // memory side, so the ledger can never become a copy of user prompts.
@@ -899,7 +950,7 @@ const impl = {
     };
     const refreshEpoch = async (sid: string, rows?: Memory[]): Promise<void> => {
       if (!latestPrompt.has(sid)) return;
-      const mems = rows ?? await injectableRows();
+      const mems = rows ?? (await injectableRows(sid));
       const version = await storeVersion(mems);
       const cached = epoch.get(sid);
       if (cached?.version === version) return;
@@ -983,11 +1034,14 @@ const impl = {
     // Tiny system digest + open-thread frontier block, injected into the system prompt.
     await ctx.session?.hook("context", (event: any) =>
       guarded("session.context (systemDigest)", async () => {
-        // Route store reads in this hook through the right session's scope.
+        // Route store reads in this hook through the right session's scope:
+        // the sid is captured from the event BEFORE any await and carried
+        // explicitly — the global current set here is legacy bookkeeping
+        // only, never the identity this flow filters with (#127).
+        const sid = typeof event?.sessionID === "string" ? event.sessionID : undefined;
         setCurrent({ sessionID: event?.sessionID });
-        const sid = event?.sessionID;
         if (typeof sid === "string") sessions.touch(sid);
-        const mems = await injectableRows();
+        const mems = await injectableRows(sid);
         if (typeof sid === "string") await refreshEpoch(sid, mems);
         const parts: string[] = [];
         await systemDigest(
@@ -1045,20 +1099,21 @@ const impl = {
     // while it still exists, BEFORE the summarizer replaces it.
     await ctx.session?.hook("compaction", (event: any) =>
       guarded("session.compaction (onCompacting)", async () => {
+        const sid = typeof event?.sessionID === "string" ? event.sessionID : undefined;
         setCurrent({ sessionID: event?.sessionID });
         await onCompacting({ sessionID: event?.sessionID });
         if (typeof event?.sessionID === "string") {
           epoch.delete(event.sessionID);
           latestPrompt.delete(event.sessionID);
         }
-        const anchor = await compactionAnchor();
+        const anchor = await compactionAnchor(12, sid);
         if (anchor) event?.system?.push?.({ type: "text", text: anchor });
         // Fire-and-forget: a capture model call must never delay the compaction
         // the user is waiting for, and failures stay inside the guarded path.
         // The payload's own messages ride along so the mining sees the
         // pre-compaction transcript even if the store moves under it.
-        if (onCompactCapture && typeof event?.sessionID === "string") {
-          onCompactCapture(event.sessionID, event.messages);
+        if (onCompactCapture && sid) {
+          onCompactCapture(sid, event.messages);
         }
       }),
     );

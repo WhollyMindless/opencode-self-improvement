@@ -125,6 +125,16 @@ export function repoScopeFor(sid?: string): RepoScope | null {
   return current;
 }
 
+// The scope of a session bound from the event stream / session-row API, with
+// NO module-scope fallback. Read paths that carry a caller's session identity
+// resolve through this: an unbound session must fail closed to global rows
+// (#127), never inherit a module scope that belongs to another workspace (or
+// is null, which the ambient reader has always read as "everything").
+export function sessionScope(sid?: unknown): RepoScope | undefined {
+  if (typeof sid !== "string" || sid === "" || sid === "?") return undefined;
+  return bySession.get(sid)?.scope;
+}
+
 export function resetSessionScopes(): void {
   bySession.clear();
   byDir.clear();
