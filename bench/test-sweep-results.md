@@ -4,7 +4,8 @@ One question, answered mechanically: when an invariant dies, does anything die w
 exactly ONE claimed invariant in a detached scratch worktree of HEAD and runs the full suite against that tree.
 A mutant nothing kills is an invariant the suite does not actually depend on, whatever the test titles claim.
 
-**Run:** src as of main @ `7bfe99b` (this branch touches no shipped file), instrument as of `75fd932` (two
+**Run:** src as of main @ `7bfe99b` (no `src/` file is touched by this branch - its only shipped-file
+change is `package.json` +1, the `sweep:test` script), instrument as of `75fd932` (two
 mutant anchors re-anchored where #89 moved the publish path - see the lineage note), Windows, Bun 1.3.10,
 43 mutants, one run each with 3-run confirmation for timing-only evidence. Baseline (clean tree) first:
 **483 pass / 0 fail / 5 skip** - zero known-reds: the four Windows torn-read/EPERM races that motivated

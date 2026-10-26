@@ -49,7 +49,7 @@
 // (sweep anyway when the baseline tree is red outside the known family),
 // --fail-on-survivors (exit 4 when anything survives - #72 pre-release gate),
 // --log=PATH (JSONL event log).
-import { existsSync, readFileSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -668,6 +668,45 @@ function cleanup(): void {
 }
 process.on("exit", cleanup);
 
+// Does the scratch actually resolve its dependencies? A junction (Windows) is a
+// directory git clean never touches; a symlink (POSIX) is untracked-and-unignored
+// (node_modules/ has a trailing slash, so it matches directories only) and
+// `git clean -fdq` deletes it before EVERY mutant run - leaving the whole suite
+// zod-starved, dying as file-level unhandled errors no verdict path can see
+// (#110 review: this silently invalidated every macOS measurement). Verify the
+// view - after creation AND after every reset - so a dead link can never run a
+// blind suite. Returns true when node_modules is reachable.
+function verifyScratchView(dir: string): boolean {
+	return existsSync(join(dir, "node_modules", "zod", "package.json"));
+}
+
+// (Re)create the scratch's node_modules link, Windows-junction or POSIX-symlink
+// alike, and make sure it points at a real dependency tree.
+function ensureScratchLink(dir: string): void {
+	const nm = join(REPO, "node_modules");
+	if (!existsSync(nm)) {
+		console.warn(`warning: ${nm} not found - the suite needs its dependencies (bun install first)`);
+		return;
+	}
+	const link = join(dir, "node_modules");
+	if (verifyScratchView(dir)) return;
+	// A dangling link (target deleted) or an absent one: recreate it. rmdirSync
+	// clears a junction dir; the symlink case needs unlink (rmdir throws ENOTDIR).
+	try {
+		symlinkSync(nm, link, "junction");
+	} catch {
+		try {
+			unlinkSync(link);
+		} catch {
+			/* nothing to remove */
+		}
+		symlinkSync(nm, link, "junction");
+	}
+	if (!verifyScratchView(dir)) {
+		throw new Error(`scratch ${dir} cannot reach node_modules - refusing to run a blind suite`);
+	}
+}
+
 function makeScratch(i: number): string {
 	let dir = join(SCRATCH_ROOT, `w${i}`);
 	if (!removeScratch(dir)) {
@@ -684,37 +723,19 @@ function makeScratch(i: number): string {
 		Bun.sleepSync(500);
 	}
 	scratches.push(dir);
-	const nm = join(REPO, "node_modules");
-	if (existsSync(nm)) {
-		try {
-			symlinkSync(nm, join(dir, "node_modules"), "junction");
-		} catch {
-			/* already linked */
-		}
-		// A scratch that cannot import zod cannot run the suite (#70 saw a
-		// baseline of 0 pass / 35 import-fails): verify the view, loudly fix it.
-		if (!existsSync(join(dir, "node_modules", "zod", "package.json"))) {
-			console.warn(`warning: ${dir} cannot see node_modules - recreating the junction`);
-			try {
-				rmdirSync(join(dir, "node_modules"));
-			} catch {
-				/* absent */
-			}
-			symlinkSync(nm, join(dir, "node_modules"), "junction");
-			if (!existsSync(join(dir, "node_modules", "zod", "package.json"))) {
-				throw new Error(`scratch ${dir} cannot reach node_modules - refusing to run a blind suite`);
-			}
-		}
-	} else {
-		console.warn(`warning: ${nm} not found - the suite needs its dependencies (bun install first)`);
-	}
+	ensureScratchLink(dir); // create the link, verify the view - loudly
 	return dir;
 }
 
 function resetScratch(dir: string): void {
-	// node_modules is gitignored, so `clean -fd` (no -x) never sees the junction.
+	// node_modules/ in .gitignore has a TRAILING SLASH - it matches directories
+	// only. A Windows junction is one, so `clean -fd` (no -x) left it; on POSIX
+	// the scratch's node_modules is a symlink: untracked, NOT ignored (check-
+	// ignore exits 1), and a bare `clean -fdq` deleted it before every run,
+	// leaving every mutant run zod-starved (#110 review). Belt: -e excludes the
+	// name on every platform. Braces: ensureScratchLink after the clean.
 	run(["git", "-C", dir, "checkout", "--", "."]);
-	run(["git", "-C", dir, "clean", "-fdq"]);
+	run(["git", "-C", dir, "clean", "-fdq", "-e", "node_modules"]);
 	// Self-heal: a stranded test child or a deferred Windows file operation can
 	// disturb the tree after a run (observed in #70: a tracked source file went
 	// missing between two mutants). If git still sees dirt, rebuild the worktree.
@@ -729,16 +750,10 @@ function resetScratch(dir: string): void {
 			add = run(["git", "-C", REPO, "worktree", "add", "--detach", dir, "HEAD"]);
 			if (add.code !== 0) throw new Error(`cannot rebuild scratch ${dir}: ${add.out}`);
 		}
-		const nm = join(REPO, "node_modules");
-		if (existsSync(nm)) {
-			try {
-				symlinkSync(nm, join(dir, "node_modules"), "junction");
-			} catch {
-				/* already linked */
-			}
-		}
+		ensureScratchLink(dir);
 		Bun.sleepSync(2000); // a rebuild is rare and deserves a hard settle
 	}
+	ensureScratchLink(dir); // the clean above must never leave a blind scratch
 	Bun.sleepSync(300); // let deferred deletes settle before the next run starts
 }
 
@@ -869,7 +884,7 @@ async function runSuite(dir: string): Promise<SuiteRun> {
 // mutant and must never be scored as a silent survive.
 let BASELINE_TOTAL = 0;
 
-function classify(r: SuiteRun, baselinePass: number): "compile-error" | "runtime-error" | "ok" {
+function classify(r: SuiteRun, baselinePass: number, baselineFailCount: number): "compile-error" | "runtime-error" | "ok" {
 	if (r.errorMarkers.length > 0 && r.fileFailed.length > 0) return "compile-error";
 	if (r.pass === 0 && r.failed.length === 0 && r.fileFailed.length === 0) return "runtime-error";
 	if (r.fileFailed.length > 0 && r.pass < baselinePass / 2) return "compile-error";
@@ -880,8 +895,21 @@ function classify(r: SuiteRun, baselinePass: number): "compile-error" | "runtime
 		// exact shape of the calibration plant's quote-grammar breakage on
 		// macOS (137 pass / 57 fail / truncated to 198 tests) - is a KILL that
 		// happened to be truncated, not an instrument failure (#110 review).
-		if (r.failed.length + r.fileFailed.length < 3) return "runtime-error";
-		return "ok"; // deltaOf() below counts the new reds and rules kill
+		if (r.failed.length + r.fileFailed.length >= 3) return "ok"; // deltaOf() below rules kill
+		if (r.fail - baselineFailCount >= 3) {
+			// The summary counts deaths the named-line parse cannot show - the
+			// signature of file-level unhandled errors (a zod-starved scratch
+			// looks exactly this way: 148 pass / 58 fail / 0 names, #110 review).
+			// No names means no delta, and a delta-less green would be a silent
+			// survive on a truncated tally. This is an instrument failure, said
+			// out loud, never a verdict.
+			console.warn(
+				`  instrument: truncated tally ${r.pass} pass / ${r.fail} fail names only ${r.failed.length} deaths` +
+					` (${r.fileFailed.length} file-level) - suite is dying unnameably, refusing to verdict`,
+			);
+			return "runtime-error";
+		}
+		return "runtime-error";
 	}
 	return "ok";
 }
@@ -964,7 +992,7 @@ async function sweepMutant(dir: string, m: Mutant, baselineFail: Set<string>, ba
 			logEvent({ mutant: m.id, status: "timeout" });
 			return "timeout";
 		}
-		const kind = classify(r, baselinePass);
+		const kind = classify(r, baselinePass, baselineFail.size);
 		if (kind !== "ok") {
 			logEvent({ mutant: m.id, status: kind, tail: r.tail.slice(-600) });
 			return kind;
