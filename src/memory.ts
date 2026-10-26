@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { dateStr, memoryRoot, deletionsFile, snapshotDir, HITS_FILENAME } from "./config.ts";
-import { repoScopeFor } from "./repokey.ts";
+import { repoScopeFor, repoScope, sessionScope, type RepoScope } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
 import {
   appendLog,
@@ -180,10 +180,11 @@ export async function loadAll(): Promise<Memory[]> {
   return out;
 }
 
-export async function loadScope(scope: string): Promise<Memory[]> {
+export async function loadScope(scope: string, reader: Reader = readerForAmbient()): Promise<Memory[]> {
   // Gate dedup/stale reads are repo-scoped: a row from another repo must not
-  // collapse or supersede a write here.
-  return (await loadAll()).filter((m) => m.scope === scope && isVisibleHere(m));
+  // collapse or supersede a write here. The reader is the CALLER's identity,
+  // resolved at flow entry — not whatever current says after this await.
+  return (await loadAll()).filter((m) => m.scope === scope && isVisibleTo(m, reader));
 }
 
 export interface AppendMemoryInput {
@@ -531,7 +532,12 @@ export async function logDeletion(memory: Memory, reason: string): Promise<void>
       type: memory.type,
       scope: memory.scope,
       content: memory.content,
-      reason,
+      // Origin survives the delete/restore round trip (#129): a restore-entry
+      // made from this line re-stamps what the row carried. A row with no
+      // stamp writes no stamp here — the legacy global path, unchanged.
+      repo: memory.repo,
+      repoPath: memory.repoPath,
+      reason: redactSecrets(reason),
     }),
   );
 }
@@ -544,8 +550,14 @@ export interface PruneResult {
 // Remove matching memories (used by memory_forget), snapshotting first and
 // logging every deletion with its reason. Each file is filtered and republished
 // under the store lock, so a row another session appended while we were reading
-// is not quietly filtered out along with the targets.
-export async function prune(scope: string, type: string, reason: string): Promise<PruneResult> {
+// is not quietly filtered out along with the targets. The reader is the
+// caller's captured identity (#127); out-of-plugin callers keep ambient.
+export async function prune(
+  scope: string,
+  type: string,
+  reason: string,
+  reader: Reader = readerForAmbient(),
+): Promise<PruneResult> {
   const deleted: DeletedMemory[] = [];
   const snapshot: string[] = [];
   for (const file of await memoryFiles()) {
@@ -562,7 +574,7 @@ export async function prune(scope: string, type: string, reason: string): Promis
           // Repo floor: forgetting scope X here must never delete
           // another repo's row for scope X — same basename collisions are real
           // (a fork next to its upstream).
-          if (m && m.scope === scope && m.type === type && isVisibleHere(m)) {
+          if (m && m.scope === scope && m.type === type && isVisibleTo(m, reader)) {
             deleted.push({ memory: m, reason });
             await logDeletion(m, reason);
             changed = true;
@@ -584,17 +596,78 @@ export function isActive(m: Memory): boolean {
   return !m.superseded_by;
 }
 
-// The ONLY repo filter the model-facing paths use (injection sinks, recall,
-// list, update targeting, prune, decay, gate scope reads). A row is visible
-// when it is global (explicit marker OR no stamp — legacy rows and writes by
-// processes with no scope, e.g. the viewer), or was written in this repo.
-// Keeping it one predicate is what stops the filtering from drifting between
-// entry points.
-export function isVisibleHere(m: Memory): boolean {
+// --- repo visibility ---------------------------------------------------------
+// A READER is an immutable caller identity, resolved once at the entry of a
+// flow (a hook, a tool call, a viewer route) and carried through every await
+// in that flow. Resolution must NOT be deferred to filter time: the module
+// global current moves whenever another session's hook or tool dispatches, and
+// a store read awaits filesystem I/O — filtering after the await with the
+// ambient identity injects the OTHER session's repo (#127).
+//
+//   repo        — the caller's session resolved a repository (its own when
+//                 bound; the setup location for an unbound session in a
+//                 single-workspace plugin, exactly the historical semantics).
+//   global-only — a plugin flow whose caller identity names no repository:
+//                 explicit/legacy global rows ONLY. This is the fail-closed
+//                 answer for an unbound session on a serve host; "unknown"
+//                 is never "everything".
+//   admin       — explicit all-repositories access: the standalone viewer and
+//                 out-of-plugin maintenance callers. Administrative breadth is
+//                 a property of the entry point, never of a missing session.
+export type Reader =
+  | { kind: "repo"; scope: RepoScope }
+  | { kind: "global-only" }
+  | { kind: "admin" };
+
+/** Explicit all-repositories identity (viewer routes, CLI maintenance). */
+export const ADMIN_READER: Reader = { kind: "admin" };
+
+// Reader for a plugin-session flow, resolved from the caller's OWN session id
+// captured synchronously at flow entry. Bound session → its repo; unbound →
+// the setup module scope (single-workspace plugin); neither → global-only.
+export function readerForSession(sid?: unknown): Reader {
+  const scope = sessionScope(sid) ?? repoScope();
+  return scope ? { kind: "repo", scope } : { kind: "global-only" };
+}
+
+// The historical AMBIENT reader: live session, then module scope, and no
+// scope at all reads as unpartitioned. Correct only for out-of-plugin callers
+// (viewer, scripts, unit tests) with no concurrent sessions; model-facing
+// plugin paths carry a Reader instead of using this.
+export function readerForAmbient(): Reader {
+  const scope = repoScopeFor(getCurrent().sid);
+  return scope ? { kind: "repo", scope } : { kind: "admin" };
+}
+
+// Ambient-style entry points take an optional sid: a real session id resolves
+// fail-closed through readerForSession; "?" or absent keeps legacy semantics.
+export function readerFromSid(sid?: unknown): Reader {
+  return typeof sid === "string" && sid !== "" && sid !== "?"
+    ? readerForSession(sid)
+    : readerForAmbient();
+}
+
+// The ONLY repo filter every read path uses (injection sinks, recall, list,
+// update targeting, prune, decay, gate scope reads). A row is visible when it
+// is global (explicit marker OR no stamp — legacy rows and writes by
+// processes with no scope, e.g. the viewer), or was written in the reader's
+// repo. Keeping it one predicate is what stops the filtering from drifting
+// between entry points.
+export function isVisibleTo(m: Memory, reader: Reader): boolean {
+  if (reader.kind === "admin") return true;
   if (!m.repo || m.repo === "global") return true;
-  const cur = repoScopeFor(getCurrent().sid);
-  if (!cur) return true; // unscoped process: no partitioning
-  return m.repo === cur.key || (!!m.repoPath && m.repoPath === cur.path);
+  if (reader.kind === "global-only") return false;
+  return m.repo === reader.scope.key || (!!m.repoPath && m.repoPath === reader.scope.path);
+}
+
+export function visibleTo(mems: Memory[], reader: Reader): Memory[] {
+  return mems.filter((m) => isVisibleTo(m, reader));
+}
+
+// Ambient (out-of-plugin) convenience: resolves the reader at CALL time.
+// Plugin paths must pass an explicit Reader/sid instead of relying on this.
+export function isVisibleHere(m: Memory): boolean {
+  return isVisibleTo(m, readerForAmbient());
 }
 
 // Rows visible to the current process (active filtering stays with callers).

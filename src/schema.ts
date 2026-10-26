@@ -196,10 +196,15 @@ export const BlockBody = z.object({ ts: isoTs, reason: z.string() });
 export const UnblockBody = z.object({ ts: isoTs });
 // Strict fields by intent: String(body.x ?? "") coercion once let unvalidated
 // POSTs append rows with empty type/scope/content.
+// repo/repoPath (#129): the origin stamp of the DELETED row, replayed from the
+// audit line so a restore-entry keeps the row's original visibility instead of
+// silently landing global. Both absent = the documented legacy global restore.
 export const RestoreEntryBody = z.object({
   type: z.enum(TYPES),
   scope: memoryField.min(1),
   content: z.string().min(1),
+  repo: memoryField.min(1).max(64).optional(),
+  repoPath: memoryField.min(1).max(4096).optional(),
 });
 
 // ---- wiring ---------------------------------------------------------------
@@ -220,7 +225,11 @@ export interface ToolDef<S extends ZodTypeAny> {
   name: string;
   description: string;
   options: { codemode: false };
-  execute(args: z.infer<S>): Promise<{ content: string }>;
+  // The second argument is the host's per-call execution context (V2 SDK
+  // ToolContext carries sessionID/messageID/id). It is optional because the
+  // V1-shaped test harness and direct callers omit it; tools must fall back
+  // to the ambient current, which is only safe SYNCHRONOUSLY at entry.
+  execute(args: z.infer<S>, context?: unknown): Promise<{ content: string }>;
 }
 
 /**
@@ -236,7 +245,7 @@ export function validated<S extends ZodTypeAny>(
   return {
     ...def,
     input: wire(schema),
-    async execute(raw: unknown): Promise<{ content: string }> {
+    async execute(raw: unknown, context?: unknown): Promise<{ content: string }> {
       const parsed = schema.safeParse(raw ?? {});
       if (!parsed.success) {
         const issues = parsed.error.issues.map(
@@ -246,7 +255,7 @@ export function validated<S extends ZodTypeAny>(
           content: `invalid arguments to ${def.name} — nothing was done: ${issues.join("; ")}`,
         };
       }
-      return def.execute(parsed.data);
+      return def.execute(parsed.data, context);
     },
   };
 }
