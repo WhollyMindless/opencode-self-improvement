@@ -50,6 +50,10 @@ export interface GateContext {
   liveRoot: string;
   evidenceCalls: string[];
   hasGateCheck: boolean;
+  // The session this write belongs to, when the caller knows it by name.
+  // Repo-stamp resolution prefers it over the mutable global current, which
+  // a capture's model-call await can outlive into another session (#116).
+  sessionID?: string;
   // True when the session exercised the code (read/grep/edit/bash results
   // recorded). Empirical engagement substitutes for hand-copied refs (gate
   // injection): the write encodes behavior that actually happened here, so the
@@ -606,7 +610,9 @@ export async function runWriteGate(
   }
 
   const snapshot = await snapshotFiles([join(memoryRoot(), `${new Date().toISOString().split("T")[0]}.logfmt`)]);
-  const ts = await appendMemory(candidate);
+  // The write carries the CALLER's session, not whatever current says after
+  // the gate's own awaits - capture's stamp must follow the captured session.
+  const ts = await appendMemory({ ...candidate, sessionID: ctx.sessionID });
   await record("write_promoted", {
     gate: 4,
     op: "write",
