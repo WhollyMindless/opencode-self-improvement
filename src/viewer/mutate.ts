@@ -9,6 +9,7 @@
 import { deletionsFile } from "../config.ts";
 import { addBlock, removeBlock } from "../blocklist.ts";
 import { record, chainId } from "../evidence.ts";
+import { redactSecrets } from "../secrets.ts";
 import { appendLog, fileIdentity, formatLine, parseLine, readLines, writeAtomic } from "../logfmt.ts";
 import { withStoreLock, LOCK_WRITE } from "../lock.ts";
 import {
@@ -55,6 +56,18 @@ async function findMemory(ts: string): Promise<Memory> {
 
 // Non-destructive edit: snapshot the pre-state, supersede the old entry, then
 // append the edited replacement (added ONLY because the edit requires it).
+//
+// ORIGIN PRESERVATION (#129): the replacement carries the target's repo stamp
+// verbatim. The viewer is an ADMIN entry point with no repository scope of
+// its own; letting appendMemory resolve the stamp from that null scope used
+// to leave every edited row unstamped — i.e. silently GLOBAL, recallable and
+// injectable in every other project. An edit must never widen visibility: a
+// row from repo A stays invisible everywhere except A (and global rows, as
+// before) after an edit. Making a row global is a deliberate action (the
+// `global` flag on memory_remember), never a side effect of who clicked edit.
+// An unstamped target (legacy row, or one explicitly stored global) has no
+// origin to carry: the replacement is stamped explicitly "global" — same
+// visibility as the absent stamp, and now honest about it on the line itself.
 export async function editMemory(input: EditInput): Promise<MutationResult> {
   requireReason(input.reason);
   const chain = chainId();
@@ -65,9 +78,16 @@ export async function editMemory(input: EditInput): Promise<MutationResult> {
     type: input.type || target.type,
     scope: input.scope || target.scope,
     content: input.content,
-    issue: input.issue,
-    tags: input.tags,
+    // Omitted metadata survives the edit (#129): the usual UI sends
+    // type/scope/content/reason, and dropping the old issue/tags/kw erased
+    // import/auto-capture provenance and retrieval aliases from a row whose
+    // prose only got a typo fix.
+    issue: input.issue ?? target.issue,
+    tags: input.tags ?? target.tags,
+    kw: target.kw,
     status: target.status,
+    repo: target.repo ?? "global",
+    repoPath: target.repo ? target.repoPath : undefined,
   });
   await markSuperseded(input.ts, {
     superseded_by: newTs,
@@ -155,7 +175,15 @@ async function audit(
       type: mem.type,
       scope: mem.scope,
       content: mem.content,
-      reason,
+      // Origin survives the audit record (#129): the viewer's restore-entry
+      // path reads these lines, and a restore of a repo-private row must be
+      // able to re-stamp what was deleted. A line with no stamp is the
+      // legacy/unstamped case — restore leaves it global, as documented.
+      repo: mem.repo,
+      repoPath: mem.repoPath,
+      // Same write-boundary rule as evidence (#128): an audit reason is
+      // human prose and must not persist a recognized credential.
+      reason: redactSecrets(reason),
     }),
   );
 }
