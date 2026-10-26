@@ -27,6 +27,7 @@ import {
   type Memory,
 } from "./memory.ts";
 import { runWriteGate, type GateContext, type WriteCandidate } from "./gates.ts";
+import { withStoreLock } from "./lock.ts";
 import { pruneMemory } from "./prune.ts";
 import { exportMemories, findStaleOpen, importMemories } from "./portable.ts";
 import { listSnapshots, restoreSnapshot } from "./undo.ts";
@@ -459,45 +460,77 @@ const impl = {
         options: direct,
         async execute(args): Promise<{ content: string }> {
           await bindSessionIdentity(getCurrent().sid);
-          const prior = (await loadAll()).filter(
-            (m) => m.scope === args.scope && m.type === args.type && isActive(m) && isVisibleHere(m),
-          );
-          // Resolve the row BEFORE the gate: an update that cannot identify its
-          // target must write nothing, rather than silently superseding whichever
-          // row happened to be newest in this scope+type.
-          const resolved = resolveMemoryTarget(prior, args.query);
-          if (resolved.status === "not_found") {
-            const where = args.query ? ` matches ${JSON.stringify(args.query)}` : "";
+          // The whole update — resolve, gate, supersede — runs under one
+          // UPDATE-ORDER lock. Without it, two concurrent updates that both
+          // resolved the same still-active target both promoted and both
+          // claimed success: markSuperseded is first-call-wins, so one
+          // replacement row silently survived un-superseded (measured 5/5).
+          // This outer lock is a DISTINCT file from anything runWriteGate or
+          // markSuperseded take (sections run flat — never re-enter a file
+          // you hold), and the acquisition order is always update-order
+          // then store, never the reverse, so it cannot deadlock against a
+          // plain writer. On timeout it FAILS closed: proceeding unlocked
+          // is exactly the race this lock exists to close. The loser then
+          // re-resolves under the lock, finds its target already retired,
+          // and writes nothing — the documented fail-closed contract.
+          try {
+            return await withStoreLock(
+              join(memoryRoot(), "update-order"),
+              async () => {
+                const prior = (await loadAll()).filter(
+                  (m) => m.scope === args.scope && m.type === args.type && isActive(m) && isVisibleHere(m),
+                );
+                // Resolve the row BEFORE the gate: an update that cannot identify its
+                // target must write nothing, rather than silently superseding whichever
+                // row happened to be newest in this scope+type.
+                const resolved = resolveMemoryTarget(prior, args.query);
+                if (resolved.status === "not_found") {
+                  const where = args.query ? ` matches ${JSON.stringify(args.query)}` : "";
+                  return {
+                    content: `memory_update blocked: no active ${args.type} row in ${args.scope}${where}. Nothing was written.`,
+                  };
+                }
+                if (resolved.status === "ambiguous") {
+                  return {
+                    content:
+                      `memory_update blocked: ${JSON.stringify(args.query)} matches ${resolved.candidates.length} active ` +
+                      `${args.type} rows in ${args.scope} (${resolved.candidates.map((m) => m.ts).join(", ")}). ` +
+                      "Pass a row id or a unique content substring. Nothing was written.",
+                  };
+                }
+                const target = resolved.target;
+                const outcome = await runWriteGate(
+                  { type: args.type, scope: args.scope, content: args.content, kw: args.kw, status: args.status },
+                  { ...gateContext(), supersedesTs: target.ts },
+                );
+                if (outcome.action === "promoted" && outcome.ts && target) {
+                  await markSuperseded(target.ts, {
+                    superseded_by: outcome.ts,
+                    reason: "update",
+                    symbol: target.ts,
+                    from: target.ts,
+                    to: outcome.ts,
+                  });
+                  return { content: `Updated ${args.type} in ${args.scope} (superseded ${target.ts})` };
+                }
+                if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
+                if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
+                return { content: `Write blocked at GATE (${outcome.reason}). ${outcome.hint ?? ""}`.trimEnd() };
+              },
+              {
+                onTimeout: "fail",
+                onEvent: (event, waitedMs) => {
+                  void record("store_lock", { event, waited_ms: waitedMs, op: "update" });
+                },
+              },
+            );
+          } catch (err) {
+            // Only the fail-closed lock timeout throws here; the write path
+            // has its own outcomes. Nothing was written either way.
             return {
-              content: `memory_update blocked: no active ${args.type} row in ${args.scope}${where}. Nothing was written.`,
+              content: `memory_update blocked: ${(err as Error).message} Nothing was written.`,
             };
           }
-          if (resolved.status === "ambiguous") {
-            return {
-              content:
-                `memory_update blocked: ${JSON.stringify(args.query)} matches ${resolved.candidates.length} active ` +
-                `${args.type} rows in ${args.scope} (${resolved.candidates.map((m) => m.ts).join(", ")}). ` +
-                "Pass a row id or a unique content substring. Nothing was written.",
-            };
-          }
-          const target = resolved.target;
-          const outcome = await runWriteGate(
-            { type: args.type, scope: args.scope, content: args.content, kw: args.kw, status: args.status },
-            { ...gateContext(), supersedesTs: target.ts },
-          );
-          if (outcome.action === "promoted" && outcome.ts && target) {
-            await markSuperseded(target.ts, {
-              superseded_by: outcome.ts,
-              reason: "update",
-              symbol: target.ts,
-              from: target.ts,
-              to: outcome.ts,
-            });
-            return { content: `Updated ${args.type} in ${args.scope} (superseded ${target.ts})` };
-          }
-          if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
-          if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
-          return { content: `Write blocked at GATE (${outcome.reason}). ${outcome.hint ?? ""}`.trimEnd() };
         },
       }));
 

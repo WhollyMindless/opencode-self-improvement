@@ -264,14 +264,12 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
     expect(after.filter(isActive).length).toBe(2);
   });
 
-  test.failing("RED (#125 review): two concurrent updates on one target must leave exactly ONE active replacement", async () => {
-    // Measured on the PR branch (5/5 deterministic): both calls return
-    // "Updated ... (superseded A)" and the store keeps BOTH replacement rows
-    // live; superseded_by records only one of them. Both callers believe they
-    // rewrote the row. The resolve -> gate -> markSuperseded sequence is not
-    // atomic per target. This test fails on purpose; when the sequence lands
-    // atomically, bun reports the unexpected pass and forces this into a
-    // normal test.
+  test("two concurrent updates on one target: the winner lands, the loser fails closed (no double-swap)", async () => {
+    // The race this replaced (measured 5/5 before the fix): both calls
+    // returned "Updated ... (superseded A)", the store kept BOTH replacement
+    // rows live, and superseded_by recorded only one. With the update-order
+    // lock the loser re-resolves its target AFTER the winner retired it, so
+    // it hits the documented not_found fail-closed path and appends nothing.
     const A = await appendMemory({
       type: "learning",
       scope: "raceupd",
@@ -289,14 +287,15 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
         content: "alpha lint step runs biome over packages cli",
       }),
     ]);
-    // Current behavior: both claim success (these pins stay true even after a
-    // fix that rejects the loser — then they should be rewritten to assert the
-    // rejection instead).
-    expect(o1).toContain("superseded");
-    expect(o2).toContain("superseded");
-    // The store must not end in a state neither caller asked for.
-    const active = (await loadAll()).filter((m) => m.scope === "raceupd" && isActive(m));
+    expect(o1).toContain(`superseded ${A}`);
+    expect(o2).toContain("blocked");
+    expect(o2).toContain("Nothing was written.");
+    const rows = (await loadAll()).filter((m) => m.scope === "raceupd");
+    expect(rows.length).toBe(2); // target + exactly one replacement, no orphan
+    const active = rows.filter(isActive);
     expect(active.length).toBe(1);
+    expect(active[0]!.content).toContain("oxlint");
+    expect(isActive((await loadAll()).find((m) => m.ts === A)!)).toBe(false);
   });
 });
 
