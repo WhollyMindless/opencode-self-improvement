@@ -5,8 +5,11 @@ exactly ONE claimed invariant in a detached scratch worktree of HEAD and runs th
 A mutant nothing kills is an invariant the suite does not actually depend on, whatever the test titles claim.
 
 **Run:** src as of main @ `7bfe99b` (no `src/` file is touched by this branch - its only shipped-file
-change is `package.json` +1, the `sweep:test` script), instrument as of `75fd932` (two
-mutant anchors re-anchored where #89 moved the publish path - see the lineage note), Windows, Bun 1.3.10,
+change is `package.json` +1, the `sweep:test` script), instrument `75fd932` (anchors re-pinned for #89)
+plus the #110 review fixes through `20e77ae` - those later fixes cannot move a Windows number (the
+scratch's node_modules was a real directory here the whole time; post-fix Windows re-runs reproduce
+verdicts bit-identically), which is why the table below stands on the earlier instrument:
+mutant anchors re-anchored where #89 moved the publish path (see the lineage note), Windows, Bun 1.3.10,
 43 mutants, one run each with 3-run confirmation for timing-only evidence. Baseline (clean tree) first:
 **483 pass / 0 fail / 5 skip** - zero known-reds: the four Windows torn-read/EPERM races that motivated
 baseline subtraction are pinned as of #89/#105. Subtraction stays anyway (a green baseline still lies the
@@ -14,6 +17,12 @@ other two ways - see Method notes), it just no longer has anything to subtract. 
 timing-sensitive tests is confirmed to 3 runs; unstable = timing luck, reported, not credited. Both
 kill→survive verdict flips against the previous table were re-run 3x on a quiet machine before being
 published (see the delta section).
+
+**Platform note:** the score is the **Windows** number. POSIX legs became possible only with the #110
+review fixes (`git clean` no longer deletes the scratch's symlinked node_modules; the tally parser reads
+anchored summary lines, not first matches that echoed test titles can poison), and they legitimately
+diverge - `publish-rename-to-truncate` for instance is killed 1/1 here but survives on Linux/macOS, where
+a truncating direct publish never opens the window the kill stands in. Same suite, different syscalls.
 
 ## Score
 
