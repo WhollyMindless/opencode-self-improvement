@@ -8,7 +8,16 @@ import { join, basename } from "node:path";
 import { dateStr, memoryRoot, deletionsFile, snapshotDir, HITS_FILENAME } from "./config.ts";
 import { repoScopeFor } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
-import { appendLog, ensureDir, formatLine, parseLine, readLines, writeAtomic, type Fields } from "./logfmt.ts";
+import {
+  appendLog,
+  ensureDir,
+  fileIdentity,
+  formatLine,
+  parseLine,
+  readLines,
+  writeAtomic,
+  type Fields,
+} from "./logfmt.ts";
 import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 import { blockedTs } from "./blocklist.ts";
 import { containsSecret, redactSecrets } from "./secrets.ts";
@@ -319,6 +328,10 @@ async function stampRow(
   return withStoreLock(
     file,
     async () => {
+      // Identity BEFORE the read: it pins the state `lines` was derived from,
+      // so writeAtomic can refuse to publish if anything moved the file
+      // meanwhile (Windows retry path — see logfmt.ts handoverRename).
+      const since = await fileIdentity(file);
       const lines = await readLines(file);
       const idx = lines.findIndex((l) => {
         const f = parseLine(l);
@@ -331,7 +344,7 @@ async function stampRow(
       if (next === null) return false;
       lines[idx] = next;
       await snapshotBefore(file);
-      await writeAtomic(file, lines.join("\n") + "\n");
+      await writeAtomic(file, lines.join("\n") + "\n", since);
       return true;
     },
     LOCK_WRITE,
@@ -341,15 +354,53 @@ async function stampRow(
 // Mark an existing memory as superseded IN PLACE (entry retained, recoverable).
 // Idempotent: a second call is a no-op, so no double `superseded_by`.
 export async function markSuperseded(ts: string, fields: SupersedeFields): Promise<boolean> {
+  return (await markManySuperseded([{ ts, fields }])) > 0;
+}
+
+// Batch supersession (#61): one lock acquisition, one read, one snapshot and
+// one publish PER FILE touched - N rows retire as one undo point instead of
+// N. decay and the gate's drift/canonical loops used to call markSuperseded
+// per row, which meant N full read-modify-write cycles, N undo points, and
+// N windows where two runs interleave and each re-pays the other's work.
+// Idempotence is unchanged: a row already carrying superseded_by is skipped,
+// so a repeat run marks nothing and writes nothing. Duplicate ts entries in
+// one batch: the FIRST entry's fields win (mirrors row-by-row first-call-wins).
+// Returns the number of rows actually marked.
+export async function markManySuperseded(
+  entries: { ts: string; fields: SupersedeFields }[],
+): Promise<number> {
+  if (entries.length === 0) return 0;
+  const wanted = new Map<string, SupersedeFields>();
+  for (const e of entries) if (!wanted.has(e.ts)) wanted.set(e.ts, e.fields);
+  let marked = 0;
   for (const file of await memoryFiles()) {
-    // The whole line is rewritten rather than extended, so an old-format line
-    // comes out in the current format with its values unchanged.
-    const outcome = await stampRow(file, ts, (parsed) =>
-      typeof parsed.superseded_by === "string" ? null : formatLine({ ...parsed, ...fields }),
+    marked += await withStoreLock(
+      file,
+      async () => {
+        const lines = await readLines(file);
+        let touched = 0;
+        for (let i = 0; i < lines.length; i++) {
+          const parsed = parseLine(lines[i]);
+          if (!parsed || typeof parsed.superseded_by === "string") continue;
+          const fields = typeof parsed.ts === "string" ? wanted.get(parsed.ts) : undefined;
+          if (!fields) continue;
+          // Whole line rewritten, not extended: an old-format line comes out in
+          // the current format with its values unchanged (as markSuperseded did).
+          lines[i] = formatLine({ ...parsed, ...fields });
+          touched++;
+        }
+        if (touched === 0) return 0;
+        await snapshotBefore(file);
+        await writeAtomic(file, lines.join("\n") + "\n");
+        return touched;
+      },
+      LOCK_WRITE,
     );
-    if (outcome !== null) return outcome;
   }
-  return false;
+  // A ts that appears in several files (should not exist - append mints unique
+  // ts) retires in EVERY file here, where the row-by-row loop retired only the
+  // first; both are conservation-safe, this one is the more honest tombstone.
+  return marked;
 }
 
 // Drop a row's supersession markers IN PLACE (snapshot-first), making it active
@@ -490,6 +541,7 @@ export async function prune(scope: string, type: string, reason: string): Promis
     await withStoreLock(
       file,
       async () => {
+        const since = await fileIdentity(file);
         const lines = await readLines(file);
         const kept: string[] = [];
         let changed = false;
@@ -509,7 +561,7 @@ export async function prune(scope: string, type: string, reason: string): Promis
         }
         if (!changed) return;
         snapshot.push(...(await snapshotFiles([file])));
-        await writeAtomic(file, kept.join("\n") + (kept.length ? "\n" : ""));
+        await writeAtomic(file, kept.join("\n") + (kept.length ? "\n" : ""), since);
       },
       LOCK_WRITE,
     );
