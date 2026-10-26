@@ -36,7 +36,7 @@ After that, memory is just conversation: ask the agent to remember something and
 - **`/repo-init`** — per-repo setup: code graph index plus build/test commands, keyed to the git head.
 - **Write gates** — code references are verified against your actual repo, near-duplicates are collapsed, contradictions with superseded memories are rejected. Blocked writes are logged with a reason in `memory_evidence`.
 - **Memory-aware compaction** — durable memories are handed to the compaction summarizer, so a long session keeps its facts.
-- **Auto-capture (opt-in)** - on the idle and compaction triggers, one cheap model pass per trigger proposes candidates, which face the same write gates; a 5-minute cooldown per session and trigger bounds the spend ([per-trigger numbers](bench/capture-trigger-results.md)). Off by default.
+- **Auto-capture (opt-in)** — on the idle and compaction triggers, one cheap model pass per trigger proposes candidates, which face the same write gates; a 5-minute cooldown per session and trigger bounds the spend ([per-trigger numbers](bench/capture-trigger-results.md)). Off by default.
 - **Repo scoping** — rows belong to the repo that wrote them; project A's facts never surface in project B.
 - **Safe across concurrent sessions** — whole-file rewrites hold a per-file lock honored across processes and hand the new file over with an atomic rename.
 - **Decay** — `memory_decay` retires stale open threads. Dry run by default, snapshot-first, undoable.

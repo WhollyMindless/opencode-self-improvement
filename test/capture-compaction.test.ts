@@ -45,7 +45,7 @@ beforeEach(() => {
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
   resetState();
-  resetCaptureCooldowns(); // cooldown truth is module-level since #108; a fresh test is a fresh process
+  resetCaptureCooldowns(); // cooldown truth is module-level since #108 - and bun test shares module state across files, so a fresh test needs this explicit clear
 });
 
 afterEach(() => {
