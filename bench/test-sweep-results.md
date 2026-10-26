@@ -116,7 +116,11 @@ The scenario suite is tightening faster than the sweep's score moves; that's the
   quiet re-run as much as kills do.
 - **Calibration:** `--selftest` plants a mutant in a deliberately under-pinned pure helper and demands a
   kill — a harness that cannot go red is itself a defect.
-- **Catalog lineage:** 24 mutants from the tool shipped in `6d1858b` (ids preserved) + 26 built for #70:
-  5 exact-duplicate breaks deduped, 3 shared-id sites consolidated, 1 split in two (its anchor went
-  ambiguous when the timeout policy was duplicated into the queue path). 42 patterns + 1 calibration
-  plant, all anchored exactly-once (`--validate`, 44/44 at `7c4a22d`).
+- **Catalog lineage (corrected 2026-10-26; an earlier claim here said 24+26−5=42 — the measured accounting
+  is different, per #110's review):** of the 24 mutants in the tool shipped in `6d1858b`, 19 ids survive into
+  the merged catalog; 5 (`lock-never-steal`, `publish-truncate`, `blocklist-visible`, `restore-check-blind`,
+  `restore-safety-stale`) were exact-duplicate breaks deduped to their rebuilt sites. With 24 entries built
+  for #70 that is **43 patterns + 1 calibration plant**, all anchored exactly once (`--validate` 44/44).
+  Two anchors went stale when #89 rewrote the publish path and were re-anchored at the merge
+  (`publish-rename-to-truncate` onto `handoverRename`, `undo-force-safety-after-publish` onto the
+  `since`-threaded call).

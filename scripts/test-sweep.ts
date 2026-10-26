@@ -90,7 +90,7 @@ interface Mutant {
 // written as they appear in the source text.
 const EMDASH_A = "        // Keep the CURRENT version of rows the snapshot also has (in-place edits \u2014";
 const EMDASH_B = "        // e.g. a supersede stamp \u2014 made after the snapshot win), then append the";
-const WRITE_ATOMIC = '      await writeAtomic(target, out.length ? out.join("\\n") + "\\n" : "");';
+const WRITE_ATOMIC = '      await writeAtomic(target, out.length ? out.join("\\n") + "\\n" : "", since);';
 const RETURN_SAFETY = '      return { target, restored: true, mode, safety, concurrentAdded, concurrentChanged, deletedOmitted };';
 const SAFETY_AFTER = '      const safetyAfter = mode === "force" ? (await snapshotFiles([target]))[0] : undefined;';
 const RETURN_SAFETY_AFTER = '      return { target, restored: true, mode, safety: safetyAfter, concurrentAdded, concurrentChanged, deletedOmitted };';
@@ -129,7 +129,11 @@ export const MUTANTS: Mutant[] = [
 	{
 		id: "publish-rename-to-truncate",
 		file: "src/logfmt.ts",
-		find: L(`    await Bun.write(tmp, content);`, `    await rename(tmp, file);`),
+		// Re-anchored 2026-10-26: #89 moved the rename into handoverRename;
+		// the publish as it now stands still means hand-over-by-rename, so the
+		// mutation keeps its meaning - collapse the write+handover pair into a
+		// truncating write straight onto the destination.
+		find: L(`    await Bun.write(tmp, content);`, `    await handoverRename(tmp, file, since);`),
 		replace: `    await Bun.write(file, content);`,
 		invariant: "whole-file publishes hand over by rename: readers (no lock)",
 		class: "D2", // never observe the truncated middle
@@ -869,7 +873,16 @@ function classify(r: SuiteRun, baselinePass: number): "compile-error" | "runtime
 	if (r.errorMarkers.length > 0 && r.fileFailed.length > 0) return "compile-error";
 	if (r.pass === 0 && r.failed.length === 0 && r.fileFailed.length === 0) return "runtime-error";
 	if (r.fileFailed.length > 0 && r.pass < baselinePass / 2) return "compile-error";
-	if (BASELINE_TOTAL > 0 && r.pass + r.fail + r.skip + r.fileFailed.length < 0.8 * BASELINE_TOTAL) return "runtime-error";
+	if (BASELINE_TOTAL > 0 && r.pass + r.fail + r.skip + r.fileFailed.length < 0.8 * BASELINE_TOTAL) {
+		// Truncated tally: the runner stopped early. That is only "we could not
+		// measure" when nothing significant DIED before the stop. A mutant that
+		// reddens many tests and also crashes the runner between tests - the
+		// exact shape of the calibration plant's quote-grammar breakage on
+		// macOS (137 pass / 57 fail / truncated to 198 tests) - is a KILL that
+		// happened to be truncated, not an instrument failure (#110 review).
+		if (r.failed.length + r.fileFailed.length < 3) return "runtime-error";
+		return "ok"; // deltaOf() below counts the new reds and rules kill
+	}
 	return "ok";
 }
 
