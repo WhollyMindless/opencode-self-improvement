@@ -76,6 +76,10 @@ interface Row {
   scope: string;
   content: string;
   reason?: string;
+  // Origin stamp (#129): what the row carried when it was deleted, so the
+  // restore-entry round trip can restore the row's ORIGINAL visibility.
+  repo?: string;
+  repoPath?: string;
 }
 
 // Deleted entries live only in the audit log (their memory line was removed),
@@ -91,6 +95,8 @@ async function deletedRows(): Promise<Row[]> {
       scope: String(f.scope ?? ""),
       content: String(f.content ?? ""),
       reason: String(f.reason ?? ""),
+      ...(typeof f.repo === "string" && f.repo ? { repo: f.repo } : {}),
+      ...(typeof f.repoPath === "string" && f.repoPath ? { repoPath: f.repoPath } : {}),
     }));
 }
 
@@ -186,6 +192,10 @@ async function loaded(): Promise<Record<string, unknown>> {
       tags: m.tags,
       superseded_by: m.superseded_by,
       reason: m.reason,
+      // The viewer is the explicit ADMIN read surface (header comment): it
+      // lists every repository, and now says WHICH one each row belongs to.
+      repo: m.repo,
+      repoPath: m.repoPath,
       blocked: blockedByTs.has(m.ts),
     })),
     blocked,
@@ -256,7 +266,17 @@ async function unblockRoute(body: z.infer<typeof UnblockBody>): Promise<Response
 }
 
 async function restoreEntryRoute(body: z.infer<typeof RestoreEntryBody>): Promise<Response> {
-  const t = await appendMemory({ type: body.type, scope: body.scope, content: body.content });
+  // Origin survives the restore round trip (#129): when the audit line carried
+  // a repo stamp, the restored row carries it again — the viewer's own missing
+  // repository scope must never be what decides a row's visibility. No repo
+  // fields = the documented legacy/global restore path, unchanged.
+  const t = await appendMemory({
+    type: body.type,
+    scope: body.scope,
+    content: body.content,
+    repo: body.repo,
+    repoPath: body.repoPath,
+  });
   return json({ restored: t });
 }
 
