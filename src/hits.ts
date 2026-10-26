@@ -16,7 +16,7 @@
 // already exists inside that row.
 import { join } from "node:path";
 import { memoryRoot, HITS_FILENAME } from "./config.ts";
-import { appendLog, bracketList, formatLine, parseLine, readLines, writeAtomic } from "./logfmt.ts";
+import { appendLog, bracketList, fileIdentity, formatLine, parseLine, readLines, writeAtomic } from "./logfmt.ts";
 import type { UseSignals } from "./inject.ts";
 import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 import type { Memory } from "./memory.ts";
@@ -66,8 +66,12 @@ async function rotateIfNeeded(): Promise<void> {
   const file = Bun.file(hitsFile());
   const size = await file.size;
   if (size <= MAX_HITS_BYTES) return;
+  // #106: anchor the halving like every other whole-file publish (#89) - on
+  // Windows the rename can be refused by a reader's handle, and the retry is
+  // only safe while nothing else moved this file.
+  const since = await fileIdentity(hitsFile());
   const lines = (await file.text()).split("\n").filter((l) => l.trim());
-  await writeAtomic(hitsFile(), lines.slice(Math.floor(lines.length / 2)).join("\n") + "\n");
+  await writeAtomic(hitsFile(), lines.slice(Math.floor(lines.length / 2)).join("\n") + "\n", since);
 }
 
 /**

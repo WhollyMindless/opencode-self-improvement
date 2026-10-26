@@ -36,7 +36,7 @@ After that, memory is just conversation: ask the agent to remember something and
 - **`/repo-init`** — per-repo setup: code graph index plus build/test commands, keyed to the git head.
 - **Write gates** — code references are verified against your actual repo, near-duplicates are collapsed, contradictions with superseded memories are rejected. Blocked writes are logged with a reason in `memory_evidence`.
 - **Memory-aware compaction** — durable memories are handed to the compaction summarizer, so a long session keeps its facts.
-- **Auto-capture (opt-in)** — on the idle and compaction triggers, one cheap model pass proposes candidates, which face the same write gates. Off by default.
+- **Auto-capture (opt-in)** — on the idle and compaction triggers, one cheap model pass per trigger proposes candidates, which face the same write gates; a 5-minute cooldown per session and trigger bounds the spend ([per-trigger numbers](bench/capture-trigger-results.md)). Off by default.
 - **Repo scoping** — rows belong to the repo that wrote them; project A's facts never surface in project B.
 - **Safe across concurrent sessions** — whole-file rewrites hold a per-file lock honored across processes and hand the new file over with an atomic rename.
 - **Decay** — `memory_decay` retires stale open threads. Dry run by default, snapshot-first, undoable.
@@ -64,7 +64,7 @@ Zero configuration is the default. To tune, use the object form of the plugin en
 | `autoCapture` | `false` | Master switch for auto-capture. Off by default, so the install stays zero-token. |
 | `captureModel` | — | `"provider/id"` model used for auto-capture. Required when `autoCapture` is on; missing or invalid disables capture with a startup warning. |
 | `captureMax` | `3` | Maximum candidates proposed per capture pass. |
-| `captureOnCompact` | `true` | When `autoCapture` is on, also mine the transcript at compaction, before the summarizer replaces it. Setting it while `autoCapture` is off does nothing and reports a startup warning. |
+| `captureOnCompact` | `true` | When `autoCapture` is on, also mine the transcript at compaction, before the summarizer replaces it. Its 5-minute cooldown is separate from the idle one, so the two triggers' hit-rates stay measurable. Setting it while `autoCapture` is off does nothing and reports a startup warning. |
 | `notifyBlocked` | `true` | Terminal (TUI) only: toast when a write gate blocks a write. Blocks are always in `memory_evidence` either way. |
 
 ### Environment variables
