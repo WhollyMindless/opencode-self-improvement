@@ -139,6 +139,22 @@ export const MUTANTS: Mutant[] = [
 		class: "D2", // never observe the truncated middle
 	},
 	{
+		id: "publish-rename-since-blind",
+		file: "src/logfmt.ts",
+		// #110 companion (the ruling's "pin-first" follow-up): the anchored
+		// retry renames only while the destination still matches `since`. Blind
+		// it and a contention-blocked writer keeps retrying past a mid-window
+		// touch - a slow way of publishing stale bytes over the row the
+		// immediate failure preserved. The pre-existing pins kill it only by
+		// racing the release timer against the 2s deadline (1.33x margin); the
+		// third handover test verdicts it in ~450ms, 4x inside - that is the
+		// kill this catalog entry leans on.
+		find: `      if ((await fileIdentity(file)) !== since) throw err; // destination moved; our copy is stale`,
+		replace: `      if (false) throw err; // MUTANT: since-gate off, retry blind`,
+		invariant: "anchored retry re-checks the destination before renaming: a premise that moved aborts",
+		class: "D2", // an unlocked writer's mid-window row survives an anchored publish
+	},
+	{
 		id: "append-truncate-regression",
 		file: "src/logfmt.ts",
 		find: `await appendFile(file, next);`,
@@ -399,14 +415,19 @@ export const MUTANTS: Mutant[] = [
 		// both landed. Split into two uniquely-anchored mutants.
 		id: "lock-default-fail",
 		file: "src/lock.ts",
+		// Re-anchored 2026-10-26: the #107 branch threaded the `now()` seam
+		// through the wait loop, and --validate caught this anchor rot on the
+		// same day it landed (#110's validate earned its keep immediately).
+		// Meaning unchanged: the fail-vs-proceed choice at timeout is forced
+		// to fail for every caller.
 		find: L(
-			`      if (Date.now() - started >= budgetMs) {`,
-			`        opts.onEvent?.("timeout", Date.now() - started);`,
+			`      if (now() - started >= budgetMs) {`,
+			`        opts.onEvent?.("timeout", now() - started);`,
 			`        if (opts.onTimeout === "fail") {`,
 		),
 		replace: L(
-			`      if (Date.now() - started >= budgetMs) {`,
-			`        opts.onEvent?.("timeout", Date.now() - started);`,
+			`      if (now() - started >= budgetMs) {`,
+			`        opts.onEvent?.("timeout", now() - started);`,
 			`        if (true) {`,
 		),
 		invariant: "an ordinary write proceeds rather than losing the write",
