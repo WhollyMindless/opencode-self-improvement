@@ -760,8 +760,18 @@ function resetScratch(dir: string): void {
 	// Self-heal: a stranded test child or a deferred Windows file operation can
 	// disturb the tree after a run (observed in #70: a tracked source file went
 	// missing between two mutants). If git still sees dirt, rebuild the worktree.
-	// stdout only: git's CRLF chatter on stderr is not dirt.
-	const dirt = run(["git", "-C", dir, "status", "--porcelain"]).stdout.trim();
+	// stdout only: git's CRLF chatter on stderr is not dirt. And neither is
+	// the node_modules link (#110 approval note 1): `clean -e` keeps it, but
+	// untracked-and-unignored it lists as `?? node_modules` on every POSIX
+	// status - not dirt, but the reset's own plumbing, owned by
+	// ensureScratchLink below. Counting it as dirt rebuilt the whole worktree
+	// on EVERY reset (measured: 51.6s where 25s is honest). Windows junctions
+	// match the gitignored `node_modules/` directory rule and never appear.
+	const dirt = run(["git", "-C", dir, "status", "--porcelain"])
+		.stdout.split("\n")
+		.filter((l) => !/^\?\? node_modules\/?$/.test(l.trim()))
+		.join("\n")
+		.trim();
 	if (dirt !== "") {
 		console.warn(`  scratch ${dir} came back dirty - rebuilding it (${cut(dirt.replace(/\n/g, " | "), 160)})`);
 		if (!removeScratch(dir)) throw new Error(`cannot rebuild scratch ${dir}: locked and nonempty`);
