@@ -277,6 +277,7 @@ describe("S4 — superseded-memory, decision-fed, no registry (review-gated)", (
     );
     expect(outcome.action).toBe("blocked");
     expect(outcome.reason).toBe("superseded_overlap");
+    expect(outcome.hint).toContain("memory_update");
 
     const lines = evidence();
     assertOrder(lines, [
@@ -296,7 +297,8 @@ describe("S4 — superseded-memory, decision-fed, no registry (review-gated)", (
     const merge = ev(lines, "merge_proposal")[0];
     expect(field(merge, "candidate")).toBe(M1);
     expect(field(merge, "canonical")).toBe(M2);
-    expect(field(merge, "review")).toBe("required");
+    expect(field(merge, "review")).toBe("advisory");
+    expect(field(merge, "incoming_stored")).toBe("false");
     expect(durableFileContents()).toBe(before);
   });
 });
@@ -400,6 +402,92 @@ describe("S4b — canonical registry supersession", () => {
     expect(ev(lines, "canonical_hit").length).toBe(1);
     expect(field(ev(lines, "dedup_collapse")[0], "match")).toBe(M2);
     expect(ev(lines, "write_promoted").length).toBe(0);
+  });
+});
+
+describe("S4c — distinct decisions/preferences coexist (conflict floor)", () => {
+  test("a topically distinct second preference in the same scope stores clean", async () => {
+    seed("preference", "workflow", "prefer small focused pull requests that ship one reviewable change each");
+    const sid = "s4c";
+    setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
+    const outcome = await runWriteGate(
+      {
+        type: "preference",
+        scope: "workflow",
+        content: "always rebase feature branches onto main before opening a pull request for review",
+      },
+      { ...ctx(sid), hasGateCheck: true },
+    );
+    expect(outcome.action).toBe("promoted");
+
+    const lines = evidence();
+    expect(ev(lines, "dedup_clean").length).toBe(1);
+    expect(ev(lines, "dedup_overlap").length).toBe(0);
+    expect(ev(lines, "write_blocked").length).toBe(0);
+  });
+
+  test("a rival preference over the floor stays review-gated, with an actionable hint", async () => {
+    const M1 = seed("preference", "style", "preference use tabs for indentation in all ts files");
+    const sid = "s4c-rival";
+    const before = durableFileContents();
+    setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
+    const outcome = await runWriteGate(
+      {
+        type: "preference",
+        scope: "style",
+        content: "preference use spaces for indentation in all ts files",
+      },
+      { ...ctx(sid), hasGateCheck: true },
+    );
+    expect(outcome.action).toBe("blocked");
+    expect(outcome.reason).toBe("superseded_overlap");
+    expect(outcome.hint).toContain(M1);
+    expect(outcome.hint).toContain("memory_update");
+
+    const lines = evidence();
+    expect(field(ev(lines, "write_blocked")[0], "flags")).toBe(
+      `[supersedes_check_${M1},score=0.8,review_gated]`,
+    );
+    const merge = ev(lines, "merge_proposal")[0];
+    expect(field(merge, "review")).toBe("advisory");
+    expect(field(merge, "incoming_stored")).toBe("false");
+    expect(durableFileContents()).toBe(before);
+  });
+});
+
+describe("S4d — an update's supersession target is never its own rival", () => {
+  const LINT =
+    "the lint step in the build pipeline runs eslint over every packages directory source tree " +
+    "and reports unused imports exports and dead code in the final summary";
+  const REWRITE =
+    "the lint step in the build pipeline runs oxlint over every packages directory source tree " +
+    "and reports unused imports exports and dead code in the final summary";
+
+  test("a heavy rewording naming no target still conflicts", async () => {
+    seed("learning", "lint", LINT);
+    const sid = "s4d-plain";
+    setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
+    const outcome = await runWriteGate(
+      { type: "learning", scope: "lint", content: REWRITE },
+      { ...ctx(sid), hasGateCheck: true },
+    );
+    expect(outcome.action).toBe("blocked");
+    expect(outcome.reason).toBe("superseded_overlap");
+  });
+
+  test("the same rewording with supersedesTs lands", async () => {
+    const M1 = seed("learning", "lint", LINT);
+    const sid = "s4d-update";
+    setCurrent({ sessionID: sid, callID: "C1", tool: "memory_update" });
+    const outcome = await runWriteGate(
+      { type: "learning", scope: "lint", content: REWRITE },
+      { ...ctx(sid), hasGateCheck: true, supersedesTs: M1 },
+    );
+    expect(outcome.action).toBe("promoted");
+
+    const lines = evidence();
+    expect(ev(lines, "dedup_clean").length).toBe(1);
+    expect(ev(lines, "write_promoted").length).toBe(1);
   });
 });
 

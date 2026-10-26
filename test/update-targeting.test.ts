@@ -175,6 +175,35 @@ describe("memory_update row targeting", () => {
   });
 });
 
+describe("memory_update on conflict-prone rows", () => {
+  test("a reworded preference update rewrites its target instead of conflicting with it", async () => {
+    // The target and the rewrite overlap well past the conflict floor: before
+    // the gate knew the update's target, GATE-3 cited the row being replaced as
+    // the rival and blocked the update forever (preference rows were frozen
+    // after creation).
+    const p = await appendMemory({
+      type: "preference",
+      scope: "reviews",
+      content: "prefer small focused pull requests that ship one reviewable change each",
+    });
+    const loaded = await tools();
+    const out = await loaded.memory_update.execute({
+      type: "preference",
+      scope: "reviews",
+      status: "open",
+      query: p,
+      content: "prefer small focused pull requests that ship one reviewable change and pass ci before merge",
+    });
+    expect(out).toContain(`superseded ${p}`);
+
+    const rows = (await loadAll()).filter((m) => m.scope === "reviews" && m.type === "preference");
+    expect(isActive(rows.find((m) => m.ts === p)!)).toBe(false);
+    const fresh = rows.filter(isActive);
+    expect(fresh.length).toBe(1);
+    expect(fresh[0]!.content).toContain("pass ci before merge");
+  });
+});
+
 describe("memory_merge_review survivor revival", () => {
   test("a survivor that was itself superseded becomes recallable", async () => {
     const stale = await seed("epsilon test runner is jest with coverage thresholds");

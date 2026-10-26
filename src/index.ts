@@ -483,7 +483,7 @@ const impl = {
           const target = resolved.target;
           const outcome = await runWriteGate(
             { type: args.type, scope: args.scope, content: args.content, kw: args.kw, status: args.status },
-            gateContext(),
+            { ...gateContext(), supersedesTs: target.ts },
           );
           if (outcome.action === "promoted" && outcome.ts && target) {
             await markSuperseded(target.ts, {
