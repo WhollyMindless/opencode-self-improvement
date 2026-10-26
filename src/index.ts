@@ -225,6 +225,48 @@ export function resetCaptureCooldowns(): void {
   lastCaptureRun.clear();
 }
 
+// ---- capture trigger vocabulary (#136) -------------------------------------
+// opencode 2.x has no `session.idle`. The subscription used to wait for exactly
+// that string, so auto-capture was dead on every 2.x host with no warning
+// anywhere: live proof is in the issue (45 s of the running service's own SSE
+// stream over a complete turn, and zero `capture_lag` lines in the whole
+// evidence history). What the host really publishes when a turn ends is the
+// `session.execution.*` family; `session.status` is the ephemeral variant whose
+// `status.type` says "idle".
+//
+// These lists are the single source of truth for what the capture subscription
+// reacts to, and test/event-fidelity.test.ts asserts every name here appears in
+// the installed @opencode/schema event manifest. Invented event names are the
+// bug class that caused #78 and then survived a review, a merge and 480 green
+// tests, because the tests fabricated the same invented payload.
+// Recorded live, not guessed: `succeeded` and `interrupted` were both observed
+// on a running desktop service (test/fixtures/host-events.jsonl).
+export const TURN_END_EVENTS = ["session.execution.succeeded", "session.execution.interrupted"] as const;
+
+/** Every event type the capture subscription reacts to (fidelity-tested). */
+export const CAPTURE_EVENT_TYPES: readonly string[] = [...TURN_END_EVENTS];
+
+// Deliberately NOT triggers, because a live host was never observed sending
+// them, and dead branches are what caused #136 in the first place:
+//   • `session.idle`   - declared, never emitted (the original bug).
+//   • `session.status` - declared, never emitted; would also need
+//                        `data.status.type === "idle"` filtering.
+//   • `session.execution.failed` - declared, not reproduced here. A failed turn
+//                        simply does not capture, which costs nothing; adding it
+//                        later is allowed the moment a recording shows it.
+// test/event-fidelity.test.ts enforces that nothing enters TURN_END_EVENTS
+// without appearing in the recording.
+
+/**
+ * True when a host event means "this session just went quiet". The internal
+ * trigger name stays "idle" (cooldown keys, `auto_capture_*` evidence lines and
+ * the historical idle-vs-compaction bench all use it).
+ */
+export function captureTriggerFor(event: unknown): boolean {
+  const type = (event as { type?: unknown } | null)?.type;
+  return typeof type === "string" && (TURN_END_EVENTS as readonly string[]).includes(type);
+}
+
 // The real setup implementation, written against the loose local PluginCtx
 // (the only members of the V2 context this plugin actually touches).
 const impl = {
@@ -1238,8 +1280,10 @@ const impl = {
           try {
             for await (const raw of eventApi.subscribe({ signal: controller.signal })) {
               const event = raw as Record<string, any>;
-              if (event?.type !== "session.idle") continue;
-              const sid = event.sessionID ?? event.properties?.sessionID ?? event.data?.sessionID;
+              if (!captureTriggerFor(event)) continue;
+              // 2.x carries the session inside `data`; the other two shapes are
+              // kept because the measured listener sees both across host modes.
+              const sid = event.data?.sessionID ?? event.sessionID ?? event.properties?.sessionID;
               if (typeof sid !== "string") continue;
               setCurrent({ sessionID: sid });
               const now = Date.now();
@@ -1279,6 +1323,52 @@ const impl = {
         "[opencode-self-improvement] captureOnCompact is on but autoCapture is off; compaction capture stays disabled (autoCapture is the master switch).",
       );
     }
+    // ---- startup heartbeat (#138) ------------------------------------------
+    // Every other evidence line is written BY something that already worked,
+    // so "capture is off", "capture is misconfigured" and "capture is armed and
+    // inert" were indistinguishable from anything a user could read - which is
+    // exactly how a pipeline that had never run in ten days survived a review
+    // and a merge. This one line makes the ABSENCE of capture activity
+    // interpretable: `capture=` names why, `subscribed=` lists the event types
+    // the subscription actually reacts to. Guarded like every other hook: a
+    // broken store must not turn plugin load into a throw.
+    await guarded("plugin_load heartbeat", async () => {
+      let pluginVersion = "unknown";
+      try {
+        const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json();
+        if (typeof pkg?.version === "string") pluginVersion = pkg.version;
+      } catch {
+        // a heartbeat with an unknown version still beats no heartbeat
+      }
+      const wantCapture = ctx.options?.autoCapture === true;
+      const modelOk = !!parseModelRef(
+        typeof ctx.options?.captureModel === "string" ? ctx.options.captureModel : "",
+      );
+      const capabilities = ["event.subscribe", "generate.text", "session.context"].filter((name) => {
+        const [domain, method] = name.split(".");
+        return typeof (ctx as unknown as Record<string, any>)?.[domain]?.[method] === "function";
+      });
+      const captureState = !wantCapture
+        ? "off"
+        : !modelOk
+          ? "invalid_model"
+          : capabilities.length < 3
+            ? "no_capabilities"
+            : "on";
+      await record(
+        "plugin_load",
+        {
+          version: pluginVersion,
+          capture: captureState,
+          capture_on_compact: ctx.options?.captureOnCompact !== false,
+          capabilities: `[${capabilities.join(",")}]`,
+          subscribed: `[${CAPTURE_EVENT_TYPES.join(",")}]`,
+          inject_budget: injectBudget(),
+          store_rows: (await loadAll()).length,
+        },
+        false,
+      );
+    });
     // Single cleanup returned by setup: tears down the measured listener and,
     // when enabled, the capture subscription. Future teardowns merge in here.
     return () => {

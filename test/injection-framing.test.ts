@@ -36,7 +36,7 @@ beforeEach(() => {
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
   resetState();
-  // Fires session.idle for a sid that capture.test.ts also uses (#113 nit 1):
+  // Fires a turn-end event for a sid that capture.test.ts also uses (#113 nit 1):
   // bun shares module state across test files, so the cooldown map must be
   // cleared here too or a test order can silently inherit a live window.
   resetCaptureCooldowns();
@@ -364,7 +364,7 @@ describe("end-to-end: auto-captured memories surface their provenance", () => {
     loaded.capture.generate.response = JSON.stringify([
       { type: "learning", scope: "web", content: PAYLOAD, status: "open" },
     ]);
-    loaded.capture.events.push({ type: "session.idle", sessionID: "ses-cap" });
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-cap" } });
     await waitFor(() => evidence().some((l) => l.ev === "auto_capture_promoted"));
 
     const mems = (await loadAll()).filter(isActive);

@@ -288,13 +288,13 @@ async function loadCapturePlugin(options: Record<string, unknown>) {
   return loadPlugin(liveRoot, options);
 }
 
-describe("auto-capture end-to-end (session.idle -> gate)", () => {
+describe("auto-capture end-to-end (turn end -> gate)", () => {
   test("default options: only the zero-model measured listener subscribes", async () => {
     const loaded = await loadCapturePlugin({});
     // The measured-usage listener subscribes by default (no model calls);
     // auto-capture itself never does.
     expect(loaded.capture.events.subscribeCalls).toBe(1);
-    loaded.capture.events.push({ type: "session.idle", sessionID: "ses-off" });
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-off" } });
     await sleep(50);
     expect(loaded.capture.generate.calls.length).toBe(0);
     expect(loaded.capture.context.calls.length).toBe(0);
@@ -317,7 +317,7 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
   test("thin transcript: session.context runs but the model is not called", async () => {
     const loaded = await loadCapturePlugin({ autoCapture: true, captureModel: "fake/model" });
     loaded.capture.context.messages = [{ role: "user", content: "too short to mine" }];
-    loaded.capture.events.push({ type: "session.idle", sessionID: "ses-thin" });
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-thin" } });
     await waitFor(() => loaded.capture.context.calls.length === 1);
     await sleep(50);
     expect(loaded.capture.generate.calls.length).toBe(0);
@@ -339,7 +339,7 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
       },
     ]);
 
-    loaded.capture.events.push({ type: "session.idle", data: { sessionID: "ses-data" } });
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-data" } });
     await waitFor(() => evidence().some((l) => String(l.ev).startsWith("auto_capture_")));
 
     expect(loaded.capture.generate.calls.length).toBe(1);
@@ -366,7 +366,7 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
       },
     ]);
 
-    loaded.capture.events.push({ type: "session.idle", data: { sessionID: "ses-kwcap" } });
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-kwcap" } });
     await waitFor(() => evidence().some((l) => String(l.ev).startsWith("auto_capture_")));
 
     const rows = await loadAll();
@@ -405,7 +405,7 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
       { type: "learning", scope: "api", content: FRESH_CONTENT }, // genuinely new
     ]);
 
-    loaded.capture.events.push({ type: "session.idle", sessionID: "ses-cap" });
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-cap" } });
     await waitFor(
       () =>
         evidence().some((l) => l.ev === "auto_capture_collapsed") &&
@@ -433,7 +433,7 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
 
     // Cooldown: a second idle for the same session (well within 5 minutes)
     // must not trigger another context read or model call.
-    loaded.capture.events.push({ type: "session.idle", sessionID: "ses-cap" });
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-cap" } });
     await sleep(100);
     expect(loaded.capture.generate.calls.length).toBe(1);
     expect(loaded.capture.context.calls.length).toBe(1);
@@ -454,7 +454,7 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
       { type: "context", scope: `OPENAI_API_KEY=${key}`, content: "releases run from the repository root", status: "open" },
     ]);
 
-    loaded.capture.events.push({ type: "session.idle", sessionID: "ses-scope-secret" });
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-scope-secret" } });
     await waitFor(() => evidence().some((l) => l.ev === "auto_capture_blocked"));
 
     const blocked = evidence().find((l) => l.ev === "auto_capture_blocked");
@@ -493,7 +493,7 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
       },
     ]);
 
-    loaded.capture.events.push({ type: "session.idle", sessionID: "ses-secret" });
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-secret" } });
     await waitFor(() => loaded.capture.generate.calls.length === 1);
     await waitFor(() => evidence().some((l) => l.ev === "auto_capture_promoted"));
 
@@ -531,9 +531,93 @@ describe("auto-capture end-to-end (session.idle -> gate)", () => {
     loaded.capture.context.messages = [
       { role: "user", content: "x".repeat(300) },
     ];
-    loaded.capture.events.push({ type: "session.idle", sessionID: "ses-post" });
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-post" } });
     await sleep(50);
     expect(loaded.capture.context.calls.length).toBe(0);
     expect(loaded.capture.generate.calls.length).toBe(0);
+  });
+});
+
+// ---- trigger vocabulary (#136) --------------------------------------------
+// Auto-capture waited for `session.idle`: declared by the protocol, never
+// emitted by the host, so the feature was dead everywhere on 2.x with no warning
+// anywhere. These pin the vocabulary to what a live host actually sends (see
+// test/fixtures/host-events.jsonl) and keep the invented name from creeping
+// back in.
+describe("turn-end trigger vocabulary (#136)", () => {
+  const armed = { autoCapture: true, captureModel: "fake/model" };
+
+  async function modelCallsAfter(event: Record<string, unknown>): Promise<number> {
+    const loaded = await loadCapturePlugin(armed);
+    await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+    loaded.capture.context.messages = [{ role: "user", content: "x".repeat(300) }];
+    loaded.capture.generate.response = "[]";
+    loaded.capture.events.push(event);
+    await sleep(120);
+    const calls = loaded.capture.generate.calls.length;
+    await loaded.cleanup();
+    return calls;
+  }
+
+  test("session.execution.succeeded fires the capture model", async () => {
+    expect(await modelCallsAfter({ type: "session.execution.succeeded", data: { sessionID: "ses-t1" } })).toBe(1);
+  });
+
+  test("session.execution.interrupted fires too — the context is ending either way", async () => {
+    expect(await modelCallsAfter({ type: "session.execution.interrupted", data: { sessionID: "ses-t2" } })).toBe(1);
+  });
+
+  test("declared-but-never-emitted events do NOT fire: `session.status`", async () => {
+    // The protocol declares it; a live host was never observed sending it
+    // (150 s over a turn plus 80 s quiet). Supporting it would be #136 again.
+    expect(await modelCallsAfter({ type: "session.status", data: { sessionID: "ses-t3", status: { type: "idle" } } })).toBe(0);
+  });
+
+  test("declared-but-never-emitted events do NOT fire: `session.idle`", async () => {
+    expect(await modelCallsAfter({ type: "session.idle", data: { sessionID: "ses-legacy" } })).toBe(0);
+    expect(await modelCallsAfter({ type: "session.idle", sessionID: "ses-legacy2" })).toBe(0);
+  });
+
+  test("`session.execution.failed` does not capture (declared, not reproduced)", async () => {
+    const loaded = await loadCapturePlugin(armed);
+    await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+    loaded.capture.context.messages = [{ role: "user", content: "x".repeat(300) }];
+    loaded.capture.events.push({ type: "session.execution.failed", data: { sessionID: "ses-fail" } });
+    await sleep(120);
+    expect(loaded.capture.generate.calls.length).toBe(0);
+    expect((await loadAll()).length).toBe(0);
+    await loaded.cleanup();
+  });
+});
+
+// ---- startup heartbeat (#138) ----------------------------------------------
+// Every other evidence line is written BY something that already worked, so
+// "off", "misconfigured" and "armed but inert" looked identical from any
+// artifact a user can read — the reason a pipeline that had never run survived a
+// review and a merge. These pin that the load line distinguishes them.
+describe("plugin_load heartbeat (#138)", () => {
+  const heartbeat = () => evidence().filter((e) => e.ev === "plugin_load").pop();
+
+  test("default options: capture=off, and the subscribed vocabulary is visible", async () => {
+    const loaded = await loadCapturePlugin({});
+    const line = heartbeat();
+    expect(line?.capture).toBe("off");
+    expect(String(line?.subscribed)).toContain("session.execution.succeeded");
+    expect(typeof line?.version).toBe("string");
+    await loaded.cleanup();
+  });
+
+  test("armed with a bad model: capture=invalid_model, not silence", async () => {
+    const loaded = await loadCapturePlugin({ autoCapture: true, captureModel: "no-slash-model" });
+    expect(heartbeat()?.capture).toBe("invalid_model");
+    await loaded.cleanup();
+  });
+
+  test("armed correctly: capture=on with all three capabilities present", async () => {
+    const loaded = await loadCapturePlugin({ autoCapture: true, captureModel: "fake/model" });
+    const line = heartbeat();
+    expect(line?.capture).toBe("on");
+    expect(String(line?.capabilities)).toBe("[event.subscribe,generate.text,session.context]");
+    await loaded.cleanup();
   });
 });

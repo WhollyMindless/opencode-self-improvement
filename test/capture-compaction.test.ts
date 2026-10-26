@@ -234,7 +234,7 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
     loaded.capture.generate.response = JSON.stringify([
       { type: "learning", scope: "api", content: FRESH_CONTENT },
     ]);
-    loaded.capture.events.push({ type: "session.idle", data: { sessionID: "ses-cc-off" } });
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-cc-off" } });
     await waitFor(() => evidence().some((l) => l.ev === "auto_capture_promoted"));
 
     expect(loaded.capture.generate.calls.length).toBe(1);
@@ -267,7 +267,7 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
     // fires (the mined fact is now a store dupe, so the gate collapses it —
     // evidence lands as trigger=idle, naming the idle path).
     loaded.capture.context.messages = [{ role: "user", content: THICK_TEXT }];
-    loaded.capture.events.push({ type: "session.idle", sessionID: "ses-cool" });
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-cool" } });
     await waitFor(() => evidence().some((l) => l.ev === "auto_capture_collapsed"));
     expect(loaded.capture.generate.calls.length).toBe(2);
     const collapsed = evidence().find((l) => l.ev === "auto_capture_collapsed");
@@ -381,13 +381,13 @@ describe("cooldown shared across setup() registrations (#108)", () => {
     a.capture.context.messages = idleTranscript;
     b.capture.context.messages = idleTranscript;
 
-    // The event bus broadcasts session.idle to EVERY live subscription -
+    // The event bus broadcasts the turn-end event to EVERY live subscription -
     // pre-fix, each subscription carried its own cooldown closure, so both
     // loops passed their own check and BOTH paid for one transcript (red).
     // Post-fix they share one truth: the first loop through the door records
     // the fire and the other skips.
-    a.capture.events.push({ type: "session.idle", sessionID: "ses-twin-idle" });
-    b.capture.events.push({ type: "session.idle", sessionID: "ses-twin-idle" });
+    a.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-twin-idle" } });
+    b.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-twin-idle" } });
     // Completion signal: the evidence line is recorded after runWriteGate
     // returns, i.e. once the append has hit disk. The naked sleep this replaces
     // doubled as the whole append budget and lost it on a loaded Windows
