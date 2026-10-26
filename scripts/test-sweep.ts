@@ -848,7 +848,16 @@ async function runSuite(dir: string): Promise<SuiteRun> {
 	}
 	const out = ((await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text())).replace(ANSI, "");
 	const seconds = (Date.now() - t0) / 1000;
-	const num = (re: RegExp): number => Number(out.match(re)?.[1] ?? "0");
+	// Summary counters, NOT a first-match scan: on some platforms Bun echoes every
+	// "(pass) <title>" line into the pipe, and a title like "...1.10.0 passes the
+	// 1.3.0 floor..." contains a spurious "0 pass" that a /(\d+) pass/ first-match
+	// reports as the tally (found on Linux, Bun 1.4.4 - the baseline parsed 0 and
+	// the whole sweep refused to start). Anchor to the summary's whole line and
+	// take the LAST occurrence; (pass)-lines can never match the anchor.
+	const num = (label: string): number => {
+		const all = [...out.matchAll(new RegExp(`^\\s*(\\d+) ${label}\\s*$`, "gm"))];
+		return all.length ? Number(all[all.length - 1]?.[1] ?? "0") : 0;
+	};
 	const failed: string[] = [];
 	const fileFailed: string[] = [];
 	let file = "";
@@ -868,9 +877,9 @@ async function runSuite(dir: string): Promise<SuiteRun> {
 		exit: proc.exitCode ?? 1,
 		seconds,
 		timedOut: (proc as { timedOut?: boolean }).timedOut === true || outcome === "stuck",
-		pass: num(/(\d+) pass/),
-		fail: num(/(\d+) fail/),
-		skip: num(/(\d+) skip/),
+		pass: num("pass"),
+		fail: num("fail"),
+		skip: num("skip"),
 		failed,
 		fileFailed,
 		errorMarkers: [...out.matchAll(/(SyntaxError: [^\n]*|Transform failed[^\n]*|Cannot find (?:module|package)[^\n]*)/g)].map((x) => x[1] ?? ""),
