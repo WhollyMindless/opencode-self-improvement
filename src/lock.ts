@@ -90,13 +90,17 @@ async function timed(prev: Promise<void>, ms: number): Promise<boolean> {
 
 // The one probe that can answer "there is no holder" without itself being a
 // creation attempt: stat reports a held file happily (Windows shares metadata
-// reads with the handle owner), and ENOENT — uniquely — proves absence.
-async function lockFileAbsent(lockPath: string): Promise<boolean> {
+// reads with the handle owner), ENOENT — uniquely — proves absence, and any
+// other answer (an ACL that lets us neither create nor see, say) is no answer
+// at all: it must count as neither.
+type LockProbe = "present" | "absent" | "unknown";
+
+async function probeLock(lockPath: string): Promise<LockProbe> {
   try {
     await stat(lockPath);
-    return false;
+    return "present";
   } catch (probe) {
-    return (probe as NodeJS.ErrnoException).code === "ENOENT";
+    return (probe as NodeJS.ErrnoException).code === "ENOENT" ? "absent" : "unknown";
   }
 }
 
@@ -121,20 +125,32 @@ async function stealIfStale(lockPath: string, now: number): Promise<boolean> {
   return true;
 }
 
-/** Cross-process half: hold the lock file while `fn` runs. */
-async function holdFileLock<T>(
+/**
+ * Cross-process half: hold the lock file while `fn` runs. `now` is a seam for
+ * tests that must land the budget deadline inside a specific probe iteration;
+ * production callers never pass it and the real clock is used.
+ */
+export async function holdFileLock<T>(
   lockPath: string,
   file: string,
   fn: () => Promise<T>,
   opts: LockOptions,
   budgetMs: number,
+  now: () => number = Date.now,
 ): Promise<T> {
   await mkdir(dirname(lockPath), { recursive: true });
   const token = `${process.pid}-${Math.random().toString(36).slice(2)}`;
-  const started = Date.now();
+  const started = now();
   let backoff = MIN_BACKOFF_MS;
   let firstErr: unknown;
   let absentStrikes = 0;
+  // #107: did ANY probe see a lock file during this wait? The rethrow at the
+  // deadline promises we never proceed as a stranger to the lock file — but
+  // `absentStrikes > 0` only remembers the LAST probe, so a holder that
+  // legitimately finished and unlinked just as the budget expired was
+  // throwing away ordinary writes instead of taking the contention
+  // concession it describes.
+  let everSawHolder = false;
   for (;;) {
     try {
       const handle = await open(lockPath, "wx");
@@ -157,27 +173,31 @@ async function holdFileLock<T>(
       // wait for — our own ability to create files is what is broken, and
       // the original error must surface instead of rotting into a timeout.
       firstErr ??= err;
-      if (await lockFileAbsent(lockPath)) {
+      const seen = await probeLock(lockPath);
+      if (seen === "absent") {
         if (++absentStrikes >= ABSENT_THROW_STRIKES) throw firstErr;
       } else {
         absentStrikes = 0;
+        if (seen === "present") everSawHolder = true;
       }
-      if (await stealIfStale(lockPath, Date.now())) {
-        opts.onEvent?.("steal", Date.now() - started);
+      if (await stealIfStale(lockPath, now())) {
+        opts.onEvent?.("steal", now() - started);
         continue;
       }
-      if (Date.now() - started >= budgetMs) {
-        opts.onEvent?.("timeout", Date.now() - started);
+      if (now() - started >= budgetMs) {
+        opts.onEvent?.("timeout", now() - started);
         if (opts.onTimeout === "fail") {
           throw new Error(
-            `memory store is busy: ${basename(file)} has been locked for ${Date.now() - started}ms — retry`,
+            `memory store is busy: ${basename(file)} has been locked for ${now() - started}ms — retry`,
           );
         }
         // Proceeding without the lock is the designed concession to
-        // contention — but never while the lock file has been absent this
-        // whole time: on a filesystem where we cannot create it, writing
-        // "unlocked" would just mean writing unguarded.
-        if (absentStrikes > 0) throw firstErr;
+        // contention — but never while we have seen the lock file not even
+        // once: on a filesystem where we cannot create it, writing "unlocked"
+        // would just mean writing unguarded. A holder we DID see and then lost
+        // is ordinary contention, and belongs to the concession (#107 —
+        // `absentStrikes > 0` remembered only the last probe, not the wait).
+        if (!everSawHolder) throw firstErr;
         return fn();
       }
       await sleep(backoff);
