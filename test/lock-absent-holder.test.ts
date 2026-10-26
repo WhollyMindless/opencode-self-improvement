@@ -17,6 +17,10 @@ const real = { open: realFs.open, unlink: realFs.unlink, stat: realFs.stat };
 // ONLY the exact lock paths scripted by a test are intercepted; everything
 // else — including whatever the rest of the suite imports through
 // node:fs/promises after this file — passes straight through.
+// NOTE (from #114's review): mock.module is process-wide in Bun and never
+// uninstalled, so these two pass-through wrappers ARE the suite's fs for every
+// file that runs after this one; unscripted paths hit the real functions, but
+// this is permanent ambient state by design.
 const scriptedOpen = new Map<string, (path: string, flags: string) => Promise<unknown>>();
 const scriptedStat = new Map<string, () => Promise<unknown>>();
 
