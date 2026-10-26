@@ -1,7 +1,7 @@
 // Contract: capture's repo stamp is resolved from the session CAPTURED, not from
 // whichever session happened to call setCurrent last (issue #116).
 //
-// captureSession binds `setCurrent({ sessionID: sid })` and then AWITS — context
+// captureSession binds `setCurrent({ sessionID: sid })` and then AWAITS — context
 // re-reads and, decisively, the generate.text model call. A server hosts many
 // sessions: between the binding and the persistence, any other session's tool
 // call or idle fire moves the module-global current, and appendMemory's choke
@@ -19,6 +19,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dateStr, evidenceDir, memoryRoot } from "../src/config.ts";
+import { runWriteGate } from "../src/gates.ts";
 import { parseLine, type Fields } from "../src/logfmt.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
 import { rememberSessionDir, repoScopeFor, resetSessionScopes, setRepoScope } from "../src/repokey.ts";
@@ -150,6 +151,19 @@ describe("capture repo stamp follows the captured session (#116)", () => {
     expect(captured).toBeDefined();
     expect(captured!.repo).toBe(a?.key);
     expect(captured!.repo).not.toBe(b?.key);
+    // The paper-trail half of the same contract (#118 review note 1): the row
+    // is the durable memory, but the gate's evidence lines are what an
+    // operator greps first — and every one of them is appended AFTER the
+    // hijack, so on ambient-read code their sid= field carries ses-other.
+    // They must name the session the gate ran FOR, chain-consistently.
+    const promoted = evidence().find((e) => e.ev === "write_promoted");
+    expect(promoted).toBeDefined();
+    expect(promoted!.sid).toBe("ses-capture");
+    for (const e of evidence()) {
+      if (e.chain === promoted!.chain && typeof e.sid === "string") {
+        expect(e.sid).toBe("ses-capture");
+      }
+    }
   });
 
   test("control: a capture with no competing session stamps its own repo", async () => {
@@ -166,5 +180,34 @@ describe("capture repo stamp follows the captured session (#116)", () => {
       repoScopeFor("ses-capture")?.key,
     );
     expect(evidence().some((e) => String(e.ev ?? "").startsWith("auto_capture_compaction_"))).toBe(true);
+    // Paper trail again (#118 note 1): here NOTHING ever calls setCurrent, so
+    // on ambient-read code the gate lines carry sid="?" — residue of an unset
+    // global, not data. Threaded, they carry the captured session.
+    expect(evidence().find((e) => e.ev === "write_promoted")!.sid).toBe("ses-capture");
+  });
+
+  test("a BLOCKED gate write names the ctx session in its audit lines, ambient be damned", async () => {
+    // The recBlocked arm of the same threading, at the direct gate seam (the
+    // one #118's kill-verification used): by the time a hijacked capture's
+    // gate appends write_blocked, the ambient current IS the hijacker — so
+    // poisoning it directly stands in for the interleave, hitting every line
+    // runWriteGate writes. Ungrounded + refs 0 blocks as ambiguous_memory.
+    rememberSessionDir("ses-capture", liveRoot);
+    rememberSessionDir("ses-other", otherRoot);
+    setCurrent({ sessionID: "ses-other" });
+    const out = await runWriteGate(
+      { type: "learning", scope: "engine", content: "engine uses the clp logger, not winston" },
+      { liveRoot, evidenceCalls: [], hasGateCheck: false, sessionID: "ses-capture" },
+    );
+    expect(out.action).toBe("blocked");
+    expect(out.reason).toBe("ambiguous_memory");
+    const wb = evidence().find((e) => e.ev === "write_blocked");
+    expect(wb).toBeDefined();
+    expect(wb!.sid).toBe("ses-capture"); // the gate ran FOR ses-capture
+    for (const e of evidence()) {
+      if (e.chain === wb!.chain && typeof e.sid === "string") {
+        expect(e.sid).toBe("ses-capture");
+      }
+    }
   });
 });
