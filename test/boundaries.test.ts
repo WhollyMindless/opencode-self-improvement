@@ -144,7 +144,9 @@ const EXPECTED_WIRE = {
   memory_evidence: {
     type: "object",
     properties: {
-      date: { type: "string" },
+      // #130: `date` is a date, not a path — the pattern is wire-visible on
+      // purpose (the host can surface it before a call is ever made).
+      date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
       ev: { type: "string" },
       limit: { type: "number" },
     },
