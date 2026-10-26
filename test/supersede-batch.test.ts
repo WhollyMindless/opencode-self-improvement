@@ -8,7 +8,8 @@
 //   - a concurrent append surviving the batch window,
 //   - the single-row wrapper keeping markSuperseded's exact boolean contract.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFile } from "node:fs/promises";
+import { closeSync, existsSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendMemory, loadAll, markManySuperseded, markSuperseded } from "../src/memory.ts";
@@ -116,5 +117,69 @@ describe("markManySuperseded (batch supersession, #61)", () => {
     ]);
     expect(marked).toBe(1);
     expect((await loadAll()).find((m) => m.ts === ts)!.superseded_by).toBe("first");
+  });
+});
+
+// #106: the batch path shipped in #102 published WITHOUT the fileIdentity
+// anchor #89 made standard for whole-file read-modify-writes. On Windows,
+// mandatory locking refuses the handover rename while any reader still holds
+// the destination, so an unanchored batch publish either dies on the refusal
+// (losing an ordinary retirement to contention) or - if it retried blind -
+// would republish stale lines over anything that moved the file. Anchored,
+// the healthy shape retries and lands; the stale shape aborts honestly.
+// POSIX never takes this path (rename swaps under readers), hence the gate:
+// the pre-fix red leg is windows-latest CI, and this file's Linux behavior is
+// byte-identical with or without the anchor.
+describe.skipIf(process.platform !== "win32")("batch publish under Windows reader contention (#106)", () => {
+  function held(file: string): { release: () => void } {
+    const fd = openSync(file, "r"); // node shares read/write but NOT delete: rename is blocked
+    let closed = false;
+    return {
+      release: () => {
+        if (!closed) {
+          closed = true;
+          closeSync(fd);
+        }
+      },
+    };
+  }
+
+  test("a batch publish survives a reader holding the destination: retry, not a lost retirement", async () => {
+    const ts = await appendMemory({ type: "learning", scope: "batch", content: "a row retired during reader contention here" });
+    const file = dayFile();
+    const h = held(file);
+    setTimeout(h.release, 400); // the anchored retry window reopens the rename before it closes
+    // Red pre-fix: writeAtomic with no anchor does ONE rename, hits the
+    // refusal, and throws the retirement away - the exact deadline-shape
+    // #89 fixed for stampRow, in the batch that bypassed it.
+    expect(await markManySuperseded(batch([ts]))).toBe(1);
+    expect((await loadAll()).find((m) => m.ts === ts)!.superseded_by).toBe("batch");
+    h.release();
+  });
+
+  test("an append landing mid-window aborts the batch publish; the append survives and a retry lands", async () => {
+    const ts = await appendMemory({ type: "learning", scope: "batch", content: "a row whose batch races a degraded writer here" });
+    const file = dayFile();
+    const h = held(file);
+    setTimeout(h.release, 1500); // never reached: the staleness check fires first
+    const stray = "2020-06-01T00:00:00.000Z";
+    const publish = markManySuperseded(batch([ts])).then(
+      () => "ok",
+      () => "failed",
+    );
+    // A starved waiter runs its append WITHOUT the lock (lock.ts onTimeout):
+    // this is exactly what a retried-blind rename would have overwritten.
+    await Bun.sleep(60).then(() =>
+      appendFile(file, formatLine({ ts: stray, type: "learning", scope: "batch", content: "degraded mid-window append here" }) + "\n"),
+    );
+    expect(await publish).toBe("failed"); // the destination grew past the anchor
+    const rows = await loadAll();
+    expect(rows.find((m) => m.ts === stray)!.content).toInclude("degraded"); // append intact
+    expect(rows.find((m) => m.ts === ts)!.superseded_by).toBeUndefined(); // nothing half-published
+    // Recovery is ordinary: with the contention gone, the batch lands and the
+    // survivor stays.
+    expect(await markManySuperseded(batch([ts]))).toBe(1);
+    expect((await loadAll()).find((m) => m.ts === stray)).toBeDefined();
+    h.release();
   });
 });

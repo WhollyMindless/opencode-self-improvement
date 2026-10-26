@@ -5,7 +5,7 @@
 // has never seen, and the qualifier the surfaces must carry when the ledger
 // is too young to call anything "never retrieved".
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, openSync, closeSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryRoot } from "../src/config.ts";
@@ -224,5 +224,36 @@ describe("the surfaces read the ledger honestly", () => {
     await recordHits("recall", "s", [row("2026-01-01T00:00:00.000Z")], ["x"]);
     expect(hitsFile()).toBe(join(memoryRoot(), HITS_FILENAME));
     expect(await loadAll()).toHaveLength(0); // loadAll() must skip hits.logfmt
+  });
+});
+
+// #106 (same gap, pre-existing): the ring's rotation republishes the halved
+// ledger under the store lock WITHOUT #89's fileIdentity anchor. On Windows a
+// reader's open handle refuses the handover rename, writeAtomic fails its
+// single attempt, recordHits swallows it (telemetry never breaks retrieval) -
+// and the ledger silently stays over the cap: a lost rotation, no signal.
+// Anchored, the retry lands once the handle closes. POSIX renames never fail
+// this way, hence the gate; the red leg is windows-latest CI.
+describe.skipIf(process.platform !== "win32")("ledger rotation under Windows reader contention (#106)", () => {
+  test("a rotation against a reader holding the ledger retries and lands, not silently fails", async () => {
+    const filler = Array.from(
+      { length: 40_000 },
+      (_, i) => `ev=memory_used ts=2026-01-01T00:00:${String(i % 60).padStart(2, "0")}.000Z filler=${i}`,
+    );
+    writeFileSync(hitsFile(), filler.join("\n") + "\n");
+    expect(filler.join("\n").length).toBeGreaterThan(2_000_000); // the rotation must actually trigger
+    const fd = openSync(hitsFile(), "r"); // blocks the destination's replacement, not appends
+    let released = false;
+    const release = () => {
+      if (!released) released = true, closeSync(fd);
+    };
+    setTimeout(release, 400);
+    // Red pre-fix: the refusal is swallowed and recordHits reports false while
+    // the ledger stays over the cap. Green anchored: retry, halve, land.
+    expect(await recordHits("inject", "ses-rot", [row("2026-01-01T00:00:00.000Z")], ["keep"])).toBe(true);
+    release();
+    const lines = ledgerText().trim().split("\n");
+    expect(lines.length).toBeLessThan(filler.length + 1); // the halving happened
+    expect(lines[lines.length - 1]).toInclude("keep"); // and the newest line rides the halved file
   });
 });

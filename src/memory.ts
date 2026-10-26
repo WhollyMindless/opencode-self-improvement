@@ -377,6 +377,10 @@ export async function markManySuperseded(
     marked += await withStoreLock(
       file,
       async () => {
+        // #106: identity BEFORE the read, like every other whole-file
+        // read-modify-write (#89's contract) - the publish below may retry a
+        // Windows handover only while the destination still matches this.
+        const since = await fileIdentity(file);
         const lines = await readLines(file);
         let touched = 0;
         for (let i = 0; i < lines.length; i++) {
@@ -391,7 +395,7 @@ export async function markManySuperseded(
         }
         if (touched === 0) return 0;
         await snapshotBefore(file);
-        await writeAtomic(file, lines.join("\n") + "\n");
+        await writeAtomic(file, lines.join("\n") + "\n", since);
         return touched;
       },
       LOCK_WRITE,

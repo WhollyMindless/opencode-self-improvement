@@ -20,6 +20,7 @@ import { dateStr, evidenceDir, memoryRoot } from "../src/config.ts";
 import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { isActive, loadAll } from "../src/memory.ts";
 import { resetState } from "../src/state.ts";
+import { resetCaptureCooldowns } from "../src/index.ts";
 import { setRepoScope } from "../src/repokey.ts";
 import { compactionAnchor, contextualPull, relevantKnowledge, systemDigest } from "../src/inject.ts";
 import { loadPlugin } from "./harness.ts";
@@ -35,6 +36,10 @@ beforeEach(() => {
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
   resetState();
+  // Fires session.idle for a sid that capture.test.ts also uses (#113 nit 1):
+  // bun shares module state across test files, so the cooldown map must be
+  // cleared here too or a test order can silently inherit a live window.
+  resetCaptureCooldowns();
 });
 
 afterEach(() => {
