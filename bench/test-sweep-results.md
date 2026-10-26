@@ -23,6 +23,9 @@ review fixes (`git clean` no longer deletes the scratch's symlinked node_modules
 anchored summary lines, not first matches that echoed test titles can poison), and they legitimately
 diverge - `publish-rename-to-truncate` for instance is killed 1/1 here but survives on Linux/macOS, where
 a truncating direct publish never opens the window the kill stands in. Same suite, different syscalls.
+`publish-rename-since-blind` is the vacuous class: `handoverRename` throws immediately for
+`!IS_WINDOWS`, so the anchored retry loop - and with it the identity recheck the mutant blinds -
+is never entered; a POSIX sweeper must not be filed against it as a catalog gap.
 
 ## Score
 
@@ -147,3 +150,12 @@ The score moved 38/42 → 36/42, and the reason matters more than the number:
   Two anchors went stale when #89 rewrote the publish path and were re-anchored at the merge
   (`publish-rename-to-truncate` onto `handoverRename`, `undo-force-safety-after-publish` onto the
   `since`-threaded call).
+- **Post-table changes (the #110 companion):** the catalog gained a 44th pattern,
+  `publish-rename-since-blind` (the anchored retry must re-check the destination before every rename),
+  making `--validate` 45/45 with the plant. Its deterministic kill is the third handover test in
+  `logfmt.test.ts`: red at ~450 ms under the mutation, 4x inside the retry window's internal 2 s
+  deadline - the two pre-existing pins that also kill it land at ~1500 ms, a 1.33x margin that a
+  stalled runner can flip into a silent survive. And `lock-default-fail` was re-anchored: the #107
+  branch's `now()` seam moved the wait loop's bytes and rotted its anchor - `--validate` caught the
+  drift the same day it landed, but nothing runs `--validate` in CI, so catalog health is still a
+  manual ritual.
