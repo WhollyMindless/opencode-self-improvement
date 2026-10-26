@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { dateStr, evidenceDir, memoryRoot } from "../src/config.ts";
 import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { resetState } from "../src/state.ts";
+import { resetCaptureCooldowns } from "../src/index.ts";
 import { isActive, loadAll } from "../src/memory.ts";
 import { setRepoScope } from "../src/repokey.ts";
 import { loadPlugin } from "./harness.ts";
@@ -37,6 +38,7 @@ beforeEach(() => {
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
   resetState();
+  resetCaptureCooldowns(); // cooldown truth is module-level since #108 - and bun test shares module state across files, so a fresh test needs this explicit clear
 });
 
 afterEach(() => {
