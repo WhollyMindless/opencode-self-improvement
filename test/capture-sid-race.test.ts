@@ -180,9 +180,11 @@ describe("capture repo stamp follows the captured session (#116)", () => {
       repoScopeFor("ses-capture")?.key,
     );
     expect(evidence().some((e) => String(e.ev ?? "").startsWith("auto_capture_compaction_"))).toBe(true);
-    // Paper trail again (#118 note 1): here NOTHING ever calls setCurrent, so
-    // on ambient-read code the gate lines carry sid="?" — residue of an unset
-    // global, not data. Threaded, they carry the captured session.
+    // Paper trail again (#118 note 1): the capture's own setCurrent runs
+    // before any awaits (src/index.ts), so here ambient ALREADY reads
+    // ses-capture — unfixed, this pin passes by coincidence, which is why the
+    // hijack test above carries the red-first burden. Threaded, the identity
+    // is locked in rather than coincidental.
     expect(evidence().find((e) => e.ev === "write_promoted")!.sid).toBe("ses-capture");
   });
 
