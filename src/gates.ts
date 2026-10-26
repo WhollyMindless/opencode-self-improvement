@@ -63,6 +63,10 @@ export interface GateContext {
   // the GATE-4 ambiguity rule: it embeds no refs and has no completion-gate
   // evidence by construction, but is still evaluated by GATE-1/2/3.
   trusted?: boolean;
+  // ts of the row this write replaces, when the caller is an update. GATE-3
+  // excludes it from rivalry: the update IS the sanctioned supersession, so it
+  // must never be blocked as a conflict with the row it is about to supersede.
+  supersedesTs?: string;
 }
 
 export interface GateOutcome {
@@ -111,6 +115,14 @@ function jaccard(a: string[], b: string[]): number {
   const union = sa.size + sb.size - inter;
   return union === 0 ? 0 : inter / union;
 }
+
+// GATE-3 similarity floors. OVERLAP_FLOOR: reworded near-duplicates of any
+// type are merge-review candidates. CONFLICT_OVERLAP_FLOOR: decisions and
+// preferences compete sooner — a value swap on the same subject is a rivalry
+// at moderate overlap, while distinct statements in a shared scope sit well
+// below this band and must store clean.
+const OVERLAP_FLOOR = 0.9;
+const CONFLICT_OVERLAP_FLOOR = 0.3;
 
 // Planning-flavored content (frontier/thread/proposal language). Used only to
 // turn GATE-4's ambiguous block into a hint pointing at the open-thread home.
@@ -469,45 +481,50 @@ export async function runWriteGate(
   const exact = exactPoll.find(
     (m) => m.type === candidate.type && m.content === candidate.content,
   );
-  const divergent = active.filter(
-    (m) => m.type === candidate.type && m.content !== candidate.content,
-  );
+  // Same-type live rows that could compete with the incoming statement; the
+  // row an update replaces is never a contender.
+  const live = active.filter((m) => m.type === candidate.type && m.ts !== ctx.supersedesTs);
+  const divergent = live.filter((m) => m.content !== candidate.content);
 
   let collapseMatch: Memory | undefined;
   let overlapMatch: Memory | undefined;
   let overlapScore = 0;
 
+  // A rival is a live same-type row stating the same thing differently enough:
+  // it must clear a similarity floor, not merely exist. conflictProne types
+  // compete at a lower floor than plain rewordings because a value swap
+  // ("use Express" vs "use Fastify") is a genuine rivalry far below the
+  // rephrase band, while topically distinct decisions/preferences in one
+  // scope are normal coexisting statements, not conflicts. A canonical that
+  // covers the statement already settles rivalry, so conflictProne types skip
+  // the scan; the row an update replaces is never a contender.
+  const floor = conflictProne ? CONFLICT_OVERLAP_FLOOR : OVERLAP_FLOOR;
+  const contenders = !conflictProne ? live : canon ? [] : divergent;
+  let rival: { m: Memory; score: number } | undefined;
+  for (const m of contenders) {
+    const score = jaccard(tokens(candidate.content), tokens(m.content));
+    if (score >= floor && (!rival || score > rival.score)) rival = { m, score };
+  }
+
   if (
     exact &&
     !exact.superseded_by &&
-    (canon?.aligns || !(conflictProne && divergent.length))
+    (canon?.aligns || !(conflictProne && rival))
   ) {
     // Byte-identical duplicate collapses (Principle 2) — exactness is
     // independent of the canonical registry, so a decided/preferred fact
     // restated verbatim is never "conflicting" content on its own. Two
     // exceptions keep the S4/S4b semantics: a canonical that aligns resolves
-    // the rivalry (echo collapses), but a scope already holding RIVAL
-    // decision/preference entries with no resolving canon keeps the exact
-    // restatement review-gated — dedup must not silently bury a conflict.
+    // the rivalry (echo collapses), but a scope already holding a RIVAL
+    // decision/preference entry (over the conflict floor) with no resolving
+    // canon keeps the exact restatement review-gated — dedup must not silently
+    // bury a conflict.
     collapseMatch = exact;
-  } else if (conflictProne) {
-    if (!canon && divergent.length) {
-      // Conflicting decisions without a registry entry -> review-gated merge.
-      overlapMatch = divergent[0];
-      overlapScore =
-        Math.round(jaccard(tokens(candidate.content), tokens(divergent[0].content)) * 100) / 100;
-    }
-  } else {
-    let best: { m: Memory; score: number } | undefined;
-    for (const m of active) {
-      if (m.type !== candidate.type) continue;
-      const score = jaccard(tokens(candidate.content), tokens(m.content));
-      if (score >= 0.9 && (!best || score > best.score)) best = { m, score };
-    }
-    if (best) {
-      overlapMatch = best.m;
-      overlapScore = Math.round(best.score * 100) / 100;
-    }
+  } else if (rival) {
+    // Review-gated merge: a competing decision/preference, or a reworded
+    // near-duplicate of a live row.
+    overlapMatch = rival.m;
+    overlapScore = Math.round(rival.score * 100) / 100;
   }
 
   if (collapseMatch) {
@@ -578,8 +595,14 @@ export async function runWriteGate(
     ];
   } else if (overlapMatch) {
     blockReason = "superseded_overlap";
-    const newest = scopeMems[scopeMems.length - 1];
-    blockFlags = [`supersedes_check_${newest ? newest.ts : "-"}`, "review_gated"];
+    blockFlags = [`supersedes_check_${overlapMatch.ts}`, `score=${overlapScore}`, "review_gated"];
+    hint =
+      `A live ${candidate.type} row ${overlapMatch.ts} in ${candidate.scope || "(no scope)"} competes ` +
+      `with this write (overlap ${overlapScore}). Nothing was stored. To replace that row, use ` +
+      `memory_update with query="${overlapMatch.ts}" — an update supersedes its target instead of ` +
+      `conflicting with it. If both statements should stand, store this one under a distinct ` +
+      `scope. memory_merge_review resolves proposals between stored rows only; this candidate was ` +
+      `never stored, so it cannot be resolved from here.`;
   } else if (ambiguous && !collapseMatch) {
     blockReason = "ambiguous_memory";
     blockFlags = flags;
@@ -593,12 +616,16 @@ export async function runWriteGate(
     await recBlocked(4, blockReason, blockFlags, chain);
     if (blockReason === "superseded_overlap" && overlapMatch) {
       const newest = scopeMems[scopeMems.length - 1] ?? overlapMatch;
+      // Advisory, not actionable: the incoming candidate was never persisted,
+      // so no memory_merge_review loser exists for it. The line is rivalry
+      // telemetry and a pointer to the stored rival.
       await rec("merge_proposal", {
         candidate: overlapMatch.ts,
         incoming: chain,
         canonical: newest.ts,
         source: `durable_${candidate.type}`,
-        review: "required",
+        review: "advisory",
+        incoming_stored: false,
         chain,
       });
     }

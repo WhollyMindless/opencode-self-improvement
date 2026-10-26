@@ -139,6 +139,22 @@ export const MUTANTS: Mutant[] = [
 		class: "D2", // never observe the truncated middle
 	},
 	{
+		id: "publish-rename-since-blind",
+		file: "src/logfmt.ts",
+		// #110 companion (the ruling's "pin-first" follow-up): the anchored
+		// retry renames only while the destination still matches `since`. Blind
+		// it and a contention-blocked writer keeps retrying past a mid-window
+		// touch - a slow way of publishing stale bytes over the row the
+		// immediate failure preserved. The pre-existing pins kill it only by
+		// racing the release timer against the 2s deadline (1.33x margin); the
+		// third handover test verdicts it in ~450ms, 4x inside - that is the
+		// kill this catalog entry leans on.
+		find: `      if ((await fileIdentity(file)) !== since) throw err; // destination moved; our copy is stale`,
+		replace: `      if (false) throw err; // MUTANT: since-gate off, retry blind`,
+		invariant: "anchored retry re-checks the destination before renaming: a premise that moved aborts",
+		class: "D2", // an unlocked writer's mid-window row survives an anchored publish
+	},
+	{
 		id: "append-truncate-regression",
 		file: "src/logfmt.ts",
 		find: `await appendFile(file, next);`,
@@ -399,14 +415,19 @@ export const MUTANTS: Mutant[] = [
 		// both landed. Split into two uniquely-anchored mutants.
 		id: "lock-default-fail",
 		file: "src/lock.ts",
+		// Re-anchored 2026-10-26: the #107 branch threaded the `now()` seam
+		// through the wait loop, and --validate caught this anchor rot on the
+		// same day it landed (#110's validate earned its keep immediately).
+		// Meaning unchanged: the fail-vs-proceed choice at timeout is forced
+		// to fail for every caller.
 		find: L(
-			`      if (Date.now() - started >= budgetMs) {`,
-			`        opts.onEvent?.("timeout", Date.now() - started);`,
+			`      if (now() - started >= budgetMs) {`,
+			`        opts.onEvent?.("timeout", now() - started);`,
 			`        if (opts.onTimeout === "fail") {`,
 		),
 		replace: L(
-			`      if (Date.now() - started >= budgetMs) {`,
-			`        opts.onEvent?.("timeout", Date.now() - started);`,
+			`      if (now() - started >= budgetMs) {`,
+			`        opts.onEvent?.("timeout", now() - started);`,
 			`        if (true) {`,
 		),
 		invariant: "an ordinary write proceeds rather than losing the write",
@@ -739,8 +760,18 @@ function resetScratch(dir: string): void {
 	// Self-heal: a stranded test child or a deferred Windows file operation can
 	// disturb the tree after a run (observed in #70: a tracked source file went
 	// missing between two mutants). If git still sees dirt, rebuild the worktree.
-	// stdout only: git's CRLF chatter on stderr is not dirt.
-	const dirt = run(["git", "-C", dir, "status", "--porcelain"]).stdout.trim();
+	// stdout only: git's CRLF chatter on stderr is not dirt. And neither is
+	// the node_modules link (#110 approval note 1): `clean -e` keeps it, but
+	// untracked-and-unignored it lists as `?? node_modules` on every POSIX
+	// status - not dirt, but the reset's own plumbing, owned by
+	// ensureScratchLink below. Counting it as dirt rebuilt the whole worktree
+	// on EVERY reset (measured: 51.6s where 25s is honest). Windows junctions
+	// match the gitignored `node_modules/` directory rule and never appear.
+	const dirt = run(["git", "-C", dir, "status", "--porcelain"])
+		.stdout.split("\n")
+		.filter((l) => !/^\?\? node_modules\/?$/.test(l.trim()))
+		.join("\n")
+		.trim();
 	if (dirt !== "") {
 		console.warn(`  scratch ${dir} came back dirty - rebuilding it (${cut(dirt.replace(/\n/g, " | "), 160)})`);
 		if (!removeScratch(dir)) throw new Error(`cannot rebuild scratch ${dir}: locked and nonempty`);

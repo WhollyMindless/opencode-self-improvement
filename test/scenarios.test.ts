@@ -277,6 +277,7 @@ describe("S4 — superseded-memory, decision-fed, no registry (review-gated)", (
     );
     expect(outcome.action).toBe("blocked");
     expect(outcome.reason).toBe("superseded_overlap");
+    expect(outcome.hint).toContain("memory_update");
 
     const lines = evidence();
     assertOrder(lines, [
@@ -296,7 +297,8 @@ describe("S4 — superseded-memory, decision-fed, no registry (review-gated)", (
     const merge = ev(lines, "merge_proposal")[0];
     expect(field(merge, "candidate")).toBe(M1);
     expect(field(merge, "canonical")).toBe(M2);
-    expect(field(merge, "review")).toBe("required");
+    expect(field(merge, "review")).toBe("advisory");
+    expect(field(merge, "incoming_stored")).toBe("false");
     expect(durableFileContents()).toBe(before);
   });
 });
@@ -400,6 +402,263 @@ describe("S4b — canonical registry supersession", () => {
     expect(ev(lines, "canonical_hit").length).toBe(1);
     expect(field(ev(lines, "dedup_collapse")[0], "match")).toBe(M2);
     expect(ev(lines, "write_promoted").length).toBe(0);
+  });
+});
+
+describe("S4c — distinct decisions/preferences coexist (conflict floor)", () => {
+  test("a topically distinct second preference in the same scope stores clean", async () => {
+    seed("preference", "workflow", "prefer small focused pull requests that ship one reviewable change each");
+    const sid = "s4c";
+    setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
+    const outcome = await runWriteGate(
+      {
+        type: "preference",
+        scope: "workflow",
+        content: "always rebase feature branches onto main before opening a pull request for review",
+      },
+      { ...ctx(sid), hasGateCheck: true },
+    );
+    expect(outcome.action).toBe("promoted");
+
+    const lines = evidence();
+    expect(ev(lines, "dedup_clean").length).toBe(1);
+    expect(ev(lines, "dedup_overlap").length).toBe(0);
+    expect(ev(lines, "write_blocked").length).toBe(0);
+  });
+
+  test("a rival preference over the floor stays review-gated, with an actionable hint", async () => {
+    const M1 = seed("preference", "style", "preference use tabs for indentation in all ts files");
+    const sid = "s4c-rival";
+    const before = durableFileContents();
+    setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
+    const outcome = await runWriteGate(
+      {
+        type: "preference",
+        scope: "style",
+        content: "preference use spaces for indentation in all ts files",
+      },
+      { ...ctx(sid), hasGateCheck: true },
+    );
+    expect(outcome.action).toBe("blocked");
+    expect(outcome.reason).toBe("superseded_overlap");
+    expect(outcome.hint).toContain(M1);
+    expect(outcome.hint).toContain("memory_update");
+
+    const lines = evidence();
+    expect(field(ev(lines, "write_blocked")[0], "flags")).toBe(
+      `[supersedes_check_${M1},score=0.8,review_gated]`,
+    );
+    const merge = ev(lines, "merge_proposal")[0];
+    expect(field(merge, "review")).toBe("advisory");
+    expect(field(merge, "incoming_stored")).toBe("false");
+    expect(durableFileContents()).toBe(before);
+  });
+});
+
+describe("S4d — an update's supersession target is never its own rival", () => {
+  const LINT =
+    "the lint step in the build pipeline runs eslint over every packages directory source tree " +
+    "and reports unused imports exports and dead code in the final summary";
+  const REWRITE =
+    "the lint step in the build pipeline runs oxlint over every packages directory source tree " +
+    "and reports unused imports exports and dead code in the final summary";
+
+  test("a heavy rewording naming no target still conflicts", async () => {
+    seed("learning", "lint", LINT);
+    const sid = "s4d-plain";
+    setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
+    const outcome = await runWriteGate(
+      { type: "learning", scope: "lint", content: REWRITE },
+      { ...ctx(sid), hasGateCheck: true },
+    );
+    expect(outcome.action).toBe("blocked");
+    expect(outcome.reason).toBe("superseded_overlap");
+  });
+
+  test("the same rewording with supersedesTs lands", async () => {
+    const M1 = seed("learning", "lint", LINT);
+    const sid = "s4d-update";
+    setCurrent({ sessionID: sid, callID: "C1", tool: "memory_update" });
+    const outcome = await runWriteGate(
+      { type: "learning", scope: "lint", content: REWRITE },
+      { ...ctx(sid), hasGateCheck: true, supersedesTs: M1 },
+    );
+    expect(outcome.action).toBe("promoted");
+
+    const lines = evidence();
+    expect(ev(lines, "dedup_clean").length).toBe(1);
+    expect(ev(lines, "write_promoted").length).toBe(1);
+  });
+});
+
+describe("S4e — conflict-floor calibration and rival selection (PR #125 review)", () => {
+  // The floors are calibrated constants, but S4c alone pins only "0.044 passes"
+  // and "0.80 blocks": measured, mutating CONFLICT_OVERLAP_FLOOR 0.3 -> 0.26
+  // passes the entire suite. The pairs below are constructed to EXACT jaccard
+  // scores over the gates.ts tokenizer (no stopword filtering), so the suite
+  // pins the claimed band end to end: the production false-block pair at 0.25
+  // must store clean, rivalry starts at 0.30 INCLUSIVE, and the rephrase floor
+  // for other types is inclusive at 0.90. Each pin kills a specific surviving
+  // mutant; see the per-test notes.
+
+  // |A|=12, |B|=13, shared 5 -> 5/20 = 0.25 exactly. Mirrors the real blocked
+  // preference (chain f03c9f6e) that motivated the floor. Kills any floor
+  // drift <= 0.25 (0.25 >= floor would block it).
+  const Q25_SEED =
+    "preference use code review sessions before risky auth billing handoffs pairwise async";
+  const Q25_IN =
+    "preference use code review before always squashing flaky tests twice ci green manually";
+
+  // 5/19 = 0.2632: just above the claimed false-block, safely under the floor.
+  const Q26_SEED =
+    "preference use code review sessions before risky auth billing handoffs pairwise";
+  const Q26_IN = Q25_IN;
+
+  // 7/25 = 0.28: top of the coexistence band, 0.02 under the floor.
+  const Q28_SEED =
+    "preference keep unit tests next to source mirroring package module paths under src tree";
+  const Q28_IN =
+    "preference keep unit tests next to source code colocated inside the app everywhere forever plus legacy dirs hacks";
+
+  // 6/20 = 0.3 exactly (and 6/20 >= 0.3 holds in IEEE doubles while 6/20 > 0.3
+  // does NOT): pins floor INCLUSIVITY. Kills `score >= floor` -> `score > floor`.
+  const F30_SEED =
+    "preference write commit messages in summary present tense imperative voice subject line bullets";
+  const F30_IN =
+    "preference write commit messages in summary past narrative changelog style release notes backlog";
+
+  async function runPreference(sid: string, scope: string, content: string) {
+    setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
+    return runWriteGate({ type: "preference", scope, content }, { ...ctx(sid), hasGateCheck: true });
+  }
+
+  test("0.25-overlap second preference stores clean (production false-block claim)", async () => {
+    seed("preference", "band25", Q25_SEED);
+    const outcome = await runPreference("s4e-25", "band25", Q25_IN);
+    expect(outcome.action).toBe("promoted");
+    expect(ev(evidence(), "write_blocked").length).toBe(0);
+  });
+
+  test("0.26-overlap preference stores clean (lower band pin)", async () => {
+    seed("preference", "band26", Q26_SEED);
+    const outcome = await runPreference("s4e-26", "band26", Q26_IN);
+    expect(outcome.action).toBe("promoted");
+  });
+
+  test("0.28-overlap preference stores clean (upper band pin)", async () => {
+    seed("preference", "band28", Q28_SEED);
+    const outcome = await runPreference("s4e-28", "band28", Q28_IN);
+    expect(outcome.action).toBe("promoted");
+  });
+
+  test("0.30-overlap preference is review-gated — the conflict floor is inclusive", async () => {
+    const M1 = seed("preference", "floor30", F30_SEED);
+    const outcome = await runPreference("s4e-30", "floor30", F30_IN);
+    expect(outcome.action).toBe("blocked");
+    expect(outcome.reason).toBe("superseded_overlap");
+    const lines = evidence();
+    expect(field(ev(lines, "write_blocked")[0], "flags")).toBe(
+      `[supersedes_check_${M1},score=0.3,review_gated]`,
+    );
+  });
+
+  // ---- rival selection: BEST, not first-over-floor, not newest -------------
+  // S4/S4c seed exactly one rival, so first == best == newest there and neither
+  // "cite divergent[0]" nor "cite newest" (the pre-PR defects) is reachable.
+  // These scopes pin all three orderings at once. Scores vs incoming:
+  // HIGH 0.85, MID 0.44, LOW 0.09 (below the floor, never a rival).
+  const MR_IN = "preference use prettier for formatting every javascript document in the docs tree";
+  const MR_HIGH = "preference use prettier for formatting every typescript document in the docs tree";
+  const MR_MID = "preference use prettier for formatting every yaml document plus json files";
+  const MR_LOW = "preference rotate signing keys every ninety days via vault with audit logging";
+
+  test("cites the best rival, not the first over the floor", async () => {
+    // Scan order MID(0.44) -> HIGH(0.85): a first-over-floor implementation
+    // would cite MID.
+    const MID = seed("preference", "selbest", MR_MID, "2026-03-01T00:00:01.000Z");
+    const HIGH = seed("preference", "selbest", MR_HIGH, "2026-03-01T00:00:02.000Z");
+    seed("preference", "selbest", MR_LOW, "2026-03-01T00:00:03.000Z");
+    const outcome = await runPreference("s4e-best", "selbest", MR_IN);
+    expect(outcome.action).toBe("blocked");
+    expect(outcome.reason).toBe("superseded_overlap");
+    expect(outcome.hint).toContain(HIGH);
+    expect(outcome.hint).not.toContain(MID);
+    const lines = evidence();
+    expect(field(ev(lines, "write_blocked")[0], "flags")).toBe(
+      `[supersedes_check_${HIGH},score=0.85,review_gated]`,
+    );
+    expect(field(ev(lines, "dedup_overlap")[0], "candidate")).toBe(HIGH);
+  });
+
+  test("cites the best rival, not the newest row; merge_proposal canonical is still 'newest' (documented quirk)", async () => {
+    // Scan order HIGH(0.85) -> LOW -> MID(0.44): newest row is MID, so a
+    // "cite newest" implementation (the pre-PR flag bug) cites MID here.
+    const HIGH = seed("preference", "selnewest", MR_HIGH, "2026-03-01T00:00:01.000Z");
+    seed("preference", "selnewest", MR_LOW, "2026-03-01T00:00:02.000Z");
+    const MID = seed("preference", "selnewest", MR_MID, "2026-03-01T00:00:03.000Z");
+    const outcome = await runPreference("s4e-newest", "selnewest", MR_IN);
+    expect(outcome.action).toBe("blocked");
+    const lines = evidence();
+    expect(field(ev(lines, "write_blocked")[0], "flags")).toBe(
+      `[supersedes_check_${HIGH},score=0.85,review_gated]`,
+    );
+    // DOCUMENTED QUIRK: merge_proposal keeps canonical = newest-in-scope, which
+    // is NOT the cited rival (candidate) and need not even be over the floor.
+    // A fix that points canonical at the real rival must update this pin.
+    const merge = ev(lines, "merge_proposal")[0];
+    expect(field(merge, "candidate")).toBe(HIGH);
+    expect(field(merge, "canonical")).toBe(MID);
+    expect(field(merge, "review")).toBe("advisory");
+    expect(field(merge, "incoming_stored")).toBe("false");
+  });
+
+  test("supersedesTs excludes ONLY the target — another live rival still blocks the update", async () => {
+    // Guards the exclusion from growing into an update-wide gate-3 skip or an
+    // "exclude everything similar to the target" rule.
+    const T = seed("preference", "selexport", MR_LOW, "2026-03-01T00:00:01.000Z");
+    const R2 = seed("preference", "selexport", MR_HIGH, "2026-03-01T00:00:02.000Z");
+    setCurrent({ sessionID: "s4e-excl", callID: "C1", tool: "memory_update" });
+    const outcome = await runWriteGate(
+      { type: "preference", scope: "selexport", content: MR_IN },
+      { ...ctx("s4e-excl"), hasGateCheck: true, supersedesTs: T },
+    );
+    expect(outcome.action).toBe("blocked");
+    expect(outcome.reason).toBe("superseded_overlap");
+    expect(outcome.hint).toContain(R2);
+    const lines = evidence();
+    expect(field(ev(lines, "write_blocked")[0], "flags")).toBe(
+      `[supersedes_check_${R2},score=0.85,review_gated]`,
+    );
+  });
+
+  test("0.90-overlap learning rewording is review-gated (OVERLAP_FLOOR inclusive)", async () => {
+    // 9/10, exactly 0.9 in IEEE doubles: pins `>=` for the non-conflict floor.
+    const M1 = seed("learning", "rephrase", "the release train cuts tags from main every tuesday");
+    setCurrent({ sessionID: "s4e-90", callID: "C1", tool: "memory_remember" });
+    const outcome = await runWriteGate(
+      { type: "learning", scope: "rephrase", content: "the release train cuts tags from main every tuesday morning" },
+      { ...ctx("s4e-90"), hasGateCheck: true },
+    );
+    expect(outcome.action).toBe("blocked");
+    expect(outcome.reason).toBe("superseded_overlap");
+    expect(field(ev(evidence(), "write_blocked")[0], "flags")).toBe(
+      `[supersedes_check_${M1},score=0.9,review_gated]`,
+    );
+  });
+
+  test("0.87-overlap learning rewording stores clean (just under the rephrase floor)", async () => {
+    // 13/15 = 0.8667: kills OVERLAP_FLOOR drift below ~0.87.
+    seed("learning", "rephrase87", "the deploy checklist drains connections stops workers flips dns verifies health endpoints staging status");
+    setCurrent({ sessionID: "s4e-87", callID: "C1", tool: "memory_remember" });
+    const outcome = await runWriteGate(
+      {
+        type: "learning",
+        scope: "rephrase87",
+        content: "the deploy checklist drains connections stops workers flips dns verifies health endpoints staging traffic",
+      },
+      { ...ctx("s4e-87"), hasGateCheck: true },
+    );
+    expect(outcome.action).toBe("promoted");
   });
 });
 

@@ -200,4 +200,42 @@ describe.skipIf(process.platform !== "win32")("Windows handover: concurrent writ
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("a since-blind retry is judged without racing the retry deadline", async () => {
+    // The two pins above verdict via a handle release at 1500ms racing the
+    // retry window's internal 2000ms deadline: a 1.33x margin. On a stalled
+    // runner the deadline can fire first - a since-blind retry would have
+    // thrown the original error anyway, and a real regression reads as green.
+    // Same scenario with the margins made structural: the destination is
+    // touched at event-loop speed (~60ms) and the handle frees at 400ms, 4x
+    // inside the deadline, so the verdict lands on the identity check itself
+    // (which fires within one backoff step of the append) and never on the
+    // deadline. This is the test the sweep's publish-rename-since-blind
+    // mutant leans on: shipped aborts in ~ms, blind retries publish stale
+    // bytes by ~450ms, and neither outcome waits on 2 seconds of clock.
+    // The residual race, named so it doesn't get "fixed" back (#120 review
+    // nit 1): if a stall delays the 60ms append PAST the 400ms release, the
+    // shipped code renames before the destination moves and this goes red on
+    // CORRECT code. Deliberate trade: a 6.7x margin with a loud,
+    // self-reporting red beats the 1.33x silent-green of the pins above.
+    const root = mkdtempSync(join(tmpdir(), "osi-sincegate-"));
+    const file = join(root, "store.logfmt");
+    writeFileSync(file, "seed\n");
+    const h = held(file);
+    setTimeout(h.release, 400); // frees the retry only long enough to judge a blind one
+    try {
+      const since = await fileIdentity(file);
+      const appended = Bun.sleep(60).then(() => appendFile(file, "APPENDED\n"));
+      const publish = writeAtomic(file, "seed\nrewrite\n", since).then(
+        () => "ok",
+        () => "failed",
+      );
+      await appended;
+      expect(await publish).toBe("failed"); // identity abort, ms after the append - not a deadline throw
+      expect(await readLines(file)).toEqual(["seed", "APPENDED"]); // the touched destination survives
+    } finally {
+      h.release();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
