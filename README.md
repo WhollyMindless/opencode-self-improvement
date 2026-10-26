@@ -293,5 +293,6 @@ bun run gate:hooks    # once per clone: run the gate on `git push`
 | `/repo-init` missing from the command list | The self-install couldn't write to `~/.config/opencode/commands/`. Create it and restart, or ask the model to "init memory for this repo" — the same tool. |
 | Init says `Graph: unavailable` | `codebase-memory-mcp` couldn't start. Install pinned `0.11.0` or point `OPENCODE_CBM_BIN` at the binary. Scripts are still remembered without it. |
 | Stale plugin after an update | `opencode plugin update opencode-self-improvement` (or bump the pinned `@version` in the `plugins` entry) and restart opencode. |
+| `Error: Plugin is not configured` right after `plugin add` | An opencode bug ([#54654](https://github.com/anomalyco/opencode/issues/54654)), not a config problem: the first `plugin list/check/update` against a cold background service reads the plugin inventory before activation finishes. The plugin is installed and loading — just run the command again. |
 | Auto-capture does nothing | `autoCapture` needs a valid `captureModel` in `provider/id` form; a bad one disables capture with a startup warning. `captureOnCompact` alone does nothing. Rejected candidates are logged as evidence, not errors — check `memory_evidence`. |
 | Reset all memories | Delete `~/.config/opencode/memory/`. |
