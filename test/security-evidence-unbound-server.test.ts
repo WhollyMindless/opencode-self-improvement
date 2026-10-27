@@ -101,7 +101,13 @@ test("unresolved server-session evidence never borrows another instance's repo s
   });
   const raw = readFileSync(join(evidenceDir(), `${dateStr()}.logfmt`), "utf8");
   expect(raw).toContain("sid=ses-unresolved-a");
-  expect(raw).not.toContain(`repo=${resolveRepo(b).key}`); // diagnostic replaced: B's stamp must be ABSENT
+  // A's OWN line must not carry B's repo stamp. Scan A's line, not the whole
+  // file: instance B's own boot records (session-less writes) legitimately
+  // stamp B's repository, and they share the day file — the reviewers'
+  // smoking-gun line is the one that carries A's marker.
+  const aLine = raw.split("\n").find((l) => l.includes("UNRESOLVED_A_WRONG_REPO_RESULT"));
+  expect(aLine).toBeDefined();
+  expect(aLine).not.toContain(`repo=${resolveRepo(b).key}`);
   const res = await pb.tools.memory_evidence.execute(
     { ev: "tool_result" },
     { sessionID: "ses-b", id: "evidence-b" },
