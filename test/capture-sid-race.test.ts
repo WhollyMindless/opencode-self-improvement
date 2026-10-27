@@ -45,6 +45,15 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Mirror the setup above. `bySession` and the current session are module state
+  // shared with every other test file in this process, and repoScopeFor() prefers
+  // a session entry over the ambient scope: leaving "ses-other" mapped to
+  // <tmp>/repo-b silently re-stamps the NEXT file's writes, so whichever file
+  // happens to run after this one fails with someone else's repo key. The sibling
+  // test/repo-scope-session.test.ts already tears down the same way.
+  setRepoScope(null);
+  resetSessionScopes();
+  resetState();
   delete process.env.OPENCODE_MEMORY_DIR;
   delete process.env.OPENCODE_COMMANDS_DIR;
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
