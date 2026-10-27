@@ -7,7 +7,7 @@
 // field carried verbatim into a daily row must scrub at the write boundary
 // like every other durable string (#128's rule, one line short).
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
@@ -154,4 +154,86 @@ test("a credential in a supersede reason never reaches the daily row", async () 
   expect(daily).not.toContain(TOKEN); // ...the credential inside its reason is not
   const evidence = readFileSync(join(evidenceDir(), `${dateStr()}.logfmt`), "utf8");
   expect(evidence).not.toContain(TOKEN);
+});
+
+// Probe 2 (#131 through the #127 lens): the merge authorization resolves the
+// caller through the same identity plumbing — with A loaded FIRST and B's
+// repository sitting in the shared store, A's real merge tool called for an
+// unbound session must not get to retire B's rows. Red at c9791ed, where
+// readerForSession borrowed B's module scope and owned B's data.
+test("an unbound session cannot retire another repository's rows through merge", async () => {
+  const pa = await loadPlugin(a);
+  const pb = await loadPlugin(b);
+  plugins = [pa, pb];
+  const scopeB = resolveRepo(b);
+  await appendMemory({
+    type: "decision",
+    scope: "design/b",
+    content: "B_MERGE_WINNER",
+    repo: scopeB.key,
+    repoPath: scopeB.path,
+  });
+  await appendMemory({
+    type: "decision",
+    scope: "design/b",
+    content: "B_MERGE_LOSER",
+    repo: scopeB.key,
+    repoPath: scopeB.path,
+  });
+  const rows = await loadAll();
+  const ts = (marker: string): string =>
+    (rows.find((m) => m.content.includes(marker)) as { ts: string }).ts;
+  const loserTs = ts("B_MERGE_LOSER");
+
+  const res = await pa.tools.memory_merge_review.execute(
+    { loser: loserTs, survivor: ts("B_MERGE_WINNER"), reason: "cross-repo probe" },
+    { sessionID: "ses-a-never-bound", id: "probe2-merge" },
+  );
+  expect(String((res as { content?: string }).content ?? "")).toContain("another repository");
+  const loser = (await loadAll()).find((m) => m.ts === loserTs) as {
+    superseded_by?: string;
+  };
+  expect(loser.superseded_by).toBeUndefined(); // B's row is untouched
+});
+
+// Probe 5: when the evidence write fails AFTER the rows were retired, the
+// response must describe what actually happened — "nothing was done" is true
+// only for the lock-acquisition failure it was written for.
+test("a merge whose evidence write fails reports the retirement it actually made", async () => {
+  const p = await loadPlugin(a);
+  plugins = [p];
+  // Poison the evidence path: the merge's mutation runs, its record() throws.
+  mkdirSync(memoryRoot(), { recursive: true });
+  writeFileSync(join(memoryRoot(), "evidence"), "not a directory");
+  await appendMemory({
+    type: "decision",
+    scope: "design/probe5",
+    content: "PROBE5_WINNER_ROW",
+    repo: resolveRepo(a).key,
+    repoPath: resolveRepo(a).path,
+  });
+  await appendMemory({
+    type: "decision",
+    scope: "design/probe5",
+    content: "PROBE5_LOSER_ROW",
+    repo: resolveRepo(a).key,
+    repoPath: resolveRepo(a).path,
+  });
+  const rows = await loadAll();
+  const ts = (marker: string): string =>
+    (rows.find((m) => m.content.includes(marker)) as { ts: string }).ts;
+  const loserTs = ts("PROBE5_LOSER_ROW");
+
+  const res = await p.tools.memory_merge_review.execute(
+    { loser: loserTs, survivor: ts("PROBE5_WINNER_ROW"), reason: "dupes" },
+    { sessionID: "ses-p5", id: "probe5-merge" },
+  );
+  const out = String((res as { content?: string }).content ?? "");
+  const loser = (await loadAll()).find((m) => m.ts === loserTs) as {
+    superseded_by?: string;
+  };
+  expect(loser.superseded_by).toBeString(); // the mutation DID happen...
+  // ...so the answer must own it, not claim the documented no-op contract.
+  expect(out).not.toContain("nothing was done");
+  expect(out.toLowerCase()).toContain("evidence");
 });
