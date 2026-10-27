@@ -203,8 +203,13 @@ test("a merge whose evidence write fails reports the retirement it actually made
   const p = await loadPlugin(a);
   plugins = [p];
   // Poison the evidence path: the merge's mutation runs, its record() throws.
+  // Cleared first in the SAME synchronous block: anything that already put a
+  // directory there (host timing varies by platform — CI's Bun created one
+  // during setup) loses to the poison, never the other way around.
   mkdirSync(memoryRoot(), { recursive: true });
-  writeFileSync(join(memoryRoot(), "evidence"), "not a directory");
+  const poisoned = join(memoryRoot(), "evidence");
+  rmSync(poisoned, { recursive: true, force: true });
+  writeFileSync(poisoned, "not a directory");
   await appendMemory({
     type: "decision",
     scope: "design/probe5",
