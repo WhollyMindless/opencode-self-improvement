@@ -560,7 +560,7 @@ describe("poisoned row end-to-end — import cannot forge instructions", () => {
       { title: "read", output: "content", metadata: {} },
     );
 
-    const file = join(root, "poisoned.jsonl");
+    const file = join(memoryRoot(), "poisoned.jsonl");
     writeFileSync(
       file,
       [

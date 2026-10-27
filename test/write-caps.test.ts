@@ -9,7 +9,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWriteGate } from "../src/gates.ts";
-import { dateStr, evidenceDir, memoryRoot } from "../src/config.ts";
+import { dateStr, evidenceDir, exportsDir, memoryRoot } from "../src/config.ts";
 import { formatLine } from "../src/logfmt.ts";
 import { appendMemory, loadAll, MAX_CONTENT_CHARS } from "../src/memory.ts";
 import { extractCallForms, extractPathRefs } from "../src/resolver.ts";
@@ -154,7 +154,8 @@ describe("write-side size + type floors", () => {
     const loaded = await loadPlugin(liveRoot);
     expect(await loaded.tool.memory_recall.execute({ scope })).toContain(legacySecret);
 
-    const exportFile = join(root, "legacy.jsonl");
+    // An export is a copy of the store, so it lands inside it (#24).
+    const exportFile = join(exportsDir(), "legacy.jsonl");
     expect(await loaded.tool.memory_export.execute({ scope, file: exportFile })).toContain(
       "Exported 1 memories",
     );

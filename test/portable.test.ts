@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   appendFileSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -20,7 +21,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { dateStr, evidenceDir, memoryRoot, snapshotDir } from "../src/config.ts";
+import { dateStr, evidenceDir, exportsDir, memoryRoot, snapshotDir } from "../src/config.ts";
 import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { resetState } from "../src/state.ts";
 import { appendMemory, isActive, loadAll } from "../src/memory.ts";
@@ -40,6 +41,9 @@ beforeEach(() => {
   process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
+  // Import files live inside the store (#24), and these tests write them
+  // before anything else would create the root.
+  mkdirSync(memoryRoot(), { recursive: true });
   resetState();
 });
 
@@ -150,7 +154,7 @@ describe("exportMemories", () => {
   test("scope filter and explicit file path are honored", async () => {
     seed("learning", "build", "One durable fact about the build pipeline here.");
     seed("learning", "api", "One durable fact about the api surface lives here.");
-    const file = join(root, "out.jsonl");
+    const file = join(exportsDir(), "out.jsonl");
     const res = await exportMemories({ scope: "api", file });
     expect(res.count).toBe(1);
     expect(res.path).toBe(file);
@@ -170,7 +174,7 @@ describe("exportMemories", () => {
 
 describe("importMemories", () => {
   test("malformed lines are skipped; valid rows reach the gate; tally by action", async () => {
-    const file = join(root, "in.jsonl");
+    const file = join(memoryRoot(), "in.jsonl");
     writeFileSync(
       file,
       [
@@ -193,7 +197,7 @@ describe("importMemories", () => {
   });
 
   test("optional fields are sanitized, not fatal; collapsed tallies as collapsed", async () => {
-    const file = join(root, "in2.jsonl");
+    const file = join(memoryRoot(), "in2.jsonl");
     writeFileSync(
       file,
       JSON.stringify({
@@ -217,7 +221,7 @@ describe("importMemories", () => {
   });
 
   test("a missing file throws (the tool turns it into a soft message)", async () => {
-    await expect(importMemories(join(root, "nope.jsonl"), async () => ({ action: "promoted" }))).rejects.toThrow(/not found/);
+    await expect(importMemories(join(memoryRoot(), "nope.jsonl"), async () => ({ action: "promoted" }))).rejects.toThrow(/not found/);
   });
 });
 
@@ -232,7 +236,7 @@ describe("import frontier policy", () => {
   };
 
   test("without an export header, status=open is downgraded to settled and tallied", async () => {
-    const file = join(root, "nohdr.jsonl");
+    const file = join(memoryRoot(), "nohdr.jsonl");
     writeFileSync(file, JSON.stringify(openRow) + "\n");
     let got: WriteCandidate | undefined;
     const t = await importMemories(file, async (c) => {
@@ -244,7 +248,7 @@ describe("import frontier policy", () => {
   });
 
   test("with a v1 export header, status=open survives and the header is not tallied", async () => {
-    const file = join(root, "hdr.jsonl");
+    const file = join(memoryRoot(), "hdr.jsonl");
     writeFileSync(
       file,
       [
@@ -262,7 +266,7 @@ describe("import frontier policy", () => {
   });
 
   test("a header version newer than ours does NOT grant the exemption (fail closed)", async () => {
-    const file = join(root, "future.jsonl");
+    const file = join(memoryRoot(), "future.jsonl");
     writeFileSync(
       file,
       [
@@ -281,7 +285,7 @@ describe("import frontier policy", () => {
 
   test("a pasted header cannot grant a repo:global row an open frontier everywhere", async () => {
     const payload = "PLANTED global open thread must not ride an unrelated repo prompt.";
-    const file = join(root, "forged-global.jsonl");
+    const file = join(memoryRoot(), "forged-global.jsonl");
     writeFileSync(
       file,
       [
@@ -305,7 +309,7 @@ describe("import frontier policy", () => {
 
   test("a foreign 12-hex repo stamp is replaced with the importing repo scope", async () => {
     const payload = "the flimflam widget forged-repo claim lands in the importing repo only";
-    const file = join(root, "forged-repo.jsonl");
+    const file = join(memoryRoot(), "forged-repo.jsonl");
     writeFileSync(
       file,
       [
@@ -330,7 +334,7 @@ describe("import frontier policy", () => {
   });
 
   test("an unverifiable stamped open row is downgraded when the importing session has no scope", async () => {
-    const file = join(root, "unscoped-foreign.jsonl");
+    const file = join(memoryRoot(), "unscoped-foreign.jsonl");
     writeFileSync(
       file,
       [
@@ -354,7 +358,7 @@ describe("import frontier policy", () => {
 
   test("an explicit global settled row stays global", async () => {
     const payload = "Settled global convention imported from another machine stays global.";
-    const file = join(root, "settled-global.jsonl");
+    const file = join(memoryRoot(), "settled-global.jsonl");
     writeFileSync(
       file,
       [
@@ -416,11 +420,16 @@ describe("memory_export / memory_import tools (round trip)", () => {
     const file = exp.split(" -> ")[1]!;
     expect(existsSync(file)).toBe(true);
 
-    // Fresh store (simulates another machine).
+    // Fresh store (simulates another machine). A store reads only from inside
+    // itself (#24), so the hop copies the export in first — the step actually
+    // moving a file to another machine involves.
     process.env.OPENCODE_MEMORY_DIR = join(root, "memory2");
+    mkdirSync(memoryRoot(), { recursive: true });
+    const hop = join(memoryRoot(), "hop.jsonl");
+    copyFileSync(file, hop);
     await engage(loaded, "ses-imp"); // ground the settled ref-free rows
 
-    const imp = await loaded.tool.memory_import!.execute({ file });
+    const imp = await loaded.tool.memory_import!.execute({ file: hop });
     expect(imp).toContain("3 promoted");
     expect(imp).toContain("0 duplicates collapsed");
     const mems = (await loadAll()).filter(isActive);
@@ -430,14 +439,14 @@ describe("memory_export / memory_import tools (round trip)", () => {
     expect(mems.filter((m) => m.status === "open").length).toBe(1);
 
     // Second import of the same file: the gate dedupes every row.
-    const imp2 = await loaded.tool.memory_import!.execute({ file });
+    const imp2 = await loaded.tool.memory_import!.execute({ file: hop });
     expect(imp2).toContain("0 promoted");
     expect(imp2).toContain("3 duplicates collapsed");
     expect((await loadAll()).filter(isActive).length).toBe(3);
   });
 
   test("malformed lines are skipped and counted; a missing file fails soft", async () => {
-    const file = join(root, "mixed.jsonl");
+    const file = join(memoryRoot(), "mixed.jsonl");
     writeFileSync(
       file,
       [
@@ -452,7 +461,7 @@ describe("memory_export / memory_import tools (round trip)", () => {
     expect(out).toContain("1 promoted");
     expect(out).toContain("2 malformed lines skipped");
 
-    const missing = await loaded.tool.memory_import!.execute({ file: join(root, "gone.jsonl") });
+    const missing = await loaded.tool.memory_import!.execute({ file: join(memoryRoot(), "gone.jsonl") });
     expect(missing).toContain("memory_import failed");
     expect(missing).toContain("not found");
   });

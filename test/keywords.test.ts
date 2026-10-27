@@ -144,7 +144,7 @@ describe("keywords in the store", () => {
 
     // Re-importing the same prose with DIFFERENT keywords still collapses:
     // keywords widen the index, they are not the row's identity.
-    const refile = join(root, "restated.jsonl");
+    const refile = join(memoryRoot(), "restated.jsonl");
     await Bun.write(
       refile,
       [
