@@ -15,7 +15,7 @@ import { dateStr, evidenceDir } from "../src/config.ts";
 import { record } from "../src/evidence.ts";
 import { appendMemory } from "../src/memory.ts";
 import { resetState } from "../src/state.ts";
-import { resetSessionScopes, resolveRepo, setRepoScope } from "../src/repokey.ts";
+import { rememberSessionDir, resetSessionScopes, resolveRepo, setRepoScope } from "../src/repokey.ts";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
 
 let root: string;
@@ -85,6 +85,11 @@ test("an impossible calendar date is refused, not rolled onto another day", asyn
 
 test("today's evidence stays readable, implicit and explicit", async () => {
   plugin = await loadPlugin(repo);
+  // ses-130 is a session OF this workspace: bound, like every session that
+  // reaches a plugin instance. An UNBOUND named session's fresh evidence is
+  // private to that session (#128 re-review) — a control for THIS contract
+  // must present a resolved identity, not exploit the missing-stamp path.
+  rememberSessionDir("ses-130", repo);
   await record("merge_resolved", { reason: "EVIDENCE_PATH_REGRESSION_PROBE" }, true, "ses-130");
   expect(await evidenceTool({})).toContain("EVIDENCE_PATH_REGRESSION_PROBE");
   expect(await evidenceTool({ date: dateStr() })).toContain("EVIDENCE_PATH_REGRESSION_PROBE");
