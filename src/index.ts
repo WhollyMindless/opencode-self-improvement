@@ -716,18 +716,24 @@ const impl = {
       editor.add(validated(ExportArgs, {
         name: "memory_export",
         description:
-          "Export active memories as a JSONL file for backup or transfer to another machine. The first line is a metadata header ({_export,version,exportedAt,count}); each later line is one JSON object {ts,type,scope,content,status,tags,issue}. The header is what lets memory_import keep repo-scoped status:\"open\" frontier rows — a hand-written file without it imports such rows as settled, as does an imported open row claiming repo:\"global\". Defaults to <memory-root>/exports/<timestamp>.jsonl; pass `file` to choose the path, `scope` to export one scope. Superseded rows are not exported (history stays in the store).",
+          "Export active memories as a JSONL file for backup or transfer to another machine. The first line is a metadata header ({_export,version,exportedAt,count}); each later line is one JSON object {ts,type,scope,content,status,tags,issue}. The header is what lets memory_import keep repo-scoped status:\"open\" frontier rows — a hand-written file without it imports such rows as settled, as does an imported open row claiming repo:\"global\". Defaults to <memory-root>/exports/<timestamp>.jsonl; `file` must name a path inside <memory-root>/exports (a relative path resolves against it), `scope` exports one scope. Superseded rows are not exported (history stays in the store).",
         options: direct,
         async execute(args): Promise<{ content: string }> {
-          const res = await exportMemories({ scope: args.scope, file: args.file });
-          return { content: `Exported ${res.count} memories -> ${res.path}` };
+          try {
+            const res = await exportMemories({ scope: args.scope, file: args.file });
+            return { content: `Exported ${res.count} memories -> ${res.path}` };
+          } catch (err) {
+            return {
+              content: `memory_export failed: ${err instanceof Error ? err.message : String(err)}`,
+            };
+          }
         },
       }));
 
       editor.add(validated(ImportArgs, {
         name: "memory_import",
         description:
-          "Import memories from a JSONL export (see memory_export). Every row goes through the same 4-gate write pipeline as memory_remember (tagged `import`, original tags preserved), so duplicates collapse and ungrounded rows are blocked exactly as usual — those are normal tallied outcomes, not errors. Malformed lines are skipped and counted. Frontier policy: status:\"open\" exempts a row from ref grounding, so it requires a memory_export header and cannot claim global scope; imported repo stamps are kept only when they match the importing session's repo, otherwise the importing repo is stamped. A stamped open row is downgraded when there is no current repo scope to verify it. Imported content is unverified by construction: injected rows surface a `[via import]` provenance marker.",
+          "Import memories from a JSONL export (see memory_export). Every row goes through the same 4-gate write pipeline as memory_remember (tagged `import`, original tags preserved), so duplicates collapse and ungrounded rows are blocked exactly as usual — those are normal tallied outcomes, not errors. Malformed lines are skipped and counted. `file` must be inside the memory root — copy the export there first. Frontier policy: status:\"open\" exempts a row from ref grounding, so it requires a memory_export header and cannot claim global scope; imported repo stamps are kept only when they match the importing session's repo, otherwise the importing repo is stamped. A stamped open row is downgraded when there is no current repo scope to verify it. Imported content is unverified by construction: injected rows surface a `[via import]` provenance marker.",
         options: direct,
         async execute(args): Promise<{ content: string }> {
           try {

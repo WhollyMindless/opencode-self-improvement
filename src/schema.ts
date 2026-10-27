@@ -147,11 +147,16 @@ export const ConsolidateArgs = z.object({
 
 export const ExportArgs = z.object({
   scope: z.string().describe("Only export memories in this exact scope").optional(),
-  file: z.string().describe("Destination path (default: <memory-root>/exports/)").optional(),
+  file: z
+    .string()
+    .describe(
+      "Destination inside <memory-root>/exports/ (a relative path resolves against it). Default: <memory-root>/exports/<timestamp>.jsonl",
+    )
+    .optional(),
 });
 
 export const ImportArgs = z.object({
-  file: z.string().describe("Path to a .jsonl export file"),
+  file: z.string().describe("Path to a .jsonl export file, inside the memory root"),
 });
 
 export const DecayArgs = z.object({

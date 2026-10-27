@@ -29,6 +29,23 @@ export function snapshotDir(): string {
   return join(memoryRoot(), "snapshots");
 }
 
+// The only place memory_export may write (src/containment.ts). An export is a
+// copy of the live store, so it is store data and lives inside the store.
+export function exportsDir(): string {
+  return join(memoryRoot(), "exports");
+}
+
+// Escape hatch for out-of-band migrations only: when truthy, memory_export and
+// memory_import accept paths anywhere on the filesystem instead of confining
+// themselves to the store. Read from the plugin process's own environment at
+// call time, so a model cannot grant it to itself through a tool argument; the
+// default is closed. See src/containment.ts.
+export function allowOutsideStorePaths(): boolean {
+  const raw = process.env.OPENCODE_MEMORY_ALLOW_OUTSIDE_PATHS;
+  if (!raw) return false;
+  return /^(1|true|yes|on)$/i.test(raw.trim());
+}
+
 export function canonicalFile(): string {
   return join(memoryRoot(), "canonical.logfmt");
 }

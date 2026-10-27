@@ -11,8 +11,9 @@
 // and additionally snapshots the file it replaces, so the state it drops stays
 // undoable (result.safety).
 import { lstat, realpath, stat } from "node:fs/promises";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { deletionsFile, snapshotDir } from "./config.ts";
+import { isWithin } from "./containment.ts";
 import { ensureDir, fileIdentity, parseLine, readLines, writeAtomic } from "./logfmt.ts";
 import { withStoreLock, LOCK_RESTORE } from "./lock.ts";
 import { snapshotFiles } from "./memory.ts";
@@ -90,11 +91,8 @@ function rows(text: string): string[] {
   return text.split("\n").filter((l) => l.trim());
 }
 
-function isWithin(parent: string, child: string): boolean {
-  const rel = relative(parent, child);
-  return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
-}
-
+// isWithin comes from src/containment.ts: the snapshot restore below and the
+// export/import destinations are the same boundary and must not drift.
 async function resolveSnapshot(
   snapshot: string,
   memoryRootDir: string,

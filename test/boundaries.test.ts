@@ -171,14 +171,20 @@ const EXPECTED_WIRE = {
     type: "object",
     properties: {
       scope: { type: "string", description: "Only export memories in this exact scope" },
-      file: { type: "string", description: "Destination path (default: <memory-root>/exports/)" },
+      file: {
+        type: "string",
+        description:
+          "Destination inside <memory-root>/exports/ (a relative path resolves against it). Default: <memory-root>/exports/<timestamp>.jsonl",
+      },
     },
     required: [],
     additionalProperties: false,
   },
   memory_import: {
     type: "object",
-    properties: { file: { type: "string", description: "Path to a .jsonl export file" } },
+    properties: {
+      file: { type: "string", description: "Path to a .jsonl export file, inside the memory root" },
+    },
     required: ["file"],
     additionalProperties: false,
   },

@@ -3,8 +3,11 @@
 // row flows through the caller-provided gate callback (index.ts wires it to
 // runWriteGate), so moving memories between machines cannot bypass the 4-gate
 // moat. Decay is supersede-not-delete and snapshot-first, mirroring prune.
-import { join } from "node:path";
-import { memoryRoot } from "./config.ts";
+import { constants } from "node:fs";
+import { mkdir, open } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { allowOutsideStorePaths, exportsDir, memoryRoot } from "./config.ts";
+import { resolveContained } from "./containment.ts";
 import { isActive, isVisibleHere, loadAll, type Memory } from "./memory.ts";
 import { repoScopeFor } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
@@ -27,7 +30,10 @@ export const EXPORT_VERSION = 1;
 export interface ExportOptions {
   /** Only export rows from this exact scope. */
   scope?: string;
-  /** Destination path; defaults to <memory-root>/exports/<stamp>.jsonl. */
+  /**
+   * Destination, confined to <memory-root>/exports/ (see containment.ts).
+   * Defaults to <memory-root>/exports/<stamp>.jsonl.
+   */
   file?: string;
 }
 
@@ -41,15 +47,73 @@ function stamp(d: Date = new Date()): string {
   return d.toISOString().slice(0, 19).replace(/:/g, "");
 }
 
+// An export is a full copy of the live store, so it may only be written inside
+// the store's own exports/ directory: ~/.gitconfig, a relative path landing in
+// the host process's cwd, ../.., and links out of the root are all rejected.
+// Only an absent `file` means the default — an empty or whitespace-only one is
+// a caller bug and fails rather than silently redirecting.
+async function resolveExportTarget(file: string | undefined): Promise<string> {
+  const allowOutside = allowOutsideStorePaths();
+  const opts = {
+    label: "memory_export file",
+    hint: `omit file for the default, or name a path under ${exportsDir()}`,
+    // An exports/ that is itself a symlink must not move the write out of the
+    // store either — same two-level check undo.ts's restore makes.
+    outerRoot: memoryRoot(),
+    allowOutside,
+  };
+  // A default destination is still a destination. Routing it through the same
+  // check is what stops an exports/ that is a link from writing the whole store
+  // copy outside the store on the argument-free call — the one a model reaches
+  // without knowing anything about the layout. Under the operator escape hatch
+  // there is nothing to check, so the plain join is what remains.
+  if (file === undefined && allowOutside) return join(exportsDir(), `${stamp()}.jsonl`);
+  return resolveContained(file ?? `${stamp()}.jsonl`, exportsDir(), opts);
+}
+
+// An export is a plaintext copy of the whole store, so it is written 0600 and
+// opened O_NOFOLLOW. The flag matters: the containment check and this open are
+// separate syscalls, and the gap is the entire store read — single-digit to tens
+// of milliseconds on a 5 000-row store depending on the machine, which is long
+// enough for anything that can create a link inside exports/.
+//
+// Both are POSIX guarantees. libuv does not implement O_NOFOLLOW on Windows
+// (verified on the CI windows leg: the open follows the link) and Windows
+// reports every writable file as 0666, so there the containment check that ran
+// before this call is the only protection.
+//
+// Exported so the flag itself can be pinned: the containment layer refuses an
+// existing link long before this runs, so the only way to test O_NOFOLLOW
+// without racing is to call the writer directly.
+export async function writeExport(path: string, text: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const flags =
+    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0);
+  const handle = await open(path, flags, 0o600);
+  try {
+    await handle.writeFile(text, "utf8");
+    // open()'s mode applies only when the file is created, so re-exporting over
+    // a file that already existed (a 0644 one, say) would otherwise leave it
+    // world-readable and make the 0600 above a claim rather than a guarantee.
+    await handle.chmod(0o600);
+  } finally {
+    await handle.close();
+  }
+}
+
 // Write the ACTIVE store as JSONL — a header line followed by one JSON object
 // per line carrying {ts,type,scope,content,status,tags,issue}. Superseded rows
 // are not exported: the export is the live store, and history stays auditable
 // where it lives (the original logfmt files + snapshots). The header is always
 // written, even for an empty store, so "has header" is a format invariant.
+//
+// The destination is model-supplied, so it is resolved and confined BEFORE the
+// store is read: a rejected export must not leave a file behind, and must not
+// be a way to learn how many rows matched either.
 export async function exportMemories(opts: ExportOptions = {}): Promise<ExportResult> {
+  const path = await resolveExportTarget(opts.file);
   let mems = (await loadAll()).filter(isActive);
   if (opts.scope) mems = mems.filter((m) => m.scope === opts.scope);
-  const path = opts.file ?? join(memoryRoot(), "exports", `${stamp()}.jsonl`);
   const header = JSON.stringify({
     _export: EXPORT_HEADER,
     version: EXPORT_VERSION,
@@ -72,7 +136,16 @@ export async function exportMemories(opts: ExportOptions = {}): Promise<ExportRe
       repoPath: m.repoPath,
     }),
   );
-  await Bun.write(path, [header, ...lines].join("\n") + "\n");
+  try {
+    await writeExport(path, `${[header, ...lines].join("\n")}\n`);
+  } catch (err) {
+    // Past containment, so this is not an existence oracle: `path` is one the
+    // plugin chose or already validated. The errno stays, because it is the
+    // operator's only diagnostic — but in our sentence rather than the runtime's,
+    // so a model-facing tool result never carries a raw stack-adjacent string.
+    const code = err instanceof Error && "code" in err ? String(err.code) : "unknown error";
+    throw new Error(`memory_export could not write ${path} (${code})`);
+  }
   return { path, count: mems.length };
 }
 
@@ -159,12 +232,30 @@ function parseRow(line: string): WriteCandidate | null {
 // instead. With no current scope, stamps are kept (removing them would widen
 // the row to global) and a stamped open row is downgraded, since its stamp
 // cannot be verified. Only a missing file throws.
+//
+// The path is a model-supplied READ primitive, so it is confined to the memory
+// root BEFORE the filesystem is touched, and containment's error never says
+// whether the path exists — otherwise a rejection is an existence oracle for
+// files outside the store. The .jsonl requirement closes the rest of that door:
+// without it, the tally ("N malformed lines skipped") would leak line counts of
+// day files, snapshots and the blocklist, none of which are import formats.
 export async function importMemories(
   path: string,
   gate: (c: WriteCandidate) => Promise<{ action: string }>,
 ): Promise<ImportTally> {
-  const file = Bun.file(path);
-  if (!(await file.exists())) throw new Error(`import file not found: ${path}`);
+  const target = await resolveContained(path, memoryRoot(), {
+    label: "memory_import file",
+    // Deliberately no mention of the operator escape hatch: this string goes
+    // back to the model, and naming the variable there is an instruction it can
+    // relay. The hatch lives in the README.
+    hint: `copy the export under ${memoryRoot()} first`,
+    allowOutside: allowOutsideStorePaths(),
+  });
+  if (!target.toLowerCase().endsWith(".jsonl")) {
+    throw new Error(`memory_import file must be a .jsonl export (got "${path}")`);
+  }
+  const file = Bun.file(target);
+  if (!(await file.exists())) throw new Error(`import file not found: ${target}`);
   const tally: ImportTally = { promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0 };
   const currentScope = repoScopeFor(getCurrent().sid);
   let allowFrontier = false;

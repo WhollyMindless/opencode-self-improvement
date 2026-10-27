@@ -528,7 +528,7 @@ describe("an import landing while another session writes", () => {
 	// "optimized" into a bulk publish that clobbers a live writer.
 	test("imported rows and concurrently appended rows all land", async () => {
 		seedScopes(150, [["consistency", 1200]]);
-		const importFile = join(root, "import.jsonl");
+		const importFile = join(memoryRoot(), "import.jsonl");
 		const importedTs = Array.from({ length: 30 }, (_, i) =>
 			new Date(Date.now() + 24 * 3600_000 + i).toISOString(),
 		);
