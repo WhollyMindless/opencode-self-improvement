@@ -328,6 +328,14 @@ const impl = {
       const bound = sid ?? getCurrent().sid;
       return {
         sessionID: sid,
+        // NOTE (re-review): this one lookup is intentionally NON-firm — a
+        // provisional binding may supply the gate's verification TREE. The
+        // tree is where a referenced file is checked to exist, not who the
+        // caller is: "as far as the flow can know" is the right confidence
+        // level, and a wrong guess fails a code-reference gate loudly rather
+        // than leaking across repositories. Identity itself never resolves
+        // through here (readers and stamps use the firm-or-provisional split
+        // in repokey/memory); do not mistake this for one.
         liveRoot: sessionDir(bound) ?? liveRoot,
         evidenceCalls: evidenceCalls(bound),
         hasGateCheck: hasGateCheck(bound),
@@ -713,11 +721,13 @@ const impl = {
           let lines = await readLines(file);
           // Data partitions too (#131's ownership rule, applied to evidence):
           // a line stamped to another repository is not this session's data,
-          // whatever the file it shares with the caller's lines.
+          // and a line a NAMED session wrote while unresolved is private to
+          // that session — the caller's sid is what the private branch
+          // matches against (#128 re-review).
           if (reader.kind !== "admin") {
             lines = lines.filter((l) => {
               const fields = parseLine(l);
-              return !fields || evidenceVisibleTo(fields, reader);
+              return !fields || evidenceVisibleTo(fields, reader, sid);
             });
           }
           if (args.ev) lines = lines.filter((l) => l.includes(`ev=${args.ev}`));

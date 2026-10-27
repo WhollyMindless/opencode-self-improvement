@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { dateStr, evidenceDir } from "./config.ts";
 import { appendLog, formatLine } from "./logfmt.ts";
-import { repoScopeFor } from "./repokey.ts";
+import { repoScope, sessionScope } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
 import { redactSecrets } from "./secrets.ts";
 
@@ -41,12 +41,19 @@ export async function record(
   const sid = sessionID ?? cur.sid;
   const call = sessionID !== undefined && sessionID !== cur.sid ? undefined : cur.call;
   // Read-side partitioning of the shared log (#131's rule, applied to
-  // evidence): every line carries the repository that RECORDED it — the
-  // session's when known, else this process's scope, exactly like a store
-  // write stamps it. A reader from another repository then filters the line
-  // out (memory.ts evidenceVisibleTo); lines from a scope-less process stay
-  // unstamped and global.
-  const scope = repoScopeFor(typeof sid === "string" ? sid : undefined);
+  // evidence; the re-review closed the last two gaps in it). A NAMED session
+  // is stamped from its OWN resolved scope only — the module scope is never
+  // the fallback here: in a process that loaded several plugin instances it
+  // belongs to whoever set up LAST, and A's evidence must not live in B's
+  // repository. A named session whose repository is unresolvable writes an
+  // UNSTAMPED line that stays private to that session (memory.ts
+  // evidenceVisibleTo pairs with this choice): "unknown" is never
+  // "everything" (#127), and it is never somebody else's repo either. Only a
+  // genuinely session-less line — out-of-plugin maintenance, viewer, CLI —
+  // takes the process scope, and unstamped session-less lines (legacy, or a
+  // scope-less process) keep their historical global reading.
+  const named = typeof sid === "string" && sid !== "" && sid !== "?";
+  const scope = named ? sessionScope(sid) : repoScope();
   const line = formatLine({
     ev,
     ts: new Date().toISOString(),

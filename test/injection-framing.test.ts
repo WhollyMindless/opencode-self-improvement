@@ -21,7 +21,7 @@ import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { isActive, loadAll } from "../src/memory.ts";
 import { resetState } from "../src/state.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
-import { rememberSessionDir, setRepoScope } from "../src/repokey.ts";
+import { rememberSessionDir, resetSessionScopes, setRepoScope } from "../src/repokey.ts";
 import { compactionAnchor, contextualPull, relevantKnowledge, systemDigest } from "../src/inject.ts";
 import { loadPlugin } from "./harness.ts";
 
@@ -46,6 +46,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Session bindings are module-global: a file that binds one (fr-cap
+  // below) must drop it, or the ambient reader of whatever test file runs
+  // NEXT silently resolves through this file's temp repo (d56956e review,
+  // finding 2 — order-dependent suite failures on some hosts).
+  resetState();
+  resetSessionScopes();
+  setRepoScope(null);
   delete process.env.OPENCODE_MEMORY_DIR;
   delete process.env.OPENCODE_COMMANDS_DIR;
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });

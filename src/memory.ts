@@ -679,23 +679,37 @@ export function visibleTo(mems: Memory[], reader: Reader): Memory[] {
   return mems.filter((m) => isVisibleTo(m, reader));
 }
 
-// The evidence-line twin of isVisibleTo: a stamped line belongs to the
-// repository that recorded it; unstamped lines (legacy, or written by a
-// scope-less process) are global, visible everywhere. Same visibility rule,
-// different data shape — kept next to isVisibleTo so the two cannot drift.
+// The evidence-line twin of isVisibleTo, plus the one rule rows do not need:
+// a missing stamp is NOT the same as a global marker. An explicitly
+// `repo=global` line is global, and a line with no stamp AND no named
+// session (legacy, or an out-of-plugin maintenance write) keeps its
+// historical global reading. But a line a NAMED session wrote while its
+// repository was unresolvable (evidence.ts) belongs to that session alone —
+// visible back to the same session and to the admin surface, never to a
+// stranger's memory_evidence. `callerSid` is the reading session's own id
+// captured at flow entry; without it the private branch can only fail
+// closed (admin sees all, everyone else does not).
 export function evidenceVisibleTo(
   fields: Record<string, unknown>,
   reader: Reader,
+  callerSid?: unknown,
 ): boolean {
   if (reader.kind === "admin") return true;
   const repo = fields.repo;
-  if (typeof repo !== "string" || repo === "" || repo === "global") return true;
-  if (reader.kind === "global-only") return false;
-  const repoPath = fields.repoPath;
-  return (
-    repo === reader.scope.key ||
-    (typeof repoPath === "string" && !!repoPath && repoPath === reader.scope.path)
-  );
+  if (typeof repo === "string" && repo !== "") {
+    if (repo === "global") return true;
+    if (reader.kind === "global-only") return false;
+    const repoPath = fields.repoPath;
+    return (
+      repo === reader.scope.key ||
+      (typeof repoPath === "string" && !!repoPath && repoPath === reader.scope.path)
+    );
+  }
+  const sid = fields.sid;
+  if (typeof sid === "string" && sid !== "" && sid !== "?") {
+    return typeof callerSid === "string" && callerSid === sid;
+  }
+  return true;
 }
 
 // Ambient (out-of-plugin) convenience: resolves the reader at CALL time.
