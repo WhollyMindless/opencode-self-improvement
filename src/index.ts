@@ -772,6 +772,11 @@ const impl = {
           // this cannot deadlock against a plain writer; on timeout it fails
           // closed with nothing written.
           const reader = readerFromSid(sid);
+          // Where a throw lands decides what is true to say: before the
+          // mutation nothing was written (the documented fail-closed
+          // contract); AFTER markSuperseded the loser IS retired on disk and
+          // claiming "nothing was done" is a lie (review probe 5).
+          let mutated = false;
           try {
             return await withStoreLock(
               join(memoryRoot(), "update-order"),
@@ -810,6 +815,7 @@ const impl = {
                 if (!ok) {
                   return { content: "merge_review: loser not found or already superseded — nothing to resolve. No evidence written." };
                 }
+                mutated = true;
                 // The survivor may itself have been superseded earlier (e.g. by
                 // a row this very call just made the loser). Declaring it
                 // canonical has to make it recallable, so clear its own marker.
@@ -845,11 +851,22 @@ const impl = {
                 },
               },
             );
-          } catch {
-            // Only the fail-closed lock timeout throws here; nothing was
-            // written either way — the documented fail-closed contract.
+          } catch (err) {
+            // Before mutation this is the fail-closed lock contract: nothing
+            // written. After markSuperseded succeeded the loser IS retired —
+            // the honest report names the completed mutation and the failed
+            // follow-up (evidence/revive), not a blanket "nothing was done".
+            if (!mutated) {
+              return {
+                content: "merge_review blocked: the store was busy past the lock budget — nothing was done. Retry.",
+              };
+            }
+            const why = err instanceof Error ? err.message : String(err);
             return {
-              content: "merge_review blocked: the store was busy past the lock budget — nothing was done. Retry.",
+              content:
+                `merge_review PARTIAL: ${args.loser} IS retired on disk (superseded_by ${args.survivor}; ` +
+                `recoverable via memory_undo) but a post-mutation step failed: ${why}. ` +
+                `The evidence line may be missing; re-running reports the loser already superseded.`,
             };
           }
         },
