@@ -21,6 +21,7 @@ import { pruneMemory } from "../src/prune.ts";
 import { contextualPull, systemDigest } from "../src/inject.ts";
 import { afterTool, evidenceCalls, hasGateCheck } from "../src/triggers.ts";
 import { resetState, setCurrent } from "../src/state.ts";
+import { rememberSessionDir } from "../src/repokey.ts";
 
 let root: string;
 let liveRoot: string;
@@ -88,6 +89,11 @@ function gateOrder(lines: Fields[], chain: string): number[] {
 }
 
 function ctx(sid: string): GateContext {
+  // This gate call runs for `sid` IN liveRoot. A real host states the same
+  // thing by handing every tool execute a sessionID this instance resolves;
+  // a named session with no repository has no write target (#152), so the
+  // scenario harness has to declare the workspace it is simulating.
+  rememberSessionDir(sid, liveRoot);
   return {
     liveRoot,
     evidenceCalls: evidenceCalls(sid),

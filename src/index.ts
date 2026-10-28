@@ -27,6 +27,7 @@ import {
   readerFromSid,
   resolveMemoryTarget,
   snapshotFiles,
+  unresolvedWriteMessage,
   visibleTo,
   type Memory,
 } from "./memory.ts";
@@ -81,7 +82,7 @@ import {
   onCompacting,
 } from "./triggers.ts";
 import { getCurrent, setCurrent } from "./state.ts";
-import { resolveRepo, setRepoScope, rememberSessionDir, sessionDir, sessionDirFirm, bindSessionProvisional } from "./repokey.ts";
+import { resolveRepo, setRepoScope, rememberSessionDir, sessionDir, sessionDirFirm, bindSessionProvisional, writeTarget } from "./repokey.ts";
 import { parseLine, readLines } from "./logfmt.ts";
 import { buildCapturePrompt, flattenTranscript, lagSince, parseCandidates, parseModelRef } from "./capture.ts";
 import { redactSecrets } from "./secrets.ts";
@@ -343,6 +344,24 @@ const impl = {
       };
     };
 
+    // A durable write needs an OWNER (#152). Reads already fail closed for a
+    // session whose repository never resolved — it sees global rows and nothing
+    // else — so such a session may not write either: the alternatives were the
+    // last setup's repository or an unstamped (hence global) row. This answers
+    // at the entry, where the model can be told what to do, and records the
+    // refusal so "why is nothing stored" is answerable from memory_evidence.
+    // appendMemory throws the same rule at the choke point; the two share one
+    // message so they cannot drift.
+    const ownerlessWriter = (sid: string | undefined): string | null => {
+      const target = writeTarget(sid);
+      return target.ok ? null : target.sid;
+    };
+
+    const refuseOwnerlessWrite = async (sid: string, op: string): Promise<{ content: string }> => {
+      await record("write_refused", { op }, true, sid);
+      return { content: unresolvedWriteMessage(sid) };
+    };
+
     // Identity of a tool call, captured SYNCHRONOUSLY at the tool's entry —
     // the first await of the call comes after this. The V2 host hands every
     // execute a per-call ToolContext carrying sessionID; the harness and any
@@ -457,6 +476,12 @@ const impl = {
             repo: args.global ? "global" : undefined,
           };
           await bindSessionIdentity(sid);
+          // An explicit global write needs no repository owner; anything else
+          // does (#152).
+          if (!args.global) {
+            const ownerless = ownerlessWriter(sid);
+            if (ownerless) return await refuseOwnerlessWrite(ownerless, "remember");
+          }
           const outcome = await runWriteGate(candidate, gateContext(sid));
           if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
           if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
@@ -503,6 +528,8 @@ const impl = {
         async execute(args, context): Promise<{ content: string }> {
           const { sid } = toolIds(context);
           await bindSessionIdentity(sid);
+          const ownerless = ownerlessWriter(sid);
+          if (ownerless) return await refuseOwnerlessWrite(ownerless, "init");
           const summary = await runInit({
             liveRoot: gateContext(sid).liveRoot,
             force: args.force,
@@ -563,6 +590,8 @@ const impl = {
         async execute(args, context): Promise<{ content: string }> {
           const { sid } = toolIds(context);
           await bindSessionIdentity(sid);
+          const ownerless = ownerlessWriter(sid);
+          if (ownerless) return await refuseOwnerlessWrite(ownerless, "update");
           const reader = readerFromSid(sid);
           // The whole update — resolve, gate, supersede — runs under one
           // UPDATE-ORDER lock. Without it, two concurrent updates that both
@@ -896,6 +925,12 @@ const impl = {
         options: direct,
         async execute(args, context): Promise<{ content: string }> {
           const { sid } = toolIds(context);
+          // Resolve before touching the file: every imported row is re-stamped
+          // with the IMPORTING session's repository, so an unresolved caller
+          // would move a whole export into whoever set up last (#152).
+          await bindSessionIdentity(sid);
+          const ownerless = ownerlessWriter(sid);
+          if (ownerless) return await refuseOwnerlessWrite(ownerless, "import");
           try {
             const t = await importMemories(
               args.file,
@@ -1440,6 +1475,14 @@ const impl = {
           // no-op there). SYNC only: a lookup call here would break the
           // zero-token promise of the capture tests.
           bindSessionProvisional(sid, instanceDir);
+          // #152: an instance with no workspace cannot say which repository the
+          // mined rows belong to, and rows with no owner are exactly what the
+          // store refuses. Skip BEFORE the model call — no tokens spent on a
+          // capture that cannot be stored — and leave the reason in evidence.
+          if (!writeTarget(sid).ok) {
+            await record("auto_capture_refused", { session: sid, trigger }, true, sid);
+            return;
+          }
           let transcript = seeded;
           let msgs = seededMsgs;
           if (transcript.length < 200) {

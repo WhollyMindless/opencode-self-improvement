@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { dateStr, memoryRoot, deletionsFile, snapshotDir, HITS_FILENAME } from "./config.ts";
-import { repoScopeFor, sessionScope, type RepoScope } from "./repokey.ts";
+import { repoScopeFor, sessionScope, writeTarget, type RepoScope } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
 import {
   appendLog,
@@ -219,6 +219,30 @@ async function existingTs(file: string): Promise<Set<string>> {
   return set;
 }
 
+// #152: the store's answer to a write whose owner it cannot determine. Thrown
+// from the one place that knows what an owner is (the stamp resolution below),
+// so no caller — gate, import, capture, or a future one — can quietly persist
+// an ownerless row. `unresolvedWriteMessage` is the same text the model-facing
+// tools return, kept here so the two can never drift.
+export function unresolvedWriteMessage(sid: string): string {
+  return (
+    `Write refused: session ${sid} has no resolvable repository, so nothing was stored. ` +
+    `A memory with no owner must not be stamped into another repository or published as a ` +
+    `global row. Retry from a session in the project you mean, or pass global:true for a ` +
+    `deliberate cross-project memory.`
+  );
+}
+
+export class UnresolvedWriterError extends Error {
+  /** The named-but-unresolved session whose write was refused. */
+  sid: string;
+  constructor(sid: string) {
+    super(unresolvedWriteMessage(sid));
+    this.name = "UnresolvedWriterError";
+    this.sid = sid;
+  }
+}
+
 // Append a durable memory. GATE-4 promotions and the viewer's edit/restore-entry
 // paths all call this single write choke point.
 export async function appendMemory(input: AppendMemoryInput): Promise<string> {
@@ -270,10 +294,20 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
     // the last setCurrent before persistence may belong to another session
     // entirely (#116). Unnamed writers (tools, viewer, restore) keep the
     // ambient binding.
-    const cur = repoScopeFor(input.sessionID ?? getCurrent().sid);
-    if (cur) {
-      repo = cur.key;
-      repoPath = cur.path;
+    //
+    // A NAMED session that never resolved a repository is not an unnamed one
+    // (#152): falling back to the module scope stamped its rows into whatever
+    // workspace set up last, and with no module scope at all it stamped nothing
+    // — which every reader calls global. Both outcomes publish private content
+    // somewhere its owner can no longer see it, so the store refuses the write
+    // instead of guessing an owner. Tools answer with this message before the
+    // gate runs; throwing here is what covers every caller, including ones that
+    // reach the store without a tool.
+    const target = writeTarget(input.sessionID ?? getCurrent().sid);
+    if (!target.ok) throw new UnresolvedWriterError(target.sid);
+    if (target.scope) {
+      repo = target.scope.key;
+      repoPath = target.scope.path;
     }
   }
   // Day file chosen before the lock (it IS the lock key). A ts bumped across

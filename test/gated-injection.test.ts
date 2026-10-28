@@ -24,7 +24,7 @@ import { runWriteGate, type GateContext } from "../src/gates.ts";
 import { afterTool, evidenceCalls, hasEngagement, hasGateCheck } from "../src/triggers.ts";
 import { systemDigest } from "../src/inject.ts";
 import { resetState, setCurrent } from "../src/state.ts";
-import { setRepoScope } from "../src/repokey.ts";
+import { rememberSessionDir, setRepoScope } from "../src/repokey.ts";
 import { loadPlugin } from "./harness.ts";
 
 let root: string;
@@ -65,6 +65,11 @@ function field(line: Fields | undefined, key: string): string {
 }
 
 function ctx(sid: string): GateContext {
+  // The gate call below runs for this session IN liveRoot — a real host says
+  // the same thing by handing every tool execute a sessionID this instance can
+  // resolve (#152). Without the binding the writer has no repository and the
+  // store refuses its write rather than guessing an owner.
+  rememberSessionDir(sid, liveRoot);
   return {
     liveRoot,
     evidenceCalls: evidenceCalls(sid),
