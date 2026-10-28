@@ -176,7 +176,7 @@ const EXPECTED_WIRE = {
       file: {
         type: "string",
         description:
-          "Destination inside <memory-root>/exports/ (a relative path resolves against it). Default: <memory-root>/exports/<timestamp>.jsonl",
+          "Destination inside <memory-root>/exports/ (a relative path resolves against it). Default: <memory-root>/exports/<timestamp>-<unique>.jsonl, unique per export",
       },
     },
     required: [],
