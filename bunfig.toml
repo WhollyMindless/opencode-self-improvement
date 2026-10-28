@@ -1,0 +1,4 @@
+[test]
+# See test/preload-isolation.ts — clears the plugin's module-global identity
+# registries after every test so file order cannot change the outcome (#149).
+preload = ["./test/preload-isolation.ts"]

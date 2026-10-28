@@ -149,6 +149,16 @@ describe("use signals and the honest window", () => {
     rmSync(memoryRoot(), { recursive: true, force: true });
     mkdirSync(memoryRoot(), { recursive: true });
     resetLedgerCache();
+    // appendMemory stamps `ts` from the wall clock at millisecond resolution
+    // and only bumps it when that ts is ALREADY in the day file. This test
+    // deletes the store between the two writes, so nothing forces the second
+    // stamp forward: both rows land in the same millisecond whenever the prune
+    // is fast enough, and the identity difference under test becomes luck.
+    // Cross the millisecond boundary so the new ts is genuinely new.
+    const stampMs = Date.now();
+    while (Date.now() === stampMs) {
+      // spin
+    }
     await appendMemory({ type: "learning", scope: "rev", content: "the vault rotates on the first monday" });
     const [fresh] = await loadAll();
     expect(fresh!.ts).not.toBe(original!.ts);
