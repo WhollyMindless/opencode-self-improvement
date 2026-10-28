@@ -153,7 +153,7 @@ export const ExportArgs = z.object({
   file: z
     .string()
     .describe(
-      "Destination inside <memory-root>/exports/ (a relative path resolves against it). Default: <memory-root>/exports/<timestamp>.jsonl",
+      "Destination inside <memory-root>/exports/ (a relative path resolves against it). Default: <memory-root>/exports/<timestamp>-<unique>.jsonl, unique per export",
     )
     .optional(),
 });
