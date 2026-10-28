@@ -382,9 +382,10 @@ export function cacheLines(p: StatusPayload): string[] {
           `  cache busts    ${st.invalidations} this session · last ${
             st.lastInvalidation ? `${st.lastInvalidation.at.slice(11, 19)} (${st.lastInvalidation.reason})` : "-"
           }`,
-          "                 each write that changes what you are shown costs exactly",
-          "                 one; a write that changes nothing rendered costs nothing,",
-          "                 and the prefix re-warms on the following turn",
+          "                 a memory YOU saved in this session never costs one — you",
+          "                 already said it (#165). A correction, a removal, or a row",
+          "                 another session wrote costs exactly one, and the prefix",
+          "                 re-warms on the following turn",
         ];
   const rate = cacheRate(p.measured);
   const receipts = rate

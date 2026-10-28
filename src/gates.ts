@@ -15,6 +15,7 @@ import {
   type SupersedeFields,
 } from "./memory.ts";
 import { chainId, contentHash, record, recordWriteBlocked } from "./evidence.ts";
+import { noteAuthored } from "./state.ts";
 import { flattenMemoryText } from "./sanitize.ts";
 import { containsSecret, redactSecrets } from "./secrets.ts";
 import { readerForSession } from "./memory.ts";
@@ -662,6 +663,10 @@ export async function runWriteGate(
   // The write carries the CALLER's session, not whatever current says after
   // the gate's own awaits - capture's stamp must follow the captured session.
   const ts = await appendMemory({ ...candidate, sessionID: ctx.sessionID });
+  // #165: remember who made this row, so the writing session is not billed a
+  // prompt-cache bust to be shown its own thought. Only promoted writes are
+  // attributed — a blocked candidate created nothing.
+  noteAuthored(ctx.sessionID, ts);
   await rec("write_promoted", {
     gate: 4,
     op: "write",

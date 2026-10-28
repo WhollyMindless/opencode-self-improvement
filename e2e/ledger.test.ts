@@ -82,10 +82,13 @@ describe("use ledger end-to-end", () => {
     );
     expect(t2.exit).toBe(0);
     const injected = hostLedger(g).filter((l) => l.includes("src=inject"));
-    // One line per epoch build; the last belongs to this turn's session, which
-    // saw only the flimflam row (the zebra row shares no vocabulary with it).
+    // One line per epoch build that was ADOPTED with something to credit. The
+    // writing session contributes none: its first epoch had an empty store to
+    // score, and the rows written after it are its own thoughts, which #165
+    // keeps off its prefix. The next session is the first to be SHOWN them, and
+    // it saw only the flimflam row (zebra shares no vocabulary with it).
     const last = injected[injected.length - 1];
-    expect(injected.length).toBeGreaterThanOrEqual(2);
+    expect(injected.length).toBe(1);
     expect(last).toInclude("flimflam");
     expect(last).not.toInclude("zebra");
     // Terms are memory-side words. The triggering message is never stored.
@@ -109,19 +112,22 @@ describe("use ledger end-to-end", () => {
     expect(t4.exit).toBe(0);
     const report = t4.outputs("memory_status").join("\n");
     // The dead-weight line is present and internally consistent: retrieved +
-    // never retrieved = active. (Both rows earned credit here — an explicit
-    // recall of one and an injected block that carried the other — so the
-    // honest count is 0 dead weight, not a number we wished for.)
+    // never retrieved = active. Flimflam was injected into a later session and
+    // then explicitly recalled; zebra was never retrieved by anyone — its author
+    // is not re-shown its own row (#165) and no later turn matched its
+    // vocabulary. That is real dead weight, which is exactly what this line
+    // exists to surface.
     const m = report.match(/retrieved (\d+) rows in the last 30d; never retrieved (\d+) \((\d+)%\)/);
     expect(m, "the report carries the use-ledger line").not.toBeNull();
     const [used, dead] = [Number(m![1]), Number(m![2])];
     expect(used + dead).toBe(2);
-    // And the ledger really does distinguish them: flimflam was used more than
-    // once (inject + recall), zebra exactly once (it rode one early block).
+    expect(used).toBe(1);
+    expect(dead).toBe(1);
+    // And the ledger really does distinguish them.
     const led = hostLedger(g);
     const flimHits = led.filter((l) => l.includes("flimflam")).length;
     const zebraHits = led.filter((l) => l.includes("zebra")).length;
     expect(flimHits).toBeGreaterThan(0);
-    expect(zebraHits).toBeGreaterThan(0);
+    expect(zebraHits).toBe(0);
   }, 240_000);
 });

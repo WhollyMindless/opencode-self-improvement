@@ -13,7 +13,11 @@ import { dateStr, evidenceDir, frontierBudget, injectBudget, memoryRoot } from "
 import { capToBudget, storeVersion } from "../src/inject.ts";
 import { addBlock, removeBlock } from "../src/blocklist.ts";
 import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
-import { resetState } from "../src/state.ts";
+import { markSuperseded } from "../src/memory.ts";
+import { runWriteGate, type WriteCandidate } from "../src/gates.ts";
+import { afterTool, evidenceCalls, hasEngagement, hasGateCheck } from "../src/triggers.ts";
+import { rememberSessionDir } from "../src/repokey.ts";
+import { resetState, setCurrent } from "../src/state.ts";
 import { SESSION_CAP } from "../src/sessions.ts";
 import { loadPlugin } from "./harness.ts";
 
@@ -105,6 +109,39 @@ function digestOf(system: string): string {
   if (start === -1) return "";
   const next = system.indexOf("\n## ", start + 5);
   return next === -1 ? system.slice(start) : system.slice(start, next);
+}
+
+// A promoted write made ON BEHALF OF ONE SESSION, through the real gate. The
+// riding-bytes rule (#165) keys off authorship, so those tests cannot use
+// seed()'s direct file append — that creates a row with no author, which is
+// exactly what a viewer edit or an import is.
+let callN = 0;
+async function rememberAs(
+  sid: string,
+  type: string,
+  scope: string,
+  content: string,
+  status?: "open" | "settled",
+): Promise<string> {
+  rememberSessionDir(sid, liveRoot);
+  const probe = `C${++callN}`;
+  setCurrent({ sessionID: sid, callID: probe, tool: "grep" });
+  await afterTool(
+    { tool: "grep", sessionID: sid, callID: probe, args: { pattern: scope } },
+    { output: "1 match" },
+  );
+  const candidate: WriteCandidate = { type, scope, content };
+  if (status) candidate.status = status;
+  const out = await runWriteGate(candidate, {
+      liveRoot,
+      sessionID: sid,
+      evidenceCalls: evidenceCalls(sid),
+      hasGateCheck: hasGateCheck(sid),
+      hasEngagement: hasEngagement(sid),
+    },
+  );
+  if (out.action !== "promoted") throw new Error(`test write not promoted: ${out.action} ${out.reason ?? ""}`);
+  return out.ts ?? "";
 }
 
 function epochRecomputes(sid: string): Fields[] {
@@ -344,6 +381,127 @@ describe("epoch freeze (cache-safe injection)", () => {
     }
     await loaded.sessionHooks["prompt"]!({ sessionID: "ses-digest-2", prompt: { text: "widget calibration" } });
     expect(digestOf(await deliveredSystem(loaded, "ses-digest-2"))).toBe(small);
+  });
+
+  // ---- issue #165: a session never pays for bytes it is not currently riding --
+
+  test("a memory this session wrote itself costs ZERO cache busts", async () => {
+    seed("pattern", "build", "Run the build with make all from the repo root.");
+    const loaded = await loadPlugin(liveRoot);
+    const sid = "ses-self";
+    const first = await deliveredBlock(loaded, sid, "how do I run the build from the repo root");
+    expect(first).toContain("make all");
+    const system = await deliveredSystem(loaded, sid);
+    expect(epochRecomputes(sid).map((e) => e.reason)).toEqual(["first"]);
+
+    // Relevant ON PURPOSE: under #162 alone this was adopted on the next
+    // request and re-billed the whole conversation. The model wrote it, so it
+    // is already in that transcript — the frozen bytes keep riding.
+    await rememberAs(sid, "pattern", "build", "The build runs make release from the repo root after the toolchain switch.");
+    expect(await deliveredSystem(loaded, sid)).toBe(system);
+
+    // The freeze does not expire after one write: a second self-authored row is
+    // free too, because the test subtracts everything authored since the bytes
+    // were frozen, not just the newest row.
+    await rememberAs(
+      sid,
+      "learning",
+      "build",
+      "Rebuild only the touched package from the repo root; make all is for releases.",
+    );
+    expect(await deliveredSystem(loaded, sid)).toBe(system);
+    expect(epochRecomputes(sid).map((e) => e.reason)).toEqual(["first"]);
+  });
+
+  test("a topic change plus a self-authored write still costs nothing", async () => {
+    seed("pattern", "build", "Run the build with make all from the repo root.");
+    const loaded = await loadPlugin(liveRoot);
+    const sid = "ses-pivot";
+    await deliveredBlock(loaded, sid, "how do I run the build from the repo root");
+    const system = await deliveredSystem(loaded, sid);
+
+    await rememberAs(sid, "pattern", "build", "The build runs make release from the repo root.");
+    // The user changes subject. The epoch deliberately does not re-score for a
+    // prompt alone, so the pivot must not be billed as a content change when a
+    // write finally forces the comparison — the counterfactual re-scores with
+    // the prompt the frozen bytes were produced from, not this one.
+    await loaded.sessionHooks["prompt"]!({
+      sessionID: sid,
+      prompt: { text: "why does the rate limiter reject batch calls" },
+    });
+    expect(await deliveredSystem(loaded, sid)).toBe(system);
+    expect(epochRecomputes(sid).map((e) => e.reason)).toEqual(["first"]);
+  });
+
+  test("a memory ANOTHER session wrote still lands on the next request", async () => {
+    seed("pattern", "build", "Run the build with make all from the repo root.");
+    const loaded = await loadPlugin(liveRoot);
+    const sid = "ses-observer";
+    await deliveredBlock(loaded, sid, "how do I run the build from the repo root");
+
+    await rememberAs(
+      "ses-writer",
+      "pattern",
+      "build",
+      "The build now runs make release from the repo root after the toolchain switch.",
+    );
+
+    // Not this session's thought: it has never seen it, so it must ride.
+    const after = await deliveredSystem(loaded, sid);
+    expect(after).toContain("make release");
+    expect(epochRecomputes(sid).map((e) => e.reason)).toEqual(["first", "store_changed"]);
+  });
+
+  test("correcting a row the session is riding still busts, even its own", async () => {
+    seed("pattern", "build", "Run the build with make all from the repo root.");
+    const loaded = await loadPlugin(liveRoot);
+    const sid = "ses-correct";
+    await deliveredBlock(loaded, sid, "how do I deploy the build from the repo root");
+    const own = await rememberAs(sid, "pattern", "deploy", "Deploy the build with make ship from the repo root.");
+
+    // A foreign write adopts the epoch, which finally brings this session's own
+    // row into the bytes it rides.
+    await rememberAs("ses-other", "pattern", "build", "The build now runs make release from the repo root.");
+    const riding = await deliveredSystem(loaded, sid);
+    expect(riding).toContain("make ship");
+    expect(epochRecomputes(sid).map((e) => e.reason)).toEqual(["first", "store_changed"]);
+
+    // Now the session retires that riding row. The model knows the OLD fact, so
+    // freezing here would leave the store silently vouching for something it has
+    // already superseded — a correction is not "already in the transcript".
+    await markSuperseded(own, {
+      superseded_by: "2026-01-01T00:00:00.000Z",
+      reason: "test correction",
+    });
+    const fixed = await deliveredSystem(loaded, sid);
+    expect(fixed).not.toContain("make ship");
+    expect(epochRecomputes(sid).map((e) => e.reason)).toEqual([
+      "first",
+      "store_changed",
+      "store_changed",
+    ]);
+  });
+
+  test("a hand-redaction of a row this session authored still busts", async () => {
+    seed("pattern", "build", "Run the build with make all from the repo root.");
+    const loaded = await loadPlugin(liveRoot);
+    const sid = "ses-redact-own";
+    const own = await rememberAs(
+      sid,
+      "learning",
+      "deploy",
+      "Deploy the build with make ship from the shipyard runner, not CI.",
+    );
+    await deliveredBlock(loaded, sid, "how do I deploy the build from the repo root");
+    // A foreign write adopts the epoch, so this row is now riding the prefix.
+    await rememberAs("ses-other", "pattern", "deploy", "Deploy the build from the deploy runner, not a laptop.");
+    expect(await deliveredSystem(loaded, sid)).toContain("shipyard");
+
+    // A human rewrites the row behind the session's back. The session did not
+    // author that edit, so the freeze must not hold it.
+    rewriteContent(own, "Deploy the build with make ship from CI.");
+    const fixed = await deliveredSystem(loaded, sid);
+    expect(fixed).not.toContain("shipyard");
   });
 });
 
