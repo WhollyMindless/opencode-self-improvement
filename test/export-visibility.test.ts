@@ -2,7 +2,7 @@
 // nothing else. Every other read path made all-repository breadth a property of
 // the entry point in #133; the export path still dumped every repo's private
 // rows into a plaintext JSONL. The export twin of #127.
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,6 +32,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  setSystemTime();
   for (const p of plugins) await p.cleanup();
   resetState();
   resetSessionScopes();
@@ -111,5 +112,32 @@ describe("memory_export respects repo visibility (#143)", () => {
     // Whether A's own rows ride along is the binding's business (#127's
     // provisional rule); the security property is that B's NEVER do.
     expect(exportedText(res)).not.toContain(B_MARK);
+  });
+
+  test("two sessions exporting in the same second keep separate artifacts", async () => {
+    // Review finding on #156: default destinations were second-granularity
+    // timestamps opened with O_TRUNC, so B's export silently REPLACED A's
+    // file — and reading A's own returned path then yielded B's private
+    // rows. The scoping fix leaks through the name. Millisecond stamps
+    // still collide; the default name must be unique, and its creation
+    // exclusive.
+    const pa = await plugin(a);
+    const pb = await plugin(b);
+    rememberSessionDir("ses-a", a);
+    rememberSessionDir("ses-b", b);
+    await seed(a, A_MARK);
+    await seed(b, B_MARK);
+    // Same-second calls are ordinary (a shared tick, a scripted batch); the
+    // frozen clock only guarantees the timing — the exports are real.
+    setSystemTime(new Date("2026-10-28T12:34:56.100Z"));
+    const outA = await pa.tools.memory_export.execute({}, ctx("ses-a"));
+    expect(outA.content).toContain("Exported");
+    const pathA = outA.content.split(" -> ").pop()!;
+    expect(readFileSync(pathA, "utf8")).toContain(A_MARK);
+    const outB = await pb.tools.memory_export.execute({}, ctx("ses-b"));
+    expect(outB.content).toContain("Exported");
+    expect(outB.content.split(" -> ").pop()).not.toBe(pathA);
+    // A's returned path is A's artifact: never another repo's content.
+    expect(readFileSync(pathA, "utf8")).not.toContain(B_MARK);
   });
 });
