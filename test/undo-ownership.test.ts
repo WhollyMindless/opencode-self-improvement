@@ -129,6 +129,27 @@ describe("memory_undo respects row ownership (#153)", () => {
     expect(all.some((m) => m.ts === later)).toBe(true);
   });
 
+  test("contract: a global row appended after the snapshot is in every repo's rollback scope", async () => {
+    // The documented exception to the ownership rule (#153 review, F2):
+    // repo=global — and legacy unstamped — rows are visible to EVERY reader,
+    // so restore counts them as own rows and a force rollback from A drops a
+    // global line written after A's snapshot. Deliberate: "act on exactly
+    // what you may read" (#131), the same rule memory_forget applies to
+    // global scope. Pinned so the next reader inherits the decision instead
+    // of rediscovering it.
+    const pa = await plugin(a);
+    const own = await seed(a, "A_SNAPSHOT_BASELINE");
+    const [snapshot] = await snapshotFiles([(await loadAll()).find((m) => m.ts === own)!.file]);
+    setRepoScope(null); // no module scope in play: the row lands GLOBAL unstamped
+    const shared = await appendMemory({ type: "context", scope: "s", content: "GLOBAL_ROW_AFTER_A_SNAPSHOT" });
+    const result = await pa.tools.memory_undo.execute(
+      { snapshot: basename(snapshot!), force: true },
+      ctx("ses-a"),
+    );
+    expect(result.content).toContain("Restored");
+    expect((await loadAll()).some((m) => m.ts === shared)).toBe(false);
+  });
+
   test("control: same-repo force undo still rolls back the caller's own rows", async () => {
     const pa = await plugin(a);
     rememberSessionDir("ses-a", a);

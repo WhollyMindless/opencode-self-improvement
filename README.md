@@ -198,12 +198,12 @@ Limits worth knowing:
 
 ## Export and move between machines
 
-`memory_export` writes the live store as JSONL: a machine-readable header line (`{_export, version, exportedAt, count}`) followed by one JSON object per line (`{ts,type,scope,content,status,tags,issue}`), active rows only. `memory_import` reads such a file back. Default path is `<memory-root>/exports/<timestamp>.jsonl`; `file` must name a path **inside the store** — exports under `<memory-root>/exports` (a relative path resolves against it), imports anywhere under `<memory-root>` — and `scope` exports a single scope.
+`memory_export` writes the live store **as its caller can read it** as JSONL: from a plugin session that means its own repository plus global rows; full-store breadth belongs to a session-less caller outside the plugin (the library route — the viewer has no export route). The format is a machine-readable header line (`{_export, version, exportedAt, count}`) followed by one JSON object per line (`{ts,type,scope,content,status,tags,issue}`), active rows only. `memory_import` reads such a file back. Default path is `<memory-root>/exports/<timestamp>-<unique>.jsonl` — a unique name created exclusively, so two exports in the same second never replace each other's artifact; `file` must name a path **inside the store** - exports under `<memory-root>/exports` (a relative path resolves against it), imports anywhere under `<memory-root>` - and `scope` exports a single scope.
 
 Both tools are model-facing, so a path is not a privilege: an export cannot write to `~/.gitconfig` or anywhere else outside the store, and an import cannot read outside it. Symbolic links are resolved before the check — including an `exports/` directory that is itself a link — so a link cannot carry a request out of the store. Exports are written `0600` and opened `O_NOFOLLOW` (both POSIX; on Windows the check before the write is the only guard). (Hardlinks are beyond any path check: a link planted inside `exports/` shares an inode with its target. That, and a narrow window on intermediate path components, are the boundary's known limits.) To move a store between machines, copy the file in:
 
 ```
-Export my memories                              # -> <memory-root>/exports/<stamp>.jsonl
+Export my memories                              # -> <memory-root>/exports/<timestamp>-<unique>.jsonl
 # …copy that file to the other machine's <memory-root>/…
 Import <memory-root>/memories.jsonl             # memory_import
 ```

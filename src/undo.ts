@@ -13,10 +13,17 @@
 //
 // A day file is shared across REPOSITORIES too, and foreign rows are outside
 // a caller's reach in every sense (#153): no mode revives them from the
-// snapshot, rewinds them to a stale copy, or drops them. They are re-emitted
-// byte-identical in every mode; only the caller's own rows take part in the
-// audited-deletion and divergence logic. Admin readers (the viewer, out-of-
-// plugin maintenance) keep the whole-file restore exactly as it was.
+// snapshot, rewinds them to a stale copy, or drops them. Foreign live lines
+// are carried over verbatim in every mode, appended at the end — line content
+// preserved, position in the shared file not — and only the caller's own rows
+// take part in the audited-deletion and divergence logic. ONE exception is
+// visibility, not ownership: GLOBAL rows (repo=global, or legacy unstamped)
+// are visible to every reader, so every repository's rollback treats them as
+// its own — a force restore may drop a global line appended after the
+// snapshot (pinned in test/undo-ownership). That is #131's "act on exactly
+// what you may read", the same rule memory_forget applies to global scope.
+// Admin readers (the viewer, out-of-plugin maintenance) keep the whole-file
+// restore exactly as it was.
 import { lstat, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { deletionsFile, snapshotDir } from "./config.ts";
@@ -87,8 +94,9 @@ export interface RestoreResult {
   // ts of rows intentionally deleted after this snapshot. CHECK and MERGE
   // leave them deleted; FORCE is the explicit recovery path.
   deletedOmitted: string[];
-  // Live rows owned by other repositories, left byte-identical in every mode
-  // (#153). Admin restores report 0 — there is no foreign reader.
+  // Live rows owned by other repositories, whose lines are carried over
+  // verbatim (appended at the end) in every mode (#153). Admin restores
+  // report 0 — there is no foreign reader.
   foreignPreserved: number;
 }
 
@@ -226,11 +234,14 @@ export async function restoreSnapshot(
       // Ownership before anything else (#153): rows a foreign repo owns are
       // excluded from the snapshot side in EVERY mode (never revived, never
       // rewound), excluded from the deletion audit and the divergence
-      // bookkeeping (not this caller's to reason about), and re-emitted
-      // byte-identical from the live file at the end.
+      // bookkeeping (not this caller's to reason about), and carried verbatim
+      // from the live file, appended at the end.
       const snapOwn = rawSnapLines.filter((l) => lineVisibleTo(l, reader));
-      const curOwn = curLines.filter((l) => lineVisibleTo(l, reader));
-      const curForeign = curLines.filter((l) => !lineVisibleTo(l, reader));
+      // One pass partitions the live lines (review N2): a whole-file restore
+      // has no business parsing every line three times.
+      const curOwn: string[] = [];
+      const curForeign: string[] = [];
+      for (const l of curLines) (lineVisibleTo(l, reader) ? curOwn : curForeign).push(l);
       const live = new Set(curOwn.map(rowKey));
       const deletedOmitted: string[] = [];
       const snapLines = snapOwn.filter((line) => {
@@ -297,9 +308,10 @@ export async function restoreSnapshot(
         );
       }
       // FORCE's "exact rollback" is exact FOR THE CALLER'S REPOSITORY, not
-      // beyond it: foreign live rows rejoin the file untouched in every mode
-      // (#153). Under the admin reader curForeign is empty and the write is
-      // the historical whole-file restore, byte for byte.
+      // beyond it: foreign live lines rejoin the file verbatim in every mode,
+      // appended at the end — line content preserved, position not (#153).
+      // Under the admin reader curForeign is empty and the write is the
+      // historical whole-file restore, byte for byte.
       out = out.concat(curForeign);
       await ensureDir(memoryRootDir);
       await writeAtomic(target, out.length ? out.join("\n") + "\n" : "", since);
