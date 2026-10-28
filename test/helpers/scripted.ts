@@ -17,6 +17,7 @@ import { basename, join } from "node:path";
 import { dateStr, memoryRoot, snapshotDir } from "../../src/config.ts";
 import { parseLine, type Fields } from "../../src/logfmt.ts";
 import { snapshotFiles } from "../../src/memory.ts";
+import { rememberSessionDir } from "../../src/repokey.ts";
 import { resetState, setCurrent } from "../../src/state.ts";
 import { startViewer, type ViewerServer } from "../../src/viewer/server.ts";
 import { loadPlugin, type LoadedPlugin } from "../harness.ts";
@@ -125,7 +126,8 @@ export async function startScripted(): Promise<Scripted> {
 	process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
 	process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
 	mkdirSync(memoryRoot(), { recursive: true });
-	const p: LoadedPlugin = await loadPlugin(process.cwd());
+	const workspace = process.cwd();
+	const p: LoadedPlugin = await loadPlugin(workspace);
 	const vm: ViewerServer = await startViewer(0);
 	const promised: string[] = [];
 	let callSeq = 0;
@@ -142,58 +144,65 @@ export async function startScripted(): Promise<Scripted> {
 		return out;
 	};
 
-	const session = (sid: string): Session => ({
-		sid,
-		async engage() {
-			await p["tool.execute.after"](
-				{
-					tool: "read",
-					sessionID: sid,
-					callID: nextCall(),
-					args: { filePath: "src/scenario.ts" },
-				},
-				{ output: "42 lines of src/scenario.ts", metadata: {} },
-			);
-		},
-		async remember(args) {
-			const before = new Set(rows().map((r) => r.ts));
-			setCurrent({ sessionID: sid, callID: nextCall(), tool: "memory_remember" });
-			const out = await run("memory_remember", args);
-			const fresh = rows().filter((r) => !before.has(r.ts));
-			if (fresh.length === 1) {
+	const session = (sid: string): Session => {
+		// A scripted session works in the workspace the plugin was loaded with. A real
+		// host says the same thing by handing every tool execute a sessionID this
+		// instance can resolve; the store now refuses a write from a named session
+		// whose repository never resolved instead of guessing an owner (#152).
+		rememberSessionDir(sid, workspace);
+		return {
+			sid,
+			async engage() {
+				await p["tool.execute.after"](
+					{
+						tool: "read",
+						sessionID: sid,
+						callID: nextCall(),
+						args: { filePath: "src/scenario.ts" },
+					},
+					{ output: "42 lines of src/scenario.ts", metadata: {} },
+				);
+			},
+			async remember(args) {
+				const before = new Set(rows().map((r) => r.ts));
+				setCurrent({ sessionID: sid, callID: nextCall(), tool: "memory_remember" });
+				const out = await run("memory_remember", args);
+				const fresh = rows().filter((r) => !before.has(r.ts));
+				if (fresh.length === 1) {
+					promised.push(fresh[0]!.ts);
+					return fresh[0]!.ts;
+				}
+				// A collapse stores nothing new: the alias binds to the existing row
+				// so scenario tables can still refer to it.
+				if (/Duplicate ignored/i.test(out)) {
+					const existing = active().find(
+						(r) => r.scope === args.scope && r.content === args.content,
+					);
+					if (existing) return existing.ts;
+				}
+				throw new Error(
+					`memory_remember stored ${fresh.length} rows for one call, expected exactly 1: ${out}`,
+				);
+			},
+			async update(args) {
+				const before = new Set(rows().map((r) => r.ts));
+				setCurrent({ sessionID: sid, callID: nextCall(), tool: "memory_update" });
+				await run("memory_update", args);
+				const fresh = rows().filter((r) => !before.has(r.ts) && !r.superseded_by);
+				if (fresh.length !== 1) {
+					throw new Error(
+						`memory_update landed ${fresh.length} new active rows, expected exactly 1`,
+					);
+				}
 				promised.push(fresh[0]!.ts);
 				return fresh[0]!.ts;
-			}
-			// A collapse stores nothing new: the alias binds to the existing row
-			// so scenario tables can still refer to it.
-			if (/Duplicate ignored/i.test(out)) {
-				const existing = active().find(
-					(r) => r.scope === args.scope && r.content === args.content,
-				);
-				if (existing) return existing.ts;
-			}
-			throw new Error(
-				`memory_remember stored ${fresh.length} rows for one call, expected exactly 1: ${out}`,
-			);
-		},
-		async update(args) {
-			const before = new Set(rows().map((r) => r.ts));
-			setCurrent({ sessionID: sid, callID: nextCall(), tool: "memory_update" });
-			await run("memory_update", args);
-			const fresh = rows().filter((r) => !before.has(r.ts) && !r.superseded_by);
-			if (fresh.length !== 1) {
-				throw new Error(
-					`memory_update landed ${fresh.length} new active rows, expected exactly 1`,
-				);
-			}
-			promised.push(fresh[0]!.ts);
-			return fresh[0]!.ts;
-		},
-		async forget(args) {
-			setCurrent({ sessionID: sid, callID: nextCall(), tool: "memory_forget" });
-			return await run("memory_forget", args);
-		},
-	});
+			},
+			async forget(args) {
+				setCurrent({ sessionID: sid, callID: nextCall(), tool: "memory_forget" });
+				return await run("memory_forget", args);
+			},
+		};
+	};
 
 	return {
 		session,

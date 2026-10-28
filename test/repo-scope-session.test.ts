@@ -3,11 +3,12 @@
 // session location. Proves: repoScopeFor precedence (session > module,
 // unknown/"?" sid -> module), dir-resolution caching, bounded session map,
 // appendMemory stamps the WRITING session's repo, visibility follows the
-// READING session, and the server-start window (no ctx.location) stamps
-// nothing at all until a session event binds the identity — never the
-// process cwd.
+// READING session, and the server-start window (no ctx.location) WRITES
+// NOTHING for a session whose repository is still unresolved — neither the
+// process cwd nor an unstamped "global" row (#152) — until a session event
+// binds the identity.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rememberSessionDir, repoScopeFor, resetSessionScopes, resolveRepo, setRepoScope } from "../src/repokey.ts";
@@ -127,22 +128,24 @@ describe("stamping follows the writing session", () => {
 });
 
 describe("server-start window: setup with no location", () => {
-  test("early writes stamp nothing (global), and an execution.started event binds later writes", async () => {
+  test("an early write from an unresolved session is refused, and an execution.started event binds later writes", async () => {
     const loaded = await loadPlugin(null);
     try {
-      // Window write: no session identity known yet -> unscoped (global),
-      // never a cwd-derived repo stamp.
+      // Window write: the host named session sW, but nothing has resolved a
+      // repository for it. Stamping nothing used to mean "global" — a private
+      // fact published to every project that ever opens this store (#152). An
+      // ownerless write is refused now, so the day file stays untouched.
       await loaded["tool.execute.before"]({ sessionID: "sW", callID: "c1", tool: "read" });
       await loaded["tool.execute.after"](
         { sessionID: "sW", callID: "c1", tool: "read", args: { filePath: "x.ts" } },
         { output: "content", metadata: {} },
       );
-      await loaded.tools["memory_remember"].execute(
+      const early = await loaded.tools["memory_remember"].execute(
         { type: "learning", scope: "win", content: `window fact ${Date.now()} about early writes` },
         {},
       );
-      let raw = readFileSync(dayFile(), "utf8");
-      expect(raw).not.toContain("repo=");
+      expect(early.content).toContain("Write refused");
+      expect(existsSync(dayFile())).toBe(false);
 
       // First turn of another session: execution.started carries the location.
       const repo = join(root, "sessionRepo");
@@ -164,7 +167,7 @@ describe("server-start window: setup with no location", () => {
         {},
       );
       expect(out.content).toContain("Remembered");
-      raw = readFileSync(dayFile(), "utf8");
+      const raw = readFileSync(dayFile(), "utf8");
       expect(raw).toContain(`repo=${keyOf(repo)}`);
     } finally {
       await loaded.cleanup();

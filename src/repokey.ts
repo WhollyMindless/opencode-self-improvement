@@ -154,8 +154,35 @@ export function repoScopeFor(sid?: string): RepoScope | null {
 // (#127), never inherit a module scope that belongs to another workspace (or
 // is null, which the ambient reader has always read as "everything").
 export function sessionScope(sid?: unknown): RepoScope | undefined {
-  if (typeof sid !== "string" || sid === "" || sid === "?") return undefined;
+  if (!isNamedSid(sid)) return undefined;
   return bySession.get(sid)?.scope;
+}
+
+/** Did the host actually name a session? ("?" and absent mean nobody.) */
+export function isNamedSid(sid: unknown): sid is string {
+  return typeof sid === "string" && sid !== "" && sid !== "?";
+}
+
+// The repository a DURABLE WRITE belongs to (#152) — the write-side twin of
+// sessionScope, and deliberately not `repoScopeFor`: that helper's last resort
+// is the module scope, which is the identity of whoever called setup() LAST.
+// Reading with the wrong owner can only ever show too little (an unbound
+// session reads global rows and nothing else), but writing with the wrong owner
+// MOVES private content into a repository that cannot recall where it came
+// from — and a null module scope turns the same write into an unstamped, hence
+// global, row that every other project then reads. So an identity the host
+// named but never resolved has NO write target: `ok:false`, which callers must
+// refuse rather than downgrade. A caller that names nobody (viewer process,
+// restore, scripts, unit tests) keeps the historical module-scope answer,
+// including "no scope at all" — that is the deliberate admin path.
+export type WriteTarget =
+  | { ok: true; scope: RepoScope | null }
+  | { ok: false; sid: string };
+
+export function writeTarget(sid?: unknown): WriteTarget {
+  if (!isNamedSid(sid)) return { ok: true, scope: current };
+  const scope = sessionScope(sid);
+  return scope ? { ok: true, scope } : { ok: false, sid };
 }
 
 export function resetSessionScopes(): void {

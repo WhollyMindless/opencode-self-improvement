@@ -8,8 +8,15 @@ import { mkdir, open } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { allowOutsideStorePaths, exportsDir, memoryRoot } from "./config.ts";
 import { resolveContained } from "./containment.ts";
-import { isActive, isVisibleTo, loadAll, readerFromSid, type Memory } from "./memory.ts";
-import { repoScopeFor } from "./repokey.ts";
+import {
+  isActive,
+  isVisibleTo,
+  loadAll,
+  readerFromSid,
+  UnresolvedWriterError,
+  type Memory,
+} from "./memory.ts";
+import { writeTarget } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
 import { TYPES } from "./types.ts";
 import type { WriteCandidate } from "./gates.ts";
@@ -262,7 +269,14 @@ export async function importMemories(
   const file = Bun.file(target);
   if (!(await file.exists())) throw new Error(`import file not found: ${target}`);
   const tally: ImportTally = { promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0 };
-  const currentScope = repoScopeFor(sessionID ?? getCurrent().sid);
+  // #152: the importing session's repository is resolved BEFORE the first row,
+  // through the writer rule rather than the ambient one. An unresolved named
+  // session has no write target, and half a file re-stamped into whatever
+  // workspace happened to set up last is worse than none — so this throws
+  // before a single row is gated, not partway through the tally.
+  const writeAt = writeTarget(sessionID ?? getCurrent().sid);
+  if (!writeAt.ok) throw new UnresolvedWriterError(writeAt.sid);
+  const currentScope = writeAt.scope;
   let allowFrontier = false;
   let first = true;
   for (const line of (await file.text()).split("\n")) {
