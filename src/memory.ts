@@ -668,7 +668,7 @@ export function readerFromSid(sid?: unknown): Reader {
 // processes with no scope, e.g. the viewer), or was written in the reader's
 // repo. Keeping it one predicate is what stops the filtering from drifting
 // between entry points.
-export function isVisibleTo(m: Memory, reader: Reader): boolean {
+export function isVisibleTo(m: Pick<Memory, "repo" | "repoPath">, reader: Reader): boolean {
   if (reader.kind === "admin") return true;
   if (!m.repo || m.repo === "global") return true;
   if (reader.kind === "global-only") return false;
@@ -677,6 +677,24 @@ export function isVisibleTo(m: Memory, reader: Reader): boolean {
 
 export function visibleTo(mems: Memory[], reader: Reader): Memory[] {
   return mems.filter((m) => isVisibleTo(m, reader));
+}
+
+// The day-file twin of isVisibleTo for whole-file paths (undo/restore) that
+// work on raw logfmt lines instead of parsed rows: the SAME predicate, with the
+// rows' rule that a line with no stamp is a legacy row, not a private one —
+// which is exactly the rule the evidence lines do NOT share, and the reason
+// these are not one function. An unparseable line has no stamp, so it reads
+// legacy-global rather than silently vanishing under a restore.
+export function lineVisibleTo(line: string, reader: Reader): boolean {
+  if (reader.kind === "admin") return true;
+  const fields = parseLine(line);
+  return isVisibleTo(
+    {
+      repo: typeof fields?.repo === "string" ? fields.repo : undefined,
+      repoPath: typeof fields?.repoPath === "string" ? fields.repoPath : undefined,
+    },
+    reader,
+  );
 }
 
 // The evidence-line twin of isVisibleTo, plus the one rule rows do not need:

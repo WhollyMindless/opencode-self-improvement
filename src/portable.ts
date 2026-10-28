@@ -35,6 +35,13 @@ export interface ExportOptions {
    * Defaults to <memory-root>/exports/<stamp>.jsonl.
    */
   file?: string;
+  /**
+   * The calling session's identity (#143): an export carries exactly the rows
+   * its reader can read — own repo plus global. "?" or absent resolves the
+   * AMBIENT reader: out-of-plugin callers (viewer, CLI maintenance) keep the
+   * full-store breadth; breadth stays a property of the entry point.
+   */
+  sessionID?: string;
 }
 
 export interface ExportResult {
@@ -107,12 +114,18 @@ export async function writeExport(path: string, text: string): Promise<void> {
 // where it lives (the original logfmt files + snapshots). The header is always
 // written, even for an empty store, so "has header" is a format invariant.
 //
+// "the live store" means the store AS THE CALLER CAN READ IT (#143): rows are
+// filtered through the caller's Reader, exactly as recall and injection do.
+// Full breadth remains the ambient/admin entry point's, never a missing
+// session's.
+//
 // The destination is model-supplied, so it is resolved and confined BEFORE the
 // store is read: a rejected export must not leave a file behind, and must not
 // be a way to learn how many rows matched either.
 export async function exportMemories(opts: ExportOptions = {}): Promise<ExportResult> {
   const path = await resolveExportTarget(opts.file);
-  let mems = (await loadAll()).filter(isActive);
+  const reader = readerFromSid(opts.sessionID);
+  let mems = (await loadAll()).filter(isActive).filter((m) => isVisibleTo(m, reader));
   if (opts.scope) mems = mems.filter((m) => m.scope === opts.scope);
   const header = JSON.stringify({
     _export: EXPORT_HEADER,

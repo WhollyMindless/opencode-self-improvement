@@ -67,7 +67,11 @@ describe("memory_export respects repo visibility (#143)", () => {
     rememberSessionDir("ses-a", a);
     await seed(a, A_MARK);
     await seed(b, B_MARK);
-    // Unstamped = legacy = global visibility, the one breadth every session sees.
+    // Unstamped = legacy = global visibility, the one breadth every session
+    // sees — seeded with NO module scope in play, or the last setup's repo
+    // would own the stamp (#152's exact quirk; see undo-ownership for why
+    // seeds inside plugin sessions carry explicit stamps instead).
+    setRepoScope(null);
     await appendMemory({ type: "context", scope: "s", content: G_MARK });
     // Control: recall already hides B from this session — export is the only
     // path deviating from the reader every other entry point gets.
