@@ -81,7 +81,7 @@ import {
   markTurn,
   onCompacting,
 } from "./triggers.ts";
-import { getCurrent, setCurrent } from "./state.ts";
+import { authoredFor, getCurrent, setCurrent } from "./state.ts";
 import { resolveRepo, setRepoScope, rememberSessionDir, sessionDir, sessionDirFirm, bindSessionProvisional, writeTarget } from "./repokey.ts";
 import { parseLine, readLines } from "./logfmt.ts";
 import { buildCapturePrompt, flattenTranscript, lagSince, parseCandidates, parseModelRef } from "./capture.ts";
@@ -1217,8 +1217,10 @@ const impl = {
     // change, or after a compaction (see the prompt/context/compaction hooks).
     // The RENDERED BYTES, not the fingerprint, decide whether the epoch moved
     // (issue #162): a write that changes nothing the model is shown must not
-    // cost the next request a full re-prefill. The shared LRU below may evict
-    // the whole session state; a later prompt starts it fresh.
+    // cost the next request a full re-prefill. And a pure addition the session
+    // wrote itself does not move them either (#165) — see refreshEpoch. The
+    // shared LRU below may evict the whole session state; a later prompt starts
+    // it fresh.
     const epoch = new Map<
       string,
       {
@@ -1229,6 +1231,20 @@ const impl = {
         block: string;
         /** Comparison key: every byte of the memory section, joined. */
         prefix: string;
+        /**
+         * Rows THIS session had already authored when these bytes were rendered
+         * (#165). The riding-bytes test subtracts everything authored after this
+         * snapshot; if what remains renders identically, the whole difference is
+         * the session's own additions and the bytes keep riding.
+         */
+        ownRows: Set<string>;
+        /**
+         * The prompt these bytes were scored against. The counterfactual below
+         * has to re-score the SAME inputs, or a topic change between the freeze
+         * and the next write would look like a content change — and the epoch
+         * would pay for a refresh it deliberately refuses to do on a prompt.
+         */
+        prompt: string;
         at: string;
         reason: "first" | "store_changed";
         refs: MemoryRefs;
@@ -1329,6 +1345,7 @@ const impl = {
     const buildMemorySection = async (
       sid: string | undefined,
       mems: Memory[],
+      promptOverride?: string,
     ): Promise<{ parts: string[]; block: string; prefix: string; rode: Memory[]; refs: MemoryRefs }> => {
       const parts: string[] = [];
       await systemDigest(
@@ -1336,7 +1353,7 @@ const impl = {
         { system: parts },
         { rows: mems, frontierBudget: openBudget },
       );
-      const prompt = sid === undefined ? "" : latestPrompt.get(sid) ?? "";
+      const prompt = promptOverride ?? (sid === undefined ? "" : latestPrompt.get(sid) ?? "");
       // Widen the candidate pool, then cap: the budget decides what rides.
       const sel = await selectRelevant(prompt, 5, mems, await useSignals());
       const block = sel.block ? capToBudget(sel.block, budget) : "";
@@ -1365,6 +1382,30 @@ const impl = {
         epoch.set(sid, { ...cached, version });
         return;
       }
+      // Riding bytes (#165): a pure addition this session wrote itself is
+      // information it already has — the model produced it, it is in the
+      // transcript. Re-render the section with every row authored SINCE these
+      // bytes were frozen taken back out: if it comes back byte-identical, the
+      // entire difference is attributable to the session's own additions and
+      // the frozen bytes keep riding. Everything else survives into that render
+      // and still busts — a riding row removed or rewritten (blocklist,
+      // hand-redaction, forget, supersession, decay), another session's row, a
+      // viewer edit, an import, a moved convergence line.
+      if (cached) {
+        const mine = authoredFor(sid);
+        const extra = mems.filter((m) => mine.has(m.ts) && !cached.ownRows.has(m.ts));
+        if (extra.length) {
+          const back = await buildMemorySection(
+            sid,
+            mems.filter((m) => !extra.some((e) => e.ts === m.ts)),
+            cached.prompt,
+          );
+          if (back.prefix === cached.prefix) {
+            epoch.set(sid, { ...cached, version });
+            return;
+          }
+        }
+      }
       const prompt = latestPrompt.get(sid) ?? "";
       // Use ledger (#42): the rows that actually rode the block, credited with
       // the terms the prompt and those rows shared (never the prompt itself).
@@ -1378,6 +1419,8 @@ const impl = {
         parts: built.parts,
         block: built.block,
         prefix: built.prefix,
+        ownRows: new Set(mems.filter((m) => authoredFor(sid).has(m.ts)).map((m) => m.ts)),
+        prompt,
         at,
         reason,
         refs: built.refs,

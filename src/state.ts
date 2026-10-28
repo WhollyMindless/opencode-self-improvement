@@ -1,6 +1,7 @@
 // Per-session in-memory state shared by the hooks and the gate pipeline.
 // Deterministic: only tool results and tool invocations mutate it, never the
 // model. Reset between scenario runs with resetState().
+import { SESSION_CAP, SessionLru } from "./sessions.ts";
 
 export interface ToolResult {
   call: string;
@@ -41,6 +42,39 @@ export interface SessionState {
   firstActivityTs?: string;
   firstTap?: FirstTap;
   finalized: boolean;
+}
+
+// Rows this session promoted, for the riding-bytes rule (#165): a session must
+// not pay a prompt-cache bust to be shown a fact it wrote itself, because that
+// fact is already in its transcript. Filled where a write is promoted (the one
+// place a row is created ON behalf of a named session — the viewer's own writes
+// are deliberately not attributed), read by the epoch refresh.
+//
+// In-process on purpose. Persisting an author field would need a store
+// migration and a privacy review (it records which session wrote what) to cover
+// only the server-restart edge case, and a lost entry degrades to today's
+// behavior — one bust — never to a wrong freeze. Bounded by the same cap as
+// every other session-keyed ledger, so a resident server cannot grow it.
+const authoredRows = new Map<string, Set<string>>();
+const authoredOrder = new SessionLru(SESSION_CAP, (sid) => {
+  authoredRows.delete(sid);
+});
+const NO_ROWS: ReadonlySet<string> = new Set();
+
+export function noteAuthored(sid: string | undefined, ts: string): void {
+  if (!sid || sid === "?") return;
+  let rows = authoredRows.get(sid);
+  if (!rows) {
+    rows = new Set();
+    authoredRows.set(sid, rows);
+  }
+  rows.add(ts);
+  authoredOrder.touch(sid);
+}
+
+export function authoredFor(sid: string | undefined): ReadonlySet<string> {
+  if (!sid) return NO_ROWS;
+  return authoredRows.get(sid) ?? NO_ROWS;
 }
 
 // Newest message-bearing session seen this process. Opening a session finalizes
@@ -88,6 +122,7 @@ export function getCurrent(): { sid: string; call: string; tool: string } {
 
 export function resetState(): void {
   sessions.clear();
+  authoredRows.clear();
   current = { sid: "?", call: "?", tool: "?" };
   lastSeenSidVar = null;
 }

@@ -99,22 +99,24 @@ Injection, recall, the frontier block, compaction, `memory_forget` and decay onl
 
 ## Token cost and caching
 
-- **Section-frozen injection.** The whole memory section — standing digest, open-thread frontier, relevance block — is computed once per epoch and delivered byte-identically until something the model is actually shown changes. The epoch's authority is the **rendered bytes**, not the store fingerprint: a promoted row that changes nothing visible costs no cache bust, while a write that does change what you see costs exactly one.
+- **Section-frozen injection.** The whole memory section — standing digest, open-thread frontier, relevance block — is computed once per epoch and delivered byte-identically until something the model actually needs changes. The epoch's authority is the **rendered bytes**, not the store fingerprint: a promoted row that changes nothing visible costs no cache bust.
+- **A session never pays for bytes it is not riding.** A memory *you* saved in this session is a fact you already produced — it is in your own transcript — so it never busts your cache. The test is not "did the store change" but "would the frozen bytes still have been produced from the same inputs, minus the rows this session authored since": a correction, blocklisting, redaction or supersession of a row you are riding, and anything another session, the viewer or an import wrote, all still land on your next request.
 - **Two-concept threshold.** A free-text prompt must share at least two distinct concepts with a memory for it to be injected; keyword-length queries (one or two words) need only one. Silence on single-word coincidences is deliberate; `memory_recall` still reaches them on the pull path.
 - **Hard budgets.** Relevance block and each pull are capped at `injectBudget` characters, the frontier at `frontierBudget`, trimmed at whole-memory boundaries.
 - **Nothing volatile on the cached prefix.** The standing digest carries no row count and no latest timestamp. Both used to ride the very front of the system prompt, so every saved memory rewrote the prefix and made the next request re-bill the whole conversation; the exact numbers now live where they are free — the footer badge, `/memory`, `memory_status`, the viewer.
 - **Evidence is never injected**, and the standing system digest is two lines.
 - **Measured, not claimed.** The plugin reads each turn's `tokens.cache` accounting and displays the actual hit rate next to the badge.
 
-Deterministic workload (50 memories, 20 prompts, 3 mid-session store writes) through the plugin's real injection code. Every column is measured on the full memory section — the bytes a request actually sends — because prompt caching is a property of those bytes:
+Deterministic workload (50 memories, 20 prompts, 3 mid-session store writes made *by the measured session*) through the plugin's real injection code. Every column is measured on the full memory section — the bytes a request actually sends — because prompt caching is a property of those bytes:
 
 | Policy | Recomputes | Cache busts | Injected chars (20 turns) | Avg/turn | Worst section |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | A — recompute per prompt, uncapped (naive) | 20 | 19 | 60996 | 3049.8 | 3404 |
 | B — block frozen on store fingerprint, digest rebuilt per turn | 4 | 3 | 55478 | 2773.9 | 2867 |
-| C — section frozen on rendered bytes (shipped) | 4 | 3 | 55258 | 2762.9 | 2856 |
+| C — section frozen on rendered bytes | 4 | 3 | 55258 | 2762.9 | 2856 |
+| D — C + riding bytes (shipped) | 1 | 0 | 53500 | 2675.0 | 2675 |
 
-A "cache bust" is a turn whose memory-section bytes differ from the turn before — each one re-bills the entire conversation as fresh input. On this workload all three writes happen to be visible, so B and C agree; a write the session *cannot* see costs C nothing and cost B a full re-prefill (pinned by `test/epoch.test.ts`, which fails against B). C also injects 9.4% fewer characters than the naive policy — the denominator here is the whole section, not the relevance block alone, so it is not comparable with the block-only figure this README quoted before. Reproduce (byte-identical output):
+A "cache bust" is a turn whose memory-section bytes differ from the turn before — each one re-bills the entire conversation as fresh input. All three synthetic writes change what the session is shown, so B and C each pay for them; D pays nothing, because the session wrote them itself. What D still pays for is a riding row being corrected, blocklisted or redacted, or another session writing a row — that half of the contract is pinned by `test/epoch.test.ts` rather than by this table, since a benchmark that only writes never exercises it. D also injects 12.3% fewer characters than the naive policy — the denominator here is the whole section, not the relevance block alone, so it is not comparable with the block-only figure this README quoted before. Reproduce (byte-identical output):
 
 ```sh
 bun run bench

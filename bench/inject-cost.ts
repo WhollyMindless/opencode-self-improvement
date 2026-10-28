@@ -11,10 +11,14 @@
 //                       rode the system prompt changed after every write, even
 //                       when the block did not — the arm whose cache claim was
 //                       false. Measuring only the block is how that survived.
-//   Policy C (shipped): the whole memory section (digest + frontier + block) is
+//   Policy C (pre-#165): the whole memory section (digest + frontier + block) is
 //                       frozen and the RENDERED BYTES decide whether it moved.
-//                       The simulated session performs 3 mid-session store
-//                       writes; C busts only on the ones the model can see.
+//   Policy D (shipped): C plus the riding-bytes rule — the three mid-session
+//                       writes are made BY the measured session, so re-rendering
+//                       the section without them reproduces the frozen bytes and
+//                       nothing moves. A removal, a rewrite of a riding row, or
+//                       another session's row survives that subtraction and still
+//                       busts; test/epoch.test.ts pins those.
 //
 // Everything below is measured on the FULL memory section, the bytes a request
 // actually sends, because prompt caching is a property of those bytes.
@@ -40,7 +44,7 @@ delete process.env.OPENCODE_MEMORY_INJECT_BUDGET; // the bench measures the DEFA
 
 import { injectBudget } from "../src/config.ts";
 import { capToBudget, compactionAnchor, relevantKnowledge, storeVersion, systemDigest } from "../src/inject.ts";
-import { isActive, loadAll } from "../src/memory.ts";
+import { isActive, loadAll, type Memory } from "../src/memory.ts";
 import { formatLine } from "../src/logfmt.ts";
 
 // --- deterministic generator -----------------------------------------------------
@@ -144,28 +148,29 @@ function seedStore(): void {
 const budget = injectBudget(); // 1200 (env cleared above)
 
 // The standing digest + open-thread frontier, exactly as the context hook
-// renders it from the CURRENT store.
-async function digestParts(sid: string, legacy = false): Promise<string[]> {
-  const rows = (await loadAll()).filter(isActive);
+// renders it from the CURRENT store (or from the rows a caller supplies — the
+// #165 arm re-renders with the session's own additions taken back out).
+async function digestParts(sid: string, legacy = false, rows?: Memory[]): Promise<string[]> {
+  const all = rows ?? (await loadAll()).filter(isActive);
   const parts: string[] = [];
-  await systemDigest({ sessionID: sid }, { system: parts }, { rows });
+  await systemDigest({ sessionID: sid }, { system: parts }, { rows: all });
   // Arm B needs the PRE-#162 digest, which src no longer emits: the row count
   // and the latest ts rode at the very front of the system prompt, so every
   // promoted write rewrote the cached prefix whether or not the model was shown
   // anything new. Reproduced verbatim from the shipped 0.14.x text.
   if (legacy && parts.length && parts[0].startsWith("\n## Persistent memory")) {
-    const latest = rows.map((m) => m.ts).sort().pop() ?? "?";
+    const latest = all.map((m) => m.ts).sort().pop() ?? "?";
     parts[0] =
       "\n## Persistent memory (opencode-self-improvement)\n" +
-      `${rows.length} durable memories; latest: ${latest}. ` +
+      `${all.length} durable memories; latest: ${latest}. ` +
       "Check memory_recall BEFORE grepping or reading, for build/test/lint commands, " +
       "decisions, and conventions. Relevant memories are also auto-injected when your " +
       "message matches.";
   }
   return parts;
 }
-const section = async (sid: string, block: string, legacy = false) =>
-  [...(await digestParts(sid, legacy)), block].join("\n");
+const section = async (sid: string, block: string, legacy = false, rows?: Memory[]) =>
+  [...(await digestParts(sid, legacy, rows)), block].join("\n");
 
 // The three writes land mid-session, at turns 5, 10 and 15.
 const writeAt = (i: number) => (i === 4 ? 0 : i === 9 ? 1 : i === 14 ? 2 : -1);
@@ -230,6 +235,63 @@ for (let i = 0; i < prompts.length; i++) {
   cSections.push(cEpoch.section);
 }
 
+// Policy D: the shipped behavior plus the riding-bytes rule (#165). The three
+// mid-session writes are made BY this session, so each is a fact the model
+// already has in its transcript. The section is re-rendered with everything the
+// session authored since the frozen bytes taken back out; when that comes back
+// identical, the whole difference is the session's own additions and the frozen
+// bytes keep riding. A removal or rewrite of a riding row, or another session's
+// row, still survives that subtraction and would still bust.
+seedStore();
+const dSections: string[] = [];
+let dEpoch: { version: string; section: string; ownRows: Set<string>; prompt: string } | null = null;
+let dRecomputes = 0;
+const authored = new Set<string>();
+for (let i = 0; i < prompts.length; i++) {
+  const w = writeAt(i);
+  if (w >= 0) {
+    applyWrite(w);
+    authored.add(iso(2000 + w * 60)); // this session wrote it
+  }
+  const version = await storeVersion();
+  if (!dEpoch || dEpoch.version !== version) {
+    const rows = (await loadAll()).filter(isActive);
+    const raw = await relevantKnowledge(prompts[i], 5, rows);
+    const rendered = await section("ses-d", raw ? capToBudget(raw, budget) : "", false, rows);
+    let adopt = !dEpoch || dEpoch.section !== rendered;
+    if (adopt && dEpoch) {
+      const frozen = dEpoch;
+      const extra = rows.filter((m) => authored.has(m.ts) && !frozen.ownRows.has(m.ts));
+      if (extra.length) {
+        // Re-score the SAME inputs the frozen bytes came from — same rows minus
+        // the session's own additions, same prompt. A topic change is not a
+        // content change: the epoch refuses to refresh for one anyway.
+        const back = rows.filter((m) => !extra.some((e) => e.ts === m.ts));
+        const rawBack = await relevantKnowledge(frozen.prompt, 5, back);
+        if ((await section("ses-d", rawBack ? capToBudget(rawBack, budget) : "", false, back)) === frozen.section) {
+          adopt = false;
+        }
+      }
+    }
+    if (adopt) {
+      dEpoch = {
+        version,
+        section: rendered,
+        prompt: prompts[i],
+        ownRows: new Set(rows.filter((m) => authored.has(m.ts)).map((m) => m.ts)),
+      };
+      dRecomputes++;
+    } else if (dEpoch) {
+      // Content-neutral store change: adopt the fingerprint, keep the frozen bytes.
+      dEpoch.version = version;
+    }
+  }
+  // The first turn always adopts (there is nothing frozen yet), so the epoch is
+  // never empty here; stated as a check rather than an assertion.
+  if (!dEpoch) throw new Error("bench: epoch not initialised");
+  dSections.push(dEpoch.section);
+}
+
 // The compaction anchor: pushed once per compaction, capped at 2500.
 seedStore();
 const anchor = await compactionAnchor();
@@ -244,7 +306,8 @@ const busts = (xs: string[]) => xs.reduce((n, s, i) => (i > 0 && s !== xs[i - 1]
 const sumA = sum(aSections);
 const sumB = sum(bSections);
 const sumC = sum(cSections);
-const saved = sumA > 0 ? ((sumA - sumC) / sumA) * 100 : 0;
+const sumD = sum(dSections);
+const saved = sumA > 0 ? ((sumA - sumD) / sumA) * 100 : 0;
 const f1 = (n: number) => n.toFixed(1);
 
 const report = `# Injection cost — measured
@@ -262,18 +325,22 @@ because prompt caching is a property of those bytes and not of the block alone.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | A — recompute per prompt, uncapped (naive) | ${aSections.length} | ${busts(aSections)} | ${sumA} | ${f1(sumA / aSections.length)} | ${worst(aSections)} |
 | B — block frozen on store fingerprint, digest rebuilt per turn (pre-#162) | ${bRecomputes} | ${busts(bSections)} | ${sumB} | ${f1(sumB / bSections.length)} | ${worst(bSections)} |
-| C — section frozen on rendered bytes (shipped) | ${cRecomputes} | ${busts(cSections)} | ${sumC} | ${f1(sumC / cSections.length)} | ${worst(cSections)} |
+| C — section frozen on rendered bytes (pre-#165) | ${cRecomputes} | ${busts(cSections)} | ${sumC} | ${f1(sumC / cSections.length)} | ${worst(cSections)} |
+| D — C + riding bytes: the session's own additions are free (shipped) | ${dRecomputes} | ${busts(dSections)} | ${sumD} | ${f1(sumD / dSections.length)} | ${worst(dSections)} |
 
 A "cache bust" is a turn whose memory-section bytes differ from the turn
-before: each one re-bills the whole conversation as fresh input. On this
-workload all three mid-session writes turn out to be visible — a new row shifts
-the document frequencies and reorders the top-5 — so B and C agree here. The
-difference is what a write the session CANNOT see costs: under B the digest
-carried the row count and the latest timestamp, so it busted anyway; under C it
-costs nothing. That case is pinned by \`test/epoch.test.ts\` ("a write that
-changes nothing rendered costs ZERO cache busts"), which fails against the
-pre-#162 policy. C also injects ${f1(saved)}% fewer characters than the naive
-policy.
+before: each one re-bills the whole conversation as fresh input.
+
+The three mid-session writes are made BY the session being measured, which is
+how memory actually gets written — the model saves what it just learned. All
+three turn out to change what that session is shown (a new row shifts the
+document frequencies and reorders the top-5), so B and C each pay ${busts(bSections)}
+busts for them. D pays ${busts(dSections)}: a fact the session produced itself is
+already in its transcript. What D still pays for is a riding row being corrected,
+blocklisted or redacted, or another session writing a row — those survive the
+subtraction and still land on the next request, pinned by \`test/epoch.test.ts\`.
+
+D injects ${f1(saved)}% fewer characters than the naive policy.
 
 Compaction anchor (capped at 2500 chars): ${anchor.length} chars,
 pushed once per compaction rather than per turn.
