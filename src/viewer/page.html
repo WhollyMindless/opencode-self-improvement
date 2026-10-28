@@ -209,7 +209,7 @@ function render() {
     const actions = kind === "blocked"
       ? `<button class="btn warn" data-action="unblock" data-ts="${esc(m.ts)}" title="Restore this memory to the read paths">unblock</button>`
       : kind === "deleted"
-        ? `<button class="btn warn" data-action="restore-deleted" data-ts="${esc(m.ts)}" data-type="${esc(m.type)}" data-scope="${esc(m.scope)}" data-content="${esc(m.content)}" title="Re-add this deleted entry to memory">restore</button>`
+        ? `<button class="btn warn" data-action="restore-deleted" data-ts="${esc(m.ts)}" data-type="${esc(m.type)}" data-scope="${esc(m.scope)}" data-content="${esc(m.content)}" data-repo="${esc(m.repo ?? "")}" data-repo-path="${esc(m.repoPath ?? "")}" title="Re-add this deleted entry to memory">restore</button>`
         : `<button class="btn" data-action="edit" data-ts="${esc(m.ts)}" title="Edit: snapshot, supersede this entry, append the replacement">edit</button>
            <button class="btn danger" data-action="delete" data-ts="${esc(m.ts)}" title="Delete: snapshot the file, then remove this entry (audited)">delete</button>
            <button class="btn danger" data-action="block" data-ts="${esc(m.ts)}" title="Block (poison): keep on disk but hide from recall/inject">block</button>`;
@@ -306,14 +306,16 @@ async function unblock(ts) {
   } catch (e) { toast(String(e.message), true); }
 }
 
-function restoreEntry(type, scope, content) {
+function restoreEntry(type, scope, content, repo, repoPath) {
   askModal(
     "Restore deleted memory?",
     "Re-adds this entry to memory from its audit record.",
     "Restore",
     async () => {
       try {
-        await api("/api/restore-entry", { type, scope, content });
+        // The audit line's origin stamp rides along (#129): a restore keeps the
+        // row's ORIGINAL visibility instead of silently landing global.
+        await api("/api/restore-entry", { type, scope, content, repo: repo || undefined, repoPath: repoPath || undefined });
         toast("restored to memory");
         await refresh();
       } catch (e) { toast(String(e.message), true); }
@@ -336,8 +338,8 @@ $("rows").addEventListener("click", (e) => {
   else if (action === "block") block(ts);
   else if (action === "unblock") unblock(ts);
   else if (action === "restore-deleted") {
-    const { type, scope, content } = btn.dataset;
-    restoreEntry(type, scope, content);
+    const { type, scope, content, repo, repoPath } = btn.dataset;
+    restoreEntry(type, scope, content, repo, repoPath);
   }
 });
 

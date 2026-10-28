@@ -95,7 +95,7 @@ Nothing is deleted: `memory_update` supersedes the previous row, `memory_forget`
 
 Rows are stamped with your git origin (an id that survives re-clones and moves between machines) or, without an origin, a hash of the normalized directory path. `repoPath` keeps the human-readable path, so rows written before hashing keep matching.
 
-Injection, recall, the frontier block, compaction, `memory_forget` and decay only see the current repo plus global rows. Preferences that should follow you everywhere go in with `memory_remember global: true`. Rows written before scoping existed, and rows restored through the viewer, are global — upgrading changes nothing.
+Injection, recall, the frontier block, compaction, `memory_forget` and decay only see the current repo plus global rows, resolved from the calling session's identity at flow entry. A session that reaches a plugin instance is bound to that instance's own workspace on first contact — in a process hosting several workspaces, one session never borrows the repository some other workspace's setup left behind. A session whose repository cannot be resolved at all sees global rows only; "unknown" is never "everything". Evidence lines carry the same stamp, so `memory_evidence` answers from the caller's repo plus global lines; a line a named session wrote while its repository was unresolvable is private to that session, and only an explicitly global (or predating-stamps) line reads as global. Preferences that should follow you everywhere go in with `memory_remember global: true`. Rows written before scoping existed are global, and the viewer (an admin surface over every repo) edits and restores a row with its own repo stamp — the viewer's missing session scope never decides a row's visibility. Upgrading changes nothing.
 
 ## Token cost and caching
 
@@ -185,7 +185,7 @@ On the eval dataset the pass takes 200 rows to 52 with **R@3 52 → 53 and R@1 5
 
 ## Secret redaction
 
-One best-effort credential rule set (`src/secrets.ts`) runs over the auto-capture prompt before it leaves the plugin, at the write gate before content is hashed or analysed, and again in the final write choke point used by gated writes and the viewer's edit and restore paths.
+One best-effort credential rule set (`src/secrets.ts`) runs over the auto-capture prompt before it leaves the plugin, at the write gate before content is hashed or analysed, again in the final write choke point used by gated writes and the viewer's edit and restore paths, and at the durable audit boundaries — every evidence line, every supersede field written into a retired row, and every deletion-audit reason — so a recognized credential cannot persist in `evidence/` or `deletions.logfmt` or a tombstoned row regardless of which path carried it.
 
 Covered: OpenAI `sk-`, GitHub `ghp_` / `gho_` / `github_pat_`, Slack `xoxb-` / `xoxp-`, AWS `AKIA`, Google `AIza`, bearer tokens containing digits, PEM private-key blocks, and high-entropy values assigned to names ending in `_KEY`, `_TOKEN`, `_SECRET` or `_PASSWORD` (plus `password`).
 

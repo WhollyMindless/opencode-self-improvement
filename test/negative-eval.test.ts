@@ -31,6 +31,7 @@ import { formatLine } from "../src/logfmt.ts";
 import { addBlock } from "../src/blocklist.ts";
 import { appendMemory, isActive, loadAll, prune } from "../src/memory.ts";
 import { setRepoScope } from "../src/repokey.ts";
+import { resetState } from "../src/state.ts";
 import {
   compactionAnchor,
   contextualPull,
@@ -62,6 +63,12 @@ let root: string;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "osi-neg-"));
   process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
+  // This file's scope-crossing tests use the AMBIENT reader and ambient
+  // write stamps, so the ambient session must actually be empty — a
+  // surviving getCurrent().sid from the previously loaded test file would
+  // resolve the ambient reader through that file's repo (d56956e review,
+  // finding 2). resetState, not just setRepoScope(null).
+  resetState();
   setRepoScope(null);
 });
 

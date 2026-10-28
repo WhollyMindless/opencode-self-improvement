@@ -6,7 +6,7 @@
 // "open") get a single capped frontier block in the digest so planning sessions
 // start at the previous session's frontier instead of re-deriving it.
 import { createHash } from "node:crypto";
-import { isActive, loadAll, visibleHere, type Memory } from "./memory.ts";
+import { isActive, loadAll, readerFromSid, visibleTo, visibleHere, type Memory } from "./memory.ts";
 import { record } from "./evidence.ts";
 import { dateStr, frontierBudget, injectBudget } from "./config.ts";
 import { bracketList } from "./logfmt.ts";
@@ -20,6 +20,9 @@ export interface TransformOutput {
 export interface PullInput {
   tool?: unknown;
   args?: unknown;
+  // The session the pull runs FOR (#127): resolved to an immutable Reader at
+  // entry so the loadAll await below cannot drift into another session's repo.
+  sessionID?: unknown;
 }
 
 export interface PullOutput {
@@ -277,8 +280,16 @@ export async function systemDigest(
   output: TransformOutput,
   opts: DigestOptions = {},
 ): Promise<void> {
-  // Repo-scoped: model-facing reads see this repo + global rows.
-  const mems = opts.rows ?? visibleHere((await loadAll()).filter(isActive));
+  const sid =
+    typeof _input === "object" && _input !== null &&
+    "sessionID" in _input &&
+    typeof (_input as Record<string, unknown>).sessionID === "string"
+      ? String((_input as Record<string, unknown>).sessionID)
+      : "?";
+  // Repo-scoped: model-facing reads see the CALLER's repo + global rows, via
+  // the sid carried on this flow's input (#127) — never a global re-read
+  // after the loadAll await.
+  const mems = opts.rows ?? visibleTo((await loadAll()).filter(isActive), readerFromSid(sid));
   if (!mems.length) return;
   const latest = flattenMemoryText(mems.map((m) => m.ts).sort().pop() ?? "?");
   output.system.push(
@@ -302,12 +313,6 @@ export async function systemDigest(
   const conv = await recentConvergenceSummary();
   if (conv) output.system.push(`\nConvergence tracking: ${conv}`);
 
-  const sid =
-    typeof _input === "object" && _input !== null &&
-    "sessionID" in _input &&
-    typeof (_input as Record<string, unknown>).sessionID === "string"
-      ? String((_input as Record<string, unknown>).sessionID)
-      : "?";
   if (frontierInjectedSessions.has(sid)) return;
   frontierInjectedSessions.add(sid);
   const openMems = mems.filter((m) => m.status === "open");
@@ -335,11 +340,13 @@ export async function selectRelevant(
   limit = 3,
   rows?: Memory[],
   use?: UseSignals,
+  sid?: string,
 ): Promise<{ block: string; selected: Memory[] }> {
   const text = message.trim();
   if (!text) return { block: "", selected: [] };
-  // Repo-scoped: model-facing reads see this repo + global rows.
-  const mems = rows ?? visibleHere((await loadAll()).filter(isActive));
+  // Repo-scoped: model-facing reads see the caller's repo + global rows
+  // (their session when one was threaded, #127).
+  const mems = rows ?? visibleTo((await loadAll()).filter(isActive), readerFromSid(sid));
   const top = scoreMemories(text, mems, limit, use);
   if (!top.length) return { block: "", selected: [] };
   return {
@@ -367,9 +374,9 @@ export function injectedRows(block: string, candidates: Memory[]): Memory[] {
 // changes and supersession all invalidate an epoch, while evidence, hidden
 // rows and non-rendered metadata do not. This is only a linear hash over rows
 // loadAll() already had to read and parse for the request.
-export async function storeVersion(rows?: Memory[]): Promise<string> {
-  // Repo-scoped: model-facing reads see this repo + global rows.
-  const mems = rows ?? visibleHere((await loadAll()).filter(isActive));
+export async function storeVersion(rows?: Memory[], sid?: string): Promise<string> {
+  // Repo-scoped: model-facing reads see the caller's repo + global rows.
+  const mems = rows ?? visibleTo((await loadAll()).filter(isActive), readerFromSid(sid));
   if (!mems.length) return "0:";
   let max = "";
   const hash = createHash("sha256");
@@ -412,9 +419,9 @@ const ANCHOR_OPEN_LIMIT = 10;
 const ANCHOR_SETTLED_LIMIT = 5;
 const ANCHOR_BUDGET = 2500;
 
-export async function compactionAnchor(limit = 12): Promise<string> {
-  // Repo-scoped: model-facing reads see this repo + global rows.
-  const mems = visibleHere((await loadAll()).filter(isActive));
+export async function compactionAnchor(limit = 12, sid?: string): Promise<string> {
+  // Repo-scoped: model-facing reads see the caller's repo + global rows.
+  const mems = visibleTo((await loadAll()).filter(isActive), readerFromSid(sid));
   if (!mems.length) return "";
   const byNewest = (a: Memory, b: Memory) => cmpTs(b.ts, a.ts);
   const open = mems
@@ -444,8 +451,9 @@ export async function contextualPull(
   if (!["grep", "glob", "read"].includes(tool)) return [];
   const term = argText(input.args);
   if (!term) return [];
-  // Repo-scoped: model-facing reads see this repo + global rows.
-  const mems = visibleHere((await loadAll()).filter(isActive));
+  // Repo-scoped: model-facing reads see the CALLER's repo + global rows —
+  // the pull's own sessionID, resolved before the store read (#127).
+  const mems = visibleTo((await loadAll()).filter(isActive), readerFromSid(input.sessionID));
   const top = scoreMemories(term, mems, 3, use);
   if (!top.length) return [];
   // Held to the injection budget too: three long rows were ~12 KB per call.

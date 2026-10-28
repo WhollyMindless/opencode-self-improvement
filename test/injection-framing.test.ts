@@ -21,7 +21,7 @@ import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 import { isActive, loadAll } from "../src/memory.ts";
 import { resetState } from "../src/state.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
-import { setRepoScope } from "../src/repokey.ts";
+import { rememberSessionDir, resetSessionScopes, setRepoScope } from "../src/repokey.ts";
 import { compactionAnchor, contextualPull, relevantKnowledge, systemDigest } from "../src/inject.ts";
 import { loadPlugin } from "./harness.ts";
 
@@ -46,6 +46,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Session bindings are module-global: a file that binds one (fr-cap
+  // below) must drop it, or the ambient reader of whatever test file runs
+  // NEXT silently resolves through this file's temp repo (d56956e review,
+  // finding 2 — order-dependent suite failures on some hosts).
+  resetState();
+  resetSessionScopes();
+  setRepoScope(null);
   delete process.env.OPENCODE_MEMORY_DIR;
   delete process.env.OPENCODE_COMMANDS_DIR;
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -380,6 +387,10 @@ describe("end-to-end: auto-captured memories surface their provenance", () => {
     expect(mined.tags).toContain("auto-capture");
 
     // It legitimately reaches the frontier (status open) — but framed and marked.
+    // fr-cap is a session OF this workspace: bind it, exactly as the prompt
+    // hook does in production (#127: an unbound named sid reads global rows
+    // only, never the module scope).
+    rememberSessionDir("fr-cap", liveRoot);
     const system: string[] = [];
     await systemDigest({ sessionID: "fr-cap" }, { system });
     const digest = system.join("\n");

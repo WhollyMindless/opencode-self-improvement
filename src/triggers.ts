@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { record } from "./evidence.ts";
 import { evidenceDir } from "./config.ts";
 import { parseLine, readLines } from "./logfmt.ts";
+import { redactSecrets } from "./secrets.ts";
 import {
   session,
   setLastSeenSid,
@@ -86,18 +87,22 @@ function summarize(text: string, n = 80): string {
 
 export async function afterTool(input: AfterInput, out: AfterOutput): Promise<void> {
   const tool = typeof input.tool === "string" ? input.tool : "?";
-  const sid = typeof input.sessionID === "string" ? input.sessionID : "?";
+  const sid = typeof input.sessionID === "string" ? input.sessionID : undefined;
   const call = typeof input.callID === "string" ? input.callID : "?";
   const cmd = argString(input.args);
   const text = typeof out.output === "string" ? out.output : "";
+  // Redact the COMPLETE tool text before folding/truncating (#128): summarize
+  // first would cut a token at the 80-char boundary or strip a PEM END marker,
+  // and the surviving fragment would persist byte-for-byte in evidence.
+  const safeText = text ? redactSecrets(text) : "";
   const status = classify(tool, out);
   const ts = new Date().toISOString();
 
-  const s = session(sid);
+  const s = session(sid ?? "?");
   const rec: ToolResult = {
     call,
     tool,
-    summary: summarize(text),
+    summary: summarize(safeText),
     ts,
     status: null,
     arg: cmd || undefined,
@@ -105,13 +110,20 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
   };
   const family = tool === "bash" || tool === "shell" ? gateCmd(cmd) : null;
 
-  // Generic capture (data, not chat).
+  // Generic capture (data, not chat). The output_summary is telemetry about
+  // the call (tool name + a short, redacted glimpse); the session/repo scoping
+  // of evidence reads is tracked separately (#128 acceptance, #130).
   if (["grep", "glob", "read", "edit", "write", "bash", "shell"].includes(tool)) {
-    await record("tool_result", {
-      tool,
-      title: tool,
-      output_summary: summarize(text),
-    });
+    await record(
+      "tool_result",
+      {
+        tool,
+        title: tool,
+        output_summary: summarize(safeText),
+      },
+      true,
+      sid,
+    );
     rec.status = status;
   }
 
@@ -119,7 +131,7 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
   if (family) {
     rec.gateCheck = true;
     rec.cmd = family;
-    await record("gate_check", { cmd: family, status });
+    await record("gate_check", { cmd: family, status }, true, sid);
     if (status === "FAIL") {
       s.pendingGate = { call, cmd: family, chain: [] };
     } else if (s.pendingGate && s.pendingGate.cmd === family) {
@@ -139,6 +151,7 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
           fix_ref: fix,
         },
         false,
+        sid,
       );
       s.pendingGate = null;
     } else if (s.pendingGate) {
@@ -166,6 +179,7 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
           kind: "learning",
         },
         false,
+        sid,
       );
     }
     s.lastByTool.set(tool, { status, call, emitted: prev?.emitted ?? false });
