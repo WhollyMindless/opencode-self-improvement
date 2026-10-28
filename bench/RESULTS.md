@@ -13,18 +13,22 @@ because prompt caching is a property of those bytes and not of the block alone.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | A — recompute per prompt, uncapped (naive) | 20 | 19 | 60996 | 3049.8 | 3404 |
 | B — block frozen on store fingerprint, digest rebuilt per turn (pre-#162) | 4 | 3 | 55478 | 2773.9 | 2867 |
-| C — section frozen on rendered bytes (shipped) | 4 | 3 | 55258 | 2762.9 | 2856 |
+| C — section frozen on rendered bytes (pre-#165) | 4 | 3 | 55258 | 2762.9 | 2856 |
+| D — C + riding bytes: the session's own additions are free (shipped) | 1 | 0 | 53500 | 2675.0 | 2675 |
 
 A "cache bust" is a turn whose memory-section bytes differ from the turn
-before: each one re-bills the whole conversation as fresh input. On this
-workload all three mid-session writes turn out to be visible — a new row shifts
-the document frequencies and reorders the top-5 — so B and C agree here. The
-difference is what a write the session CANNOT see costs: under B the digest
-carried the row count and the latest timestamp, so it busted anyway; under C it
-costs nothing. That case is pinned by `test/epoch.test.ts` ("a write that
-changes nothing rendered costs ZERO cache busts"), which fails against the
-pre-#162 policy. C also injects 9.4% fewer characters than the naive
-policy.
+before: each one re-bills the whole conversation as fresh input.
+
+The three mid-session writes are made BY the session being measured, which is
+how memory actually gets written — the model saves what it just learned. All
+three turn out to change what that session is shown (a new row shifts the
+document frequencies and reorders the top-5), so B and C each pay 3
+busts for them. D pays 0: a fact the session produced itself is
+already in its transcript. What D still pays for is a riding row being corrected,
+blocklisted or redacted, or another session writing a row — those survive the
+subtraction and still land on the next request, pinned by `test/epoch.test.ts`.
+
+D injects 12.3% fewer characters than the naive policy.
 
 Compaction anchor (capped at 2500 chars): 2304 chars,
 pushed once per compaction rather than per turn.
