@@ -10,13 +10,27 @@
 // MERGE replays them on top of the snapshot; FORCE is the old exact rollback,
 // and additionally snapshots the file it replaces, so the state it drops stays
 // undoable (result.safety).
+//
+// A day file is shared across REPOSITORIES too, and foreign rows are outside
+// a caller's reach in every sense (#153): no mode revives them from the
+// snapshot, rewinds them to a stale copy, or drops them. Foreign live lines
+// are carried over verbatim in every mode, appended at the end — line content
+// preserved, position in the shared file not — and only the caller's own rows
+// take part in the audited-deletion and divergence logic. ONE exception is
+// visibility, not ownership: GLOBAL rows (repo=global, or legacy unstamped)
+// are visible to every reader, so every repository's rollback treats them as
+// its own — a force restore may drop a global line appended after the
+// snapshot (pinned in test/undo-ownership). That is #131's "act on exactly
+// what you may read", the same rule memory_forget applies to global scope.
+// Admin readers (the viewer, out-of-plugin maintenance) keep the whole-file
+// restore exactly as it was.
 import { lstat, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { deletionsFile, snapshotDir } from "./config.ts";
 import { isWithin } from "./containment.ts";
 import { ensureDir, fileIdentity, parseLine, readLines, writeAtomic } from "./logfmt.ts";
 import { withStoreLock, LOCK_RESTORE } from "./lock.ts";
-import { snapshotFiles } from "./memory.ts";
+import { ADMIN_READER, lineVisibleTo, snapshotFiles, type Reader } from "./memory.ts";
 
 const SNAPSHOT_NAME = /^(\d+)-(\d{4}-\d{2}-\d{2}\.logfmt)$/;
 
@@ -80,6 +94,10 @@ export interface RestoreResult {
   // ts of rows intentionally deleted after this snapshot. CHECK and MERGE
   // leave them deleted; FORCE is the explicit recovery path.
   deletedOmitted: string[];
+  // Live rows owned by other repositories, whose lines are carried over
+  // verbatim (appended at the end) in every mode (#153). Admin restores
+  // report 0 — there is no foreign reader.
+  foreignPreserved: number;
 }
 
 // Rows are keyed by their ts= field; unparseable lines key on the whole line.
@@ -168,6 +186,7 @@ export async function restoreSnapshot(
   snapshot: string,
   memoryRootDir: string,
   mode: RestoreMode = "check",
+  reader: Reader = ADMIN_READER,
 ): Promise<RestoreResult> {
   const snap = await resolveSnapshot(snapshot, memoryRootDir);
   const rootReal = await realpath(resolve(memoryRootDir));
@@ -212,9 +231,20 @@ export async function restoreSnapshot(
       // Deliberate deletions are read inside the lock too, so a forget that
       // finished just before this restore is honoured.
       const audited = mode !== "force" ? await auditedDeletions() : new Set<string>();
-      const live = new Set(curLines.map(rowKey));
+      // Ownership before anything else (#153): rows a foreign repo owns are
+      // excluded from the snapshot side in EVERY mode (never revived, never
+      // rewound), excluded from the deletion audit and the divergence
+      // bookkeeping (not this caller's to reason about), and carried verbatim
+      // from the live file, appended at the end.
+      const snapOwn = rawSnapLines.filter((l) => lineVisibleTo(l, reader));
+      // One pass partitions the live lines (review N2): a whole-file restore
+      // has no business parsing every line three times.
+      const curOwn: string[] = [];
+      const curForeign: string[] = [];
+      for (const l of curLines) (lineVisibleTo(l, reader) ? curOwn : curForeign).push(l);
+      const live = new Set(curOwn.map(rowKey));
       const deletedOmitted: string[] = [];
-      const snapLines = rawSnapLines.filter((line) => {
+      const snapLines = snapOwn.filter((line) => {
         const key = rowKey(line);
         if (!audited.has(key) || live.has(key)) return true;
         deletedOmitted.push(key);
@@ -225,7 +255,7 @@ export async function restoreSnapshot(
       const concurrentAdded: string[] = [];
       const concurrentChanged: string[] = [];
       const curByKey = new Map<string, string>();
-      for (const l of curLines) {
+      for (const l of curOwn) {
         const k = rowKey(l);
         curByKey.set(k, l);
         const s = snapByKey.get(k);
@@ -233,8 +263,31 @@ export async function restoreSnapshot(
         else if (s !== l) concurrentChanged.push(k);
       }
 
+      // CHECK keeps its documented conservatism (#153 control): ANY divergence
+      // of the shared file — including other repositories' rows, which FORCE
+      // and MERGE now provably leave untouched — refuses until the caller picks
+      // a mode deliberately. The refusal is a "the file moved, say again on
+      // purpose" gate, not a clobber prediction.
+      if (mode === "check") {
+        const snapAll = new Map(rawSnapLines.map((l) => [rowKey(l), l]));
+        for (const l of curForeign) {
+          const k = rowKey(l);
+          const s = snapAll.get(k);
+          if (s === undefined) concurrentAdded.push(k);
+          else if (s !== l) concurrentChanged.push(k);
+        }
+      }
+
       if (mode === "check" && (concurrentAdded.length || concurrentChanged.length)) {
-        return { target, restored: false, mode, concurrentAdded, concurrentChanged, deletedOmitted };
+        return {
+          target,
+          restored: false,
+          mode,
+          concurrentAdded,
+          concurrentChanged,
+          deletedOmitted,
+          foreignPreserved: curForeign.length,
+        };
       }
 
       // FORCE is the mode that drops rows, so the file it replaces is
@@ -251,12 +304,27 @@ export async function restoreSnapshot(
         // snapshotter wrote after the snapshot are NOT dropped here; choose FORCE
         // for that.
         out = snapLines.map((l) => curByKey.get(rowKey(l)) ?? l).concat(
-          curLines.filter((l) => !snapByKey.has(rowKey(l))),
+          curOwn.filter((l) => !snapByKey.has(rowKey(l))),
         );
       }
+      // FORCE's "exact rollback" is exact FOR THE CALLER'S REPOSITORY, not
+      // beyond it: foreign live lines rejoin the file verbatim in every mode,
+      // appended at the end — line content preserved, position not (#153).
+      // Under the admin reader curForeign is empty and the write is the
+      // historical whole-file restore, byte for byte.
+      out = out.concat(curForeign);
       await ensureDir(memoryRootDir);
       await writeAtomic(target, out.length ? out.join("\n") + "\n" : "", since);
-      return { target, restored: true, mode, safety, concurrentAdded, concurrentChanged, deletedOmitted };
+      return {
+        target,
+        restored: true,
+        mode,
+        safety,
+        concurrentAdded,
+        concurrentChanged,
+        deletedOmitted,
+        foreignPreserved: curForeign.length,
+      };
     },
     LOCK_RESTORE,
   );

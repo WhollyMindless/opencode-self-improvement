@@ -4,6 +4,7 @@
 // runWriteGate), so moving memories between machines cannot bypass the 4-gate
 // moat. Decay is supersede-not-delete and snapshot-first, mirroring prune.
 import { constants } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { mkdir, open } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { allowOutsideStorePaths, exportsDir, memoryRoot } from "./config.ts";
@@ -39,9 +40,19 @@ export interface ExportOptions {
   scope?: string;
   /**
    * Destination, confined to <memory-root>/exports/ (see containment.ts).
-   * Defaults to <memory-root>/exports/<stamp>.jsonl.
+   * Defaults to <memory-root>/exports/<stamp>-<unique>.jsonl: a UNIQUE name,
+   * created exclusively, so two exports in the same second can never replace
+   * each other's artifact (#143's review). An explicit `file` keeps the
+   * historical replace semantics backups rely on.
    */
   file?: string;
+  /**
+   * The calling session's identity (#143): an export carries exactly the rows
+   * its reader can read — own repo plus global. "?" or absent resolves the
+   * AMBIENT reader: out-of-plugin callers (viewer, CLI maintenance) keep the
+   * full-store breadth; breadth stays a property of the entry point.
+   */
+  sessionID?: string;
 }
 
 export interface ExportResult {
@@ -49,9 +60,14 @@ export interface ExportResult {
   count: number;
 }
 
-// Filesystem-safe YYYY-MM-DDTHHMMSS (no colons).
+// Filesystem-safe YYYY-MM-DDTHHMMSS (no colons) plus a unique suffix for each
+// default export. The timestamp alone was second-granular: two sessions
+// exporting in the same second got the SAME path, and O_TRUNC let the later
+// one destroy the earlier one's artifact AND its returned path (#143 review).
+// Milliseconds would still collide; uniqueness comes from the name, not the
+// clock.
 function stamp(d: Date = new Date()): string {
-  return d.toISOString().slice(0, 19).replace(/:/g, "");
+  return `${d.toISOString().slice(0, 19).replace(/:/g, "")}-${randomUUID()}`;
 }
 
 // An export is a full copy of the live store, so it may only be written inside
@@ -92,10 +108,17 @@ async function resolveExportTarget(file: string | undefined): Promise<string> {
 // Exported so the flag itself can be pinned: the containment layer refuses an
 // existing link long before this runs, so the only way to test O_NOFOLLOW
 // without racing is to call the writer directly.
-export async function writeExport(path: string, text: string): Promise<void> {
+export async function writeExport(path: string, text: string, exclusive = false): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
+  // exclusive = a default destination WE chose: create it or fail, never
+  // silently replace another export's file. An explicit caller-supplied
+  // `file` keeps the historical O_TRUNC replace (backup workflows rewrite
+  // the same path on purpose).
   const flags =
-    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0);
+    constants.O_WRONLY |
+    constants.O_CREAT |
+    (exclusive ? constants.O_EXCL : constants.O_TRUNC) |
+    (constants.O_NOFOLLOW ?? 0);
   const handle = await open(path, flags, 0o600);
   try {
     await handle.writeFile(text, "utf8");
@@ -114,12 +137,18 @@ export async function writeExport(path: string, text: string): Promise<void> {
 // where it lives (the original logfmt files + snapshots). The header is always
 // written, even for an empty store, so "has header" is a format invariant.
 //
+// "the live store" means the store AS THE CALLER CAN READ IT (#143): rows are
+// filtered through the caller's Reader, exactly as recall and injection do.
+// Full breadth remains the ambient/admin entry point's, never a missing
+// session's.
+//
 // The destination is model-supplied, so it is resolved and confined BEFORE the
 // store is read: a rejected export must not leave a file behind, and must not
 // be a way to learn how many rows matched either.
 export async function exportMemories(opts: ExportOptions = {}): Promise<ExportResult> {
   const path = await resolveExportTarget(opts.file);
-  let mems = (await loadAll()).filter(isActive);
+  const reader = readerFromSid(opts.sessionID);
+  let mems = (await loadAll()).filter(isActive).filter((m) => isVisibleTo(m, reader));
   if (opts.scope) mems = mems.filter((m) => m.scope === opts.scope);
   const header = JSON.stringify({
     _export: EXPORT_HEADER,
@@ -144,7 +173,7 @@ export async function exportMemories(opts: ExportOptions = {}): Promise<ExportRe
     }),
   );
   try {
-    await writeExport(path, `${[header, ...lines].join("\n")}\n`);
+    await writeExport(path, `${[header, ...lines].join("\n")}\n`, opts.file === undefined);
   } catch (err) {
     // Past containment, so this is not an existence oracle: `path` is one the
     // plugin chose or already validated. The errno stays, because it is the
