@@ -31,7 +31,7 @@ import {
   visibleTo,
   type Memory,
 } from "./memory.ts";
-import { runWriteGate, type GateContext, type WriteCandidate } from "./gates.ts";
+import { runWriteGate, sameStrList, type GateContext, type WriteCandidate } from "./gates.ts";
 import { withStoreLock } from "./lock.ts";
 import { pruneMemory } from "./prune.ts";
 import { exportMemories, findStaleOpen, importMemories } from "./portable.ts";
@@ -585,7 +585,7 @@ const impl = {
       editor.add(validated(UpdateArgs, {
         name: "memory_update",
         description:
-          "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing; naming a row that was already updated to exactly this content reports the duplicate. A prose edit carries over the metadata the call does not name (tags, issue, keywords).",
+          "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing. A prose edit carries over everything the call does not name — tags, issue, keywords, status, and the row's repository. Naming a row that was already updated to exactly this content (metadata included) reports the duplicate; if its live successor holds the prose and only the metadata you name differs, the successor is updated. A failure after the write is reported as PARTIAL: the replacement is durable and memory_undo merge/force restores the old row.",
         options: direct,
         async execute(args, context): Promise<{ content: string }> {
           const { sid } = toolIds(context);
@@ -620,12 +620,20 @@ const impl = {
                 // Resolve the row BEFORE the gate: an update that cannot identify its
                 // target must write nothing, rather than silently superseding whichever
                 // row happened to be newest in this scope+type.
-                const resolved = resolveMemoryTarget(prior, args.query);
+                let resolved = resolveMemoryTarget(prior, args.query);
                 if (resolved.status === "not_found") {
                   // Naming a SUPERSEDED row is not a miss (#155): the retry
                   // after a partial update lands here, and when that row's
                   // active successor already carries exactly this content the
-                  // honest verdict is the duplicate one, not a dead end.
+                  // honest verdict is the duplicate one, not a dead end. Two
+                  // subtleties the first cut missed: the successor's prose was
+                  // stored REDACTED while a retry re-carries the raw input
+                  // (the comparison must scrub), and "exactly this content"
+                  // must mean the metadata too — a retry that also names new
+                  // keywords still has work to do, and that work belongs on
+                  // the chain head, so the update CONTINUES against the
+                  // successor instead of collapsing here.
+                  let chainHead: Memory | undefined;
                   if (args.query) {
                     const rows = (await loadAll()).filter(
                       (m) => m.scope === args.scope && m.type === args.type && isVisibleTo(m, reader),
@@ -640,19 +648,37 @@ const impl = {
                         walked.add(next.ts);
                         latest = next;
                       }
-                      if (isActive(latest) && latest.content.trim() === args.content.trim()) {
-                        return {
-                          content:
-                            `Duplicate ignored: ${args.type}/${args.scope} — ${JSON.stringify(args.query)} was already ` +
-                            `updated to exactly this content (${latest.ts}). Nothing was written.`,
-                        };
+                      if (isActive(latest) && latest.content.trim() === redactSecrets(args.content).trim()) {
+                        const restated =
+                          (args.kw === undefined || sameStrList(args.kw, latest.kw)) &&
+                          (args.status === undefined || args.status === (latest.status ?? "settled"));
+                        if (restated) {
+                          // Every other verdict is auditable; this one must
+                          // be too — the message tells the model to consult
+                          // memory_evidence.
+                          await record(
+                            "dedup_collapse",
+                            { op: "update", named: stale.target.ts, match: latest.ts, action: "exact_successor", incoming_ignored: true },
+                            true,
+                            sid,
+                          );
+                          return {
+                            content:
+                              `Duplicate ignored: ${args.type}/${args.scope} — ${JSON.stringify(args.query)} was already ` +
+                              `updated to exactly this content (${latest.ts}). Nothing was written.`,
+                          };
+                        }
+                        chainHead = latest;
                       }
                     }
                   }
-                  const where = args.query ? ` matches ${JSON.stringify(args.query)}` : "";
-                  return {
-                    content: `memory_update blocked: no active ${args.type} row in ${args.scope}${where}. Nothing was written.`,
-                  };
+                  if (!chainHead) {
+                    const where = args.query ? ` matches ${JSON.stringify(args.query)}` : "";
+                    return {
+                      content: `memory_update blocked: no active ${args.type} row in ${args.scope}${where}. Nothing was written.`,
+                    };
+                  }
+                  resolved = { status: "ok", target: chainHead };
                 }
                 if (resolved.status === "ambiguous") {
                   return {
@@ -673,11 +699,18 @@ const impl = {
                     // replaced, so updating an imported row can no longer
                     // launder away its provenance or issue link. kw follows
                     // the same rule with an override: omitted keeps the
-                    // target's, provided replaces.
+                    // target's, provided replaces. The carry completes to the
+                    // five fields of the #129 viewer precedent: STATUS (an
+                    // open frontier row stays open) and REPO (updating a
+                    // global row from one repository must not re-house it out
+                    // of every other repository's view — "an edit must never
+                    // widen visibility", and it must never narrow it either).
                     kw: args.kw ?? target.kw,
                     tags: target.tags,
                     issue: target.issue,
-                    status: args.status,
+                    status: args.status ?? target.status,
+                    repo: target.repo ?? "global",
+                    repoPath: target.repo ? target.repoPath : undefined,
                   },
                   { ...gateContext(sid), supersedesTs: target.ts },
                 );
@@ -691,11 +724,12 @@ const impl = {
                   // (#155 — never claim "Nothing was written" from here).
                   const partial = (why: string) => ({
                     content:
-                      `memory_update PARTIAL: replacement ${replacement} IS on disk (memory_undo recovers ${retired}), ` +
-                      `but ${why}. Re-running this update reports the duplicate.`,
+                      `memory_update PARTIAL: replacement ${replacement} IS on disk (memory_undo merge or force ` +
+                      `restores ${retired}), but ${why}. Re-running this update reports the duplicate.`,
                   });
+                  let retiredNow = false;
                   try {
-                    await markSuperseded(retired, {
+                    retiredNow = await markSuperseded(retired, {
                       superseded_by: replacement,
                       reason: "update",
                       symbol: retired,
@@ -703,15 +737,55 @@ const impl = {
                       to: replacement,
                     });
                   } catch (err) {
-                    return partial(`retiring ${retired} failed: ${(err as Error).message}`);
+                    return partial(
+                      `retiring ${retired} failed: ${err instanceof Error && err.message ? err.message : String(err)}`,
+                    );
                   }
-                  if (outcome.evidenceError) {
+                  if (!retiredNow) {
+                    // merge_review checks exactly this boolean (156e887);
+                    // "Updated (superseded X)" cannot be printed over a
+                    // retirement a parallel supersession performed — that
+                    // pointer names a DIFFERENT successor, and the confident
+                    // line would hide a second active row.
+                    return partial(
+                      `${retired} had ALREADY been retired by another supersession while this call ran — ` +
+                        `it points at that successor, not at ${replacement}; check memory_evidence`,
+                    );
+                  }
+                  if (outcome.evidenceError !== undefined) {
                     return partial(`its write_promoted audit line was not recorded (${outcome.evidenceError})`);
                   }
                   return { content: `Updated ${args.type} in ${args.scope} (superseded ${retired})` };
                 }
                 if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
-                if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
+                if (outcome.action === "collapsed") {
+                  // Completion (#155 convergence): when a retry collapses
+                  // because an ACTIVE row already holds exactly this content
+                  // while the row it NAMES is still active (the supersede
+                  // step of an earlier PARTIAL attempt never landed), the
+                  // idempotent close is to retire the named row in the
+                  // survivor's favor — a bare "Duplicate ignored" would leave
+                  // two active rows forever and a retry that never converges.
+                  // first-call-wins makes this safe to attempt on any path.
+                  const survivor = outcome.collapsedWith;
+                  if (target && survivor && survivor !== target.ts) {
+                    const done = await markSuperseded(target.ts, {
+                      superseded_by: survivor,
+                      reason: "update",
+                      symbol: target.ts,
+                      from: target.ts,
+                      to: survivor,
+                    });
+                    if (done) {
+                      return {
+                        content:
+                          `Duplicate: ${args.type}/${args.scope} already stands active as ${survivor}; ` +
+                          `${target.ts} was retired in its favor. Nothing new was written.`,
+                      };
+                    }
+                  }
+                  return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
+                }
                 return { content: `Write blocked at GATE (${outcome.reason}). ${outcome.hint ?? ""}`.trimEnd() };
               },
               {

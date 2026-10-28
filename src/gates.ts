@@ -47,6 +47,12 @@ export interface WriteCandidate {
   repoPath?: string;
 }
 
+// Metadata-list equality (retrieval keywords, tags): pairwise, undefined and
+// empty counting as the same content. Shared by GATE-3's update carve-out and
+// memory_update's successor verdict so both sides ask the same question.
+export const sameStrList = (a?: string[], c?: string[]) =>
+  (a?.length ?? 0) === (c?.length ?? 0) && (a ?? []).every((x, i) => (c ?? [])[i] === x);
+
 export interface GateContext {
   liveRoot: string;
   evidenceCalls: string[];
@@ -83,6 +89,11 @@ export interface GateOutcome {
   // read it as "nothing happened" while the row sat on disk. Pre-append
   // faults keep throwing — there, nothing was in fact written.
   evidenceError?: string;
+  // On a collapsed (un-stored) write: the ts of the ACTIVE row whose content
+  // already IS the candidate. An update completing its supersession needs the
+  // survivor's id to retire its own target in the survivor's favor (#155
+  // convergence: a retry must be able to end with one active row).
+  collapsedWith?: string;
 }
 
 const STOPWORDS = new Set([
@@ -420,6 +431,14 @@ export async function runWriteGate(
     // and the pass is skipped by the batch (it re-reads under the lock).
     const target = g1.candidateStale ? "<-" : chain;
     if (typeof s.memory.superseded_by === "string") continue;
+    // The row an UPDATE replaces is retired by the update itself, with its
+    // own pointer. A drift stamp here wins first-call-wins against the
+    // caller's markSuperseded and leaves a chain id the caller's retry can
+    // never walk — so the tool would print "(superseded X)" naming a
+    // retirement it did not perform. Same principle GATE-3 applies to
+    // rivalry (the target is never a contender): the update IS the sanctioned
+    // supersession for that row.
+    if (s.memory.ts === ctx.supersedesTs) continue;
     driftPlan.push({
       s,
       target,
@@ -461,6 +480,9 @@ export async function runWriteGate(
     const canonPlan: { ts: string; from: string | undefined }[] = [];
     for (const m of scopeMems) {
       if (m.superseded_by) continue;
+      // The update's own target retires in the update's hand, not the
+      // canonical registry's (see the GATE-2 drift skip above).
+      if (m.ts === ctx.supersedesTs) continue;
       if (tokens(m.content).some((t) => valueSet.has(t))) continue;
       const from = rawTokens(m.content).find(
         (t) => !STOPWORDS.has(t.toLowerCase()) && !entitySet.has(t.toLowerCase()) && !valueSet.has(t.toLowerCase()),
@@ -497,8 +519,21 @@ export async function runWriteGate(
   const exactPoll = scopeMems.filter(
     (m) => m.superseded_by === undefined || m.reason === "drift",
   );
+  // Byte-exact duplicate prose collapses (Principle 2) — with one UPDATE-only
+  // carve-out: the row being replaced counts as a duplicate of the candidate
+  // only if the update also restates its metadata. Same prose plus different
+  // retrieval keywords or status is a metadata EDIT on that row (GATE-3
+  // already refuses to see it as a rival), and collapsing it would silently
+  // drop the edit — the tool could then never edit kw or status at all.
   const exact = exactPoll.find(
-    (m) => m.type === candidate.type && m.content === candidate.content,
+    (m) =>
+      m.type === candidate.type &&
+      m.content === candidate.content &&
+      (m.ts !== ctx.supersedesTs ||
+        (sameStrList(m.kw, candidate.kw) &&
+          sameStrList(m.tags, candidate.tags) &&
+          m.issue === candidate.issue &&
+          (m.status ?? "settled") === (candidate.status ?? "settled"))),
   );
   // Same-type live rows that could compete with the incoming statement; the
   // row an update replaces is never a contender.
@@ -652,7 +687,7 @@ export async function runWriteGate(
   }
 
   if (collapseMatch) {
-    return { action: "collapsed", chain };
+    return { action: "collapsed", chain, collapsedWith: collapseMatch.ts };
   }
 
   // The write is specifically promoted on engagement (no refs, no gate check,
@@ -693,7 +728,10 @@ export async function runWriteGate(
       chain,
     });
   } catch (err) {
-    evidenceError = (err as Error).message;
+    // NOT `(err as Error).message`: a messageless Error (or a non-Error
+    // rejection) would make the field FALSY, and callers test it for truth —
+    // the lie this field exists to kill would return as a clean success.
+    evidenceError = err instanceof Error && err.message ? err.message : String(err);
   }
   return { action: "promoted", ts, chain, evidenceError };
 }
