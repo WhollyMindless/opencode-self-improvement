@@ -160,6 +160,12 @@ export interface StatusPayload {
   /** exact injected block ("" = abstained: no vocabulary overlap). */
   block: string;
   blockChars: number;
+  /**
+   * Every memory byte riding the system prompt: digest + frontier + block.
+   * Optional for backward-compatible reads of status files written before the
+   * distinction existed — the panel only prints it when present.
+   */
+  sectionChars?: number;
   budget: number;
   store: StoreCounts;
   /** optional for backward-compatible reads of pre-v2 files. */
@@ -350,6 +356,15 @@ export function contextLines(p: StatusPayload): string[] {
   const pct = p.budget > 0 ? Math.round((p.blockChars / p.budget) * 100) : 0;
   return [
     `  injected now   ${p.blockChars}c ≈ ${estTok(p.blockChars)} tok · ${pct}% of ${p.budget}c budget`,
+    // The budget caps the RELEVANCE BLOCK; the standing digest and the frontier
+    // ride the system prompt too. Quoting only the budgeted slice would
+    // understate what the request actually carries.
+    ...(p.sectionChars === undefined
+      ? []
+      : [
+          `  memory section ${p.sectionChars}c ≈ ${estTok(p.sectionChars)} tok riding the prompt` +
+            ` (digest + frontier + the ${p.blockChars}c block above)`,
+        ]),
     `  this epoch     ${p.reason} epoch since ${p.at} (${ago(p.at)}) · rode ${st.epochRequests} request(s)`,
     `  session        ${st.requests} request(s) · ${fmtCount(st.cumChars)}c ≈ ${fmtCount(estTok(st.cumChars))} tok rode · abstained ${st.abstained}`,
   ];
@@ -367,8 +382,9 @@ export function cacheLines(p: StatusPayload): string[] {
           `  cache busts    ${st.invalidations} this session · last ${
             st.lastInvalidation ? `${st.lastInvalidation.at.slice(11, 19)} (${st.lastInvalidation.reason})` : "-"
           }`,
-          "                 each memory write between turns costs exactly one; the",
-          "                 prefix re-warms on the following turn",
+          "                 each write that changes what you are shown costs exactly",
+          "                 one; a write that changes nothing rendered costs nothing,",
+          "                 and the prefix re-warms on the following turn",
         ];
   const rate = cacheRate(p.measured);
   const receipts = rate
