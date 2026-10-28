@@ -214,6 +214,19 @@ describe("renderMemoryReport", () => {
     expect(text).toContain("abstained");
   });
 
+  test("CONTEXT reports the whole riding section, not only the budgeted block (#162)", () => {
+    const text = renderMemoryReport({
+      status: payload({ sectionChars: 1400 }),
+      store: payload().store,
+      blocked: [],
+    });
+    expect(text).toContain("memory section 1400c ≈ 350 tok riding the prompt");
+    // A status file written before the distinction existed prints no phantom line.
+    expect(renderMemoryReport({ status: payload(), store: payload().store, blocked: [] })).not.toContain(
+      "memory section",
+    );
+  });
+
   test("no measurement yet says so, never 0%", () => {
     const text = renderMemoryReport({ status: payload({ measured: null }), store: payload().store, blocked: [] });
     expect(text).toContain("provider reports no cache usage yet");

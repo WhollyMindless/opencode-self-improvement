@@ -5,11 +5,19 @@
 // estimates.
 //
 //   Policy A (naive):   recompute relevantKnowledge on every prompt, uncapped.
-//   Policy B (shipped): epoch freeze — recompute only when the store
-//                       fingerprint (storeVersion) changes — plus the
-//                       character cap (capToBudget). The simulated session
-//                       performs 3 mid-session store writes, so B recomputes
-//                       a handful of times across 20 turns instead of 20.
+//   Policy B (pre-#162): the block is frozen against the STORE FINGERPRINT, but
+//                       the standing digest is rebuilt every request and carries
+//                       the row count + latest ts. So the bytes that actually
+//                       rode the system prompt changed after every write, even
+//                       when the block did not — the arm whose cache claim was
+//                       false. Measuring only the block is how that survived.
+//   Policy C (shipped): the whole memory section (digest + frontier + block) is
+//                       frozen and the RENDERED BYTES decide whether it moved.
+//                       The simulated session performs 3 mid-session store
+//                       writes; C busts only on the ones the model can see.
+//
+// Everything below is measured on the FULL memory section, the bytes a request
+// actually sends, because prompt caching is a property of those bytes.
 //
 // Determinism: a fixed-seed LCG generates the store and
 // the prompts; memory timestamps are synthetic (no Date.now()); nothing reads
@@ -31,7 +39,8 @@ process.env.OPENCODE_MEMORY_DIR = store;
 delete process.env.OPENCODE_MEMORY_INJECT_BUDGET; // the bench measures the DEFAULT budget
 
 import { injectBudget } from "../src/config.ts";
-import { capToBudget, compactionAnchor, relevantKnowledge, storeVersion } from "../src/inject.ts";
+import { capToBudget, compactionAnchor, relevantKnowledge, storeVersion, systemDigest } from "../src/inject.ts";
+import { isActive, loadAll } from "../src/memory.ts";
 import { formatLine } from "../src/logfmt.ts";
 
 // --- deterministic generator -----------------------------------------------------
@@ -110,11 +119,12 @@ for (let i = 0; i < 20; i++) {
   prompts.push(`${TOPICS[i % TOPICS.length]} ${pick(PROMPT_WORDS)} ${pick(PROMPT_WORDS)} how`);
 }
 
-// Three writes that land mid-session (turns 5, 10, 15) — they change the
-// store fingerprint and legitimately invalidate the frozen epoch.
+// Three writes that land mid-session (turns 5, 10, 15). They change the store
+// fingerprint; whether each one changes what the session is SHOWN is exactly
+// what the bust columns measure — do not assume all three are visible.
 const SESSION_WRITES: Array<{ scope: string; content: string }> = [
   { scope: "infra", content: "Mid-session fact one: the staging deploy waits for the health check to pass twice in a row." },
-  { scope: "docs", content: "Mid-session fact two: the nightly job prunes evidence logs older than ninety days from the store." },
+  { scope: "ledger", content: "Mid-session fact two: nimrod flurb quux calibration prunes stale zebra-dashboard widget ledgers nightly." },
   { scope: "cli", content: "Mid-session fact three: the import tool tags every promoted row so provenance survives a round trip." },
 ];
 
@@ -131,41 +141,93 @@ function seedStore(): void {
 
 // --- policy runs (mirror the real hooks in src/index.ts) ---------------------------
 
-// Policy A: the naive behavior — recompute top-3 relevance on EVERY prompt,
-// uncapped, and inject it (which changed the system prefix every turn).
-seedStore();
-const aBlocks: string[] = [];
-for (const p of prompts) aBlocks.push(await relevantKnowledge(p, 3));
-
-// Policy B: the shipped behavior — one frozen block per epoch, recomputed only
-// when storeVersion() changes (first prompt + the 3 mid-session writes),
-// capped at the default budget at whole-memory boundaries.
-seedStore();
 const budget = injectBudget(); // 1200 (env cleared above)
-const bBlocks: string[] = [];
-let epoch: { version: string; block: string } | null = null;
-let recomputes = 0;
+
+// The standing digest + open-thread frontier, exactly as the context hook
+// renders it from the CURRENT store.
+async function digestParts(sid: string, legacy = false): Promise<string[]> {
+  const rows = (await loadAll()).filter(isActive);
+  const parts: string[] = [];
+  await systemDigest({ sessionID: sid }, { system: parts }, { rows });
+  // Arm B needs the PRE-#162 digest, which src no longer emits: the row count
+  // and the latest ts rode at the very front of the system prompt, so every
+  // promoted write rewrote the cached prefix whether or not the model was shown
+  // anything new. Reproduced verbatim from the shipped 0.14.x text.
+  if (legacy && parts.length && parts[0].startsWith("\n## Persistent memory")) {
+    const latest = rows.map((m) => m.ts).sort().pop() ?? "?";
+    parts[0] =
+      "\n## Persistent memory (opencode-self-improvement)\n" +
+      `${rows.length} durable memories; latest: ${latest}. ` +
+      "Check memory_recall BEFORE grepping or reading, for build/test/lint commands, " +
+      "decisions, and conventions. Relevant memories are also auto-injected when your " +
+      "message matches.";
+  }
+  return parts;
+}
+const section = async (sid: string, block: string, legacy = false) =>
+  [...(await digestParts(sid, legacy)), block].join("\n");
+
+// The three writes land mid-session, at turns 5, 10 and 15.
+const writeAt = (i: number) => (i === 4 ? 0 : i === 9 ? 1 : i === 14 ? 2 : -1);
+function applyWrite(write: number): void {
+  appendFileSync(
+    storeFile(),
+    formatLine({
+      ts: iso(2000 + write * 60),
+      type: "learning",
+      scope: SESSION_WRITES[write].scope,
+      content: SESSION_WRITES[write].content,
+      status: "settled",
+    }) + "\n",
+  );
+}
+
+// Policy A: the naive behavior — fresh digest plus a re-scored, uncapped block
+// on EVERY prompt, which changed the system prefix every turn.
+seedStore();
+const aSections: string[] = [];
+for (const p of prompts) aSections.push(await section("ses-a", await relevantKnowledge(p, 3)));
+
+// Policy B: the pre-#162 shipped behavior — block frozen against the store
+// fingerprint and capped at the budget, but the digest rebuilt per request.
+seedStore();
+const bSections: string[] = [];
+let bEpoch: { version: string; block: string } | null = null;
+let bRecomputes = 0;
 for (let i = 0; i < prompts.length; i++) {
-  const write = i === 4 ? 0 : i === 9 ? 1 : i === 14 ? 2 : -1;
-  if (write >= 0) {
-    appendFileSync(
-      storeFile(),
-      formatLine({
-        ts: iso(2000 + write * 60),
-        type: "learning",
-        scope: SESSION_WRITES[write].scope,
-        content: SESSION_WRITES[write].content,
-        status: "settled",
-      }) + "\n",
-    );
-  }
+  const w = writeAt(i);
+  if (w >= 0) applyWrite(w);
   const version = await storeVersion();
-  if (!epoch || epoch.version !== version) {
+  if (!bEpoch || bEpoch.version !== version) {
     const raw = await relevantKnowledge(prompts[i], 5);
-    epoch = { version, block: raw ? capToBudget(raw, budget) : "" };
-    recomputes++;
+    bEpoch = { version, block: raw ? capToBudget(raw, budget) : "" };
+    bRecomputes++;
   }
-  bBlocks.push(epoch.block);
+  bSections.push(await section("ses-b", bEpoch.block, true));
+}
+
+// Policy C: the shipped behavior — the whole section is rendered, then adopted
+// only when its BYTES differ. A write the model cannot see keeps the frozen
+// bytes and costs nothing.
+seedStore();
+const cSections: string[] = [];
+let cEpoch: { version: string; section: string } | null = null;
+let cRecomputes = 0;
+for (let i = 0; i < prompts.length; i++) {
+  const w = writeAt(i);
+  if (w >= 0) applyWrite(w);
+  const version = await storeVersion();
+  if (!cEpoch || cEpoch.version !== version) {
+    const raw = await relevantKnowledge(prompts[i], 5);
+    const rendered = await section("ses-c", raw ? capToBudget(raw, budget) : "");
+    if (!cEpoch || cEpoch.section !== rendered) {
+      cEpoch = { version, section: rendered };
+      cRecomputes++;
+    } else {
+      cEpoch = { version, section: cEpoch.section }; // content-neutral: adopt the version, not the bytes
+    }
+  }
+  cSections.push(cEpoch.section);
 }
 
 // The compaction anchor: pushed once per compaction, capped at 2500.
@@ -176,9 +238,13 @@ const anchor = await compactionAnchor();
 
 const sum = (xs: string[]) => xs.reduce((a, b) => a + b.length, 0);
 const worst = (xs: string[]) => Math.max(0, ...xs.map((b) => b.length));
-const sumA = sum(aBlocks);
-const sumB = sum(bBlocks);
-const saved = sumA > 0 ? ((sumA - sumB) / sumA) * 100 : 0;
+// What the provider cache actually sees: how many times the riding bytes changed
+// after the first fill. One change = one full re-prefill of the conversation.
+const busts = (xs: string[]) => xs.reduce((n, s, i) => (i > 0 && s !== xs[i - 1] ? n + 1 : n), 0);
+const sumA = sum(aSections);
+const sumB = sum(bSections);
+const sumC = sum(cSections);
+const saved = sumA > 0 ? ((sumA - sumC) / sumA) * 100 : 0;
 const f1 = (n: number) => n.toFixed(1);
 
 const report = `# Injection cost — measured
@@ -188,17 +254,26 @@ synthetic timestamps, no wall clock in the output — reruns are byte-identical)
 The numbers come from the plugin's real injection code (\`src/inject.ts\`):
 a seeded store of ${memories.length} memories, a simulated session of
 ${prompts.length} user prompts with 3 mid-session store writes, and the default
-${budget}-character budget.
+${budget}-character budget. Every column is measured on the FULL memory section
+(digest + frontier + relevance block) — the bytes a request actually sends,
+because prompt caching is a property of those bytes and not of the block alone.
 
-| Policy | Recomputes | Injected chars (${prompts.length} turns) | Avg/turn | Worst block |
-| --- | ---: | ---: | ---: | ---: |
-| A — recompute per prompt, uncapped (naive) | ${aBlocks.length} | ${sumA} | ${f1(sumA / aBlocks.length)} | ${worst(aBlocks)} |
-| B — epoch freeze + ${budget}-char cap (shipped) | ${recomputes} | ${sumB} | ${f1(sumB / bBlocks.length)} | ${worst(bBlocks)} |
+| Policy | Recomputes | Cache busts | Injected chars (${prompts.length} turns) | Avg/turn | Worst section |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A — recompute per prompt, uncapped (naive) | ${aSections.length} | ${busts(aSections)} | ${sumA} | ${f1(sumA / aSections.length)} | ${worst(aSections)} |
+| B — block frozen on store fingerprint, digest rebuilt per turn (pre-#162) | ${bRecomputes} | ${busts(bSections)} | ${sumB} | ${f1(sumB / bSections.length)} | ${worst(bSections)} |
+| C — section frozen on rendered bytes (shipped) | ${cRecomputes} | ${busts(cSections)} | ${sumC} | ${f1(sumC / cSections.length)} | ${worst(cSections)} |
 
-Policy B injects ${f1(saved)}% fewer characters on this workload. The bigger
-saving is invisible in this table: B's block is byte-identical between store
-changes, so the system prefix — and with it the provider prompt cache —
-survives ordinary turns instead of being invalidated on every prompt.
+A "cache bust" is a turn whose memory-section bytes differ from the turn
+before: each one re-bills the whole conversation as fresh input. On this
+workload all three mid-session writes turn out to be visible — a new row shifts
+the document frequencies and reorders the top-5 — so B and C agree here. The
+difference is what a write the session CANNOT see costs: under B the digest
+carried the row count and the latest timestamp, so it busted anyway; under C it
+costs nothing. That case is pinned by \`test/epoch.test.ts\` ("a write that
+changes nothing rendered costs ZERO cache busts"), which fails against the
+pre-#162 policy. C also injects ${f1(saved)}% fewer characters than the naive
+policy.
 
 Compaction anchor (capped at 2500 chars): ${anchor.length} chars,
 pushed once per compaction rather than per turn.

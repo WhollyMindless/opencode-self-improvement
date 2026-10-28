@@ -88,6 +88,25 @@ async function deliveredBlock(loaded: Loaded, sid: string, text: string): Promis
   return deliveredContextBlock(loaded, sid);
 }
 
+// The ENTIRE memory section riding the system prompt, in push order. The
+// provider caches a prefix, so cache stability is a property of these bytes —
+// not of the relevance block alone (issue #162).
+async function deliveredSystem(loaded: Loaded, sid: string): Promise<string> {
+  const delivered: { sessionID: string; system: Array<{ type: string; text: string }> } = {
+    sessionID: sid,
+    system: [],
+  };
+  await loaded.sessionHooks["context"]!(delivered);
+  return delivered.system.map((p) => p.text).join("\n");
+}
+
+function digestOf(system: string): string {
+  const start = system.indexOf("## Persistent memory");
+  if (start === -1) return "";
+  const next = system.indexOf("\n## ", start + 5);
+  return next === -1 ? system.slice(start) : system.slice(start, next);
+}
+
 function epochRecomputes(sid: string): Fields[] {
   return evidence().filter((l) => l.ev === "epoch_recompute" && String(l.session) === sid);
 }
@@ -245,6 +264,86 @@ describe("epoch freeze (cache-safe injection)", () => {
     await promptHook({ sessionID: evictedSid, prompt: { text: prompt } });
     expect(epochRecomputes(evictedSid).map((e) => e.reason)).toEqual(["first", "first"]);
     expect(await deliveredContextBlock(loaded, evictedSid)).toContain("session cap sentinel");
+  });
+
+  // ---- issue #162: a write costs a cache bust ONLY when rendered bytes move --
+
+  test("a write that changes nothing rendered costs ZERO cache busts", async () => {
+    seed("pattern", "build", "Run the build with make all from the repo root.");
+    const loaded = await loadPlugin(liveRoot);
+    const prompt = "how do I run the build from the repo root";
+
+    const first = await deliveredBlock(loaded, "ses-neutral", prompt);
+    expect(first).toContain("make all");
+    const systemBefore = await deliveredSystem(loaded, "ses-neutral");
+    expect(epochRecomputes("ses-neutral").map((e) => e.reason)).toEqual(["first"]);
+
+    // Two promoted rows the prompt shares no concept with. The store
+    // fingerprint moves twice; the memory section the model sees does not move
+    // at all, so neither does the provider's cached prefix.
+    for (const content of [
+      "quux nimrod flurb calibration for the zebra dashboard uses widget mode",
+      "zebra dashboard widget calibration notes: nimrod flurb quux twice daily",
+    ]) {
+      seed("learning", "unrelated-scope", content);
+      expect(await deliveredSystem(loaded, "ses-neutral")).toBe(systemBefore);
+    }
+
+    // No recompute → no invalidation → no status flush. The badge keeps
+    // claiming a warm cache because nothing ever left the cache.
+    expect(epochRecomputes("ses-neutral").map((e) => e.reason)).toEqual(["first"]);
+  });
+
+  test("a write that IS injected busts exactly once, then the new bytes freeze", async () => {
+    seed("pattern", "build", "Run the build with make all from the repo root.");
+    const loaded = await loadPlugin(liveRoot);
+    await deliveredBlock(loaded, "ses-real", "how do I run the build from the repo root");
+
+    seed(
+      "pattern",
+      "build",
+      "The build now runs make release from the repo root after the toolchain switch.",
+    );
+    const changed = await deliveredSystem(loaded, "ses-real");
+    expect(changed).toContain("make release");
+    expect(epochRecomputes("ses-real").map((e) => e.reason)).toEqual(["first", "store_changed"]);
+
+    // The fresh bytes then ride every later request unchanged.
+    expect(await deliveredSystem(loaded, "ses-real")).toBe(changed);
+    expect(await deliveredSystem(loaded, "ses-real")).toBe(changed);
+    expect(epochRecomputes("ses-real").length).toBe(2);
+  });
+
+  test("two writes before the next request produce ONE bust, not two", async () => {
+    seed("pattern", "build", "Run the build with make all from the repo root.");
+    const loaded = await loadPlugin(liveRoot);
+    await deliveredBlock(loaded, "ses-batch", "how do I run the build from the repo root");
+
+    seed("pattern", "build", "The build now runs make release from the repo root.");
+    seed("pattern", "deploy", "Deploy the build with make ship from the repo root.");
+    await deliveredSystem(loaded, "ses-batch");
+
+    // The prefix is compared once per request, so a burst of writes costs the
+    // session a single re-prefill.
+    expect(epochRecomputes("ses-batch").map((e) => e.reason)).toEqual(["first", "store_changed"]);
+  });
+
+  test("the standing digest is byte-identical across stores of different size and age", async () => {
+    seed("pattern", "alpha", "widget calibration cadence for the alpha rig");
+    const loaded = await loadPlugin(liveRoot);
+    await loaded.sessionHooks["prompt"]!({ sessionID: "ses-digest", prompt: { text: "widget calibration" } });
+    const small = digestOf(await deliveredSystem(loaded, "ses-digest"));
+    expect(small).toContain("## Persistent memory");
+    // The two facts that used to ride here changed on every promoted write and
+    // invalidated the whole cached prefix for a number the model never needed.
+    expect(small).not.toMatch(/latest:/);
+    expect(small).not.toMatch(/\d+ durable memories/);
+
+    for (let i = 0; i < 5; i++) {
+      seed("learning", `s${i}`, `nimrod flurb quux note ${i} for the zebra dashboard`);
+    }
+    await loaded.sessionHooks["prompt"]!({ sessionID: "ses-digest-2", prompt: { text: "widget calibration" } });
+    expect(digestOf(await deliveredSystem(loaded, "ses-digest-2"))).toBe(small);
   });
 });
 

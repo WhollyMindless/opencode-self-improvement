@@ -99,20 +99,22 @@ Injection, recall, the frontier block, compaction, `memory_forget` and decay onl
 
 ## Token cost and caching
 
-- **Epoch-frozen injection.** The relevance block is computed once per epoch — first prompt of a session, a change to the store, or a compaction — and stays byte-identical in between, so the provider's prompt cache survives ordinary turns.
+- **Section-frozen injection.** The whole memory section — standing digest, open-thread frontier, relevance block — is computed once per epoch and delivered byte-identically until something the model is actually shown changes. The epoch's authority is the **rendered bytes**, not the store fingerprint: a promoted row that changes nothing visible costs no cache bust, while a write that does change what you see costs exactly one.
 - **Two-concept threshold.** A free-text prompt must share at least two distinct concepts with a memory for it to be injected; keyword-length queries (one or two words) need only one. Silence on single-word coincidences is deliberate; `memory_recall` still reaches them on the pull path.
 - **Hard budgets.** Relevance block and each pull are capped at `injectBudget` characters, the frontier at `frontierBudget`, trimmed at whole-memory boundaries.
+- **Nothing volatile on the cached prefix.** The standing digest carries no row count and no latest timestamp. Both used to ride the very front of the system prompt, so every saved memory rewrote the prefix and made the next request re-bill the whole conversation; the exact numbers now live where they are free — the footer badge, `/memory`, `memory_status`, the viewer.
 - **Evidence is never injected**, and the standing system digest is two lines.
 - **Measured, not claimed.** The plugin reads each turn's `tokens.cache` accounting and displays the actual hit rate next to the badge.
 
-Deterministic workload (50 memories, 20 prompts, 3 mid-session store writes) through the plugin's real injection code:
+Deterministic workload (50 memories, 20 prompts, 3 mid-session store writes) through the plugin's real injection code. Every column is measured on the full memory section — the bytes a request actually sends — because prompt caching is a property of those bytes:
 
-| Policy | Recomputes | Injected chars (20 turns) | Avg/turn | Worst block |
-| --- | ---: | ---: | ---: | ---: |
-| A — recompute per prompt, uncapped | 20 | 25742 | 1287.1 | 1838 |
-| B — epoch freeze + 1200-char cap (shipped) | 4 | 19990 | 999.5 | 1139 |
+| Policy | Recomputes | Cache busts | Injected chars (20 turns) | Avg/turn | Worst section |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A — recompute per prompt, uncapped (naive) | 20 | 19 | 60996 | 3049.8 | 3404 |
+| B — block frozen on store fingerprint, digest rebuilt per turn | 4 | 3 | 55478 | 2773.9 | 2867 |
+| C — section frozen on rendered bytes (shipped) | 4 | 3 | 55258 | 2762.9 | 2856 |
 
-Policy B injects 22.3% fewer characters, and its block is byte-identical between store changes so the prompt cache stays warm. Reproduce (byte-identical output):
+A "cache bust" is a turn whose memory-section bytes differ from the turn before — each one re-bills the entire conversation as fresh input. On this workload all three writes happen to be visible, so B and C agree; a write the session *cannot* see costs C nothing and cost B a full re-prefill (pinned by `test/epoch.test.ts`, which fails against B). C also injects 9.4% fewer characters than the naive policy — the denominator here is the whole section, not the relevance block alone, so it is not comparable with the block-only figure this README quoted before. Reproduce (byte-identical output):
 
 ```sh
 bun run bench
@@ -229,7 +231,7 @@ Same data behind each one (`memory_status`; no model call).
 **Terminal (opencode CLI)** — the plugin ships a TUI half (`@opencode/plugin/tui`) that loads automatically:
 
 - **Footer badge** — `● mem 1157/1200c · cache 96%`: the injected block against its budget, plus the measured session prompt-cache hit rate. The dot is green (stable and warm), yellow (recent recompute, or 50–90% reads) or red (last turn served almost nothing from cache); `—` until the first assistant turn.
-- **`/memory`** — session panel: **CONTEXT** (chars and estimated tokens riding now, % of budget, requests this epoch has ridden, session totals, abstentions), **CACHE** (busts this session and the measured cache-served share of prompt tokens), **INJECTED BLOCK** (the verbatim block, or an explicit abstention), **RECENT BLOCKED WRITES** (with gate reasons), **STORE** (active / superseded / open / scopes, plus `malformed` when a row's `ts` is not a valid ISO instant — those rows are skipped by every reader). Keys: `r` refresh, `f` fullscreen.
+- **`/memory`** — session panel: **CONTEXT** (chars and estimated tokens riding now, % of budget, the full memory section riding the prompt — digest + frontier + block — requests this epoch has ridden, session totals, abstentions), **CACHE** (busts this session and the measured cache-served share of prompt tokens), **INJECTED BLOCK** (the verbatim block, or an explicit abstention), **RECENT BLOCKED WRITES** (with gate reasons), **STORE** (active / superseded / open / scopes, plus `malformed` when a row's `ts` is not a valid ISO instant — those rows are skipped by every reader). Keys: `r` refresh, `f` fullscreen.
 - **Block toast** when a write is refused (`"notifyBlocked": false` to silence).
 
 **Desktop / web / IDE** — the terminal slots do not exist there, so use the self-installed **`/memory-report`** chat command: the same sections rendered in the conversation.

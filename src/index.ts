@@ -1211,15 +1211,28 @@ const impl = {
       }));
     });
 
-    // Per-session frozen injection epochs: the relevance block plus the store
-    // fingerprint it was computed against. Recomputed on the first prompt of a
-    // tracked session, when injectable rows change, or after a compaction (see
-    // the prompt/context/compaction hooks) — so the system prefix, and with it
-    // the provider prompt cache, survives ordinary requests. The shared LRU
-    // below may evict the whole session state; a later prompt starts it fresh.
+    // Per-session frozen injection epochs: the whole memory section (digest +
+    // frontier + relevance) plus the store fingerprint it was rendered from.
+    // Recomputed on the first prompt of a tracked session, when injectable rows
+    // change, or after a compaction (see the prompt/context/compaction hooks).
+    // The RENDERED BYTES, not the fingerprint, decide whether the epoch moved
+    // (issue #162): a write that changes nothing the model is shown must not
+    // cost the next request a full re-prefill. The shared LRU below may evict
+    // the whole session state; a later prompt starts it fresh.
     const epoch = new Map<
       string,
-      { version: string; block: string; at: string; reason: "first" | "store_changed"; refs: MemoryRefs }
+      {
+        version: string;
+        /** Frozen standing digest + frontier + convergence parts, in push order. */
+        parts: string[];
+        /** The budgeted relevance block the surfaces report against injectBudget. */
+        block: string;
+        /** Comparison key: every byte of the memory section, joined. */
+        prefix: string;
+        at: string;
+        reason: "first" | "store_changed";
+        refs: MemoryRefs;
+      }
     >();
     // Latest user prompt per tracked session. A changed store is re-scored
     // against it even when the change happened during a tool loop with no new
@@ -1266,6 +1279,7 @@ const impl = {
         recomputes: epochRecomputes,
         block: ep.block,
         blockChars: ep.block.length,
+        sectionChars: ep.prefix.length,
         budget,
         store: {
           active: act.length,
@@ -1306,32 +1320,74 @@ const impl = {
       for (const m of rows) for (const t of sharedTerms(query, m)) if (!terms.includes(t)) terms.push(t);
       await recordHits(src, sid, rows, terms);
     };
-    const refreshEpoch = async (sid: string, rows?: Memory[]): Promise<void> => {
-      if (!latestPrompt.has(sid)) return;
-      const mems = rows ?? (await injectableRows(sid));
-      const version = await storeVersion(mems);
-      const cached = epoch.get(sid);
-      if (cached?.version === version) return;
-      const prompt = latestPrompt.get(sid) ?? "";
-      const sel = await selectRelevant(prompt, 5, mems, await useSignals()); // widen candidate pool
+    // Render the COMPLETE memory section for one request: the standing digest,
+    // the open-thread frontier and the convergence line (all from systemDigest),
+    // followed by this epoch's relevance block. The parts are exactly what gets
+    // pushed onto `event.system`; their join is the byte key the epoch compares
+    // against, so "did the cache-critical prefix change?" is answered by the
+    // bytes the model would actually see and never by a proxy (issue #162).
+    const buildMemorySection = async (
+      sid: string | undefined,
+      mems: Memory[],
+    ): Promise<{ parts: string[]; block: string; prefix: string; rode: Memory[]; refs: MemoryRefs }> => {
+      const parts: string[] = [];
+      await systemDigest(
+        { sessionID: sid },
+        { system: parts },
+        { rows: mems, frontierBudget: openBudget },
+      );
+      const prompt = sid === undefined ? "" : latestPrompt.get(sid) ?? "";
+      // Widen the candidate pool, then cap: the budget decides what rides.
+      const sel = await selectRelevant(prompt, 5, mems, await useSignals());
       const block = sel.block ? capToBudget(sel.block, budget) : "";
       // Refs the ACTUALLY-injected rows assert (paths + commands), the join key
       // for attribution. Derived from the budget-surviving rows, not the wider
       // candidate pool — crediting paths the model never saw would overclaim.
       const rode = injectedRows(block, sel.selected);
-      const refs = deriveMemoryRefs(rode);
+      const prefix = [...parts, block].join("\u0000");
+      return { parts, block, prefix, rode, refs: deriveMemoryRefs(rode) };
+    };
+    const refreshEpoch = async (sid: string, rows?: Memory[]): Promise<void> => {
+      if (!latestPrompt.has(sid)) return;
+      const mems = rows ?? (await injectableRows(sid));
+      const version = await storeVersion(mems);
+      const cached = epoch.get(sid);
+      // Cheap pre-check: no injectable row moved, so the frozen bytes still
+      // stand. Skips re-scoring and the use-ledger write on ordinary turns.
+      if (cached?.version === version) return;
+      const built = await buildMemorySection(sid, mems);
+      // The store moved. A write that changes nothing RENDERED — a row that is
+      // not relevant to this prompt, supersession elsewhere, a scope the reader
+      // never sees rendered identically — must not cost this session a prompt
+      // cache. Adopt the new fingerprint, keep riding the same bytes, emit
+      // nothing: an invalidation has to mean bytes actually moved.
+      if (cached && cached.prefix === built.prefix) {
+        epoch.set(sid, { ...cached, version });
+        return;
+      }
+      const prompt = latestPrompt.get(sid) ?? "";
       // Use ledger (#42): the rows that actually rode the block, credited with
       // the terms the prompt and those rows shared (never the prompt itself).
-      await noteHits("inject", sid, rode, prompt);
+      // Only once the build is ADOPTED — a discarded rebuild must not credit
+      // rows that were already offered under the frozen epoch.
+      await noteHits("inject", sid, built.rode, prompt);
       const at = new Date().toISOString();
       const reason: "first" | "store_changed" = cached ? "store_changed" : "first";
-      epoch.set(sid, { version, block, at, reason, refs });
+      epoch.set(sid, {
+        version,
+        parts: built.parts,
+        block: built.block,
+        prefix: built.prefix,
+        at,
+        reason,
+        refs: built.refs,
+      });
       await record(
         "epoch_recompute",
         {
           session: sid,
           reason,
-          chars: block.length,
+          chars: built.block.length,
         },
         false,
       );
@@ -1415,16 +1471,26 @@ const impl = {
         if (typeof sid === "string") bindSessionProvisional(sid, instanceDir);
         const mems = await injectableRows(sid);
         if (typeof sid === "string") await refreshEpoch(sid, mems);
-        const parts: string[] = [];
-        await systemDigest(
-          { sessionID: event?.sessionID },
-          { system: parts },
-          { rows: mems, frontierBudget: openBudget },
-        );
-        for (const text of parts) event?.system?.push?.({ type: "text", text });
-        // Deliver this epoch's relevance-ranked memory via the system channel.
-        // The UI never renders system parts, unlike appended prompt text.
-        const knowledge = typeof sid === "string" ? epoch.get(sid)?.block : undefined;
+        // Deliver the FROZEN memory section. Every byte pushed onto the system
+        // prompt comes from the epoch, so between busts the provider sees an
+        // identical prefix and serves the conversation from cache (issue #162).
+        // A session with no epoch yet (no prompt recorded, or evicted from the
+        // LRU) still gets the standing digest, built fresh and uncached.
+        const ep = typeof sid === "string" ? epoch.get(sid) : undefined;
+        if (ep) {
+          for (const text of ep.parts) event?.system?.push?.({ type: "text", text });
+        } else {
+          const parts: string[] = [];
+          await systemDigest(
+            { sessionID: event?.sessionID },
+            { system: parts },
+            { rows: mems, frontierBudget: openBudget },
+          );
+          for (const text of parts) event?.system?.push?.({ type: "text", text });
+        }
+        // This epoch's relevance-ranked memory, also on the system channel —
+        // the UI never renders system parts, unlike appended prompt text.
+        const knowledge = ep?.block;
         if (knowledge) event?.system?.push?.({ type: "text", text: knowledge });
         // Count AT THE INJECTION DECISION so badge/panel numbers match exactly
         // what rode this request (a later abort still rode the bytes — known

@@ -291,11 +291,17 @@ export async function systemDigest(
   // after the loadAll await.
   const mems = opts.rows ?? visibleTo((await loadAll()).filter(isActive), readerFromSid(sid));
   if (!mems.length) return;
-  const latest = flattenMemoryText(mems.map((m) => m.ts).sort().pop() ?? "?");
+  // CACHE-STABLE BY CONSTRUCTION (issue #162): this line carries no row count
+  // and no latest-ts. Both change on every promoted write, and the digest rides
+  // the FRONT of the system prompt, so one volatile byte invalidated the whole
+  // cached prefix — every memory write cost the next request a full re-prefill.
+  // The exact numbers belong on surfaces where they are free and never ride a
+  // prompt: the footer badge, /memory, memory_status, the viewer.
   output.system.push(
     "\n## Persistent memory (opencode-self-improvement)\n" +
-      `${mems.length} durable memories; latest: ${latest}. ` +
-      "Check memory_recall BEFORE grepping or reading, for build/test/lint commands, decisions, and conventions. Relevant memories are also auto-injected when your message matches.",
+      "Durable memories exist for this repository. Check memory_recall BEFORE grepping or " +
+      "reading, for build/test/lint commands, decisions, and conventions. Relevant memories " +
+      "are also auto-injected when your message matches.",
   );
 
   const open = mems
