@@ -585,7 +585,7 @@ const impl = {
       editor.add(validated(UpdateArgs, {
         name: "memory_update",
         description:
-          "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing.",
+          "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing; naming a row that was already updated to exactly this content reports the duplicate. A prose edit carries over the metadata the call does not name (tags, issue, keywords).",
         options: direct,
         async execute(args, context): Promise<{ content: string }> {
           const { sid } = toolIds(context);
@@ -606,6 +606,10 @@ const impl = {
           // is exactly the race this lock exists to close. The loser then
           // re-resolves under the lock, finds its target already retired,
           // and writes nothing — the documented fail-closed contract.
+          // Flips once a replacement row is durable, so the catch below can
+          // never claim "Nothing was written" about a write that happened
+          // (#155's lie).
+          let mutated = false;
           try {
             return await withStoreLock(
               join(memoryRoot(), "update-order"),
@@ -618,6 +622,33 @@ const impl = {
                 // row happened to be newest in this scope+type.
                 const resolved = resolveMemoryTarget(prior, args.query);
                 if (resolved.status === "not_found") {
+                  // Naming a SUPERSEDED row is not a miss (#155): the retry
+                  // after a partial update lands here, and when that row's
+                  // active successor already carries exactly this content the
+                  // honest verdict is the duplicate one, not a dead end.
+                  if (args.query) {
+                    const rows = (await loadAll()).filter(
+                      (m) => m.scope === args.scope && m.type === args.type && isVisibleTo(m, reader),
+                    );
+                    const stale = resolveMemoryTarget(rows, args.query);
+                    if (stale.status === "ok" && stale.target && !isActive(stale.target)) {
+                      let latest = stale.target;
+                      const walked = new Set<string>([latest.ts]);
+                      while (latest.superseded_by) {
+                        const next = rows.find((m) => m.ts === latest.superseded_by);
+                        if (!next || walked.has(next.ts)) break;
+                        walked.add(next.ts);
+                        latest = next;
+                      }
+                      if (isActive(latest) && latest.content.trim() === args.content.trim()) {
+                        return {
+                          content:
+                            `Duplicate ignored: ${args.type}/${args.scope} — ${JSON.stringify(args.query)} was already ` +
+                            `updated to exactly this content (${latest.ts}). Nothing was written.`,
+                        };
+                      }
+                    }
+                  }
                   const where = args.query ? ` matches ${JSON.stringify(args.query)}` : "";
                   return {
                     content: `memory_update blocked: no active ${args.type} row in ${args.scope}${where}. Nothing was written.`,
@@ -633,18 +664,51 @@ const impl = {
                 }
                 const target = resolved.target;
                 const outcome = await runWriteGate(
-                  { type: args.type, scope: args.scope, content: args.content, kw: args.kw, status: args.status },
+                  {
+                    type: args.type,
+                    scope: args.scope,
+                    content: args.content,
+                    // A prose edit is not a metadata reset (#154): fields the
+                    // call does not name carry over from the row being
+                    // replaced, so updating an imported row can no longer
+                    // launder away its provenance or issue link. kw follows
+                    // the same rule with an override: omitted keeps the
+                    // target's, provided replaces.
+                    kw: args.kw ?? target.kw,
+                    tags: target.tags,
+                    issue: target.issue,
+                    status: args.status,
+                  },
                   { ...gateContext(sid), supersedesTs: target.ts },
                 );
                 if (outcome.action === "promoted" && outcome.ts && target) {
-                  await markSuperseded(target.ts, {
-                    superseded_by: outcome.ts,
-                    reason: "update",
-                    symbol: target.ts,
-                    from: target.ts,
-                    to: outcome.ts,
+                  mutated = true;
+                  const replacement = outcome.ts;
+                  const retired = target.ts;
+                  // The merge_review PARTIAL shape (156e887) applied to
+                  // update: the replacement IS durable, so the message says
+                  // exactly which follow-up step failed and what a retry does
+                  // (#155 — never claim "Nothing was written" from here).
+                  const partial = (why: string) => ({
+                    content:
+                      `memory_update PARTIAL: replacement ${replacement} IS on disk (memory_undo recovers ${retired}), ` +
+                      `but ${why}. Re-running this update reports the duplicate.`,
                   });
-                  return { content: `Updated ${args.type} in ${args.scope} (superseded ${target.ts})` };
+                  try {
+                    await markSuperseded(retired, {
+                      superseded_by: replacement,
+                      reason: "update",
+                      symbol: retired,
+                      from: retired,
+                      to: replacement,
+                    });
+                  } catch (err) {
+                    return partial(`retiring ${retired} failed: ${(err as Error).message}`);
+                  }
+                  if (outcome.evidenceError) {
+                    return partial(`its write_promoted audit line was not recorded (${outcome.evidenceError})`);
+                  }
+                  return { content: `Updated ${args.type} in ${args.scope} (superseded ${retired})` };
                 }
                 if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
                 if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
@@ -658,10 +722,17 @@ const impl = {
               },
             );
           } catch (err) {
-            // Only the fail-closed lock timeout throws here; the write path
-            // has its own outcomes. Nothing was written either way.
+            // Everything that still throws here is pre-write: the fail-closed
+            // lock timeout, the #152 choke-point refusal, an evidence fault
+            // BEFORE the append. Post-append audit failures no longer reach
+            // this catch — the gate reports them on the promoted outcome
+            // (#155). mutated is the belt-and-braces truth check: a future
+            // post-write throw must report a partial, never a clean nothing.
             return {
-              content: `memory_update blocked: ${(err as Error).message} Nothing was written.`,
+              content: mutated
+                ? `memory_update PARTIAL: a step after the durable write failed: ${(err as Error).message}. ` +
+                  "Re-running this update reports the duplicate; inspect with memory_evidence."
+                : `memory_update blocked: ${(err as Error).message} Nothing was written.`,
             };
           }
         },

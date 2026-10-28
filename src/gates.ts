@@ -76,6 +76,13 @@ export interface GateOutcome {
   ts?: string;
   chain: string;
   hint?: string;
+  // Promoted with the row DURABLE but its post-append write_promoted audit
+  // line failed (#155). Entry points with a further post-mutation step
+  // (memory_update's supersede) must still run it and report a partial
+  // result. Throwing was the old shape of this signal and it lied: callers
+  // read it as "nothing happened" while the row sat on disk. Pre-append
+  // faults keep throwing — there, nothing was in fact written.
+  evidenceError?: string;
 }
 
 const STOPWORDS = new Set([
@@ -662,21 +669,31 @@ export async function runWriteGate(
   // The write carries the CALLER's session, not whatever current says after
   // the gate's own awaits - capture's stamp must follow the captured session.
   const ts = await appendMemory({ ...candidate, sessionID: ctx.sessionID });
-  await rec("write_promoted", {
-    gate: 4,
-    op: "write",
-    mem: ts,
-    scope: candidate.scope,
-    type: candidate.type,
-    status: candidate.status ?? "settled",
-    ch,
-    supersedes: supersededTs ?? "-",
-    canonical: canon ? `canonical.logfmt:${canon.entry.ts}` : "-",
-    evidence_refs: bracketList(ctx.evidenceCalls),
-    snapshot: snapshot[0] ?? "-",
-    trusted: ctx.trusted ? true : undefined,
-    grounded_by: groundedByEngagement ? "engagement" : undefined,
-    chain,
-  });
-  return { action: "promoted", ts, chain };
+  // Everything past the append is durable state: an audit failure from here
+  // must not escape as a throw, or the caller reports a write that happened
+  // as if it had not (#155 — memory_update told the model "Nothing was
+  // written" while the replacement row sat un-superseded on disk). The
+  // outcome carries the error instead.
+  let evidenceError: string | undefined;
+  try {
+    await rec("write_promoted", {
+      gate: 4,
+      op: "write",
+      mem: ts,
+      scope: candidate.scope,
+      type: candidate.type,
+      status: candidate.status ?? "settled",
+      ch,
+      supersedes: supersededTs ?? "-",
+      canonical: canon ? `canonical.logfmt:${canon.entry.ts}` : "-",
+      evidence_refs: bracketList(ctx.evidenceCalls),
+      snapshot: snapshot[0] ?? "-",
+      trusted: ctx.trusted ? true : undefined,
+      grounded_by: groundedByEngagement ? "engagement" : undefined,
+      chain,
+    });
+  } catch (err) {
+    evidenceError = (err as Error).message;
+  }
+  return { action: "promoted", ts, chain, evidenceError };
 }
