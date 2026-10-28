@@ -121,7 +121,10 @@ export const UndoArgs = z.object({
 });
 
 export const EvidenceArgs = z.object({
-  date: z.string().optional(),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "must be a YYYY-MM-DD calendar date (paths are refused)")
+    .optional(),
   ev: z.string().optional(),
   limit: z.coerce.number().optional(),
 });
