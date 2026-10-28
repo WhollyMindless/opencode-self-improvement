@@ -10,8 +10,9 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { normalizeDirPath, resolveRepo, setRepoScope } from "../src/repokey.ts";
+import { normalizeDirPath, resolveRepo, resetSessionScopes, setRepoScope } from "../src/repokey.ts";
 import { appendMemory } from "../src/memory.ts";
+import { resetState } from "../src/state.ts";
 import { relevantKnowledge } from "../src/inject.ts";
 
 const gitToplevel = (dir: string): string | null => {
@@ -32,6 +33,13 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "osi-repokey-"));
   memDir = join(root, "memory");
   process.env.OPENCODE_MEMORY_DIR = memDir;
+  // This file asserts on the AMBIENT module scope: it calls setRepoScope()
+  // and expects appendMemory to stamp with it, and reads through the ambient
+  // reader. Both resolve the calling session FIRST when one is bound (#127),
+  // so the file must own that state too — an ambient sid left behind by an
+  // earlier file silently outranks setRepoScope() (#149).
+  resetState();
+  resetSessionScopes();
   setRepoScope(null);
 });
 afterEach(() => {

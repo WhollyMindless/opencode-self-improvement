@@ -24,7 +24,7 @@ import {
   type Memory,
 } from "../src/memory.ts";
 import { resetState, setCurrent } from "../src/state.ts";
-import { setRepoScope } from "../src/repokey.ts";
+import { resetSessionScopes, setRepoScope } from "../src/repokey.ts";
 import { loadPlugin } from "./harness.ts";
 
 let root: string;
@@ -44,6 +44,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Release the identity this file took. Dispatching a tool binds the ambient
+  // session to `liveRoot` (bindSessionProvisional at flow entry, #127), and
+  // that map is module-global — without this the sid "upd" and its binding
+  // outlive the file and outrank the next file's own setRepoScope(), stamping
+  // its rows with this file's already-deleted temp repo (#149).
+  resetState();
+  resetSessionScopes();
   delete process.env.OPENCODE_MEMORY_DIR;
   delete process.env.OPENCODE_COMMANDS_DIR;
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
