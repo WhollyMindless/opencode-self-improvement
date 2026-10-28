@@ -100,7 +100,15 @@ function makeServeGuest(fake: Fake, pluginPath: string): ServeGuest {
 
   const env: Record<string, string> = {
     HOME: serveRoot,
-    PATH: `${dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin`,
+    // Sandboxed, but it must be able to FIND git and bun: on Windows a bare
+    // C:\Windows\System32 PATH has no git on it, resolveRepo's `git remote
+    // get-url` fails, and the stamp falls back to a path-hash key — the URL
+    // key this suite pins could then never be produced on this platform.
+    // Keep the isolation (HOME/XDG untouched); fix the lookup only (#148).
+    PATH:
+      process.platform === "win32"
+        ? `${dirname(process.execPath)};${process.env.PATH}`
+        : `${dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin`,
     XDG_CONFIG_HOME: cfg,
     XDG_DATA_HOME: join(root, "data"),
     XDG_STATE_HOME: join(root, "state"),
