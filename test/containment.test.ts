@@ -76,6 +76,27 @@ function makeLink(target: string, linkPath: string): void {
   }
 }
 
+// Two fixtures below build a symlink directly — a junction cannot replace them
+// (one must dangle, one must point at a FILE) — and creating a symlink needs
+// Developer Mode or admin on Windows, so on an unprivileged box the fixture's
+// own symlinkSync throws EPERM before resolveContained is ever called (#147).
+// Skip on the machine's actual capability, probed once with the same call the
+// fixtures make — not on the platform label: GitHub's Windows runners hold the
+// privilege (test-windows runs the rest of this file green) and keep executing
+// these tests; unprivileged dev boxes stop paying a fake-red triage tax.
+const CAN_SYMLINK = (() => {
+  const probe = mkdtempSync(join(tmpdir(), "osi-symlink-cap-"));
+  try {
+    symlinkSync(join(probe, "nothing-here"), join(probe, "probe"));
+    return true;
+  } catch (err) {
+    if (err instanceof Error && "code" in err && err.code === "EPERM") return false;
+    throw err;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+})();
+
 const outsidePayload = (marker: string) =>
   `${[
     JSON.stringify({ _export: "opencode-self-improvement", version: 1, count: 1 }),
@@ -163,7 +184,9 @@ describe("resolveContained", () => {
     );
   });
 
-  test("a dangling symlink in the path is refused, not waved through", async () => {
+  test.skipIf(!CAN_SYMLINK)(
+    "a dangling symlink in the path is refused, not waved through",
+    async () => {
     // realAncestor() must lstat(), not stat(): stat() follows this link to
     // nothing, the walk skips past it as "missing", and the request comes back
     // ACCEPTED — leaving mkdir() to fail on the link with a raw errno.
@@ -305,7 +328,9 @@ describe("resolveContained", () => {
     expect(readdirSync(outside)).toEqual([]);
   });
 
-  test("a link to another file INSIDE the root is refused, not followed", async () => {
+  test.skipIf(!CAN_SYMLINK)(
+    "a link to another file INSIDE the root is refused, not followed",
+    async () => {
     // The realpath check passes (both ends are inside); only an lstat at the
     // final component sees the link. A stat() here would wave it through and
     // clobber the target.
