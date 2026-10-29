@@ -182,8 +182,8 @@ async function handoverRename(tmp: string, file: string, since?: string): Promis
 }
 
 export async function readLines(file: string): Promise<string[]> {
-  // BunFile.exists() caches the size; a later text() can crop a larger atomic
-  // replacement to that old size. Read metadata and bytes through one handle.
+  // BunFile.exists() and .size cache the size; a later text() can crop a larger
+  // atomic replacement. Read metadata and bytes through one handle instead.
   let text: string;
   try {
     text = await readFile(file, "utf8");
