@@ -194,6 +194,10 @@ export interface ImportTally {
   skipped: number;
   /** Open rows downgraded because the file cannot grant that frontier scope. */
   downgraded: number;
+  /** Promoted rows whose write_promoted audit line failed to land (#155 review). */
+  unaudited: number;
+  /** First audit-fault message, so the reply can name what went wrong. */
+  auditError?: string;
 }
 
 // Recognize the export header line (see EXPORT_HEADER). A version NEWER than
@@ -277,7 +281,7 @@ function parseRow(line: string): WriteCandidate | null {
 // day files, snapshots and the blocklist, none of which are import formats.
 export async function importMemories(
   path: string,
-  gate: (c: WriteCandidate) => Promise<{ action: string }>,
+  gate: (c: WriteCandidate) => Promise<{ action: string; evidenceError?: string }>,
   // The importing session, captured at tool entry (#127): "the importing
   // session's current repo" must be the CALLER's repo even though this loop
   // awaits the gate on every row, during which a concurrent session can move
@@ -297,7 +301,7 @@ export async function importMemories(
   }
   const file = Bun.file(target);
   if (!(await file.exists())) throw new Error(`import file not found: ${target}`);
-  const tally: ImportTally = { promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0 };
+  const tally: ImportTally = { promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0, unaudited: 0 };
   // #152: the importing session's repository is resolved BEFORE the first row,
   // through the writer rule rather than the ambient one. An unresolved named
   // session has no write target, and half a file re-stamped into whatever
@@ -339,8 +343,13 @@ export async function importMemories(
       tally.downgraded++;
     }
     const outcome = await gate(c);
-    if (outcome.action === "promoted") tally.promoted++;
-    else if (outcome.action === "collapsed") tally.collapsed++;
+    if (outcome.action === "promoted") {
+      tally.promoted++;
+      if (outcome.evidenceError !== undefined) {
+        tally.unaudited++;
+        tally.auditError ??= outcome.evidenceError;
+      }
+    } else if (outcome.action === "collapsed") tally.collapsed++;
     else tally.blocked++;
   }
   return tally;

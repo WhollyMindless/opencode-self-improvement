@@ -31,7 +31,7 @@ import {
   visibleTo,
   type Memory,
 } from "./memory.ts";
-import { runWriteGate, sameStrList, type GateContext, type WriteCandidate } from "./gates.ts";
+import { auditCaveat, runWriteGate, sameStrList, type GateContext, type WriteCandidate } from "./gates.ts";
 import { withStoreLock } from "./lock.ts";
 import { pruneMemory } from "./prune.ts";
 import { exportMemories, findStaleOpen, importMemories } from "./portable.ts";
@@ -483,7 +483,11 @@ const impl = {
             if (ownerless) return await refuseOwnerlessWrite(ownerless, "remember");
           }
           const outcome = await runWriteGate(candidate, gateContext(sid));
-          if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
+          // A durable row whose audit line fell is NOT a clean success
+          // (#155 review): the reply says what is missing where it is
+          // missing, and the row itself stands.
+          if (outcome.action === "promoted")
+            return { content: `Remembered: ${args.type} in ${args.scope}${auditCaveat(outcome)}` };
           if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
           return {
             content: `Write blocked at GATE (${outcome.reason}). ${
@@ -757,7 +761,8 @@ const impl = {
                   }
                   return { content: `Updated ${args.type} in ${args.scope} (superseded ${retired})` };
                 }
-                if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
+                if (outcome.action === "promoted")
+                  return { content: `Remembered: ${args.type} in ${args.scope}${auditCaveat(outcome)}` };
                 if (outcome.action === "collapsed") {
                   // Completion (#155 convergence): when a retry collapses
                   // because an ACTIVE row already holds exactly this content
@@ -767,21 +772,58 @@ const impl = {
                   // survivor's favor — a bare "Duplicate ignored" would leave
                   // two active rows forever and a retry that never converges.
                   // first-call-wins makes this safe to attempt on any path.
-                  const survivor = outcome.collapsedWith;
-                  if (target && survivor && survivor !== target.ts) {
-                    const done = await markSuperseded(target.ts, {
-                      superseded_by: survivor,
-                      reason: "update",
-                      symbol: target.ts,
-                      from: target.ts,
-                      to: survivor,
-                    });
-                    if (done) {
-                      return {
-                        content:
-                          `Duplicate: ${args.type}/${args.scope} already stands active as ${survivor}; ` +
-                          `${target.ts} was retired in its favor. Nothing new was written.`,
-                      };
+                  // But the fold must not INVERT #154 (review): retiring the
+                  // named row is loss-free only when the survivor already
+                  // carries what the named row carries — the SAME predicate
+                  // GATE-3 uses to call same-prose-different-metadata an
+                  // edit rather than a duplicate. Otherwise the survivor
+                  // would stand stripped of the named row's issue link,
+                  // keywords, tags or OPEN frontier standing, and a "clean
+                  // no-op" message would paper over a metadata destruction.
+                  // On disagreement nothing retires: both ids are named and
+                  // a human (or an update on the survivor) decides.
+                  const survivorTs = outcome.collapsedWith;
+                  if (target && survivorTs && survivorTs !== target.ts) {
+                    const survivor = (await loadAll()).find((m) => m.ts === survivorTs && !m.superseded_by);
+                    if (survivor) {
+                      if (
+                        sameStrList(target.kw, survivor.kw) &&
+                        sameStrList(target.tags, survivor.tags) &&
+                        target.issue === survivor.issue &&
+                        (target.status ?? "settled") === (survivor.status ?? "settled")
+                      ) {
+                        const done = await markSuperseded(target.ts, {
+                          superseded_by: survivorTs,
+                          reason: "update",
+                          symbol: target.ts,
+                          from: target.ts,
+                          to: survivorTs,
+                        });
+                        if (done) {
+                          return {
+                            content:
+                              `Duplicate: ${args.type}/${args.scope} already stands active as ${survivorTs}; ` +
+                              `${target.ts} was retired in its favor. Nothing new was written.`,
+                          };
+                        }
+                      } else {
+                        const differs: string[] = [];
+                        if ((target.status ?? "settled") !== (survivor.status ?? "settled"))
+                          differs.push(`status ${target.status ?? "settled"} vs ${survivor.status ?? "settled"}`);
+                        if (target.issue !== survivor.issue)
+                          differs.push(`issue ${target.issue ?? "-"} vs ${survivor.issue ?? "-"}`);
+                        if (!sameStrList(target.kw, survivor.kw))
+                          differs.push(`kw [${(target.kw ?? []).join(", ") || "-"}] vs [${(survivor.kw ?? []).join(", ") || "-"}]`);
+                        if (!sameStrList(target.tags, survivor.tags))
+                          differs.push(`tags [${(target.tags ?? []).join(", ") || "-"}] vs [${(survivor.tags ?? []).join(", ") || "-"}]`);
+                        return {
+                          content:
+                            `Duplicate: ${args.type}/${args.scope} stands active as ${survivorTs}, but ${target.ts} ` +
+                            `was NOT retired — it carries what the survivor does not (${differs.join("; ")}), and ` +
+                            `the fold would drop it. Both stay active: restate them onto ${survivorTs} with a ` +
+                            `memory_update, or memory_forget the row that should lose.`,
+                        };
+                      }
                     }
                   }
                   return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
@@ -1103,6 +1145,12 @@ const impl = {
                 `${t.blocked} blocked by the gate, ${t.skipped} malformed lines skipped.` +
                 (t.downgraded
                   ? ` ${t.downgraded} open rows downgraded to settled (missing eligible memory_export header or verifiable repo scope).`
+                  : "") +
+                // Rows that landed without their write_promoted line are
+                // durable but invisible to memory_evidence (#155 review) —
+                // the tally owes the reader the count, not silence.
+                (t.unaudited
+                  ? ` ${t.unaudited} promoted rows landed without their write_promoted audit line (${t.auditError}); memory_evidence will miss them.`
                   : ""),
             };
           } catch (err) {
@@ -1787,7 +1835,17 @@ const impl = {
                 ? `auto_capture_compaction_${outcome.action}`
                 : `auto_capture_${outcome.action}`,
               // A blocked credential-shaped scope must not reach the evidence log either.
-              { session: sid, trigger, type: c.type, scope: redactSecrets(c.scope), reason: outcome.reason ?? "" },
+              // The promoted line also carries the audit fault when the
+              // write_promoted line fell (#155 review — capture has no
+              // reply to caveat, so this line is the trail's only note).
+              {
+                session: sid,
+                trigger,
+                type: c.type,
+                scope: redactSecrets(c.scope),
+                reason: outcome.reason ?? "",
+                audit_error: outcome.evidenceError,
+              },
               false,
             );
           }

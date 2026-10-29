@@ -51,8 +51,21 @@ export interface WriteCandidate {
 // Metadata-list equality (retrieval keywords, tags): pairwise, undefined and
 // empty counting as the same content. Shared by GATE-3's update carve-out and
 // memory_update's successor verdict so both sides ask the same question.
+// ORDER-SENSITIVE on purpose: ["a","b"] vs ["b","a"] counts as a metadata
+// edit (a new row, the old one intact) — a set comparison would silently
+// collapse an edit whose ordering the caller changed deliberately, and the
+// conservative direction for a truth-claim is the one that writes more.
 export const sameStrList = (a?: string[], c?: string[]) =>
   (a?.length ?? 0) === (c?.length ?? 0) && (a ?? []).every((x, i) => (c ?? [])[i] === x);
+
+// The sentence every success reply owes the reader when the gate promoted a
+// row but its write_promoted audit line failed to land (#155 review): the
+// row IS durable — and memory_evidence, where every other verdict points
+// the curious reader, will show NOTHING for it. Only silence was optional.
+export const auditCaveat = (outcome: GateOutcome): string =>
+  outcome.evidenceError !== undefined
+    ? ` (its audit line was not recorded: ${outcome.evidenceError})`
+    : "";
 
 export interface GateContext {
   liveRoot: string;
