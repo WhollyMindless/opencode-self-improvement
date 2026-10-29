@@ -33,7 +33,9 @@ export interface SessionState {
   pendingGate: {
     call: string;
     cmd: string;
-    chain: ToolResult[];
+    chain: string[];
+    count: number;
+    fix?: { call: string; index: number };
   } | null;
   // Bounded provenance for write telemetry (#163), independent of the full
   // calls ledger used by grounding, attribution, and convergence.
