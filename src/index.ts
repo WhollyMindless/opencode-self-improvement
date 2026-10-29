@@ -755,8 +755,17 @@ const impl = {
                   // a human (or an update on the survivor) decides.
                   const survivorTs = outcome.collapsedWith;
                   if (target && survivorTs && survivorTs !== target.ts) {
-                    const survivor = (await loadAll()).find((m) => m.ts === survivorTs && !m.superseded_by);
+                    // The gate can observe a session move after this call captured
+                    // its reader. Recheck before trusting or describing the survivor.
+                    const survivor = (await loadAll()).find(
+                      (m) => m.ts === survivorTs && !m.superseded_by && isVisibleTo(m, reader),
+                    );
                     if (survivor) {
+                      // Private rows are visible by key OR path. Equal keys alone
+                      // can drop another checkout's access after an origin change.
+                      // For global rows, isVisibleTo ignores paths.
+                      const samePathVisibility = requested.repo === "global" ||
+                        (target.repoPath ?? "") === (survivor.repoPath ?? "");
                       // The predicate is the REQUESTED state vs the survivor
                       // (round 3): content equality is already proven by the
                       // collapse, so the fold is loss-free only when the
@@ -771,7 +780,8 @@ const impl = {
                         sameStrList(requested.tags, survivor.tags) &&
                         requested.issue === survivor.issue &&
                         requested.status === (survivor.status ?? "settled") &&
-                        requested.repo === (survivor.repo ?? "global")
+                        requested.repo === (survivor.repo ?? "global") &&
+                        samePathVisibility
                       ) {
                         const done = await markSuperseded(target.ts, {
                           superseded_by: survivorTs,
@@ -799,6 +809,7 @@ const impl = {
                           differs.push(`tags [${(requested.tags ?? []).join(", ") || "-"}] vs [${(survivor.tags ?? []).join(", ") || "-"}]`);
                         if (requested.repo !== (survivor.repo ?? "global"))
                           differs.push(`visibility ${requested.repo} vs ${survivor.repo ?? "global"}`);
+                        if (!samePathVisibility) differs.push("repository path visibility differs");
                         return {
                           content:
                             `Duplicate: ${args.type}/${args.scope} stands active as ${survivorTs}, but ${target.ts} ` +
