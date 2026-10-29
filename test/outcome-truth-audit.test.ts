@@ -364,7 +364,7 @@ describe("the fold judges the REQUESTED state; the gate owns its durable steps (
         ctx("ses-r3c"),
       );
     } finally {
-      spy.restore();
+      spy.mockRestore();
     }
     const rows = await loadAll();
     expect(rows.find((m) => m.ts === other)?.superseded_by).toBeDefined();
