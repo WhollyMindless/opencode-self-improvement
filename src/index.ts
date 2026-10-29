@@ -614,6 +614,10 @@ const impl = {
           // never claim "Nothing was written" about a write that happened
           // (#155's lie).
           let mutated = false;
+          // The gate's durable steps: rows GATE-2 retired before a later
+          // failure (round-3 probe 3). Non-empty means "Nothing was written"
+          // is no longer writable.
+          const gateDurable: string[] = [];
           try {
             return await withStoreLock(
               join(memoryRoot(), "update-order"),
@@ -693,30 +697,42 @@ const impl = {
                   };
                 }
                 const target = resolved.target;
+                // A prose edit is not a metadata reset (#154): fields the
+                // call does not name carry over from the row being
+                // replaced, so updating an imported row can no longer
+                // launder away its provenance or issue link. kw follows
+                // the same rule with an override: omitted keeps the
+                // target's, provided replaces. The carry completes to the
+                // five fields of the #129 viewer precedent: STATUS (an
+                // open frontier row stays open) and REPO (updating a
+                // global row from one repository must not re-house it out
+                // of every other repository's view — "an edit must never
+                // widen visibility", and it must never narrow it either).
+                // These are also the fields the collapse-completion judges
+                // (review round 3): the fold asks whether the survivor
+                // already carries the REQUESTED state — not the pre-edit
+                // target's. An update naming kw:["new-alias"] is not
+                // "already standing" on a row holding ["old-alias"].
+                const requested = {
+                  kw: args.kw ?? target.kw,
+                  tags: target.tags,
+                  issue: target.issue,
+                  status: (args.status ?? target.status) ?? "settled",
+                  repo: target.repo ?? "global",
+                };
                 const outcome = await runWriteGate(
                   {
                     type: args.type,
                     scope: args.scope,
                     content: args.content,
-                    // A prose edit is not a metadata reset (#154): fields the
-                    // call does not name carry over from the row being
-                    // replaced, so updating an imported row can no longer
-                    // launder away its provenance or issue link. kw follows
-                    // the same rule with an override: omitted keeps the
-                    // target's, provided replaces. The carry completes to the
-                    // five fields of the #129 viewer precedent: STATUS (an
-                    // open frontier row stays open) and REPO (updating a
-                    // global row from one repository must not re-house it out
-                    // of every other repository's view — "an edit must never
-                    // widen visibility", and it must never narrow it either).
-                    kw: args.kw ?? target.kw,
-                    tags: target.tags,
-                    issue: target.issue,
-                    status: args.status ?? target.status,
-                    repo: target.repo ?? "global",
+                    kw: requested.kw,
+                    tags: requested.tags,
+                    issue: requested.issue,
+                    status: requested.status,
+                    repo: requested.repo,
                     repoPath: target.repo ? target.repoPath : undefined,
                   },
-                  { ...gateContext(sid), supersedesTs: target.ts },
+                  { ...gateContext(sid), supersedesTs: target.ts, durable: gateDurable },
                 );
                 if (outcome.action === "promoted" && outcome.ts && target) {
                   mutated = true;
@@ -786,11 +802,21 @@ const impl = {
                   if (target && survivorTs && survivorTs !== target.ts) {
                     const survivor = (await loadAll()).find((m) => m.ts === survivorTs && !m.superseded_by);
                     if (survivor) {
+                      // The predicate is the REQUESTED state vs the survivor
+                      // (round 3): content equality is already proven by the
+                      // collapse, so the fold is loss-free only when the
+                      // survivor also carries the metadata THIS call asked
+                      // for — and stands where the target stands for readers
+                      // of other repositories (repo visibility: folding a
+                      // global row into a repo-private survivor would
+                      // narrow a visibility the promotion path exists to
+                      // preserve, and the reverse would leak).
                       if (
-                        sameStrList(target.kw, survivor.kw) &&
-                        sameStrList(target.tags, survivor.tags) &&
-                        target.issue === survivor.issue &&
-                        (target.status ?? "settled") === (survivor.status ?? "settled")
+                        sameStrList(requested.kw, survivor.kw) &&
+                        sameStrList(requested.tags, survivor.tags) &&
+                        requested.issue === survivor.issue &&
+                        requested.status === (survivor.status ?? "settled") &&
+                        requested.repo === (survivor.repo ?? "global")
                       ) {
                         const done = await markSuperseded(target.ts, {
                           superseded_by: survivorTs,
@@ -808,20 +834,22 @@ const impl = {
                         }
                       } else {
                         const differs: string[] = [];
-                        if ((target.status ?? "settled") !== (survivor.status ?? "settled"))
-                          differs.push(`status ${target.status ?? "settled"} vs ${survivor.status ?? "settled"}`);
-                        if (target.issue !== survivor.issue)
-                          differs.push(`issue ${target.issue ?? "-"} vs ${survivor.issue ?? "-"}`);
-                        if (!sameStrList(target.kw, survivor.kw))
-                          differs.push(`kw [${(target.kw ?? []).join(", ") || "-"}] vs [${(survivor.kw ?? []).join(", ") || "-"}]`);
-                        if (!sameStrList(target.tags, survivor.tags))
-                          differs.push(`tags [${(target.tags ?? []).join(", ") || "-"}] vs [${(survivor.tags ?? []).join(", ") || "-"}]`);
+                        if (requested.status !== (survivor.status ?? "settled"))
+                          differs.push(`status ${requested.status} vs ${survivor.status ?? "settled"}`);
+                        if (requested.issue !== survivor.issue)
+                          differs.push(`issue ${requested.issue ?? "-"} vs ${survivor.issue ?? "-"}`);
+                        if (!sameStrList(requested.kw, survivor.kw))
+                          differs.push(`kw [${(requested.kw ?? []).join(", ") || "-"}] vs [${(survivor.kw ?? []).join(", ") || "-"}]`);
+                        if (!sameStrList(requested.tags, survivor.tags))
+                          differs.push(`tags [${(requested.tags ?? []).join(", ") || "-"}] vs [${(survivor.tags ?? []).join(", ") || "-"}]`);
+                        if (requested.repo !== (survivor.repo ?? "global"))
+                          differs.push(`visibility ${requested.repo} vs ${survivor.repo ?? "global"}`);
                         return {
                           content:
                             `Duplicate: ${args.type}/${args.scope} stands active as ${survivorTs}, but ${target.ts} ` +
-                            `was NOT retired — it carries what the survivor does not (${differs.join("; ")}), and ` +
-                            `the fold would drop it. Both stay active: restate them onto ${survivorTs} with a ` +
-                            `memory_update, or memory_forget the row that should lose.`,
+                            `was NOT retired — the survivor does not carry what this update asked for ` +
+                            `(${differs.join("; ")}), and the fold would drop it. Both stay active: restate them ` +
+                            `onto ${survivorTs} with a memory_update, or memory_forget the row that should lose.`,
                         };
                       }
                     }
@@ -838,17 +866,27 @@ const impl = {
               },
             );
           } catch (err) {
-            // Everything that still throws here is pre-write: the fail-closed
-            // lock timeout, the #152 choke-point refusal, an evidence fault
-            // BEFORE the append. Post-append audit failures no longer reach
-            // this catch — the gate reports them on the promoted outcome
-            // (#155). mutated is the belt-and-braces truth check: a future
-            // post-write throw must report a partial, never a clean nothing.
+            // Everything that still throws here was PRE-WRITE for THIS call's
+            // replacement: the fail-closed lock timeout, the #152 choke-point
+            // refusal, an evidence fault BEFORE the append. Post-append audit
+            // failures no longer reach this catch — the gate reports them on
+            // the promoted outcome (#155). mutated is the belt-and-braces
+            // truth check: a future post-write throw must report a partial,
+            // never a clean nothing. And gateDurable closes the last gap
+            // (round 3): the gate may have RETIRED OTHER rows at GATE-2
+            // before the fault that got here — those tombstones are on disk,
+            // and naming them beats the "Nothing was written" premise.
+            const msg = err instanceof Error && err.message ? err.message : String(err);
             return {
               content: mutated
-                ? `memory_update PARTIAL: a step after the durable write failed: ${(err as Error).message}. ` +
+                ? `memory_update PARTIAL: a step after the durable write failed: ${msg}. ` +
                   "Re-running this update reports the duplicate; inspect with memory_evidence."
-                : `memory_update blocked: ${(err as Error).message} Nothing was written.`,
+                : gateDurable.length > 0
+                  ? `memory_update blocked: ${msg} No replacement was written, but the gate had ALREADY retired ` +
+                    `${gateDurable.length} other row(s) (${gateDurable.join(", ")}): those retirements ARE on ` +
+                    "disk and their audit lines may not all have landed. Re-running this update will not undo " +
+                    "them — reconcile with memory_evidence / memory_undo before retrying."
+                  : `memory_update blocked: ${msg} Nothing was written.`,
             };
           }
         },

@@ -8,7 +8,7 @@ import {
   appendMemory,
   loadAll,
   loadScope,
-  markManySuperseded,
+  markManySupersededReport,
   snapshotFiles,
   MAX_CONTENT_CHARS,
   type Memory,
@@ -88,6 +88,12 @@ export interface GateContext {
   // excludes it from rivalry: the update IS the sanctioned supersession, so it
   // must never be blocked as a conflict with the row it is about to supersede.
   supersedesTs?: string;
+  // Optional caller-owned ledger (#158 round 3): GATE-2's drift/canonical
+  // supersessions append the ts values they made durable HERE, immediately
+  // after the batch publish and BEFORE their audit lines — so a failed audit
+  // line can no longer hide a persisted retirement from the caller's catch.
+  // "Nothing was written" is only writable when this stays empty.
+  durable?: string[];
 }
 
 export interface GateOutcome {
@@ -460,8 +466,11 @@ export async function runWriteGate(
     });
   }
   if (driftPlan.length > 0) {
-    const markedCount = await markManySuperseded(driftPlan.map((p) => ({ ts: p.s.memory.ts, fields: p.fields })));
-    if (markedCount > 0) {
+    const { marked } = await markManySupersededReport(driftPlan.map((p) => ({ ts: p.s.memory.ts, fields: p.fields })));
+    if (marked.length > 0) {
+      // Ledger BEFORE the audit lines: what is on disk now stays on disk no
+      // matter what the record loop below does (round-3 probe 3).
+      ctx.durable?.push(...marked);
       for (const p of driftPlan) {
         supersededTs = p.s.memory.ts;
         await rec("superseded_by", {
@@ -505,10 +514,15 @@ export async function runWriteGate(
     }
     // One batch publish for the whole neutralization set (#61); rows marked
     // out-of-band since the scan are skipped by the batch (re-read under lock).
-    if ((await markManySuperseded(canonPlan.map((p) => ({
-      ts: p.ts,
-      fields: { superseded_by: target, reason: "canonical", entity: canon.entry.entity, from: p.from, to: canon.entry.value },
-    })))) > 0) {
+    const { marked: canonMarked } = await markManySupersededReport(
+      canonPlan.map((p) => ({
+        ts: p.ts,
+        fields: { superseded_by: target, reason: "canonical", entity: canon.entry.entity, from: p.from, to: canon.entry.value },
+      })),
+    );
+    if (canonMarked.length > 0) {
+      // Same ledger discipline as the drift batch above.
+      ctx.durable?.push(...canonMarked);
       for (const p of canonPlan) {
         if (!supersededTs) supersededTs = p.ts;
         await rec("superseded_by", {
