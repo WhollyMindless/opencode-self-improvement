@@ -1,25 +1,12 @@
-// Opt-in auto-capture core. Pure and dependency-free: no opencode
-// imports, no filesystem, no ambient clock — the transcript, the model call
-// and time are all injected by the caller (src/index.ts), so everything here
-// is unit-testable. Every candidate that leaves this module still flows
+// Opt-in auto-capture parsing, prompt, and lag helpers. Host access and model
+// calls live in src/index.ts. Every candidate that leaves this module flows
 // through runWriteGate in index.ts: capture NEVER writes memories directly,
 // so dupes/stale/canonical rules keep the moat (same as model-authored writes).
 // All parsing functions are TOTAL: any malformed input yields [] / "" / null,
 // never a throw.
-import { STATUSES, TYPES } from "./types.ts";
+import { TYPES } from "./types.ts";
 import { flattenMemoryText } from "./sanitize.ts";
 import { redactSecrets } from "./secrets.ts";
-
-export interface CaptureOptions {
-  model: string; // "provider/id"
-  max: number;
-}
-
-export interface CaptureDeps {
-  generate: (prompt: string) => Promise<string>;
-  sessionText: string;
-  now: () => Date;
-}
 
 export interface CaptureCandidate {
   type: string;

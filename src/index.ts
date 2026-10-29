@@ -3,22 +3,17 @@
 // tiny-digest injection with deterministic memory-first context and
 // contextual pull, and snapshot/rollback.
 //
-// V2 port: registers tools via `ctx.tool.transform` (JSON Schema), mirrors the
-// V1 hooks onto the OpenCode V2 session/tool hook API, and registers the
-// /repo-init command via `ctx.command.transform`. The plugin contract is a
-// default export object `{ id, setup(ctx) }` (OpenCode >= 2.0), pinned at
-// compile time against the real SDK type (`@opencode/plugin`, type-only — see
-// the note on `plugin` below). All business logic still lives in the decoupled
-// helper modules.
+// Registers tools via `ctx.tool.transform` (JSON Schema) and hooks via the
+// OpenCode V2 session/tool API. Slash commands are installed as markdown by
+// src/command.ts. The default export `{ id, setup(ctx) }` is checked against
+// the SDK's Plugin type using a type-only import (see the note on `plugin`).
 import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { basename, join } from "node:path";
 import { frontierBudget, injectBudget, memoryRoot } from "./config.ts";
-import { STATUSES, TYPES } from "./types.ts";
 import {
   clearSuperseded,
   evidenceVisibleTo,
   isActive,
-  isVisibleHere,
   isVisibleTo,
   loadAll,
   malformedCount,
@@ -28,7 +23,6 @@ import {
   resolveMemoryTarget,
   snapshotFiles,
   unresolvedWriteMessage,
-  visibleTo,
   type Memory,
 } from "./memory.ts";
 import { runWriteGate, type GateContext, type WriteCandidate } from "./gates.ts";
@@ -143,16 +137,8 @@ interface PluginCtx {
     transform: (cb: (editor: ToolEditorLike) => void) => Promise<unknown>;
     hook: (name: string, cb: (event: any) => Promise<void> | void) => Promise<HookReg | void>;
   };
-  command?: {
-    transform: (cb: (editor: { add: (cmd: Record<string, unknown>) => void }) => void) => Promise<unknown>;
-  };
   session?: {
     hook: (name: string, cb: (event: any) => Promise<void> | void) => Promise<HookReg | void>;
-    prompt: (input: {
-      sessionID: string;
-      text: string;
-      delivery?: "steer" | "queue";
-    }) => Promise<unknown>;
     context?: (input: { sessionID: string }) => Promise<unknown>;
     get?: (input: { sessionID: string }) => Promise<unknown>;
   };
@@ -231,36 +217,19 @@ export function resetCaptureCooldowns(): void {
 }
 
 // ---- capture trigger vocabulary (#136) -------------------------------------
-// opencode 2.x has no `session.idle`. The subscription used to wait for exactly
-// that string, so auto-capture was dead on every 2.x host with no warning
-// anywhere: live proof is in the issue (45 s of the running service's own SSE
-// stream over a complete turn, and zero `capture_lag` lines in the whole
-// evidence history). What the host really publishes when a turn ends is the
-// `session.execution.*` family; `session.status` is the ephemeral variant whose
-// `status.type` says "idle".
-//
-// These lists are the single source of truth for what the capture subscription
-// reacts to, and test/event-fidelity.test.ts asserts every name here appears in
-// the installed @opencode/schema event manifest. Invented event names are the
-// bug class that caused #78 and then survived a review, a merge and 480 green
-// tests, because the tests fabricated the same invented payload.
-// Recorded live, not guessed: `succeeded` and `interrupted` were both observed
-// on a running desktop service (test/fixtures/host-events.jsonl).
+// Single source of truth for capture subscriptions. Both turn-end events were
+// observed on the desktop service (test/fixtures/host-events.jsonl).
+// test/event-fidelity.test.ts requires every trigger to appear in both that
+// recording and the installed @opencode/schema manifest: a declared event
+// alone is insufficient evidence that the host emits it (#78, #136).
 export const TURN_END_EVENTS = ["session.execution.succeeded", "session.execution.interrupted"] as const;
 
 /** Every event type the capture subscription reacts to (fidelity-tested). */
 export const CAPTURE_EVENT_TYPES: readonly string[] = [...TURN_END_EVENTS];
 
-// Deliberately NOT triggers, because a live host was never observed sending
-// them, and dead branches are what caused #136 in the first place:
-//   • `session.idle`   - declared, never emitted (the original bug).
-//   • `session.status` - declared, never emitted; would also need
-//                        `data.status.type === "idle"` filtering.
-//   • `session.execution.failed` - declared, not reproduced here. A failed turn
-//                        simply does not capture, which costs nothing; adding it
-//                        later is allowed the moment a recording shows it.
-// test/event-fidelity.test.ts enforces that nothing enters TURN_END_EVENTS
-// without appearing in the recording.
+// `session.idle`, `session.status`, and `session.execution.failed` are declared
+// but absent from that recording, so they deliberately do not trigger capture.
+// Adding a trigger requires a recording; status would also need idle filtering.
 
 /**
  * True when a host event means "this session just went quiet". The internal
@@ -1533,7 +1502,7 @@ const impl = {
     // measured-cache listener above does subscribe to the event stream by
     // default, but it is zero-model: pure bookkeeping of message usage.) When
     // enabled (options.autoCapture === true AND a valid captureModel), each
-    // session.idle event — and, unless captureOnCompact === false, each
+    // supported turn-end event — and, unless captureOnCompact === false, each
     // compaction hook call too — runs ONE cheap ctx.generate.text call whose
     // reply is parsed into candidates that go through the SAME runWriteGate as
     // model-authored writes — capture can never bypass the moat, and it only
