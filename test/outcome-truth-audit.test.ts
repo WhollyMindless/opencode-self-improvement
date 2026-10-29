@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dateStr, evidenceDir } from "../src/config.ts";
+import { canonicalFile, dateStr, evidenceDir } from "../src/config.ts";
 import * as evidence from "../src/evidence.ts";
 import { appendMemory, isActive, loadAll } from "../src/memory.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
@@ -26,7 +26,7 @@ import { EXPORT_HEADER, EXPORT_VERSION } from "../src/portable.ts";
 import { resetSessionScopes, resolveRepo, setRepoScope } from "../src/repokey.ts";
 import { resetState } from "../src/state.ts";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { parseLine, type Fields } from "../src/logfmt.ts";
+import { formatLine, parseLine, type Fields } from "../src/logfmt.ts";
 
 let root: string;
 let a: string;
@@ -275,5 +275,99 @@ describe("a durable row with no audit line is never a clean success", () => {
     }
     const line = evidenceLines().find((l) => l.ev === "auto_capture_compaction_promoted")!;
     expect(String(line.audit_error ?? "")).toContain("simulated audit disk fault");
+  });
+});
+
+describe("the fold judges the REQUESTED state; the gate owns its durable steps (review round 3)", () => {
+  // Three probes from the independent recheck of c95c919 (#158 comment,
+  // 2026-10-29T00:22Z) — setup and assertions kept theirs. The fold added
+  // for #155 convergence judged the PRE-EDIT target against the survivor,
+  // so it could consume an explicit keyword/status edit (the requested
+  // value never landed anywhere) and could retire a GLOBAL row into a
+  // repo-private one (other repositories silently lost the fact). The
+  // third probe fails on main too: GATE-2's drift/canonical supersessions
+  // persist BEFORE their audit line, and a failed audit after a persisted
+  // retirement still printed "Nothing was written".
+  test("an explicit keyword edit may not be consumed by the fold", async () => {
+    const pa = await plugin(a);
+    const old = await appendMemory({
+      type: "context",
+      scope: "planning",
+      content: "Plan to prune aged queue entries every evening",
+      status: "open",
+      kw: ["old-alias"],
+      ...stampOf(a),
+    });
+    const prose = "Plan to prune aged queue entries every morning";
+    await appendMemory({ type: "context", scope: "planning", content: prose, status: "open", kw: ["old-alias"], ...stampOf(a) });
+    const out = await pa.tools.memory_update.execute(
+      { type: "context", scope: "planning", query: old, content: prose, kw: ["new-alias"] },
+      ctx("ses-r3a"),
+    );
+    const rows = await loadAll();
+    // Either fulfill the requested edit, or preserve the source and report the conflict.
+    const requestedLanded = rows.some((m) => isActive(m) && m.content === prose && m.kw?.includes("new-alias"));
+    expect(requestedLanded || isActive(rows.find((m) => m.ts === old)!)).toBe(true);
+    void out;
+  });
+
+  test("folding a GLOBAL row may not narrow the fact's visibility", async () => {
+    const pa = await plugin(a);
+    const old = await appendMemory({
+      type: "context",
+      scope: "planning",
+      content: "Plan to prune aged queue entries every evening",
+      status: "open",
+      repo: "global",
+    });
+    const prose = "Plan to prune aged queue entries every morning";
+    await appendMemory({ type: "context", scope: "planning", content: prose, status: "open", ...stampOf(a) });
+    const bdir = join(root, "repo-b");
+    mkdirSync(bdir);
+    const pb = await plugin(bdir);
+    const before = await pb.tools.memory_recall.execute({ scope: "planning" }, ctx("ses-r3b1"));
+    expect(before.content).toContain("every evening");
+    await pa.tools.memory_update.execute({ type: "context", scope: "planning", query: old, content: prose }, ctx("ses-r3a"));
+    const after = await pb.tools.memory_recall.execute({ scope: "planning" }, ctx("ses-r3b2"));
+    expect(after.content).toContain("Plan to prune");
+  });
+
+  test("a blocked update that already retired OTHER rows may not say nothing was written", async () => {
+    const pa = await plugin(a);
+    const old = await appendMemory({
+      type: "context",
+      scope: "planning",
+      content: "queue backend redis",
+      status: "open",
+      ...stampOf(a),
+    });
+    const other = await appendMemory({
+      type: "context",
+      scope: "planning",
+      content: "worker backend mysql",
+      status: "open",
+      ...stampOf(a),
+    });
+    writeFileSync(
+      canonicalFile(),
+      formatLine({ ts: "2026-01-01T00:00:00.000Z", type: "canonical", scope: "planning", entity: "backend", value: "postgres", source: "fixture" }) + "\n",
+    );
+    const record = evidence.record;
+    const spy = spyOn(evidence, "record").mockImplementation(async (...args: Parameters<typeof record>) => {
+      if (args[0] === "superseded_by") throw new Error("EIO: injected neutralization audit failure");
+      return record(...args);
+    });
+    let out: { content: string };
+    try {
+      out = await pa.tools.memory_update.execute(
+        { type: "context", scope: "planning", query: old, content: "queue backend postgres" },
+        ctx("ses-r3c"),
+      );
+    } finally {
+      spy.restore();
+    }
+    const rows = await loadAll();
+    expect(rows.find((m) => m.ts === other)?.superseded_by).toBeDefined();
+    expect(out.content).not.toContain("Nothing was written");
   });
 });
