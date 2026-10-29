@@ -264,7 +264,7 @@ export async function finalizeSession(sid: string): Promise<void> {
   );
 }
 
-// Called from chat.message: opening a new session closes the previous one
+// Called from the session prompt hook: opening a new session closes the previous one
 // (the host has no session-end hook, so a push handoff — new session in the
 // same process — is the closest deterministic close).
 export async function checkNewSession(sid: string): Promise<void> {
