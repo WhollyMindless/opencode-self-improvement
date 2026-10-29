@@ -191,17 +191,28 @@ test("auto-capture stores nothing for a session whose repository is unresolved",
   p.capture.generate.response = JSON.stringify([
     { type: "learning", scope: "build", status: "open", content: "UNRESOLVED_CAPTURE_ROW" },
   ]);
+  const isRefusal = (l: Fields) =>
+    l.ev === "auto_capture_refused" && l.sid === "ses-unresolved" &&
+    l.session === "ses-unresolved" && l.trigger === "idle";
   p.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-unresolved" } });
   const lines = await (async () => {
+    let ev: Fields[] = [];
     for (let i = 0; i < 200; i++) {
-      const ev = await evidenceAsync();
-      if (ev.some((l) => String(l.ev).startsWith("auto_capture"))) return ev;
+      ev = await evidenceAsync();
+      // A prefix match is not completion: wait for the full refusal record
+      // for this session before checking that capture stored nothing.
+      if (ev.some(isRefusal)) return ev;
       await new Promise((r) => setTimeout(r, 10));
     }
-    return [];
+    return ev;
   })();
   expect(await rowsWith("UNRESOLVED_CAPTURE_ROW")).toHaveLength(0);
-  expect(lines.some((l) => String(l.ev) === "auto_capture_refused")).toBe(true);
+  expect(lines, "expected a complete refusal record for ses-unresolved").toContainEqual(
+    expect.objectContaining({
+      ev: "auto_capture_refused", sid: "ses-unresolved", session: "ses-unresolved", trigger: "idle",
+    }),
+  );
+  expect(p.capture.generate.calls).toHaveLength(0);
   await p.cleanup();
 });
 

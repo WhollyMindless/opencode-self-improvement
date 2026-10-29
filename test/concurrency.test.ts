@@ -67,6 +67,10 @@ describe("supersede racing appends", () => {
     expect(rows).toHaveLength(80);
   });
 
+  // 300 serialized rewrites race 400 reads. Four Windows test workers can
+  // take longer than Bun's default 5s; let the workload finish before teardown
+  // resets the store used by its still-running promises. Keep every read and
+  // row assertion, and leave production lock deadlines unchanged.
   test("a concurrent reader never sees a half-written file", async () => {
     const seeded = await seed(300);
     let observedPartial = 0;
@@ -89,7 +93,7 @@ describe("supersede racing appends", () => {
     expect(reads).toBeGreaterThan(0);
     expect(observedPartial).toBe(0);
     expect(await rawLines()).toHaveLength(300);
-  });
+  }, 30_000);
 });
 
 describe("prune racing appends", () => {

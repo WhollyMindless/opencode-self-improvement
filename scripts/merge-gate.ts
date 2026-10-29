@@ -10,8 +10,9 @@ const REPO = join(import.meta.dir, "..");
 const steps: [string, string[]][] = [
   ["typecheck (tsc)", ["bun", "x", "tsc", "--noEmit", "-p", "tsconfig.json"]],
   ["lint (biome)", ["bun", "x", "biome", "lint"]],
-  ["unit tests", ["bun", "test", "./test/"]],
-  ["terminal smoke + BDD (real opencode host)", ["bun", "test", "./e2e/", "--timeout", "240000"]],
+  // Share the bounded worker count and test options with CI's package scripts.
+  ["unit tests", ["bun", "run", "test"]],
+  ["terminal smoke + BDD (real opencode host)", ["bun", "run", "test:e2e"]],
 ];
 
 // A pre-push hook runs with git's OWN environment exported — GIT_DIR,

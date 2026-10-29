@@ -526,6 +526,11 @@ describe("an import landing while another session writes", () => {
 	// Appends were already safe when import shipped, so this scenario is green on
 	// both sides by design: it pins that import lands row-wise and can never be
 	// "optimized" into a bulk publish that clobbers a live writer.
+	// This integration workload performs 30 gated imports plus 80 concurrent
+	// appends. waitForRows alone permits 20s for the children to become ready;
+	// Bun's default 5s deadline can abort valid work on a busy Windows runner
+	// with four test workers (#174). Budget 30s for this scenario, retaining
+	// every row/count assertion and the normal timeout for other tests.
 	test("imported rows and concurrently appended rows all land", async () => {
 		seedScopes(150, [["consistency", 1200]]);
 		const importFile = join(memoryRoot(), "import.jsonl");
@@ -582,7 +587,7 @@ describe("an import landing while another session writes", () => {
 			`${lost.length} of ${reported} appended rows are in neither the store nor any snapshot: ${lost.slice(0, 5).join(", ")}`,
 		).toBe(0);
 		expect(reported).toBe(80);
-	});
+	}, 30_000);
 });
 
 /** ts values of rows currently marked superseded in the live day file. */
