@@ -1,7 +1,7 @@
 // Minimal logfmt reader/writer shared by the durable store and the evidence
 // log. Field order is preserved on write so chains are diffable.
 import { dirname } from "node:path";
-import { appendFile, mkdir, rename, stat, unlink } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, stat, unlink } from "node:fs/promises";
 
 const IS_WINDOWS = process.platform === "win32";
 
@@ -182,9 +182,15 @@ async function handoverRename(tmp: string, file: string, since?: string): Promis
 }
 
 export async function readLines(file: string): Promise<string[]> {
-  const f = Bun.file(file);
-  if (!(await f.exists())) return [];
-  const text = await f.text();
+  // BunFile.exists() and .size cache the size; a later text() can crop a larger
+  // atomic replacement. Read metadata and bytes through one handle instead.
+  let text: string;
+  try {
+    text = await readFile(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
   return text.split("\n").filter((l) => l.trim().length > 0);
 }
 
