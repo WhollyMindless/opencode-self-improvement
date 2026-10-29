@@ -82,6 +82,8 @@ Zero configuration is the default. To tune, use the object form of the plugin en
 
 ## How memory is written
 
+Promotion evidence keeps a bounded sample of call IDs: the ten most recent code-engagement calls, plus the latest gate check, the latest recorded gate FAIL/fix/PASS recovery, and the latest recorded tool FAIL/PASS retry (at most 16 distinct IDs). `evidence_refs_count` is the total number of recorded session calls before sampling, including non-code tools; the sampled IDs are audit pointers, not a complete history. Grounding and memory attribution still use the full in-memory ledger. Existing evidence day-files are left unchanged: this upgrade does not backfill, compact, or delete historical audit records.
+
 Four gates run before anything is stored, and each emits an ordered evidence line:
 
 1. **GATE-1 — code references resolve.** Call signatures and paths embedded in the memory are checked against your live source tree.

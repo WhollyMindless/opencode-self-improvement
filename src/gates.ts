@@ -16,6 +16,7 @@ import {
 } from "./memory.ts";
 import { chainId, contentHash, record, recordWriteBlocked } from "./evidence.ts";
 import { noteAuthored } from "./state.ts";
+import { MAX_WRITE_EVIDENCE_REFS } from "./triggers.ts";
 import { flattenMemoryText } from "./sanitize.ts";
 import { containsSecret, redactSecrets } from "./secrets.ts";
 import { readerForSession } from "./memory.ts";
@@ -51,6 +52,9 @@ export interface WriteCandidate {
 export interface GateContext {
   liveRoot: string;
   evidenceCalls: string[];
+  // Total before the telemetry window was selected. Legacy/direct callers
+  // may still supply their complete list; the writer bounds that too.
+  evidenceCallsCount?: number;
   hasGateCheck: boolean;
   // The session this write belongs to, when the caller knows it by name.
   // Repo-stamp resolution prefers it over the mutable global current, which
@@ -677,7 +681,8 @@ export async function runWriteGate(
     ch,
     supersedes: supersededTs ?? "-",
     canonical: canon ? `canonical.logfmt:${canon.entry.ts}` : "-",
-    evidence_refs: bracketList(ctx.evidenceCalls),
+    evidence_refs: bracketList(ctx.evidenceCalls.slice(-MAX_WRITE_EVIDENCE_REFS)),
+    evidence_refs_count: ctx.evidenceCallsCount ?? ctx.evidenceCalls.length,
     snapshot: snapshot[0] ?? "-",
     trusted: ctx.trusted ? true : undefined,
     grounded_by: groundedByEngagement ? "engagement" : undefined,

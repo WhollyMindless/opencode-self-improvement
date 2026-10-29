@@ -73,7 +73,7 @@ import {
   afterTool,
   callsFor,
   checkNewSession,
-  evidenceCalls,
+  writeEvidence,
   firstFrontierTap,
   hasEngagement,
   hasGateCheck,
@@ -338,7 +338,7 @@ const impl = {
         // through here (readers and stamps use the firm-or-provisional split
         // in repokey/memory); do not mistake this for one.
         liveRoot: sessionDir(bound) ?? liveRoot,
-        evidenceCalls: evidenceCalls(bound),
+        ...writeEvidence(bound),
         hasGateCheck: hasGateCheck(bound),
         hasEngagement: hasEngagement(bound),
       };
