@@ -6,7 +6,6 @@ import { memoryRoot, canonicalFile } from "./config.ts";
 import { bracketList, parseLine, readLines } from "./logfmt.ts";
 import {
   appendMemory,
-  loadAll,
   loadScope,
   markManySupersededReport,
   snapshotFiles,
