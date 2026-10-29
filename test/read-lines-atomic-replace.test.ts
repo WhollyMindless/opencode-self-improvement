@@ -8,7 +8,7 @@ import { readLines } from "../src/logfmt.ts";
 
 let root: string;
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "osi-read-snapshot-"));
+  root = mkdtempSync(join(tmpdir(), "osi-read-replace-"));
 });
 afterEach(() => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -31,7 +31,10 @@ test("a larger atomic replacement is not cropped to the previous file size", asy
   // Supply the actual BunFile whose metadata predates the rename. This pins
   // the exists()/text() race without sleeps or mocking the bytes returned:
   // both old and new reader implementations read the real replacement file.
-  const factory = spyOn(Bun, "file").mockReturnValue(cached);
+  const realFile = Bun.file;
+  const factory = spyOn(Bun, "file").mockImplementation((path: unknown, options?: BlobPropertyBag) =>
+    path === file ? cached : Reflect.apply(realFile, Bun, [path, options]),
+  );
   try {
     const lines = await readLines(file);
     expect(lines).toHaveLength(2);
@@ -49,4 +52,8 @@ test("missing and empty files remain empty; whitespace-only lines are omitted", 
   expect(await readLines(file)).toEqual([]);
   writeFileSync(file, '\n  \n ts=one content="kept"\n\t\n');
   expect(await readLines(file)).toEqual([' ts=one content="kept"']);
+});
+
+test("non-ENOENT read errors propagate instead of looking like an empty store", async () => {
+  await expect(readLines(root)).rejects.toMatchObject({ code: "EISDIR" });
 });
