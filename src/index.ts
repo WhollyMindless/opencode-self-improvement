@@ -755,15 +755,18 @@ const impl = {
                   // a human (or an update on the survivor) decides.
                   const survivorTs = outcome.collapsedWith;
                   if (target && survivorTs && survivorTs !== target.ts) {
-                    // The gate can observe a session move after this call captured
+                    // #175: the gate can observe a session move after this call captured
                     // its reader. Recheck before trusting or describing the survivor.
                     const survivor = (await loadAll()).find(
                       (m) => m.ts === survivorTs && !m.superseded_by && isVisibleTo(m, reader),
                     );
                     if (survivor) {
-                      // Private rows are visible by key OR path. Equal keys alone
+                      // #175: private rows are visible by key OR path. Equal keys alone
                       // can drop another checkout's access after an origin change.
                       // For global rows, isVisibleTo ignores paths.
+                      // Match raw paths like isVisibleTo; filesystem aliases need not
+                      // grant the same readers access. This restricts automatic folds;
+                      // explicit merge_review authorizes both seats under #131 instead.
                       const samePathVisibility = requested.repo === "global" ||
                         (target.repoPath ?? "") === (survivor.repoPath ?? "");
                       // The predicate is the REQUESTED state vs the survivor
@@ -814,8 +817,9 @@ const impl = {
                           content:
                             `Duplicate: ${args.type}/${args.scope} stands active as ${survivorTs}, but ${target.ts} ` +
                             `was NOT retired — the survivor does not carry what this update asked for ` +
-                            `(${differs.join("; ")}), and the fold would drop it. Both stay active: restate them ` +
-                            `onto ${survivorTs} with a memory_update, or memory_forget the row that should lose.`,
+                            `(${differs.join("; ")}), and the fold would drop it. Both stay active. To deliberately ` +
+                            `keep only the survivor, use memory_merge_review with loser="${target.ts}", ` +
+                            `survivor="${survivorTs}", and an explicit reason. This keeps the survivor's metadata and visibility.`,
                         };
                       }
                     }

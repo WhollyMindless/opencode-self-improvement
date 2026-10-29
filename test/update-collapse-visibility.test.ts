@@ -139,6 +139,22 @@ test("same-origin checkouts with different paths do not fold even while both can
   expect(reply.content).toContain("repository path visibility differs");
   expect((await row(target.ts)).superseded_by).toBeUndefined();
   expect((await row(survivor.ts)).superseded_by).toBeUndefined();
+  expect(reply.content).toContain(`memory_merge_review with loser="${target.ts}", survivor="${survivor.ts}"`);
+  expect(reply.content).toContain("explicit reason");
+  expect(reply.content).not.toContain("memory_forget");
+
+  // An explicit choice may cross paths (#131); the suggested remedy must
+  // retire exactly the named loser, not every row of this scope and type.
+  const unrelated = await appendMemory({
+    ...fields, content: "Plan to audit payroll each quarter", repo: target.repo, repoPath: target.repoPath,
+  });
+  const merged = await pb.tools.memory_merge_review.execute({
+    loser: target.ts, survivor: survivor.ts, reason: "Explicitly keep the survivor's standing",
+  }, ctx("writer"));
+  expect(merged.content).toMatch(/^Resolved merge:/);
+  expect((await row(target.ts)).superseded_by).toBe(survivor.ts);
+  expect((await row(survivor.ts)).superseded_by).toBeUndefined();
+  expect((await row(unrelated)).superseded_by).toBeUndefined();
 });
 
 test("a fold preserves another checkout's path-fallback recall after its origin changes", async () => {
