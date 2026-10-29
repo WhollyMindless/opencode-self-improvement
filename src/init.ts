@@ -8,10 +8,11 @@
 import { basename, join } from "node:path";
 import { existsSync } from "node:fs";
 import { cbmBin } from "./config.ts";
-import { isVisibleTo, loadAll, markSuperseded, readerFromSid } from "./memory.ts";
+import { isVisibleTo, loadAll, markSuperseded, readerFromSid, type Reader } from "./memory.ts";
 import { runWriteGate, type GateContext } from "./gates.ts";
 import { record } from "./evidence.ts";
 import { writeEvidence, hasGateCheck } from "./triggers.ts";
+import { writeTarget } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
 
 export interface ScriptRecord {
@@ -190,13 +191,12 @@ export interface InitStamp {
   head: string;
 }
 
-export async function initStamp(scope: string, sid?: string): Promise<InitStamp | null> {
+export async function initStamp(scope: string, sid?: string, reader: Reader = readerFromSid(sid)): Promise<InitStamp | null> {
   // Scope is a basename, so two different repos can share one
   // ("api" next to "api", a fork beside its upstream). Visibility filtering
   // makes each repo see only its own stamp — basename collisions no longer
   // alias init state between repos. The reader comes from the CALLER's
   // session, not from the global current after this await (#127).
-  const reader = readerFromSid(sid);
   const mems = (await loadAll()).filter((m) => !m.superseded_by && isVisibleTo(m, reader));
   for (const m of mems) {
     if (m.type !== "context" || m.scope !== scope) continue;
@@ -208,6 +208,8 @@ export async function initStamp(scope: string, sid?: string): Promise<InitStamp 
 }
 
 export async function runInit(args: InitArgs): Promise<InitSummary> {
+  const reader = readerFromSid(args.sessionID);
+  const writeAt = writeTarget(args.sessionID ?? getCurrent().sid);
   const root = await gitRootOf(args.liveRoot);
   const scope = basename(root) || basename(args.liveRoot);
   const head = await gitHead(root);
@@ -216,6 +218,8 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
 
   const gateCtx: GateContext = {
     liveRoot: root,
+    reader,
+    writeAt,
     ...writeEvidence(args.sessionID ?? getCurrent().sid),
     hasGateCheck: hasGateCheck(args.sessionID ?? getCurrent().sid),
     // Stamps land on the caller's session even though runInit awaits git
@@ -224,7 +228,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
     trusted: true,
   };
 
-  const prior = await initStamp(scope, args.sessionID);
+  const prior = await initStamp(scope, args.sessionID, reader);
   if (prior && !force && prior.head === head) {
     await record("init_skip", { scope, head, since: prior.ts }, false);
     return {

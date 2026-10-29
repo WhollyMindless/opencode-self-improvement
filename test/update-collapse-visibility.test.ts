@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { runWriteGate } from "../src/gates.ts";
 import * as evidence from "../src/evidence.ts";
 import { appendMemory, isVisibleTo, loadAll, readerForSession, type Memory } from "../src/memory.ts";
 import { rememberSessionDir, resetSessionScopes, resolveRepo, sessionScope, setRepoScope } from "../src/repokey.ts";
@@ -183,8 +184,12 @@ test("a session move cannot retire a target into an entry-invisible survivor", a
   const reply = await update(pa, target.ts);
   expect(moved()).toBe(true);
   expect(reply.content).not.toContain(survivor.ts);
-  expect((await row(target.ts)).superseded_by).toBeUndefined();
-  expect((await recall(pa)).content).toContain(oldProse);
+  expect(reply.content).toStartWith("Updated ");
+  const replacement = await row((await row(target.ts)).superseded_by!);
+  expect(replacement.ts).not.toBe(survivor.ts);
+  expect(replacement.repo).toBe(target.repo);
+  expect(replacement.repoPath).toBe(target.repoPath);
+  expect((await recall(pa)).content).toContain(newProse);
 });
 
 test("a session move cannot expose invisible survivor metadata in a refusal", async () => {
@@ -199,7 +204,11 @@ test("a session move cannot expose invisible survivor metadata in a refusal", as
   expect(moved()).toBe(true);
   expect(reply.content).not.toContain("PRIVATE-SURVIVOR-175");
   expect(reply.content).not.toContain(survivor.ts);
-  expect((await row(target.ts)).superseded_by).toBeUndefined();
+  expect(reply.content).toStartWith("Updated ");
+  const replacement = await row((await row(target.ts)).superseded_by!);
+  expect(replacement.ts).not.toBe(survivor.ts);
+  expect(replacement.repo).toBe(target.repo);
+  expect(replacement.repoPath).toBe(target.repoPath);
 });
 
 test.each([
@@ -225,4 +234,37 @@ test.each([
     expect((await row(target)).superseded_by).toBeUndefined();
   }
   expect((await row(survivor)).superseded_by).toBeUndefined();
+});
+
+
+test("session move cannot expose a private competing decision in the blocked-overlap hint", async () => {
+  const pa = await plugin(a);
+  await plugin(b);
+  const scopeA = resolveRepo(a);
+  const scopeB = resolveRepo(b);
+  const target = await appendMemory({ type: "decision", scope: "queue", content: "Use a dedicated worker for invoice delivery", status: "open", repo: scopeA.key, repoPath: scopeA.path });
+  const rival = await appendMemory({ type: "decision", scope: "queue", content: "Use Redis for the durable message queue", status: "open", repo: scopeB.key, repoPath: scopeB.path });
+  rememberSessionDir("writer", a);
+  expect(isVisibleTo(await row(rival), readerForSession("writer"))).toBe(false);
+  const moved = moveDuringGate(pa);
+  const reply = await pa.tools.memory_update.execute({ type: "decision", scope: "queue", query: target, content: "Use Postgres for the durable message queue", status: "open" }, ctx("writer"));
+  expect(moved()).toBe(true);
+  expect(reply.content).not.toContain(rival);
+  expect(reply.content).not.toContain("superseded_overlap");
+  expect(reply.content).toStartWith("Updated ");
+  const replacement = await row((await row(target)).superseded_by!);
+  expect(replacement.repo).toBe(scopeA.key);
+  expect((await row(rival)).superseded_by).toBeUndefined();
+});
+
+
+test("a direct gate snapshots named read and write identity before its first await", async () => {
+  const pa = await plugin(a);
+  rememberSessionDir("writer", a);
+  const moved = moveDuringGate(pa);
+  const outcome = await runWriteGate({ ...fields, content: "Keep the original operation owner across a session move" }, { sessionID: "writer", liveRoot: a, evidenceCalls: [], hasGateCheck: false });
+  expect(moved()).toBe(true);
+  expect(outcome.action).toBe("promoted");
+  expect((await row(outcome.ts!)).repo).toBe(resolveRepo(a).key);
+  expect((await row(outcome.ts!)).repoPath).toBe(resolveRepo(a).path);
 });

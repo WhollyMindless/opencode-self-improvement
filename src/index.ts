@@ -296,6 +296,8 @@ const impl = {
       const bound = sid ?? getCurrent().sid;
       return {
         sessionID: sid,
+        reader: readerFromSid(sid),
+        writeAt: writeTarget(bound),
         // NOTE (re-review): this one lookup is intentionally NON-firm — a
         // provisional binding may supply the gate's verification TREE. The
         // tree is where a referenced file is checked to exist, not who the
@@ -687,7 +689,7 @@ const impl = {
                     repo: requested.repo,
                     repoPath: target.repo ? target.repoPath : undefined,
                   },
-                  { ...gateContext(sid), supersedesTs: target.ts, durable: gateDurable },
+                  { ...gateContext(sid), reader, supersedesTs: target.ts, durable: gateDurable },
                 );
                 if (outcome.action === "promoted" && outcome.ts && target) {
                   mutated = true;
@@ -1137,13 +1139,14 @@ const impl = {
           await bindSessionIdentity(sid);
           const ownerless = ownerlessWriter(sid);
           if (ownerless) return await refuseOwnerlessWrite(ownerless, "import");
+          const importGate = gateContext(sid);
           try {
             const t = await importMemories(
               args.file,
               (c) =>
                 runWriteGate(
                   { ...c, tags: [...new Set([...(c.tags ?? []), "import"])] },
-                  gateContext(sid),
+                  importGate,
                 ),
               sid,
             );
@@ -1529,6 +1532,7 @@ const impl = {
             await record("auto_capture_refused", { session: sid, trigger }, true, sid);
             return;
           }
+          const captureGate = gateContext(sid);
           let transcript = seeded;
           let msgs = seededMsgs;
           if (transcript.length < 200) {
@@ -1561,7 +1565,7 @@ const impl = {
                     ? ["auto-capture", CAPTURE_COMPACT_TAG]
                     : ["auto-capture"],
               },
-              gateContext(sid),
+              captureGate,
             );
             await record(
               trigger === "compaction"

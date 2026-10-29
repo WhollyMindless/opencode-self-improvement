@@ -288,6 +288,7 @@ export async function importMemories(
   // the ambient current.
   sessionID?: string,
 ): Promise<ImportTally> {
+  const writeAt = writeTarget(sessionID ?? getCurrent().sid);
   const target = await resolveContained(path, memoryRoot(), {
     label: "memory_import file",
     // Deliberately no mention of the operator escape hatch: this string goes
@@ -307,7 +308,6 @@ export async function importMemories(
   // session has no write target, and half a file re-stamped into whatever
   // workspace happened to set up last is worse than none — so this throws
   // before a single row is gated, not partway through the tally.
-  const writeAt = writeTarget(sessionID ?? getCurrent().sid);
   if (!writeAt.ok) throw new UnresolvedWriterError(writeAt.sid);
   const currentScope = writeAt.scope;
   let allowFrontier = false;
