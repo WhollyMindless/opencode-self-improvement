@@ -9,7 +9,7 @@ permissions:
 
 # Bun is pinned on purpose (bun-version in every job below and in release.yml):
 # Bun behaviour differs between releases (e.g. Bun.write({append:true})), and
-# local dev may run a different version. Bump all four pins together.
+# local dev may run a different version. Keep all CI and release pins in sync.
 
 jobs:
   lint:
@@ -51,6 +51,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - name: Tests
         run: bun run test

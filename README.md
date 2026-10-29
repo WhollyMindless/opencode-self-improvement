@@ -285,6 +285,8 @@ bun run gate          # typecheck + lint + unit tests + terminal smoke & BDD
 bun run gate:hooks    # once per clone: run the gate on `git push`
 ```
 
+Use Bun **1.4.4** for development checks, matching CI. `bun run test` and `bun run test:e2e` run files across at most four worker processes with Bun's file isolation; cases inside each file stay sequential because fixtures share environment variables and module state. The local gate uses those same scripts. To diagnose order-dependent failures in the original shared-process mode, run `bun test ./test/` or `bun test ./e2e/ --timeout 240000` directly.
+
 **Feature order is BDD-first.** A new feature starts by adding or fixing a scenario in `e2e/` that describes the behavior as a user would observe it — before implementation code and before unit tests. Then the unit tests for the pieces, then the code until everything is green. If no scenario turns red first, the feature has no observable contract.
 
 `e2e/` boots the **real opencode CLI** against each candidate in a fully isolated instance (fresh config, fresh db, fresh memory store, empty `HOME`) driven by a scripted OpenAI-compatible fake model — no API keys. It covers loading from the source tree and from the packed npm artifact installed runtime-deps-only, plus BDD flows for remember, recall, exact and near duplicates, ungrounded claims, and forget. Needs `opencode` on `PATH` locally, or set `OPENCODE_BIN`. A `test-windows` leg also runs the suite on Windows; it reports without gating merges.
