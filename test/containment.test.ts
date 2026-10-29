@@ -581,7 +581,7 @@ describe("OPENCODE_MEMORY_ALLOW_OUTSIDE_PATHS", () => {
     expect(existsSync(out)).toBe(true);
     // The store was empty, so the file holds only the header: a clean 0 rows.
     const tally = await importMemories(out, async () => ({ action: "promoted" }));
-    expect(tally).toEqual({ promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0 });
+    expect(tally).toEqual({ promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0, unaudited: 0 });
   });
 
   test("only an explicit truthy value opens it", async () => {
