@@ -10,6 +10,7 @@ import {
   session,
   setLastSeenSid,
   lastSeenSid,
+  type SessionState,
   type ToolResult,
 } from "./state.ts";
 
@@ -30,6 +31,21 @@ export interface AfterOutput {
 // grounded injection): reading/grepping a shot of live code, editing it, or
 // running commands. Empirical behavior substitutes for hand-copied refs.
 const ENGAGEMENT_TOOLS = new Set(["grep", "glob", "read", "edit", "write", "bash", "shell"]);
+
+const RECENT_EVIDENCE_CALLS = 10;
+// Recent engagement + latest gate check + FAIL/fix/PASS + tool FAIL/PASS.
+export const MAX_WRITE_EVIDENCE_REFS = RECENT_EVIDENCE_CALLS + 1 + 3 + 2;
+
+function trackCall(s: SessionState, rec: ToolResult): void {
+  s.calls.push(rec);
+  s.writeEvidence ??= { recent: [] };
+  const evidence = s.writeEvidence;
+  if (ENGAGEMENT_TOOLS.has(rec.tool)) {
+    evidence.recent.push(rec.call);
+    if (evidence.recent.length > RECENT_EVIDENCE_CALLS) evidence.recent.shift();
+  }
+  if (rec.gateCheck) evidence.gateCheck = rec.call;
+}
 
 // True once the session has exercised the codebase (the FAIL->PASS signals use
 // the same whitelist, so engagement == "a tool_result was recorded for a code
@@ -153,17 +169,19 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
         false,
         sid,
       );
+      s.writeEvidence ??= { recent: [] };
+      s.writeEvidence.gateRecovery = [pend.call, fix, call];
       s.pendingGate = null;
     } else if (s.pendingGate) {
       s.pendingGate.chain.push(rec);
     }
-    s.calls.push(rec);
+    trackCall(s, rec);
     return;
   }
 
   // Keep the pending gate chain (grep/read/edit between FAIL and PASS).
   if (s.pendingGate) s.pendingGate.chain.push(rec);
-  s.calls.push(rec);
+  trackCall(s, rec);
 
   // ---- Failed -> fixed retry (non-gate tools) -------------------------------
   if (["grep", "glob", "read"].includes(tool)) {
@@ -181,6 +199,8 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
         false,
         sid,
       );
+      s.writeEvidence ??= { recent: [] };
+      s.writeEvidence.toolRecovery = [prev.call, call];
     }
     s.lastByTool.set(tool, { status, call, emitted: prev?.emitted ?? false });
   }
@@ -201,8 +221,26 @@ export async function onCompacting(input: AfterInput): Promise<void> {
   await finalizeSession(sid);
 }
 
+// Full IDs for callers that explicitly need the ledger. Production write
+// contexts use writeEvidence so they do not allocate this growing list.
 export function evidenceCalls(sid: string): string[] {
   return session(sid).calls.map((c) => c.call);
+}
+
+// A detached, bounded snapshot for GateContext. Do not map the entire ledger
+// on each write: it grows throughout the session. Pin the actual trigger
+// witnesses when recorded rather than trying to reconstruct a FAIL->PASS
+// pairing from a cropped tail. The full ledger remains available above.
+export function writeEvidence(sid: string): { evidenceCalls: string[]; evidenceCallsCount: number } {
+  const s = session(sid);
+  const evidence = s.writeEvidence;
+  const refs = new Set([
+    ...(evidence?.gateRecovery ?? []),
+    ...(evidence?.toolRecovery ?? []),
+    ...(evidence?.gateCheck !== undefined ? [evidence.gateCheck] : []),
+    ...(evidence?.recent ?? []),
+  ]);
+  return { evidenceCalls: [...refs], evidenceCallsCount: s.calls.length };
 }
 
 // The full per-session tool ledger, for memory attribution (src/attribution.ts).
