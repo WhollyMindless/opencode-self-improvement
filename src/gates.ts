@@ -95,8 +95,9 @@ export interface GateContext {
   durable?: string[];
 }
 
-export interface GateOutcome {
-  action: "promoted" | "blocked" | "collapsed";
+// Shared optional fields remain readable by diagnostic callers before they
+// narrow on action. The variants below require the fields each verdict owes.
+interface GateOutcomeFields {
   reason?: string;
   ts?: string;
   chain: string;
@@ -114,6 +115,11 @@ export interface GateOutcome {
   // convergence: a retry must be able to end with one active row).
   collapsedWith?: string;
 }
+
+export type GateOutcome =
+  | (GateOutcomeFields & { action: "promoted"; ts: string })
+  | (GateOutcomeFields & { action: "blocked"; reason: string })
+  | (GateOutcomeFields & { action: "collapsed" });
 
 const STOPWORDS = new Set([
   "use",
