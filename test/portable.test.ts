@@ -191,7 +191,7 @@ describe("importMemories", () => {
       return { action: seen.length === 1 ? "promoted" : "blocked" };
     };
     const t = await importMemories(file, gate);
-    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 1, skipped: 3, downgraded: 0 });
+    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 1, skipped: 3, downgraded: 0, unaudited: 0 });
     expect(seen.length).toBe(2);
     expect(seen[0].content).toBe("A durable build fact.");
   });
@@ -214,7 +214,7 @@ describe("importMemories", () => {
       got = c;
       return { action: "collapsed" };
     });
-    expect(t).toEqual({ promoted: 0, collapsed: 1, blocked: 0, skipped: 0, downgraded: 0 });
+    expect(t).toEqual({ promoted: 0, collapsed: 1, blocked: 0, skipped: 0, downgraded: 0, unaudited: 0 });
     expect(got!.status).toBeUndefined();
     expect(got!.tags).toBeUndefined();
     expect(got!.issue).toBeUndefined();
@@ -244,7 +244,7 @@ describe("import frontier policy", () => {
       return { action: "promoted" };
     });
     expect(got!.status).toBe("settled");
-    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 0, skipped: 0, downgraded: 1 });
+    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 0, skipped: 0, downgraded: 1, unaudited: 0 });
   });
 
   test("with a v1 export header, status=open survives and the header is not tallied", async () => {
@@ -262,7 +262,7 @@ describe("import frontier policy", () => {
       return { action: "promoted" };
     });
     expect(got!.status).toBe("open");
-    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0 });
+    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0, unaudited: 0 });
   });
 
   test("a header version newer than ours does NOT grant the exemption (fail closed)", async () => {
@@ -326,7 +326,7 @@ describe("import frontier policy", () => {
     });
 
     const got = (await loadAll()).find((m) => m.content === payload);
-    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0 });
+    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0, unaudited: 0 });
     expect(got?.status).toBe("open");
     expect(got?.repo).toBe(importing.key);
     expect(got?.repoPath).toBe(importing.path);

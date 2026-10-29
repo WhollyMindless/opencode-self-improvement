@@ -396,7 +396,7 @@ async function stampRow(
 // Mark an existing memory as superseded IN PLACE (entry retained, recoverable).
 // Idempotent: a second call is a no-op, so no double `superseded_by`.
 export async function markSuperseded(ts: string, fields: SupersedeFields): Promise<boolean> {
-  return (await markManySuperseded([{ ts, fields }])) > 0;
+  return (await markManySupersededReport([{ ts, fields }])).marked.length > 0;
 }
 
 // Batch supersession (#61): one lock acquisition, one read, one snapshot and
@@ -408,56 +408,68 @@ export async function markSuperseded(ts: string, fields: SupersedeFields): Promi
 // so a repeat run marks nothing and writes nothing. Duplicate ts entries in
 // one batch: the FIRST entry's fields win (mirrors row-by-row first-call-wins).
 // Returns the number of rows actually marked.
-export async function markManySuperseded(
+export async function markManySuperseded(entries: { ts: string; fields: SupersedeFields }[]): Promise<number> {
+  return (await markManySupersededReport(entries)).marked.length;
+}
+
+// Same operation, reporting WHICH rows retired rather than how many (#158
+// round 3): the write gate needs the ids to keep a durable-mutation ledger,
+// because a failed audit line after a persisted retirement must still be able
+// to name what actually landed. Skipped-by-the-batch rows (already retired
+// out of band) are absent from `marked` — the ledger never claims a retirement
+// this call did not perform.
+export async function markManySupersededReport(
   entries: { ts: string; fields: SupersedeFields }[],
-): Promise<number> {
-  if (entries.length === 0) return 0;
+): Promise<{ marked: string[] }> {
+  if (entries.length === 0) return { marked: [] };
   const wanted = new Map<string, SupersedeFields>();
   for (const e of entries) if (!wanted.has(e.ts)) wanted.set(e.ts, e.fields);
-  let marked = 0;
+  const marked: string[] = [];
   for (const file of await memoryFiles()) {
-    marked += await withStoreLock(
-      file,
-      async () => {
+    marked.push(
+      ...(await withStoreLock(
+        file,
+        async () => {
         // #106: identity BEFORE the read, like every other whole-file
         // read-modify-write (#89's contract) - the publish below may retry a
         // Windows handover only while the destination still matches this.
-        const since = await fileIdentity(file);
-        const lines = await readLines(file);
-        let touched = 0;
-        for (let i = 0; i < lines.length; i++) {
-          const parsed = parseLine(lines[i]);
-          if (!parsed || typeof parsed.superseded_by === "string") continue;
-          const fields = typeof parsed.ts === "string" ? wanted.get(parsed.ts) : undefined;
-          if (!fields) continue;
-          // Whole line rewritten, not extended: an old-format line comes out in
-          // the current format with its values unchanged (as markSuperseded did).
-          // The one exception is SECRET SCRUB (#128, review probe 4): the
-          // fields a merge/decay/update copies into the loser's row carry
-          // caller-authored prose (the rotation note "key ghp_... rotated"),
-          // and content already scrubs at this same boundary (line 260). The
-          // durable row must not be the one place a credential survives when
-          // the evidence line beside it was cleaned.
-          const clean: SupersedeFields = { ...fields };
-          for (const k of Object.keys(clean)) {
-            const v = (clean as unknown as Record<string, unknown>)[k];
-            if (typeof v === "string") (clean as unknown as Record<string, unknown>)[k] = redactSecrets(v);
+          const since = await fileIdentity(file);
+          const lines = await readLines(file);
+          const ids: string[] = [];
+          for (let i = 0; i < lines.length; i++) {
+            const parsed = parseLine(lines[i]);
+            if (!parsed || typeof parsed.superseded_by === "string") continue;
+            const fields = typeof parsed.ts === "string" ? wanted.get(parsed.ts) : undefined;
+            if (!fields) continue;
+            // Whole line rewritten, not extended: an old-format line comes out in
+            // the current format with its values unchanged (as markSuperseded did).
+            // The one exception is SECRET SCRUB (#128, review probe 4): the
+            // fields a merge/decay/update copies into the loser's row carry
+            // caller-authored prose (the rotation note "key ghp_... rotated"),
+            // and content already scrubs at this same boundary (line 260). The
+            // durable row must not be the one place a credential survives when
+            // the evidence line beside it was cleaned.
+            const clean: SupersedeFields = { ...fields };
+            for (const k of Object.keys(clean)) {
+              const v = (clean as unknown as Record<string, unknown>)[k];
+              if (typeof v === "string") (clean as unknown as Record<string, unknown>)[k] = redactSecrets(v);
+            }
+            lines[i] = formatLine({ ...parsed, ...clean });
+            ids.push(parsed.ts as string);
           }
-          lines[i] = formatLine({ ...parsed, ...clean });
-          touched++;
-        }
-        if (touched === 0) return 0;
-        await snapshotBefore(file);
-        await writeAtomic(file, lines.join("\n") + "\n", since);
-        return touched;
-      },
-      LOCK_WRITE,
+          if (ids.length === 0) return [];
+          await snapshotBefore(file);
+          await writeAtomic(file, lines.join("\n") + "\n", since);
+          return ids;
+        },
+        LOCK_WRITE,
+      ))
     );
   }
   // A ts that appears in several files (should not exist - append mints unique
   // ts) retires in EVERY file here, where the row-by-row loop retired only the
   // first; both are conservation-safe, this one is the more honest tombstone.
-  return marked;
+  return { marked };
 }
 
 // Drop a row's supersession markers IN PLACE (snapshot-first), making it active

@@ -3,22 +3,17 @@
 // tiny-digest injection with deterministic memory-first context and
 // contextual pull, and snapshot/rollback.
 //
-// V2 port: registers tools via `ctx.tool.transform` (JSON Schema), mirrors the
-// V1 hooks onto the OpenCode V2 session/tool hook API, and registers the
-// /repo-init command via `ctx.command.transform`. The plugin contract is a
-// default export object `{ id, setup(ctx) }` (OpenCode >= 2.0), pinned at
-// compile time against the real SDK type (`@opencode/plugin`, type-only — see
-// the note on `plugin` below). All business logic still lives in the decoupled
-// helper modules.
+// Registers tools via `ctx.tool.transform` (JSON Schema) and hooks via the
+// OpenCode V2 session/tool API. Slash commands are installed as markdown by
+// src/command.ts. The default export `{ id, setup(ctx) }` is checked against
+// the SDK's Plugin type using a type-only import (see the note on `plugin`).
 import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { basename, join } from "node:path";
 import { frontierBudget, injectBudget, memoryRoot } from "./config.ts";
-import { STATUSES, TYPES } from "./types.ts";
 import {
   clearSuperseded,
   evidenceVisibleTo,
   isActive,
-  isVisibleHere,
   isVisibleTo,
   loadAll,
   malformedCount,
@@ -28,10 +23,9 @@ import {
   resolveMemoryTarget,
   snapshotFiles,
   unresolvedWriteMessage,
-  visibleTo,
   type Memory,
 } from "./memory.ts";
-import { runWriteGate, type GateContext, type WriteCandidate } from "./gates.ts";
+import { auditCaveat, runWriteGate, sameStrList, type GateContext, type WriteCandidate } from "./gates.ts";
 import { withStoreLock } from "./lock.ts";
 import { pruneMemory } from "./prune.ts";
 import { exportMemories, findStaleOpen, importMemories } from "./portable.ts";
@@ -41,37 +35,27 @@ import { evidenceFileFor, record, recordCaptureLag } from "./evidence.ts";
 import { proposeConsolidations, renderProposals } from "./consolidate.ts";
 import { readReads } from "./hits.ts";
 import {
-  capToBudget,
   compactionAnchor,
   contextualPull,
   formatMemory,
-  injectedRows,
   pullQuery,
-  selectRelevant,
   sharedTerms,
-  storeVersion,
-  systemDigest,
 } from "./inject.ts";
-import { attributeSession, deriveMemoryRefs, type MemoryRefs } from "./attribution.ts";
+import { createInjectionEpochs } from "./injection-epochs.ts";
 import { readLedger, neverRetrieved, recordHits, useSignals, type HitSource } from "./hits.ts";
 import { formatInit, runInit } from "./init.ts";
 import { ensureInitCommand, ensureMemoryReportCommand } from "./command.ts";
 import {
   blockedRecent,
-  emptyStats,
   renderMemoryReport,
-  writeStatus,
   type Measured,
-  type SessionStats,
   captureLag,
   captureLagLines,
   rowsPerDay,
-  type StatusPayload,
   type StoreCounts,
 } from "./status.ts";
 import {
   afterTool,
-  callsFor,
   checkNewSession,
   writeEvidence,
   firstFrontierTap,
@@ -81,13 +65,21 @@ import {
   markTurn,
   onCompacting,
 } from "./triggers.ts";
-import { authoredFor, getCurrent, setCurrent } from "./state.ts";
+import { getCurrent, setCurrent } from "./state.ts";
 import { resolveRepo, setRepoScope, rememberSessionDir, sessionDir, sessionDirFirm, bindSessionProvisional, writeTarget } from "./repokey.ts";
 import { parseLine, readLines } from "./logfmt.ts";
 import { buildCapturePrompt, flattenTranscript, lagSince, parseCandidates, parseModelRef } from "./capture.ts";
 import { redactSecrets } from "./secrets.ts";
 import { flattenMemoryText } from "./sanitize.ts";
 import { bunFloorWarning } from "./runtime.ts";
+import {
+  captureSessionID,
+  sessionDirectoryFromMessages,
+  sessionDirectoryFromRow,
+  sessionIdentityEvent,
+  sessionUsageEvent,
+  toolIdentity,
+} from "./host.ts";
 
 // Tool/input boundaries are zod schemas (src/schema.ts): the JSON Schema the
 // host sees is GENERATED from them, and raw args are re-parsed at execution.
@@ -143,16 +135,8 @@ interface PluginCtx {
     transform: (cb: (editor: ToolEditorLike) => void) => Promise<unknown>;
     hook: (name: string, cb: (event: any) => Promise<void> | void) => Promise<HookReg | void>;
   };
-  command?: {
-    transform: (cb: (editor: { add: (cmd: Record<string, unknown>) => void }) => void) => Promise<unknown>;
-  };
   session?: {
     hook: (name: string, cb: (event: any) => Promise<void> | void) => Promise<HookReg | void>;
-    prompt: (input: {
-      sessionID: string;
-      text: string;
-      delivery?: "steer" | "queue";
-    }) => Promise<unknown>;
     context?: (input: { sessionID: string }) => Promise<unknown>;
     get?: (input: { sessionID: string }) => Promise<unknown>;
   };
@@ -231,36 +215,19 @@ export function resetCaptureCooldowns(): void {
 }
 
 // ---- capture trigger vocabulary (#136) -------------------------------------
-// opencode 2.x has no `session.idle`. The subscription used to wait for exactly
-// that string, so auto-capture was dead on every 2.x host with no warning
-// anywhere: live proof is in the issue (45 s of the running service's own SSE
-// stream over a complete turn, and zero `capture_lag` lines in the whole
-// evidence history). What the host really publishes when a turn ends is the
-// `session.execution.*` family; `session.status` is the ephemeral variant whose
-// `status.type` says "idle".
-//
-// These lists are the single source of truth for what the capture subscription
-// reacts to, and test/event-fidelity.test.ts asserts every name here appears in
-// the installed @opencode/schema event manifest. Invented event names are the
-// bug class that caused #78 and then survived a review, a merge and 480 green
-// tests, because the tests fabricated the same invented payload.
-// Recorded live, not guessed: `succeeded` and `interrupted` were both observed
-// on a running desktop service (test/fixtures/host-events.jsonl).
+// Single source of truth for capture subscriptions. Both turn-end events were
+// observed on the desktop service (test/fixtures/host-events.jsonl).
+// test/event-fidelity.test.ts requires every trigger to appear in both that
+// recording and the installed @opencode/schema manifest: a declared event
+// alone is insufficient evidence that the host emits it (#78, #136).
 export const TURN_END_EVENTS = ["session.execution.succeeded", "session.execution.interrupted"] as const;
 
 /** Every event type the capture subscription reacts to (fidelity-tested). */
 export const CAPTURE_EVENT_TYPES: readonly string[] = [...TURN_END_EVENTS];
 
-// Deliberately NOT triggers, because a live host was never observed sending
-// them, and dead branches are what caused #136 in the first place:
-//   • `session.idle`   - declared, never emitted (the original bug).
-//   • `session.status` - declared, never emitted; would also need
-//                        `data.status.type === "idle"` filtering.
-//   • `session.execution.failed` - declared, not reproduced here. A failed turn
-//                        simply does not capture, which costs nothing; adding it
-//                        later is allowed the moment a recording shows it.
-// test/event-fidelity.test.ts enforces that nothing enters TURN_END_EVENTS
-// without appearing in the recording.
+// `session.idle`, `session.status`, and `session.execution.failed` are declared
+// but absent from that recording, so they deliberately do not trigger capture.
+// Adding a trigger requires a recording; status would also need idle filtering.
 
 /**
  * True when a host event means "this session just went quiet". The internal
@@ -370,19 +337,17 @@ const impl = {
     // no await between (#116's documented fallback). Never re-read the global
     // after an await to learn who is calling (#127).
     const toolIds = (context?: unknown): { sid: string; call: string } => {
-      const fromCtx = (context as { sessionID?: unknown; id?: unknown } | undefined)
-        ?.sessionID;
-      const call = (context as { id?: unknown } | undefined)?.id;
+      const { sessionID: fromCtx, callID: call } = toolIdentity(context);
       // Entry binding: a session this instance has never seen is resolved to
       // THIS workspace (provisional — a firm event/API identity still
       // replaces it), so the tool's reader partitions by the repository the
       // call reached, not by the last setup's module scope (#127).
-      if (typeof fromCtx === "string" && fromCtx && fromCtx !== "?") {
+      if (fromCtx && fromCtx !== "?") {
         bindSessionProvisional(fromCtx, instanceDir);
       }
       return {
-        sid: typeof fromCtx === "string" && fromCtx ? fromCtx : getCurrent().sid,
-        call: typeof call === "string" && call ? call : getCurrent().call,
+        sid: fromCtx ?? getCurrent().sid,
+        call: call ?? getCurrent().call,
       };
     };
 
@@ -400,17 +365,8 @@ const impl = {
       bindingSids.add(sid);
       try {
         const msgs = await ctx.session?.context?.({ sessionID: sid });
-        if (Array.isArray(msgs)) {
-          for (const m of msgs) {
-            if (!m || typeof m !== "object") continue;
-            const r = m as Record<string, any>;
-            const dir = r.location?.directory ?? r.info?.location?.directory;
-            if (typeof dir === "string" && dir) {
-              rememberSessionDir(sid, dir);
-              break;
-            }
-          }
-        }
+        const dir = sessionDirectoryFromMessages(msgs);
+        if (dir !== undefined) rememberSessionDir(sid, dir);
       } catch {
         // no context access or host error: the event stream still binds later
       } finally {
@@ -432,10 +388,9 @@ const impl = {
       apiBindTried.add(sid);
       apiBindOrder.touch(sid);
       try {
-        const got = (await ctx.session?.get?.({ sessionID: sid })) as Record<string, any> | undefined;
-        const row = (got?.data ?? got) as Record<string, any> | undefined;
-        const dir = row?.location?.directory ?? row?.directory;
-        if (typeof dir === "string" && dir) rememberSessionDir(sid, dir);
+        const got = await ctx.session?.get?.({ sessionID: sid });
+        const dir = sessionDirectoryFromRow(got);
+        if (dir !== undefined) rememberSessionDir(sid, dir);
       } catch {
         // no session.get on this host (or unknown session): stay unbound
       }
@@ -483,7 +438,11 @@ const impl = {
             if (ownerless) return await refuseOwnerlessWrite(ownerless, "remember");
           }
           const outcome = await runWriteGate(candidate, gateContext(sid));
-          if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
+          // A durable row whose audit line fell is NOT a clean success
+          // (#155 review): the reply says what is missing where it is
+          // missing, and the row itself stands.
+          if (outcome.action === "promoted")
+            return { content: `Remembered: ${args.type} in ${args.scope}${auditCaveat(outcome)}` };
           if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
           return {
             content: `Write blocked at GATE (${outcome.reason}). ${
@@ -585,7 +544,7 @@ const impl = {
       editor.add(validated(UpdateArgs, {
         name: "memory_update",
         description:
-          "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing.",
+          "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing. A prose edit carries over everything the call does not name — tags, issue, keywords, status, and the row's repository. Naming a row that was already updated to exactly this content (metadata included) reports the duplicate; if its live successor holds the prose and only the metadata you name differs, the successor is updated. A failure after the write is reported as PARTIAL: the replacement is durable and memory_undo merge/force restores the old row.",
         options: direct,
         async execute(args, context): Promise<{ content: string }> {
           const { sid } = toolIds(context);
@@ -606,6 +565,14 @@ const impl = {
           // is exactly the race this lock exists to close. The loser then
           // re-resolves under the lock, finds its target already retired,
           // and writes nothing — the documented fail-closed contract.
+          // Flips once a replacement row is durable, so the catch below can
+          // never claim "Nothing was written" about a write that happened
+          // (#155's lie).
+          let mutated = false;
+          // The gate's durable steps: rows GATE-2 retired before a later
+          // failure (round-3 probe 3). Non-empty means "Nothing was written"
+          // is no longer writable.
+          const gateDurable: string[] = [];
           try {
             return await withStoreLock(
               join(memoryRoot(), "update-order"),
@@ -616,12 +583,65 @@ const impl = {
                 // Resolve the row BEFORE the gate: an update that cannot identify its
                 // target must write nothing, rather than silently superseding whichever
                 // row happened to be newest in this scope+type.
-                const resolved = resolveMemoryTarget(prior, args.query);
+                let resolved = resolveMemoryTarget(prior, args.query);
                 if (resolved.status === "not_found") {
-                  const where = args.query ? ` matches ${JSON.stringify(args.query)}` : "";
-                  return {
-                    content: `memory_update blocked: no active ${args.type} row in ${args.scope}${where}. Nothing was written.`,
-                  };
+                  // Naming a SUPERSEDED row is not a miss (#155): the retry
+                  // after a partial update lands here, and when that row's
+                  // active successor already carries exactly this content the
+                  // honest verdict is the duplicate one, not a dead end. Two
+                  // subtleties the first cut missed: the successor's prose was
+                  // stored REDACTED while a retry re-carries the raw input
+                  // (the comparison must scrub), and "exactly this content"
+                  // must mean the metadata too — a retry that also names new
+                  // keywords still has work to do, and that work belongs on
+                  // the chain head, so the update CONTINUES against the
+                  // successor instead of collapsing here.
+                  let chainHead: Memory | undefined;
+                  if (args.query) {
+                    const rows = (await loadAll()).filter(
+                      (m) => m.scope === args.scope && m.type === args.type && isVisibleTo(m, reader),
+                    );
+                    const stale = resolveMemoryTarget(rows, args.query);
+                    if (stale.status === "ok" && stale.target && !isActive(stale.target)) {
+                      let latest = stale.target;
+                      const walked = new Set<string>([latest.ts]);
+                      while (latest.superseded_by) {
+                        const next = rows.find((m) => m.ts === latest.superseded_by);
+                        if (!next || walked.has(next.ts)) break;
+                        walked.add(next.ts);
+                        latest = next;
+                      }
+                      if (isActive(latest) && latest.content.trim() === redactSecrets(args.content).trim()) {
+                        const restated =
+                          (args.kw === undefined || sameStrList(args.kw, latest.kw)) &&
+                          (args.status === undefined || args.status === (latest.status ?? "settled"));
+                        if (restated) {
+                          // Every other verdict is auditable; this one must
+                          // be too — the message tells the model to consult
+                          // memory_evidence.
+                          await record(
+                            "dedup_collapse",
+                            { op: "update", named: stale.target.ts, match: latest.ts, action: "exact_successor", incoming_ignored: true },
+                            true,
+                            sid,
+                          );
+                          return {
+                            content:
+                              `Duplicate ignored: ${args.type}/${args.scope} — ${JSON.stringify(args.query)} was already ` +
+                              `updated to exactly this content (${latest.ts}). Nothing was written.`,
+                          };
+                        }
+                        chainHead = latest;
+                      }
+                    }
+                  }
+                  if (!chainHead) {
+                    const where = args.query ? ` matches ${JSON.stringify(args.query)}` : "";
+                    return {
+                      content: `memory_update blocked: no active ${args.type} row in ${args.scope}${where}. Nothing was written.`,
+                    };
+                  }
+                  resolved = { status: "ok", target: chainHead };
                 }
                 if (resolved.status === "ambiguous") {
                   return {
@@ -632,22 +652,165 @@ const impl = {
                   };
                 }
                 const target = resolved.target;
+                // A prose edit is not a metadata reset (#154): fields the
+                // call does not name carry over from the row being
+                // replaced, so updating an imported row can no longer
+                // launder away its provenance or issue link. kw follows
+                // the same rule with an override: omitted keeps the
+                // target's, provided replaces. The carry completes to the
+                // five fields of the #129 viewer precedent: STATUS (an
+                // open frontier row stays open) and REPO (updating a
+                // global row from one repository must not re-house it out
+                // of every other repository's view — "an edit must never
+                // widen visibility", and it must never narrow it either).
+                // These are also the fields the collapse-completion judges
+                // (review round 3): the fold asks whether the survivor
+                // already carries the REQUESTED state — not the pre-edit
+                // target's. An update naming kw:["new-alias"] is not
+                // "already standing" on a row holding ["old-alias"].
+                const requested = {
+                  kw: args.kw ?? target.kw,
+                  tags: target.tags,
+                  issue: target.issue,
+                  status: (args.status ?? target.status) ?? "settled",
+                  repo: target.repo ?? "global",
+                };
                 const outcome = await runWriteGate(
-                  { type: args.type, scope: args.scope, content: args.content, kw: args.kw, status: args.status },
-                  { ...gateContext(sid), supersedesTs: target.ts },
+                  {
+                    type: args.type,
+                    scope: args.scope,
+                    content: args.content,
+                    kw: requested.kw,
+                    tags: requested.tags,
+                    issue: requested.issue,
+                    status: requested.status,
+                    repo: requested.repo,
+                    repoPath: target.repo ? target.repoPath : undefined,
+                  },
+                  { ...gateContext(sid), supersedesTs: target.ts, durable: gateDurable },
                 );
                 if (outcome.action === "promoted" && outcome.ts && target) {
-                  await markSuperseded(target.ts, {
-                    superseded_by: outcome.ts,
-                    reason: "update",
-                    symbol: target.ts,
-                    from: target.ts,
-                    to: outcome.ts,
+                  mutated = true;
+                  const replacement = outcome.ts;
+                  const retired = target.ts;
+                  // The merge_review PARTIAL shape (156e887) applied to
+                  // update: the replacement IS durable, so the message says
+                  // exactly which follow-up step failed and what a retry does
+                  // (#155 — never claim "Nothing was written" from here).
+                  const partial = (why: string) => ({
+                    content:
+                      `memory_update PARTIAL: replacement ${replacement} IS on disk (memory_undo merge or force ` +
+                      `restores ${retired}), but ${why}. Re-running this update reports the duplicate.`,
                   });
-                  return { content: `Updated ${args.type} in ${args.scope} (superseded ${target.ts})` };
+                  let retiredNow = false;
+                  try {
+                    retiredNow = await markSuperseded(retired, {
+                      superseded_by: replacement,
+                      reason: "update",
+                      symbol: retired,
+                      from: retired,
+                      to: replacement,
+                    });
+                  } catch (err) {
+                    return partial(
+                      `retiring ${retired} failed: ${err instanceof Error && err.message ? err.message : String(err)}`,
+                    );
+                  }
+                  if (!retiredNow) {
+                    // merge_review checks exactly this boolean (156e887);
+                    // "Updated (superseded X)" cannot be printed over a
+                    // retirement a parallel supersession performed — that
+                    // pointer names a DIFFERENT successor, and the confident
+                    // line would hide a second active row.
+                    return partial(
+                      `${retired} had ALREADY been retired by another supersession while this call ran — ` +
+                        `it points at that successor, not at ${replacement}; check memory_evidence`,
+                    );
+                  }
+                  if (outcome.evidenceError !== undefined) {
+                    return partial(`its write_promoted audit line was not recorded (${outcome.evidenceError})`);
+                  }
+                  return { content: `Updated ${args.type} in ${args.scope} (superseded ${retired})` };
                 }
-                if (outcome.action === "promoted") return { content: `Remembered: ${args.type} in ${args.scope}` };
-                if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
+                if (outcome.action === "promoted")
+                  return { content: `Remembered: ${args.type} in ${args.scope}${auditCaveat(outcome)}` };
+                if (outcome.action === "collapsed") {
+                  // Completion (#155 convergence): when a retry collapses
+                  // because an ACTIVE row already holds exactly this content
+                  // while the row it NAMES is still active (the supersede
+                  // step of an earlier PARTIAL attempt never landed), the
+                  // idempotent close is to retire the named row in the
+                  // survivor's favor — a bare "Duplicate ignored" would leave
+                  // two active rows forever and a retry that never converges.
+                  // first-call-wins makes this safe to attempt on any path.
+                  // But the fold must not INVERT #154 (review): retiring the
+                  // named row is loss-free only when the survivor already
+                  // carries what the named row carries — the SAME predicate
+                  // GATE-3 uses to call same-prose-different-metadata an
+                  // edit rather than a duplicate. Otherwise the survivor
+                  // would stand stripped of the named row's issue link,
+                  // keywords, tags or OPEN frontier standing, and a "clean
+                  // no-op" message would paper over a metadata destruction.
+                  // On disagreement nothing retires: both ids are named and
+                  // a human (or an update on the survivor) decides.
+                  const survivorTs = outcome.collapsedWith;
+                  if (target && survivorTs && survivorTs !== target.ts) {
+                    const survivor = (await loadAll()).find((m) => m.ts === survivorTs && !m.superseded_by);
+                    if (survivor) {
+                      // The predicate is the REQUESTED state vs the survivor
+                      // (round 3): content equality is already proven by the
+                      // collapse, so the fold is loss-free only when the
+                      // survivor also carries the metadata THIS call asked
+                      // for — and stands where the target stands for readers
+                      // of other repositories (repo visibility: folding a
+                      // global row into a repo-private survivor would
+                      // narrow a visibility the promotion path exists to
+                      // preserve, and the reverse would leak).
+                      if (
+                        sameStrList(requested.kw, survivor.kw) &&
+                        sameStrList(requested.tags, survivor.tags) &&
+                        requested.issue === survivor.issue &&
+                        requested.status === (survivor.status ?? "settled") &&
+                        requested.repo === (survivor.repo ?? "global")
+                      ) {
+                        const done = await markSuperseded(target.ts, {
+                          superseded_by: survivorTs,
+                          reason: "update",
+                          symbol: target.ts,
+                          from: target.ts,
+                          to: survivorTs,
+                        });
+                        if (done) {
+                          return {
+                            content:
+                              `Duplicate: ${args.type}/${args.scope} already stands active as ${survivorTs}; ` +
+                              `${target.ts} was retired in its favor. Nothing new was written.`,
+                          };
+                        }
+                      } else {
+                        const differs: string[] = [];
+                        if (requested.status !== (survivor.status ?? "settled"))
+                          differs.push(`status ${requested.status} vs ${survivor.status ?? "settled"}`);
+                        if (requested.issue !== survivor.issue)
+                          differs.push(`issue ${requested.issue ?? "-"} vs ${survivor.issue ?? "-"}`);
+                        if (!sameStrList(requested.kw, survivor.kw))
+                          differs.push(`kw [${(requested.kw ?? []).join(", ") || "-"}] vs [${(survivor.kw ?? []).join(", ") || "-"}]`);
+                        if (!sameStrList(requested.tags, survivor.tags))
+                          differs.push(`tags [${(requested.tags ?? []).join(", ") || "-"}] vs [${(survivor.tags ?? []).join(", ") || "-"}]`);
+                        if (requested.repo !== (survivor.repo ?? "global"))
+                          differs.push(`visibility ${requested.repo} vs ${survivor.repo ?? "global"}`);
+                        return {
+                          content:
+                            `Duplicate: ${args.type}/${args.scope} stands active as ${survivorTs}, but ${target.ts} ` +
+                            `was NOT retired — the survivor does not carry what this update asked for ` +
+                            `(${differs.join("; ")}), and the fold would drop it. Both stay active: restate them ` +
+                            `onto ${survivorTs} with a memory_update, or memory_forget the row that should lose.`,
+                        };
+                      }
+                    }
+                  }
+                  return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
+                }
                 return { content: `Write blocked at GATE (${outcome.reason}). ${outcome.hint ?? ""}`.trimEnd() };
               },
               {
@@ -658,10 +821,27 @@ const impl = {
               },
             );
           } catch (err) {
-            // Only the fail-closed lock timeout throws here; the write path
-            // has its own outcomes. Nothing was written either way.
+            // Everything that still throws here was PRE-WRITE for THIS call's
+            // replacement: the fail-closed lock timeout, the #152 choke-point
+            // refusal, an evidence fault BEFORE the append. Post-append audit
+            // failures no longer reach this catch — the gate reports them on
+            // the promoted outcome (#155). mutated is the belt-and-braces
+            // truth check: a future post-write throw must report a partial,
+            // never a clean nothing. And gateDurable closes the last gap
+            // (round 3): the gate may have RETIRED OTHER rows at GATE-2
+            // before the fault that got here — those tombstones are on disk,
+            // and naming them beats the "Nothing was written" premise.
+            const msg = err instanceof Error && err.message ? err.message : String(err);
             return {
-              content: `memory_update blocked: ${(err as Error).message} Nothing was written.`,
+              content: mutated
+                ? `memory_update PARTIAL: a step after the durable write failed: ${msg}. ` +
+                  "Re-running this update reports the duplicate; inspect with memory_evidence."
+                : gateDurable.length > 0
+                  ? `memory_update blocked: ${msg} No replacement was written, but the gate had ALREADY retired ` +
+                    `${gateDurable.length} other row(s) (${gateDurable.join(", ")}): those retirements ARE on ` +
+                    "disk and their audit lines may not all have landed. Re-running this update will not undo " +
+                    "them — reconcile with memory_evidence / memory_undo before retrying."
+                  : `memory_update blocked: ${msg} Nothing was written.`,
             };
           }
         },
@@ -958,6 +1138,12 @@ const impl = {
                 `${t.blocked} blocked by the gate, ${t.skipped} malformed lines skipped.` +
                 (t.downgraded
                   ? ` ${t.downgraded} open rows downgraded to settled (missing eligible memory_export header or verifiable repo scope).`
+                  : "") +
+                // Rows that landed without their write_promoted line are
+                // durable but invisible to memory_evidence (#155 review) —
+                // the tally owes the reader the count, not silence.
+                (t.unaudited
+                  ? ` ${t.unaudited} promoted rows landed without their write_promoted audit line (${t.auditError}); memory_evidence will miss them.`
                   : ""),
             };
           } catch (err) {
@@ -1037,7 +1223,7 @@ const impl = {
         async execute(_args, context): Promise<{ content: string }> {
           // In-process truth: the live epoch + ledger, fresher than any file.
           const sid = toolIds(context).sid;
-          const status = sid === "?" ? null : await buildPayload(sid);
+          const status = sid === "?" ? null : await sessions.buildPayload(sid);
           const all = await loadAll();
           const act = all.filter(isActive);
           const store: StoreCounts = {
@@ -1066,121 +1252,6 @@ const impl = {
       }));
     });
 
-    // Per-session frozen injection epochs: the whole memory section (digest +
-    // frontier + relevance) plus the store fingerprint it was rendered from.
-    // Recomputed on the first prompt of a tracked session, when injectable rows
-    // change, or after a compaction (see the prompt/context/compaction hooks).
-    // The RENDERED BYTES, not the fingerprint, decide whether the epoch moved
-    // (issue #162): a write that changes nothing the model is shown must not
-    // cost the next request a full re-prefill. And a pure addition the session
-    // wrote itself does not move them either (#165) — see refreshEpoch. The
-    // shared LRU below may evict the whole session state; a later prompt starts
-    // it fresh.
-    const epoch = new Map<
-      string,
-      {
-        version: string;
-        /** Frozen standing digest + frontier + convergence parts, in push order. */
-        parts: string[];
-        /** The budgeted relevance block the surfaces report against injectBudget. */
-        block: string;
-        /** Comparison key: every byte of the memory section, joined. */
-        prefix: string;
-        /**
-         * Rows THIS session had already authored when these bytes were rendered
-         * (#165). The riding-bytes test subtracts everything authored after this
-         * snapshot; if what remains renders identically, the whole difference is
-         * the session's own additions and the bytes keep riding.
-         */
-        ownRows: Set<string>;
-        /**
-         * The prompt these bytes were scored against. The counterfactual below
-         * has to re-score the SAME inputs, or a topic change between the freeze
-         * and the next write would look like a content change — and the epoch
-         * would pay for a refresh it deliberately refuses to do on a prompt.
-         */
-        prompt: string;
-        at: string;
-        reason: "first" | "store_changed";
-        refs: MemoryRefs;
-      }
-    >();
-    // Latest user prompt per tracked session. A changed store is re-scored
-    // against it even when the change happened during a tool loop with no new
-    // prompt. It is evicted together with the epoch and session ledgers.
-    const latestPrompt = new Map<string, string>();
-    // Recomputes since server start: every one invalidated a prompt cache, so
-    // it is the honest cost number the surfaces show (status files / tools).
-    let epochRecomputes = 0;
-
-    // Per-session ledger, incremented at the injection decision below, and the
-    // last measured prompt-cache usage per session (message.updated). The
-    // surfaces read these through flushed status files (TUI) or directly
-    // (memory_status, in-process).
-    const sessionStats = new Map<string, SessionStats>();
-    const measuredTurns = new Map<string, Measured>();
-    // Every map above is keyed by session and dropped together on eviction.
-    const sessions = new SessionLru(SESSION_CAP, (sid) => {
-      epoch.delete(sid);
-      latestPrompt.delete(sid);
-      sessionStats.delete(sid);
-      measuredTurns.delete(sid);
-    });
-    const statsFor = (sid: string): SessionStats => {
-      let st = sessionStats.get(sid);
-      if (!st) {
-        st = emptyStats();
-        sessionStats.set(sid, st);
-      }
-      return st;
-    };
-
-    // Build the full status snapshot for one session, or null before its first
-    // epoch. Store counts are computed fresh so every flush is current.
-    const buildPayload = async (sid: string): Promise<StatusPayload | null> => {
-      const ep = epoch.get(sid);
-      if (!ep) return null;
-      const all = await loadAll();
-      const act = all.filter(isActive);
-      const led = await readLedger();
-      return {
-        at: ep.at,
-        sessionID: sid,
-        reason: ep.reason,
-        recomputes: epochRecomputes,
-        block: ep.block,
-        blockChars: ep.block.length,
-        sectionChars: ep.prefix.length,
-        budget,
-        store: {
-          active: act.length,
-          superseded: all.length - act.length,
-          open: act.filter((m) => m.status === "open").length,
-          scopes: new Set(act.map((m) => m.scope)).size,
-          malformed: malformedCount(),
-          neverRetrieved: neverRetrieved(act, led).length,
-          ledgerSince: led.since,
-        },
-        stats: statsFor(sid),
-        measured: measuredTurns.get(sid) ?? null,
-        attribution: attributeSession(callsFor(sid), ep.refs),
-      };
-    };
-    const flushStatus = (sid: string): Promise<void> =>
-      buildPayload(sid).then((p) => (p ? writeStatus(p) : undefined));
-
-    // Called when a prompt arrives (to keep status surfaces current) and again
-    // at the injection decision on every model request. The latter keeps
-    // removals fail-closed: an out-of-band redaction or a block during a tool
-    // loop cannot ride one more request waiting for another user prompt.
-    // The caller's sid is resolved to an immutable Reader BEFORE the store
-    // read (#127): while loadAll awaits, another session's hooks may dispatch
-    // and move the ambient current; filtering with THAT leaks the other
-    // session's repo into this one's system prompt.
-    const injectableRows = async (sid?: string): Promise<Memory[]> => {
-      const reader = readerFromSid(sid);
-      return (await loadAll()).filter((m) => isActive(m) && isVisibleTo(m, reader));
-    };
     // Use ledger (#42). `query` is what retrieval was asked with; what gets
     // stored is the vocabulary the answer SHARES with the query, taken from the
     // memory side, so the ledger can never become a copy of user prompts.
@@ -1191,118 +1262,16 @@ const impl = {
       for (const m of rows) for (const t of sharedTerms(query, m)) if (!terms.includes(t)) terms.push(t);
       await recordHits(src, sid, rows, terms);
     };
-    // Render the COMPLETE memory section for one request: the standing digest,
-    // the open-thread frontier and the convergence line (all from systemDigest),
-    // followed by this epoch's relevance block. The parts are exactly what gets
-    // pushed onto `event.system`; their join is the byte key the epoch compares
-    // against, so "did the cache-critical prefix change?" is answered by the
-    // bytes the model would actually see and never by a proxy (issue #162).
-    const buildMemorySection = async (
-      sid: string | undefined,
-      mems: Memory[],
-      promptOverride?: string,
-    ): Promise<{ parts: string[]; block: string; prefix: string; rode: Memory[]; refs: MemoryRefs }> => {
-      const parts: string[] = [];
-      await systemDigest(
-        { sessionID: sid },
-        { system: parts },
-        { rows: mems, frontierBudget: openBudget },
-      );
-      const prompt = promptOverride ?? (sid === undefined ? "" : latestPrompt.get(sid) ?? "");
-      // Widen the candidate pool, then cap: the budget decides what rides.
-      const sel = await selectRelevant(prompt, 5, mems, await useSignals());
-      const block = sel.block ? capToBudget(sel.block, budget) : "";
-      // Refs the ACTUALLY-injected rows assert (paths + commands), the join key
-      // for attribution. Derived from the budget-surviving rows, not the wider
-      // candidate pool — crediting paths the model never saw would overclaim.
-      const rode = injectedRows(block, sel.selected);
-      const prefix = [...parts, block].join("\u0000");
-      return { parts, block, prefix, rode, refs: deriveMemoryRefs(rode) };
-    };
-    const refreshEpoch = async (sid: string, rows?: Memory[]): Promise<void> => {
-      if (!latestPrompt.has(sid)) return;
-      const mems = rows ?? (await injectableRows(sid));
-      const version = await storeVersion(mems);
-      const cached = epoch.get(sid);
-      // Cheap pre-check: no injectable row moved, so the frozen bytes still
-      // stand. Skips re-scoring and the use-ledger write on ordinary turns.
-      if (cached?.version === version) return;
-      const built = await buildMemorySection(sid, mems);
-      // The store moved. A write that changes nothing RENDERED — a row that is
-      // not relevant to this prompt, supersession elsewhere, a scope the reader
-      // never sees rendered identically — must not cost this session a prompt
-      // cache. Adopt the new fingerprint, keep riding the same bytes, emit
-      // nothing: an invalidation has to mean bytes actually moved.
-      if (cached && cached.prefix === built.prefix) {
-        epoch.set(sid, { ...cached, version });
-        return;
-      }
-      // Riding bytes (#165): a pure addition this session wrote itself is
-      // information it already has — the model produced it, it is in the
-      // transcript. Re-render the section with every row authored SINCE these
-      // bytes were frozen taken back out: if it comes back byte-identical, the
-      // entire difference is attributable to the session's own additions and
-      // the frozen bytes keep riding. Everything else survives into that render
-      // and still busts — a riding row removed or rewritten (blocklist,
-      // hand-redaction, forget, supersession, decay), another session's row, a
-      // viewer edit, an import, a moved convergence line.
-      if (cached) {
-        const mine = authoredFor(sid);
-        const extra = mems.filter((m) => mine.has(m.ts) && !cached.ownRows.has(m.ts));
-        if (extra.length) {
-          const back = await buildMemorySection(
-            sid,
-            mems.filter((m) => !extra.some((e) => e.ts === m.ts)),
-            cached.prompt,
-          );
-          if (back.prefix === cached.prefix) {
-            epoch.set(sid, { ...cached, version });
-            return;
-          }
-        }
-      }
-      const prompt = latestPrompt.get(sid) ?? "";
-      // Use ledger (#42): the rows that actually rode the block, credited with
-      // the terms the prompt and those rows shared (never the prompt itself).
-      // Only once the build is ADOPTED — a discarded rebuild must not credit
-      // rows that were already offered under the frozen epoch.
-      await noteHits("inject", sid, built.rode, prompt);
-      const at = new Date().toISOString();
-      const reason: "first" | "store_changed" = cached ? "store_changed" : "first";
-      epoch.set(sid, {
-        version,
-        parts: built.parts,
-        block: built.block,
-        prefix: built.prefix,
-        ownRows: new Set(mems.filter((m) => authoredFor(sid).has(m.ts)).map((m) => m.ts)),
-        prompt,
-        at,
-        reason,
-        refs: built.refs,
-      });
-      await record(
-        "epoch_recompute",
-        {
-          session: sid,
-          reason,
-          chars: built.block.length,
-        },
-        false,
-      );
-      epochRecomputes++;
-      // Ledger: a store_changed recompute of a live epoch is an
-      // invalidation (the first epoch of a session busts nothing). The
-      // epoch request count restarts with the new block.
-      const st = statsFor(sid);
-      st.epochRequests = 0;
-      if (reason === "store_changed") {
-        st.invalidations++;
-        st.lastInvalidation = { at, reason };
-      }
-      // Status hand-off for the terminal panel (src/tui.tsx) and any
-      // out-of-process surface. Best-effort; never breaks injection.
-      await flushStatus(sid);
-    };
+    // The host listener owns measured usage; the epoch controller drops it
+    // alongside its own maps when the shared session LRU evicts an entry.
+    const measuredTurns = new Map<string, Measured>();
+    const sessions = createInjectionEpochs({
+      budget,
+      frontierBudget: openBudget,
+      measuredTurns,
+      noteHits: (sid, rows, query) => noteHits("inject", sid, rows, query),
+    });
+    const flushStatus = sessions.flushStatus;
 
     // ---- hooks (all fail-closed) -------------------------------------------
     // Seam set by the auto-capture wiring below ONLY when the compaction
@@ -1367,39 +1336,7 @@ const impl = {
         // already bound firmly in production, so no host lookup belongs in
         // this hot path (#127).
         if (typeof sid === "string") bindSessionProvisional(sid, instanceDir);
-        const mems = await injectableRows(sid);
-        if (typeof sid === "string") await refreshEpoch(sid, mems);
-        // Deliver the FROZEN memory section. Every byte pushed onto the system
-        // prompt comes from the epoch, so between busts the provider sees an
-        // identical prefix and serves the conversation from cache (issue #162).
-        // A session with no epoch yet (no prompt recorded, or evicted from the
-        // LRU) still gets the standing digest, built fresh and uncached.
-        const ep = typeof sid === "string" ? epoch.get(sid) : undefined;
-        if (ep) {
-          for (const text of ep.parts) event?.system?.push?.({ type: "text", text });
-        } else {
-          const parts: string[] = [];
-          await systemDigest(
-            { sessionID: event?.sessionID },
-            { system: parts },
-            { rows: mems, frontierBudget: openBudget },
-          );
-          for (const text of parts) event?.system?.push?.({ type: "text", text });
-        }
-        // This epoch's relevance-ranked memory, also on the system channel —
-        // the UI never renders system parts, unlike appended prompt text.
-        const knowledge = ep?.block;
-        if (knowledge) event?.system?.push?.({ type: "text", text: knowledge });
-        // Count AT THE INJECTION DECISION so badge/panel numbers match exactly
-        // what rode this request (a later abort still rode the bytes — known
-        // and documented). Abstained = the epoch exists but its block is empty.
-        if (typeof sid === "string") {
-          const st = statsFor(sid);
-          st.requests++;
-          st.epochRequests++;
-          if (knowledge) st.cumChars += knowledge.length;
-          else if (epoch.has(sid)) st.abstained++;
-        }
+        await sessions.deliver(sid, (text) => event?.system?.push?.({ type: "text", text }));
       }),
     );
 
@@ -1419,8 +1356,7 @@ const impl = {
           markTurn(sid);
           await checkNewSession(sid);
           await bindSessionIdentity(sid);
-          latestPrompt.set(sid, event?.prompt?.text ?? "");
-          await refreshEpoch(sid);
+          await sessions.prompt(sid, event?.prompt?.text ?? "");
         }
       }),
     );
@@ -1443,8 +1379,7 @@ const impl = {
         if (typeof sid === "string") bindSessionProvisional(sid, instanceDir);
         await onCompacting({ sessionID: event?.sessionID });
         if (typeof event?.sessionID === "string") {
-          epoch.delete(event.sessionID);
-          latestPrompt.delete(event.sessionID);
+          sessions.invalidate(event.sessionID);
         }
         const anchor = await compactionAnchor(12, sid);
         if (anchor) event?.system?.push?.({ type: "text", text: anchor });
@@ -1474,53 +1409,29 @@ const impl = {
       void (async () => {
         try {
           for await (const raw of eventApi.subscribe({ signal: measuredController.signal })) {
-            const ev = raw as Record<string, any>;
             // Session identity: created fires for new sessions, execution.started
             // every turn (covers sessions resumed across a restart), moved on a
             // workspace change. Stamps and visibility resolve through this.
-            if (
-              ev?.type === "session.created" ||
-              ev?.type === "session.execution.started" ||
-              ev?.type === "session.moved"
-            ) {
-              const d = ev.data ?? ev.properties ?? {};
-              const info = d.info ?? d;
-              const sid = info.sessionID ?? d.sessionID;
-              const dir =
-                info.location?.directory ?? d.location?.directory ?? ev.location?.directory ?? info.directory;
-              if (typeof sid === "string" && typeof dir === "string") rememberSessionDir(sid, dir);
+            const identity = sessionIdentityEvent(raw);
+            if (identity) {
+              const { sessionID: sid, directory: dir } = identity;
+              if (dir !== undefined) rememberSessionDir(sid, dir);
               // 2.1.4 serve sends execution.started with no location at all:
               // resolve the session row instead of leaving the session unbound.
-              else if (typeof sid === "string") void guarded("session bind (api)", () => bindSessionFromApi(sid));
+              else void guarded("session bind (api)", () => bindSessionFromApi(sid));
               continue;
             }
-            // Token usage: v2 hosts (>=2.0.x) emit `session.usage.updated` with
-            // data.{sessionID, tokens}; older hosts carried the same TokenUsage
-            // on message.updated's assistant info. Accept both so `measured`
-            // populates regardless of host version.
-            let usid: unknown;
-            let ut: { input?: number; cache?: { read?: number; write?: number } } | undefined;
-            if (ev?.type === "session.usage.updated") {
-              usid = ev.data?.sessionID;
-              ut = ev.data?.tokens;
-            } else if (ev?.type === "message.updated") {
-              const info = ev.properties?.info ?? ev.info ?? ev.data?.info;
-              if (info && info.role === "assistant") {
-                usid = info.sessionID;
-                ut = info.tokens;
-              }
-            } else {
-              continue;
-            }
-            if (typeof usid !== "string" || !ut) continue;
-            sessions.touch(usid);
-            measuredTurns.set(usid, {
+            const usage = sessionUsageEvent(raw);
+            if (!usage) continue;
+            const { sessionID, input, read, write } = usage;
+            sessions.touch(sessionID);
+            measuredTurns.set(sessionID, {
               at: new Date().toISOString(),
-              input: Number(ut.input) || 0,
-              read: Number(ut.cache?.read) || 0,
-              write: Number(ut.cache?.write) || 0,
+              input,
+              read,
+              write,
             });
-            await guarded("status flush (measured)", () => flushStatus(usid));
+            await guarded("status flush (measured)", () => flushStatus(sessionID));
           }
         } catch {
           // the subscription ended (abort or host error); nothing to do
@@ -1533,7 +1444,7 @@ const impl = {
     // measured-cache listener above does subscribe to the event stream by
     // default, but it is zero-model: pure bookkeeping of message usage.) When
     // enabled (options.autoCapture === true AND a valid captureModel), each
-    // session.idle event — and, unless captureOnCompact === false, each
+    // supported turn-end event — and, unless captureOnCompact === false, each
     // compaction hook call too — runs ONE cheap ctx.generate.text call whose
     // reply is parsed into candidates that go through the SAME runWriteGate as
     // model-authored writes — capture can never bypass the moat, and it only
@@ -1642,7 +1553,17 @@ const impl = {
                 ? `auto_capture_compaction_${outcome.action}`
                 : `auto_capture_${outcome.action}`,
               // A blocked credential-shaped scope must not reach the evidence log either.
-              { session: sid, trigger, type: c.type, scope: redactSecrets(c.scope), reason: outcome.reason ?? "" },
+              // The promoted line also carries the audit fault when the
+              // write_promoted line fell (#155 review — capture has no
+              // reply to caveat, so this line is the trail's only note).
+              {
+                session: sid,
+                trigger,
+                type: c.type,
+                scope: redactSecrets(c.scope),
+                reason: outcome.reason ?? "",
+                audit_error: outcome.evidenceError,
+              },
               false,
             );
           }
@@ -1652,12 +1573,9 @@ const impl = {
         void (async () => {
           try {
             for await (const raw of eventApi.subscribe({ signal: controller.signal })) {
-              const event = raw as Record<string, any>;
-              if (!captureTriggerFor(event)) continue;
-              // 2.x carries the session inside `data`; the other two shapes are
-              // kept because the measured listener sees both across host modes.
-              const sid = event.data?.sessionID ?? event.sessionID ?? event.properties?.sessionID;
-              if (typeof sid !== "string") continue;
+              if (!captureTriggerFor(raw)) continue;
+              const sid = captureSessionID(raw);
+              if (sid === undefined) continue;
               setCurrent({ sessionID: sid });
               const now = Date.now();
               if (!captureCooldownPasses("idle", sid, now)) continue; // 5-min cooldown, shared across setups

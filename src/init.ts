@@ -47,6 +47,8 @@ export interface InitSummary {
   written: number;
   collapsed: number;
   blocked: number;
+  /** Written rows whose write_promoted audit line fell (#155 review). */
+  unaudited?: number;
 }
 
 const NOTABLE_KEYS = ["test", "e2e", "lint", "typecheck", "check", "build", "format"];
@@ -247,14 +249,19 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
   let written = 0;
   let collapsed = 0;
   let blocked = 0;
+  // Promoted rows whose write_promoted audit line fell (#155 review: the
+  // fault must be visible to every writer, bookkeeping included).
+  let unaudited = 0;
   for (const s of scripts) {
     const content = `${scope} ${s.key} command: run "${s.cmd}" from the repo root (${s.source}).`;
     const outcome = await runWriteGate(
       { type: "pattern", scope, content, tags: ["init", s.source] },
       gateCtx,
     );
-    if (outcome.action === "promoted") written++;
-    else if (outcome.action === "collapsed") collapsed++;
+    if (outcome.action === "promoted") {
+      written++;
+      if (outcome.evidenceError !== undefined) unaudited++;
+    } else if (outcome.action === "collapsed") collapsed++;
     else blocked++;
   }
 
@@ -267,6 +274,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
   if (stampOutcome.action === "promoted" && prior && stampOutcome.ts) {
     await markSuperseded(prior.ts, { superseded_by: stampOutcome.ts, reason: "init" });
   }
+  if (stampOutcome.action === "promoted" && stampOutcome.evidenceError !== undefined) unaudited++;
 
   await record(
     "init_complete",
@@ -280,6 +288,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
       written,
       collapsed,
       blocked,
+      unaudited,
       stamp: stampTs ?? "-",
     },
     false,
@@ -296,6 +305,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
     written,
     collapsed,
     blocked,
+    unaudited,
   };
 }
 
@@ -308,6 +318,8 @@ export function formatInit(s: InitSummary): string {
     `Initialized ${s.scope} (root ${s.root}, head ${s.head}).`,
     `Graph: ${s.graph.action}${s.graph.name ? ` (${s.graph.name})` : ""} [mode=${s.graph.mode}]`,
     scr ? `Scripts (${s.scripts.length}):\n${scr}` : "Scripts: none detected",
-    `Memories: written=${s.written}, collapsed=${s.collapsed}, blocked=${s.blocked}; stamp=${s.stampTs ?? "-"}`,
+    `Memories: written=${s.written}, collapsed=${s.collapsed}, blocked=${s.blocked}` +
+      (s.unaudited ? `, ${s.unaudited} without an audit line` : "") +
+      `; stamp=${s.stampTs ?? "-"}`,
   ].join("\n");
 }
