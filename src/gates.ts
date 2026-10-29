@@ -6,9 +6,8 @@ import { memoryRoot, canonicalFile } from "./config.ts";
 import { bracketList, parseLine, readLines } from "./logfmt.ts";
 import {
   appendMemory,
-  loadAll,
   loadScope,
-  markManySuperseded,
+  markManySupersededReport,
   snapshotFiles,
   MAX_CONTENT_CHARS,
   type Memory,
@@ -48,6 +47,25 @@ export interface WriteCandidate {
   repoPath?: string;
 }
 
+// Metadata-list equality (retrieval keywords, tags): pairwise, undefined and
+// empty counting as the same content. Shared by GATE-3's update carve-out and
+// memory_update's successor verdict so both sides ask the same question.
+// ORDER-SENSITIVE on purpose: ["a","b"] vs ["b","a"] counts as a metadata
+// edit (a new row, the old one intact) — a set comparison would silently
+// collapse an edit whose ordering the caller changed deliberately, and the
+// conservative direction for a truth-claim is the one that writes more.
+export const sameStrList = (a?: string[], c?: string[]) =>
+  (a?.length ?? 0) === (c?.length ?? 0) && (a ?? []).every((x, i) => (c ?? [])[i] === x);
+
+// The sentence every success reply owes the reader when the gate promoted a
+// row but its write_promoted audit line failed to land (#155 review): the
+// row IS durable — and memory_evidence, where every other verdict points
+// the curious reader, will show NOTHING for it. Only silence was optional.
+export const auditCaveat = (outcome: GateOutcome): string =>
+  outcome.evidenceError !== undefined
+    ? ` (its audit line was not recorded: ${outcome.evidenceError})`
+    : "";
+
 export interface GateContext {
   liveRoot: string;
   evidenceCalls: string[];
@@ -69,6 +87,12 @@ export interface GateContext {
   // excludes it from rivalry: the update IS the sanctioned supersession, so it
   // must never be blocked as a conflict with the row it is about to supersede.
   supersedesTs?: string;
+  // Optional caller-owned ledger (#158 round 3): GATE-2's drift/canonical
+  // supersessions append the ts values they made durable HERE, immediately
+  // after the batch publish and BEFORE their audit lines — so a failed audit
+  // line can no longer hide a persisted retirement from the caller's catch.
+  // "Nothing was written" is only writable when this stays empty.
+  durable?: string[];
 }
 
 // Shared optional fields remain readable by diagnostic callers before they
@@ -78,6 +102,18 @@ interface GateOutcomeFields {
   ts?: string;
   chain: string;
   hint?: string;
+  // Promoted with the row DURABLE but its post-append write_promoted audit
+  // line failed (#155). Entry points with a further post-mutation step
+  // (memory_update's supersede) must still run it and report a partial
+  // result. Throwing was the old shape of this signal and it lied: callers
+  // read it as "nothing happened" while the row sat on disk. Pre-append
+  // faults keep throwing — there, nothing was in fact written.
+  evidenceError?: string;
+  // On a collapsed (un-stored) write: the ts of the ACTIVE row whose content
+  // already IS the candidate. An update completing its supersession needs the
+  // survivor's id to retire its own target in the survivor's favor (#155
+  // convergence: a retry must be able to end with one active row).
+  collapsedWith?: string;
 }
 
 export type GateOutcome =
@@ -420,6 +456,14 @@ export async function runWriteGate(
     // and the pass is skipped by the batch (it re-reads under the lock).
     const target = g1.candidateStale ? "<-" : chain;
     if (typeof s.memory.superseded_by === "string") continue;
+    // The row an UPDATE replaces is retired by the update itself, with its
+    // own pointer. A drift stamp here wins first-call-wins against the
+    // caller's markSuperseded and leaves a chain id the caller's retry can
+    // never walk — so the tool would print "(superseded X)" naming a
+    // retirement it did not perform. Same principle GATE-3 applies to
+    // rivalry (the target is never a contender): the update IS the sanctioned
+    // supersession for that row.
+    if (s.memory.ts === ctx.supersedesTs) continue;
     driftPlan.push({
       s,
       target,
@@ -427,8 +471,11 @@ export async function runWriteGate(
     });
   }
   if (driftPlan.length > 0) {
-    const markedCount = await markManySuperseded(driftPlan.map((p) => ({ ts: p.s.memory.ts, fields: p.fields })));
-    if (markedCount > 0) {
+    const { marked } = await markManySupersededReport(driftPlan.map((p) => ({ ts: p.s.memory.ts, fields: p.fields })));
+    if (marked.length > 0) {
+      // Ledger BEFORE the audit lines: what is on disk now stays on disk no
+      // matter what the record loop below does (round-3 probe 3).
+      ctx.durable?.push(...marked);
       for (const p of driftPlan) {
         supersededTs = p.s.memory.ts;
         await rec("superseded_by", {
@@ -461,6 +508,9 @@ export async function runWriteGate(
     const canonPlan: { ts: string; from: string | undefined }[] = [];
     for (const m of scopeMems) {
       if (m.superseded_by) continue;
+      // The update's own target retires in the update's hand, not the
+      // canonical registry's (see the GATE-2 drift skip above).
+      if (m.ts === ctx.supersedesTs) continue;
       if (tokens(m.content).some((t) => valueSet.has(t))) continue;
       const from = rawTokens(m.content).find(
         (t) => !STOPWORDS.has(t.toLowerCase()) && !entitySet.has(t.toLowerCase()) && !valueSet.has(t.toLowerCase()),
@@ -469,10 +519,15 @@ export async function runWriteGate(
     }
     // One batch publish for the whole neutralization set (#61); rows marked
     // out-of-band since the scan are skipped by the batch (re-read under lock).
-    if ((await markManySuperseded(canonPlan.map((p) => ({
-      ts: p.ts,
-      fields: { superseded_by: target, reason: "canonical", entity: canon.entry.entity, from: p.from, to: canon.entry.value },
-    })))) > 0) {
+    const { marked: canonMarked } = await markManySupersededReport(
+      canonPlan.map((p) => ({
+        ts: p.ts,
+        fields: { superseded_by: target, reason: "canonical", entity: canon.entry.entity, from: p.from, to: canon.entry.value },
+      })),
+    );
+    if (canonMarked.length > 0) {
+      // Same ledger discipline as the drift batch above.
+      ctx.durable?.push(...canonMarked);
       for (const p of canonPlan) {
         if (!supersededTs) supersededTs = p.ts;
         await rec("superseded_by", {
@@ -497,8 +552,21 @@ export async function runWriteGate(
   const exactPoll = scopeMems.filter(
     (m) => m.superseded_by === undefined || m.reason === "drift",
   );
+  // Byte-exact duplicate prose collapses (Principle 2) — with one UPDATE-only
+  // carve-out: the row being replaced counts as a duplicate of the candidate
+  // only if the update also restates its metadata. Same prose plus different
+  // retrieval keywords or status is a metadata EDIT on that row (GATE-3
+  // already refuses to see it as a rival), and collapsing it would silently
+  // drop the edit — the tool could then never edit kw or status at all.
   const exact = exactPoll.find(
-    (m) => m.type === candidate.type && m.content === candidate.content,
+    (m) =>
+      m.type === candidate.type &&
+      m.content === candidate.content &&
+      (m.ts !== ctx.supersedesTs ||
+        (sameStrList(m.kw, candidate.kw) &&
+          sameStrList(m.tags, candidate.tags) &&
+          m.issue === candidate.issue &&
+          (m.status ?? "settled") === (candidate.status ?? "settled"))),
   );
   // Same-type live rows that could compete with the incoming statement; the
   // row an update replaces is never a contender.
@@ -652,7 +720,7 @@ export async function runWriteGate(
   }
 
   if (collapseMatch) {
-    return { action: "collapsed", chain };
+    return { action: "collapsed", chain, collapsedWith: collapseMatch.ts };
   }
 
   // The write is specifically promoted on engagement (no refs, no gate check,
@@ -673,21 +741,34 @@ export async function runWriteGate(
   // prompt-cache bust to be shown its own thought. Only promoted writes are
   // attributed — a blocked candidate created nothing.
   noteAuthored(ctx.sessionID, ts);
-  await rec("write_promoted", {
-    gate: 4,
-    op: "write",
-    mem: ts,
-    scope: candidate.scope,
-    type: candidate.type,
-    status: candidate.status ?? "settled",
-    ch,
-    supersedes: supersededTs ?? "-",
-    canonical: canon ? `canonical.logfmt:${canon.entry.ts}` : "-",
-    evidence_refs: bracketList(ctx.evidenceCalls),
-    snapshot: snapshot[0] ?? "-",
-    trusted: ctx.trusted ? true : undefined,
-    grounded_by: groundedByEngagement ? "engagement" : undefined,
-    chain,
-  });
-  return { action: "promoted", ts, chain };
+  // Everything past the append is durable state: an audit failure from here
+  // must not escape as a throw, or the caller reports a write that happened
+  // as if it had not (#155 — memory_update told the model "Nothing was
+  // written" while the replacement row sat un-superseded on disk). The
+  // outcome carries the error instead.
+  let evidenceError: string | undefined;
+  try {
+    await rec("write_promoted", {
+      gate: 4,
+      op: "write",
+      mem: ts,
+      scope: candidate.scope,
+      type: candidate.type,
+      status: candidate.status ?? "settled",
+      ch,
+      supersedes: supersededTs ?? "-",
+      canonical: canon ? `canonical.logfmt:${canon.entry.ts}` : "-",
+      evidence_refs: bracketList(ctx.evidenceCalls),
+      snapshot: snapshot[0] ?? "-",
+      trusted: ctx.trusted ? true : undefined,
+      grounded_by: groundedByEngagement ? "engagement" : undefined,
+      chain,
+    });
+  } catch (err) {
+    // NOT `(err as Error).message`: a messageless Error (or a non-Error
+    // rejection) would make the field FALSY, and callers test it for truth —
+    // the lie this field exists to kill would return as a clean success.
+    evidenceError = err instanceof Error && err.message ? err.message : String(err);
+  }
+  return { action: "promoted", ts, chain, evidenceError };
 }

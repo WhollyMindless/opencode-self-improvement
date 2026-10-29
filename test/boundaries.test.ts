@@ -102,7 +102,12 @@ const EXPECTED_WIRE = {
         description:
           "Row selector: id (ts), clock fragment, or unique content substring. Omit to target the newest active row of scope+type.",
       },
-      status: { type: "string", enum: ["open", "settled"] },
+      status: {
+        type: "string",
+        enum: ["open", "settled"],
+        description:
+          "Settled or open; omitted keeps the target row's standing (an open frontier row stays open)",
+      },
     },
     required: ["scope", "type", "content"],
     additionalProperties: false,
