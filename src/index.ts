@@ -88,6 +88,14 @@ import { buildCapturePrompt, flattenTranscript, lagSince, parseCandidates, parse
 import { redactSecrets } from "./secrets.ts";
 import { flattenMemoryText } from "./sanitize.ts";
 import { bunFloorWarning } from "./runtime.ts";
+import {
+  captureSessionID,
+  sessionDirectoryFromMessages,
+  sessionDirectoryFromRow,
+  sessionIdentityEvent,
+  sessionUsageEvent,
+  toolIdentity,
+} from "./host.ts";
 
 // Tool/input boundaries are zod schemas (src/schema.ts): the JSON Schema the
 // host sees is GENERATED from them, and raw args are re-parsed at execution.
@@ -370,19 +378,17 @@ const impl = {
     // no await between (#116's documented fallback). Never re-read the global
     // after an await to learn who is calling (#127).
     const toolIds = (context?: unknown): { sid: string; call: string } => {
-      const fromCtx = (context as { sessionID?: unknown; id?: unknown } | undefined)
-        ?.sessionID;
-      const call = (context as { id?: unknown } | undefined)?.id;
+      const { sessionID: fromCtx, callID: call } = toolIdentity(context);
       // Entry binding: a session this instance has never seen is resolved to
       // THIS workspace (provisional — a firm event/API identity still
       // replaces it), so the tool's reader partitions by the repository the
       // call reached, not by the last setup's module scope (#127).
-      if (typeof fromCtx === "string" && fromCtx && fromCtx !== "?") {
+      if (fromCtx && fromCtx !== "?") {
         bindSessionProvisional(fromCtx, instanceDir);
       }
       return {
-        sid: typeof fromCtx === "string" && fromCtx ? fromCtx : getCurrent().sid,
-        call: typeof call === "string" && call ? call : getCurrent().call,
+        sid: fromCtx ?? getCurrent().sid,
+        call: call ?? getCurrent().call,
       };
     };
 
@@ -400,17 +406,8 @@ const impl = {
       bindingSids.add(sid);
       try {
         const msgs = await ctx.session?.context?.({ sessionID: sid });
-        if (Array.isArray(msgs)) {
-          for (const m of msgs) {
-            if (!m || typeof m !== "object") continue;
-            const r = m as Record<string, any>;
-            const dir = r.location?.directory ?? r.info?.location?.directory;
-            if (typeof dir === "string" && dir) {
-              rememberSessionDir(sid, dir);
-              break;
-            }
-          }
-        }
+        const dir = sessionDirectoryFromMessages(msgs);
+        if (dir !== undefined) rememberSessionDir(sid, dir);
       } catch {
         // no context access or host error: the event stream still binds later
       } finally {
@@ -432,10 +429,9 @@ const impl = {
       apiBindTried.add(sid);
       apiBindOrder.touch(sid);
       try {
-        const got = (await ctx.session?.get?.({ sessionID: sid })) as Record<string, any> | undefined;
-        const row = (got?.data ?? got) as Record<string, any> | undefined;
-        const dir = row?.location?.directory ?? row?.directory;
-        if (typeof dir === "string" && dir) rememberSessionDir(sid, dir);
+        const got = await ctx.session?.get?.({ sessionID: sid });
+        const dir = sessionDirectoryFromRow(got);
+        if (dir !== undefined) rememberSessionDir(sid, dir);
       } catch {
         // no session.get on this host (or unknown session): stay unbound
       }
@@ -1474,53 +1470,29 @@ const impl = {
       void (async () => {
         try {
           for await (const raw of eventApi.subscribe({ signal: measuredController.signal })) {
-            const ev = raw as Record<string, any>;
             // Session identity: created fires for new sessions, execution.started
             // every turn (covers sessions resumed across a restart), moved on a
             // workspace change. Stamps and visibility resolve through this.
-            if (
-              ev?.type === "session.created" ||
-              ev?.type === "session.execution.started" ||
-              ev?.type === "session.moved"
-            ) {
-              const d = ev.data ?? ev.properties ?? {};
-              const info = d.info ?? d;
-              const sid = info.sessionID ?? d.sessionID;
-              const dir =
-                info.location?.directory ?? d.location?.directory ?? ev.location?.directory ?? info.directory;
-              if (typeof sid === "string" && typeof dir === "string") rememberSessionDir(sid, dir);
+            const identity = sessionIdentityEvent(raw);
+            if (identity) {
+              const { sessionID: sid, directory: dir } = identity;
+              if (dir !== undefined) rememberSessionDir(sid, dir);
               // 2.1.4 serve sends execution.started with no location at all:
               // resolve the session row instead of leaving the session unbound.
-              else if (typeof sid === "string") void guarded("session bind (api)", () => bindSessionFromApi(sid));
+              else void guarded("session bind (api)", () => bindSessionFromApi(sid));
               continue;
             }
-            // Token usage: v2 hosts (>=2.0.x) emit `session.usage.updated` with
-            // data.{sessionID, tokens}; older hosts carried the same TokenUsage
-            // on message.updated's assistant info. Accept both so `measured`
-            // populates regardless of host version.
-            let usid: unknown;
-            let ut: { input?: number; cache?: { read?: number; write?: number } } | undefined;
-            if (ev?.type === "session.usage.updated") {
-              usid = ev.data?.sessionID;
-              ut = ev.data?.tokens;
-            } else if (ev?.type === "message.updated") {
-              const info = ev.properties?.info ?? ev.info ?? ev.data?.info;
-              if (info && info.role === "assistant") {
-                usid = info.sessionID;
-                ut = info.tokens;
-              }
-            } else {
-              continue;
-            }
-            if (typeof usid !== "string" || !ut) continue;
-            sessions.touch(usid);
-            measuredTurns.set(usid, {
+            const usage = sessionUsageEvent(raw);
+            if (!usage) continue;
+            const { sessionID, input, read, write } = usage;
+            sessions.touch(sessionID);
+            measuredTurns.set(sessionID, {
               at: new Date().toISOString(),
-              input: Number(ut.input) || 0,
-              read: Number(ut.cache?.read) || 0,
-              write: Number(ut.cache?.write) || 0,
+              input,
+              read,
+              write,
             });
-            await guarded("status flush (measured)", () => flushStatus(usid));
+            await guarded("status flush (measured)", () => flushStatus(sessionID));
           }
         } catch {
           // the subscription ended (abort or host error); nothing to do
@@ -1652,12 +1624,9 @@ const impl = {
         void (async () => {
           try {
             for await (const raw of eventApi.subscribe({ signal: controller.signal })) {
-              const event = raw as Record<string, any>;
-              if (!captureTriggerFor(event)) continue;
-              // 2.x carries the session inside `data`; the other two shapes are
-              // kept because the measured listener sees both across host modes.
-              const sid = event.data?.sessionID ?? event.sessionID ?? event.properties?.sessionID;
-              if (typeof sid !== "string") continue;
+              if (!captureTriggerFor(raw)) continue;
+              const sid = captureSessionID(raw);
+              if (sid === undefined) continue;
               setCurrent({ sessionID: sid });
               const now = Date.now();
               if (!captureCooldownPasses("idle", sid, now)) continue; // 5-min cooldown, shared across setups
