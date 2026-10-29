@@ -93,7 +93,10 @@ export const UpdateArgs = z.object({
       "Row selector: id (ts), clock fragment, or unique content substring. Omit to target the newest active row of scope+type.",
     )
     .optional(),
-  status: z.enum(STATUSES).optional(),
+  status: z
+    .enum(STATUSES)
+    .describe("Settled or open; omitted keeps the target row's standing (an open frontier row stays open)")
+    .optional(),
 });
 
 export const ForgetArgs = z.object({

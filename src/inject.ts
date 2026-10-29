@@ -1,12 +1,9 @@
-// Context surfaces. The system digest is TINY (≤2 lines): durable knowledge is
-// pulled on demand, not pushed wholesale. Deterministic memory-first injection
-// rides chat.message (synthetic parts), so relevant knowledge is in the model's
-// context before it chooses any tool. Contextual pull rides grep/glob/read
-// results. Evidence is never injected. Open threads (status=
-// "open") get a single capped frontier block in the digest so planning sessions
-// start at the previous session's frontier instead of re-deriving it.
+// Context surfaces: a small system digest, a capped open-thread frontier, and
+// relevance-ranked memory frozen per epoch by src/index.ts. These ride the
+// session context hook's system parts. Contextual pull appends relevant memory
+// to grep/glob/read results. Evidence is never injected.
 import { createHash } from "node:crypto";
-import { isActive, loadAll, readerFromSid, visibleTo, visibleHere, type Memory } from "./memory.ts";
+import { isActive, loadAll, readerFromSid, visibleTo, type Memory } from "./memory.ts";
 import { record } from "./evidence.ts";
 import { dateStr, frontierBudget, injectBudget } from "./config.ts";
 import { bracketList } from "./logfmt.ts";

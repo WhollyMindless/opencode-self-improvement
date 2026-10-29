@@ -229,9 +229,8 @@ export function displayCall(name: string, argsText: string): string {
   return `${name}(${normalizeArgs(argsText)})`;
 }
 
-// Deterministic source-tree scan used by GATE-1 live resolution. Excludes junk
-// that poisons signature comparison: node_modules (type-decl .d.ts files often
-// carry empty or spread args), build output (dist/lib), and VCS dirs. Prefers
+// Deterministic GATE-1 source scan excludes dependencies, VCS dirs, and .d.ts
+// declarations (which often carry empty or spread args). Prefers
 // files under src/ over build output, .ts/.tsx sources over compiled .js, and
 // case-insensitively ranks basenames matching the call's fileHint first so
 // `MeshBuilder.CreateBox` resolves to `meshbuilder.pure.ts` instead of a
@@ -245,7 +244,6 @@ function relRank(rel: string): number {
   if (rel.endsWith(".d.ts")) return Infinity;
   let rank = 0;
   if (seg.includes("src")) rank -= 100;
-  if (rel.endsWith(".d.ts")) rank += 1000;
   if (seg.some((s) => ["dist", "build", "out", "lib"].includes(s))) rank += 50;
   if (/\.(js|mjs|cjs)$/.test(rel)) rank += 10;
   return rank;

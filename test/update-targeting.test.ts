@@ -250,13 +250,16 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
     expect(fresh[0]!.content).toContain("mysql");
   });
 
-  test("ADVERSARIAL pin: an update whose content byte-equals another live row silently no-ops; the target survives", async () => {
-    // "Duplicate ignored" reads like success but the requested rewrite did NOT
-    // happen: the target stays live with its old content, next to the row the
-    // content duplicated. If collapsed updates are ever folded into a real
-    // supersede (merge), this pin flips.
+  test("an update whose content byte-equals another live row completes the merge: the target retires in the survivor's favor", async () => {
+    // The #125 review pinned the OLD shape ("Duplicate ignored": target
+    // survives next to the row its content duplicated — two active statements
+    // of one fact, and the retry after a supersede-step fault never converged
+    // past it). The follow-up review of #155 folded the collapse into a real
+    // supersede, as predicted here: the named target is retired pointing AT
+    // the survivor (first-call-wins, so this is safe on every path), and the
+    // store ends with exactly one active statement.
     const a = await appendMemory({ type: "pattern", scope: "colupd", status: "open", content: ALPHA });
-    await appendMemory({ type: "pattern", scope: "colupd", status: "open", content: BETA });
+    const b = await appendMemory({ type: "pattern", scope: "colupd", status: "open", content: BETA });
     const loaded = await tools();
     const out = await loaded.memory_update.execute({
       type: "pattern",
@@ -265,10 +268,14 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
       query: a,
       content: BETA,
     });
-    expect(out).toContain("Duplicate ignored");
+    expect(out).toContain("retired in its favor");
+    expect(out).toContain(b);
     const after = (await loadAll()).filter((m) => m.scope === "colupd");
-    expect(isActive(after.find((m) => m.ts === a)!)).toBe(true);
-    expect(after.filter(isActive).length).toBe(2);
+    expect(isActive(after.find((m) => m.ts === a)!)).toBe(false);
+    expect(after.find((m) => m.ts === a)!.superseded_by).toBe(b);
+    const active = after.filter(isActive);
+    expect(active.length).toBe(1);
+    expect(active[0]!.ts).toBe(b);
   });
 
   test("two concurrent updates on one target: the winner lands, the loser fails closed (no double-swap)", async () => {
