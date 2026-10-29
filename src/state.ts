@@ -35,6 +35,14 @@ export interface SessionState {
     cmd: string;
     chain: ToolResult[];
   } | null;
+  // Bounded provenance for write telemetry (#163), independent of the full
+  // calls ledger used by grounding, attribution, and convergence.
+  writeEvidence?: {
+    recent: string[];
+    gateCheck?: string;
+    gateRecovery?: [string, string, string];
+    toolRecovery?: [string, string];
+  };
   // Session-convergence tracking (time-to-frontier): completed-message count,
   // first activity time, and the first memory_recall that surfaced an open
   // thread. Deterministic: derived only from queued messages and tool results.

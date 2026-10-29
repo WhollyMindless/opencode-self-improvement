@@ -11,7 +11,7 @@ import { cbmBin } from "./config.ts";
 import { isVisibleTo, loadAll, markSuperseded, readerFromSid } from "./memory.ts";
 import { runWriteGate, type GateContext } from "./gates.ts";
 import { record } from "./evidence.ts";
-import { evidenceCalls, hasGateCheck } from "./triggers.ts";
+import { writeEvidence, hasGateCheck } from "./triggers.ts";
 import { getCurrent } from "./state.ts";
 
 export interface ScriptRecord {
@@ -216,7 +216,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
 
   const gateCtx: GateContext = {
     liveRoot: root,
-    evidenceCalls: evidenceCalls(args.sessionID ?? getCurrent().sid),
+    ...writeEvidence(args.sessionID ?? getCurrent().sid),
     hasGateCheck: hasGateCheck(args.sessionID ?? getCurrent().sid),
     // Stamps land on the caller's session even though runInit awaits git
     // probing before the gate writes (#127 / #121's write-side root cause).
