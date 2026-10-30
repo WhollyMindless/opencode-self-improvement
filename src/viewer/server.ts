@@ -1,10 +1,11 @@
 // Memory Viewer server. Bundled with the plugin: run `bun memory-view` (or
 // `bun run src/viewer/server.ts`) from the repo root and open the printed URL.
-// Binds 127.0.0.1 only — the memory store is local, personal data. All reads go
+// Defaults to 127.0.0.1 — the memory store is local, personal data. All reads go
 // through the same loadAll() used by recall/inject (so blocked entries are
 // hidden), and all mutations are non-destructive (snapshot + audit + supersede).
 // I2: serves only file data; never writes into any repo.
 import { basename, join } from "node:path";
+import { isIP } from "node:net";
 import { serve, type Server } from "bun";
 import { z, type ZodTypeAny } from "zod";
 import { BlockBody, DeleteBody, EditBody, RestoreEntryBody, UnblockBody } from "../schema.ts";
@@ -56,6 +57,14 @@ function allowedHostnames(): Set<string> {
     .filter(Boolean)
     .map((n) => (n.includes(":") && !n.startsWith("[") ? `[${n}]` : n));
   return new Set(names);
+}
+
+function isLoopbackHostname(name: string): boolean {
+  const host = name.replace(/^\[|\]$/g, "");
+  if (host === "localhost") return true;
+  if (isIP(host) === 4) return host.startsWith("127.");
+  // URL canonicalization also recognizes the expanded IPv6 loopback spelling.
+  return isIP(host) === 6 && new URL(`http://[${host}]/`).hostname === "[::1]";
 }
 
 function rejectRequest(req: Request, url: URL, port: number): Response | null {
@@ -130,6 +139,11 @@ export interface ViewerServer {
 
 export async function startViewer(port: number = PORT): Promise<ViewerServer> {
   const page = await Bun.file(PAGE).text();
+  if ([...allowedHostnames()].some((host) => !isLoopbackHostname(host))) {
+    console.warn(
+      "[memory-viewer] WARNING: non-loopback hosts are allowed. The viewer serves private memory over plain HTTP without authentication; anyone who can reach it with an allowed Host can read or modify the store. Use only on a network you trust.",
+    );
+  }
   const server = serve({
     hostname: HOST,
     port,
@@ -303,6 +317,6 @@ async function restoreRoute(body: Record<string, unknown>): Promise<Response> {
 
 if (import.meta.main) {
   startViewer(PORT).then(({ url }) => {
-    console.log(`\nMemory Viewer: ${url}\n(127.0.0.1 only; snapshot+audit are mandatory on every edit/delete)`);
+    console.log(`\nMemory Viewer: ${url}\n(snapshot+audit are mandatory on every edit/delete)`);
   });
 }
