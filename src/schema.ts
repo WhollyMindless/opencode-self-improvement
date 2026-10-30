@@ -200,6 +200,7 @@ export const EditBody = z.object({
 export const DeleteBody = z.object({ ts: isoTs, reason: z.string() });
 export const BlockBody = z.object({ ts: isoTs, reason: z.string() });
 export const UnblockBody = z.object({ ts: isoTs });
+export const ReleaseQuarantineBody = z.object({ ts: isoTs, reason: z.string().trim().min(1) });
 // Strict fields by intent: String(body.x ?? "") coercion once let unvalidated
 // POSTs append rows with empty type/scope/content.
 // repo/repoPath (#129): the origin stamp of the DELETED row, replayed from the

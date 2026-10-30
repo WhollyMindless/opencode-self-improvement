@@ -22,6 +22,7 @@ import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 import { blockedTs } from "./blocklist.ts";
 import { containsSecret, redactSecrets } from "./secrets.ts";
 import { flattenMemoryText } from "./sanitize.ts";
+import { isQuarantined } from "./quarantine.ts";
 
 export type MemoryStatus = "open" | "settled";
 
@@ -656,6 +657,28 @@ export async function prune(
 
 export function isActive(m: Memory): boolean {
   return !m.superseded_by;
+}
+
+// Quarantine remains durable and reviewable; only model-facing reads withhold it.
+export function isInjectable(m: Memory): boolean {
+  return isActive(m) && !isQuarantined(m);
+}
+
+// Human viewer action only. Preserve identity, origin, and all non-quarantine
+// metadata; stampRow snapshots and atomically publishes under the store lock.
+export async function releaseQuarantine(ts: string): Promise<boolean> {
+  for (const file of await memoryFiles()) {
+    const result = await stampRow(file, ts, (fields) => {
+      const tags = typeof fields.tags === "string" ? fields.tags.split(",") : [];
+      if (!tags.includes("quarantine")) return null;
+      const kept = tags.filter((tag) => tag !== "quarantine" && !tag.startsWith("quarantine:"));
+      if (kept.length) fields.tags = kept.join(",");
+      else delete fields.tags;
+      return formatLine(fields);
+    });
+    if (result !== null) return result;
+  }
+  return false;
 }
 
 // --- repo visibility ---------------------------------------------------------

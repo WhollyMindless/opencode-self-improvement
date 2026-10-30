@@ -17,6 +17,7 @@ import {
   loadAll,
   markSuperseded,
   snapshotFiles,
+  releaseQuarantine,
   type Memory,
 } from "../memory.ts";
 
@@ -189,3 +190,16 @@ async function audit(
 }
 
 export { addBlock, removeBlock };
+
+export async function releaseQuarantinedMemory(ts: string, reason: string): Promise<{ released: boolean; auditError?: string }> {
+  requireReason(reason);
+  const released = await releaseQuarantine(ts);
+  if (!released) return { released };
+  try {
+    await record("quarantine_released", { mem: ts, reason, source: "viewer" }, false);
+    return { released };
+  } catch {
+    // Release is already durable; an audit failure must not pretend otherwise.
+    return { released, auditError: "Release succeeded, but its audit line could not be recorded." };
+  }
+}
