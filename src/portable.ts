@@ -5,7 +5,7 @@
 // moat. Decay is supersede-not-delete and snapshot-first, mirroring prune.
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { mkdir, open } from "node:fs/promises";
+import { mkdir, open, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { allowOutsideStorePaths, exportsDir, memoryRoot } from "./config.ts";
 import { resolveContained } from "./containment.ts";
@@ -303,8 +303,13 @@ export async function importMemories(
   if (!target.toLowerCase().endsWith(".jsonl")) {
     throw new Error(`memory_import file must be a .jsonl export (got "${path}")`);
   }
-  const file = Bun.file(target);
-  if (!(await file.exists())) throw new Error(`import file not found: ${target}`);
+  let text: string;
+  try {
+    text = await readFile(target, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`import file not found: ${target}`);
+    throw err;
+  }
   const tally: ImportTally = { promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0, unaudited: 0 };
   // Preserve file-validation error precedence, but reject an unresolved owner
   // before gating any row. Resolution happened at entry, not at this await.
@@ -312,7 +317,7 @@ export async function importMemories(
   const currentScope = writeAt.scope;
   let allowFrontier = false;
   let first = true;
-  for (const line of (await file.text()).split("\n")) {
+  for (const line of text.replace(/^\uFEFF/, "").split("\n")) {
     if (!line.trim()) continue;
     if (first) {
       first = false;

@@ -256,5 +256,7 @@ describe.skipIf(process.platform !== "win32")("broken store directory (Windows A
     } finally {
       icacls(["/remove:d", me]);
     }
-  });
+    // The outer budget includes whoami and ACL setup/cleanup subprocesses on
+    // shared Windows runners. The lock itself must still fail within 2s above.
+  }, 30_000);
 });

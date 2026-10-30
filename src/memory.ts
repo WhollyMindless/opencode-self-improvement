@@ -3,7 +3,7 @@
 // vendor/opencode-memory/LICENSE) and extends it with the fields the write-gate
 // needs: supersession markers, snapshots and audited deletion.
 import { existsSync } from "node:fs";
-import { open } from "node:fs/promises";
+import { open, readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { dateStr, memoryRoot, deletionsFile, snapshotDir, HITS_FILENAME } from "./config.ts";
 import { repoScopeFor, sessionScope, writeTarget, type RepoScope } from "./repokey.ts";
@@ -570,10 +570,15 @@ async function claimSnapshot(file: string): Promise<string> {
 export async function snapshotFiles(files: string[]): Promise<string[]> {
   const snaps: string[] = [];
   for (const file of files) {
-    const f = Bun.file(file);
-    if (!(await f.exists())) continue;
+    let contents: Buffer;
+    try {
+      contents = await readFile(file);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
     const snap = await claimSnapshot(file);
-    await Bun.write(snap, await f.text());
+    await Bun.write(snap, contents);
     snaps.push(snap);
   }
   return snaps;
