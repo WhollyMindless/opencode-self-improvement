@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { runWriteGate } from "../src/gates.ts";
+import { exportMemories, importMemories } from "../src/portable.ts";
 import * as evidence from "../src/evidence.ts";
 import { appendMemory, isVisibleTo, loadAll, readerForSession, type Memory } from "../src/memory.ts";
 import { rememberSessionDir, resetSessionScopes, resolveRepo, sessionScope, setRepoScope } from "../src/repokey.ts";
@@ -267,4 +268,36 @@ test("a direct gate snapshots named read and write identity before its first awa
   expect(outcome.action).toBe("promoted");
   expect((await row(outcome.ts!)).repo).toBe(resolveRepo(a).key);
   expect((await row(outcome.ts!)).repoPath).toBe(resolveRepo(a).path);
+});
+
+test.each([false, true])("unscoped ambient gate pins explicit global ownership (scope moves: %s)", async (moves) => {
+  // No plugin, named session, or module scope at entry. The record seam lets
+  // another setup acquire the ambient scope before appendMemory is reached.
+  const record = evidence.record;
+  const spy = spyOn(evidence, "record").mockImplementation(async (...args: Parameters<typeof record>) => {
+    if (args[0] === "gate_start" && moves) setRepoScope(resolveRepo(b));
+    return record(...args);
+  });
+  restoreRecord = () => spy.mockRestore();
+  const outcome = await runWriteGate({ ...fields, content: "Unscoped ambient write through the gate" }, {
+    liveRoot: a, evidenceCalls: [], hasGateCheck: false,
+  });
+  expect(outcome.action).toBe("promoted");
+  const stored = await row(outcome.ts!);
+  expect(stored.repo).toBe("global");
+  expect(stored.repoPath).toBeUndefined();
+
+  // Explicit global differs from legacy unstamped rows on portability: an
+  // importer must not adopt this captured global row into its own repository.
+  const exported = await exportMemories();
+  setRepoScope(resolveRepo(b));
+  let imported: string | undefined;
+  const tally = await importMemories(exported.path, async (candidate) => {
+    expect(candidate.repo).toBe("global");
+    imported = await appendMemory(candidate);
+    return { action: "promoted" };
+  });
+  expect(tally.promoted).toBe(1);
+  expect((await row(imported!)).repo).toBe("global");
+  expect((await row(imported!)).repoPath).toBeUndefined();
 });

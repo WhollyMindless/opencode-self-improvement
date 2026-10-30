@@ -71,6 +71,8 @@ export const auditCaveat = (outcome: GateOutcome): string =>
 export interface GateContext {
   liveRoot: string;
   // Capture authority before awaiting locks, model calls, or gate evidence.
+  // Named callers read their repo; named-unbound callers read global-only;
+  // absent/"?" callers capture ambient authority at entry (not after awaits).
   reader?: Reader;
   writeAt?: WriteTarget;
   evidenceCalls: string[];
@@ -741,6 +743,10 @@ export async function runWriteGate(
   // The write carries the CALLER's session, not whatever current says after
   // the gate's own awaits - capture's stamp must follow the captured session.
   if (candidate.repo === undefined && !writeAt.ok) throw new UnresolvedWriterError(writeAt.sid);
+  // A captured unscoped ambient writer deliberately publishes repo=global.
+  // Leaving repo undefined would make appendMemory resolve ambient ownership
+  // again after awaits. This changes the old unstamped shape: exports now keep
+  // this row global on import instead of adopting the importing repository.
   const owner = candidate.repo === undefined && writeAt.ok
     ? { repo: writeAt.scope?.key ?? "global", repoPath: writeAt.scope?.path }
     : {};
