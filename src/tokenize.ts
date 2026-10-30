@@ -50,3 +50,136 @@ export function jaccard(a: string[], b: string[]): number {
   const union = sa.size + sb.size - inter;
   return union === 0 ? 0 : inter / union;
 }
+
+// ---------------------------------------------------------------------------
+// The two things token overlap cannot see (#35 review).
+//
+// The rejection sketch decides "same statement reworded" from shared tokens, and
+// for the two shapes below that judgement is wrong in the same direction — it
+// scores a CORRECTION higher than a rewording:
+//
+//   "retains audit records for 30 days" -> "…for 90 days"      sketch 0.800
+//   "must enable anonymous access"      -> "…must disable …"   sketch 0.778
+//   (a genuine rewording measures 0.500-0.615)
+//
+// So the sketch alone can never separate them: the pairs above are not lower
+// scoring, they are different. What separates them is that a load-bearing VALUE
+// moved, so the two value dimensions are extracted here and the tombstone keeps
+// one per row. Both are word-level and closed-vocabulary on purpose: this is not
+// an attempt to understand a claim, only to notice when the words that carry its
+// number or its sign are not the same words.
+// ---------------------------------------------------------------------------
+
+/** Every token carrying a digit, deduped and sorted: the quantities, versions,
+ *  ids and durations a statement asserts ("30", "3.19", "9ae0998"). A change
+ *  here is a different fact, not a rephrasing. */
+export function numericTokens(text: string): string[] {
+  return [...new Set(tokens(text).filter((t) => /\d/.test(t)))].sort();
+}
+
+export const POL_POS = "pos";
+export const POL_NEG = "neg";
+
+// Antonym stems whose opposition is unambiguous: flipping one turns the statement
+// into a different fact. Deliberately no open-ended stemming and no generic
+// comparatives ("more"/"less") or particles ("on"/"off") — those appear in
+// ordinary prose, and a spurious sign is the expensive error: it releases a value
+// a human rejected. (A sign that is merely ABSENT leaves the sketch to decide,
+// which is the shipped behaviour.)
+const POLARITY: ReadonlyMap<string, string> = new Map<string, string>(
+  [
+    ["enable enables enabled enabling", "disable disables disabled disabling"],
+    ["allow allows allowed allowing", "deny denies denied denying disallow disallows disallowed"],
+    [
+      "permit permits permitted permitting",
+      "refuse refuses refused refusing forbid forbids forbidden prohibit prohibits prohibited prohibiting",
+    ],
+    ["accept accepts accepted accepting", "reject rejects rejected rejecting"],
+    ["include includes included including", "exclude excludes excluded excluding"],
+    ["add adds added adding", "remove removes removed removing"],
+    ["start starts started starting begin begins began beginning", "stop stops stopped stopping halt halts halted halting cease ceases ceased ceasing"],
+    ["require requires required requiring", "waive waives waived waiving exempt exempts exempted exempting"],
+    ["keep keeps kept keeping", "drop drops dropped dropping"],
+    ["true", "false"],
+    ["always", "never"],
+  ].flatMap(([pos, neg]) => [
+    ...pos.split(" ").map((w) => [w, POL_POS] as [string, string]),
+    ...neg.split(" ").map((w) => [w, POL_NEG] as [string, string]),
+  ]),
+);
+
+// Words that reverse the claim word after them. `tokens()` splits apostrophes
+// away, so "doesn't" arrives as "doesn" + "t" and the contraction stem is the
+// token to match. "never" is both a negator and a NEG term in its own right.
+const NEGATORS: ReadonlySet<string> = new Set([
+  "not",
+  "no",
+  "never",
+  "without",
+  "cannot",
+  "nor",
+  "none",
+  "doesn",
+  "didn",
+  "don",
+  "isn",
+  "aren",
+  "wasn",
+  "weren",
+  "shouldn",
+  "wouldn",
+  "couldn",
+  "hasn",
+  "haven",
+  "hadn",
+  "mustn",
+  "wont",
+]);
+
+// Copula/auxiliaries keep a negation alive across them: "must not be enabled" is
+// still a prohibition. Any other word ends the window.
+const NEGATION_SPAN: ReadonlySet<string> = new Set([
+  "be",
+  "been",
+  "being",
+  "is",
+  "are",
+  "am",
+  "was",
+  "were",
+  "do",
+  "does",
+  "did",
+  "to",
+]);
+
+/**
+ * The set of polarity signs a statement asserts, deduped and sorted, so `["pos"]`
+ * means it asserts something permitted/active/affirmative, `["neg"]` the opposite,
+ * `["neg","pos"]` both, and `[]` that it asserts neither.
+ *
+ * Signs carry NO word identity, and that is what makes the signature safe to use
+ * as a veto: "enable", "allow" and "permit" all reduce to `pos`, so restating a
+ * rejected instruction with a synonym is still the same claim, while
+ * enable↔disable cannot be mistaken for one. "not enable" reduces to `neg` and so
+ * matches a rejected "disable" — a reversal expressed differently is still the
+ * rejected reversal, not a correction of it.
+ *
+ * The domain is two values, which is why recording it in a durable log gives
+ * nothing back about the prose.
+ */
+export function polaritySigns(text: string): string[] {
+  const signs = new Set<string>();
+  let negated = false;
+  for (const t of tokens(text)) {
+    const sign = POLARITY.get(t);
+    if (sign) signs.add(negated ? (sign === POL_POS ? POL_NEG : POL_POS) : sign);
+    // A negator opens the window, an ordinary word closes it, and a polarity
+    // word closes it after being read — so "must not enable" reads as one negation
+    // of "enable", not as a sign that survives to the next clause.
+    if (NEGATORS.has(t)) negated = true;
+    else if (!NEGATION_SPAN.has(t)) negated = false;
+  }
+  return [...signs].sort();
+}
+

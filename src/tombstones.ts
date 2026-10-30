@@ -8,13 +8,19 @@
 // sequence and the most-repeated gap in the field.
 //
 // Hashes only, never values (atlas step-10 inversion: a deletion log that
-// reproduces the deleted secret is a compliance problem). Two fields per line:
+// reproduces the deleted secret is a compliance problem). Fields per line:
 //
 //   ch  sha1(content)[0:12] — the same hash the gates already emit on
 //       gate_start / write_promoted, so a rejection is searchable with the
 //       identifiers telemetry already carries.
 //   sig a bottom-k sketch of the content's token hashes (see sketchOf).
 //       Supports near-match WITHOUT storing the prose.
+//   num hashes of the numeric tokens the statement asserted, and
+//   pol the polarity signs it asserted ("pos"/"neg").
+//       The value signatures that keep a CORRECTION from being refused as the
+//       rejected fact — see the note on {@link differsIn}. `pol` is a label from
+//       a two-value vocabulary and `num` is a hash, so neither gives the deleted
+//       number or verb back.
 //
 // The near-match is what closes the rewording hole: "use Express for the HTTP
 // layer" and "the HTTP layer uses Express" are different bytes, so `ch` alone
@@ -42,7 +48,8 @@ import { contentHash } from "./evidence.ts";
 import { memoryRoot } from "./config.ts";
 import { appendLog, fileIdentity, formatLine, parseLine, readLines, writeAtomic } from "./logfmt.ts";
 import { withStoreLock, LOCK_WRITE } from "./lock.ts";
-import { STOPWORDS, tokens } from "./tokenize.ts";
+import { redactSecrets } from "./secrets.ts";
+import { STOPWORDS, tokens, numericTokens, polaritySigns } from "./tokenize.ts";
 
 const REJECTED_FILENAME = "rejected.logfmt";
 
@@ -72,6 +79,12 @@ const TOKEN_HASH_CHARS = 8;
  *  "reworded duplicate of a live row" and 0.3 for a decision/preference
  *  CONFLICT, so this is the conflict-style band applied to a rejection.
  *
+ *  The floor is NOT the whole decision. Corrections score HIGHER than rewordings
+ *  — a changed number or a flipped polarity shares almost every token with what
+ *  it replaces (0.800 and 0.778 measured) — so the band above cannot separate
+ *  them and the value signatures in {@link differsIn} vetoes instead. Read the
+ *  floor as "worth a second look at the values", not as a verdict on its own.
+ *
  *  NEAR_MIN_SHARED exists because a three-token content can hit a high Jaccard
  *  against unrelated prose on shared filler alone; below this many shared
  *  tokens nothing is a near-match at all, and short content is refused only on
@@ -82,7 +95,9 @@ const NEAR_MIN_SHARED = 6;
 
 export interface Tombstone {
   ch: string;
-  /** Rejection reason as given by the human who rejected the value. */
+  /** Rejection reason as the human gave it, scrubbed of recognized credentials
+   *  on the way in AND on the way out (it is the one free-prose field here, and
+   *  the one copied into a model-facing hint). */
   reason: string;
   /** What recorded it: `forget` (memory_forget/prune) or `block` (viewer). */
   source: string;
@@ -91,11 +106,38 @@ export interface Tombstone {
   scope?: string;
   type?: string;
   sig: string[];
+  /** Hashes of the numbers the rejected statement asserted. `undefined` means
+   *  the row was written before value tracking existed, which is NOT the same
+   *  thing as `[]` (tracked, and it asserted none) — see {@link differsIn}. */
+  num?: string[];
+  /** Polarity signs the rejected statement asserted ("pos"/"neg"). Same
+   *  present/absent rule as `num`. */
+  pol?: string[];
 }
 
 export type Rejection =
   | { kind: "exact"; tombstone: Tombstone }
   | { kind: "near"; tombstone: Tombstone; score: number; shared: number };
+
+/** The dimension on which a strong sketch match is nonetheless a different fact. */
+export type ValueDifference = "numeric_value" | "polarity";
+
+/** A sketch match over the floor that was NOT treated as the rejected value. */
+export interface VetoedMatch {
+  tombstone: Tombstone;
+  score: number;
+  shared: number;
+  differs: ValueDifference;
+}
+
+export interface RejectionProbe {
+  rejection?: Rejection;
+  /** Set only when there is no rejection AND something over the floor was
+   *  declined. Nothing is enforced from it — it exists so the guard is visible
+   *  in the field, where "the mechanism never over-blocks" would otherwise be a
+   *  claim with no evidence either way. */
+  vetoed?: VetoedMatch;
+}
 
 export function rejectedFile(): string {
   return join(memoryRoot(), REJECTED_FILENAME);
@@ -134,6 +176,56 @@ export function sketchOf(content: string): string[] {
   return [...tokens].sort().slice(0, SKETCH_SIZE);
 }
 
+/** What the content asserts on the two value dimensions a sketch cannot see:
+ *  the numbers it names and the polarity it takes. Stored per tombstone so the
+ *  comparison needs no prose. */
+interface ValueSig {
+  num: string[];
+  pol: string[];
+}
+
+export function valueSigOf(content: string): ValueSig {
+  return {
+    num: [...new Set(numericTokens(content).map(tokenHash))].sort(),
+    pol: polaritySigns(content),
+  };
+}
+
+/**
+ * Does a strong sketch match differ from the rejected value on a VALUE, rather
+ * than restating it?
+ *
+ * Token overlap cannot answer this, because a correction is not a lower-scoring
+ * rewording — it is a higher-scoring one. Measured against a rejected "retains
+ * audit records for 30 days before cleanup":
+ *
+ *   the same statement with 90 days ............ 0.800  (different fact)
+ *   the same statement with "disable" .......... 0.778  (different fact)
+ *   honest rewordings of the same claim ........ 0.500 – 0.615
+ *
+ * So no floor separates them: raising it to 0.85 to release the corrections would
+ * release nothing in between, and the corrections are the shape humans actually
+ * write. What separates them is that a load-bearing value moved, and only the
+ * tombstone's own record of what was ASSERTED can show it.
+ *
+ * A dimension counts only when BOTH sides assert it:
+ *   - A value that went missing in a rewording is not evidence of a change. If it
+ *     were, dropping "30 days" from a rejected sentence would be enough to
+ *     smuggle it back in.
+ *   - A row written before value tracking existed asserts nothing at all, so the
+ *     near-match decides exactly as it shipped. Every row written from now on
+ *     carries both signatures, so this degradation does not grow.
+ */
+function differsIn(a: ValueSig, b: ValueSig): ValueDifference | undefined {
+  if (a.num.length > 0 && b.num.length > 0 && a.num.join(".") !== b.num.join(".")) {
+    return "numeric_value";
+  }
+  if (a.pol.length > 0 && b.pol.length > 0 && a.pol.join(".") !== b.pol.join(".")) {
+    return "polarity";
+  }
+  return undefined;
+}
+
 
 /**
  * The tombstone set, cached against the file's change token.
@@ -168,12 +260,20 @@ export async function tombstones(): Promise<Tombstone[]> {
     if (!f || typeof f.ch !== "string") continue;
     out.push({
       ch: f.ch,
-      reason: typeof f.reason === "string" ? f.reason : "",
+      // Scrubbed again on the way OUT, deliberately: the write boundary below
+      // keeps new rows clean, but a reason already on disk — written by an older
+      // build, or hand-edited — is what feeds both the refusal hint and the
+      // viewer's Rejections panel. This is the single read path for both.
+      reason: redactSecrets(typeof f.reason === "string" ? f.reason : ""),
       source: typeof f.source === "string" ? f.source : "unknown",
       rejected_at: typeof f.rejected_at === "string" ? f.rejected_at : "",
       scope: typeof f.scope === "string" ? f.scope : undefined,
       type: typeof f.type === "string" ? f.type : undefined,
       sig: typeof f.sig === "string" ? f.sig.split(".").filter(Boolean) : [],
+      // Present-but-empty ("num=") means tracked with nothing asserted; absent
+      // means the row predates value tracking. differsIn treats them apart.
+      num: typeof f.num === "string" ? f.num.split(".").filter(Boolean) : undefined,
+      pol: typeof f.pol === "string" ? f.pol.split(".").filter(Boolean) : undefined,
     });
   }
   cache = { at: identity, rows: out };
@@ -207,6 +307,11 @@ export async function tombstoneMany(
   if (entries.length === 0) return { recorded: 0, chs: [] };
   const known = new Set((await tombstones()).map((t) => t.ch));
   const at = new Date().toISOString();
+  // An audit reason is human prose (prune passes the caller's straight through),
+  // and this is the boundary where it becomes durable — the same rule the
+  // deletion audit and the evidence log apply (#128). Scrubbing here rather than
+  // at each call site is what keeps a future caller from forgetting to.
+  const reason = redactSecrets(opts.reason);
   const fresh: string[] = [];
   const chs: string[] = [];
   for (const e of entries) {
@@ -214,14 +319,17 @@ export async function tombstoneMany(
     chs.push(ch);
     if (known.has(ch)) continue;
     known.add(ch);
+    const values = valueSigOf(e.content);
     fresh.push(
       formatLine({
         ch,
-        reason: opts.reason,
+        reason,
         source: opts.source,
         scope: e.scope,
         type: e.type,
         sig: sketchOf(e.content).join("."),
+        num: values.num.join("."),
+        pol: values.pol.join("."),
         rejected_at: at,
       }),
     );
@@ -257,28 +365,46 @@ export async function tombstone(
  * match rather than the first — the hint names a specific prior rejection, so
  * pointing at a weak one while a better one exists would misreport why the
  * write was refused.
+ *
+ * A match that {@link differsIn} calls a changed value is skipped, not scored:
+ * the guard runs per candidate, so the strongest NON-vetoed match still wins
+ * even when a vetoed one scores higher. That case is real — "the service must not
+ * enable anonymous access…" scores 0.79 against a rejection of the ENABLE
+ * statement (a polarity flip, so correctly not the rejected fact) and 0.70
+ * against the rejection of DISABLE, which is what it actually restates.
  */
-export async function findRejection(content: string): Promise<Rejection | undefined> {
+export async function probeRejection(content: string): Promise<RejectionProbe> {
   const all = await tombstones();
-  if (all.length === 0) return undefined;
+  if (all.length === 0) return {};
   const ch = contentHash(content);
   const exact = all.find((t) => t.ch === ch);
-  if (exact) return { kind: "exact", tombstone: exact };
+  if (exact) return { rejection: { kind: "exact", tombstone: exact } };
 
   const sig = sketchOf(content);
   // Below the shared-token floor a near-match cannot fire at all, so short
   // content is refused only ever on an exact match.
-  if (sig.length < NEAR_MIN_SHARED) return undefined;
-  let best: Rejection | undefined;
+  if (sig.length < NEAR_MIN_SHARED) return {};
+  const values = valueSigOf(content);
+  let best: Extract<Rejection, { kind: "near" }> | undefined;
+  let vetoed: VetoedMatch | undefined;
   for (const t of all) {
     if (t.sig.length < NEAR_MIN_SHARED) continue;
     const { score, shared } = jaccardShared(sig, t.sig);
     if (shared < NEAR_MIN_SHARED || score < NEAR_FLOOR) continue;
-    if (!best || best.kind === "near" && score > best.score) {
-      best = { kind: "near", tombstone: t, score, shared };
+    const differs = differsIn(values, { num: t.num ?? [], pol: t.pol ?? [] });
+    if (differs) {
+      if (!vetoed || score > vetoed.score) vetoed = { tombstone: t, score, shared, differs };
+      continue;
     }
+    if (!best || score > best.score) best = { kind: "near", tombstone: t, score, shared };
   }
-  return best;
+  if (best) return { rejection: best };
+  return vetoed ? { vetoed } : {};
+}
+
+/** The verdict without the veto telemetry — see {@link probeRejection}. */
+export async function findRejection(content: string): Promise<Rejection | undefined> {
+  return (await probeRejection(content)).rejection;
 }
 
 function jaccardShared(a: string[], b: string[]): { score: number; shared: number } {

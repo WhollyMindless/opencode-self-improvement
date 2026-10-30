@@ -12,8 +12,11 @@
 //   - UNDER-blocking is the bug the ticket is about: a rejected fact returns.
 //   - OVER-blocking is the bug that would make the mechanism unusable: a
 //     legitimate new write silently refused because it resembles something a
-//     human once deleted. Short content is the dangerous shape (small token
-//     sets score high against almost anything), so it is pinned explicitly.
+//     human once deleted. Short content is one dangerous shape (small token
+//     sets score high against almost anything); a CORRECTION of a rejected fact
+//     is the other, and it is worse, because the only way out of the refusal is
+//     lifting the rejection of the wrong statement it replaced. Both are pinned
+//     explicitly — the second one in "a near-match releases a changed value".
 //
 // Also pinned here: the tombstone file stores hashes and metadata only (atlas
 // step-10 inversion — a deletion log that reproduces what it deleted is a
@@ -24,17 +27,24 @@
 // Hermetic like the rest of the suite: temp OPENCODE_MEMORY_DIR, no repo touch.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { memoryRoot } from "../src/config.ts";
+import { contentHash } from "../src/evidence.ts";
 import { runWriteGate } from "../src/gates.ts";
+import { formatLine } from "../src/logfmt.ts";
 import { loadAll, prune } from "../src/memory.ts";
 import { resetSessionScopes, setRepoScope } from "../src/repokey.ts";
+import { redactSecrets, REDACTED_SECRET } from "../src/secrets.ts";
 import { resetState } from "../src/state.ts";
+import { numericTokens, polaritySigns } from "../src/tokenize.ts";
 import {
   findRejection,
+  NEAR_FLOOR,
   rejectedFile,
   removeTombstone,
+  resetTombstoneCache,
   sketchOf,
   tombstone,
   tombstones,
@@ -235,6 +245,30 @@ describe("the tombstone holds hashes, never values", () => {
     expect(deletions).toContain("balancer");
   });
 
+  // The value signatures added after the first review must not turn the file back
+  // into a copy of what a human deleted: `num` holds HASHES of the numbers and
+  // `pol` a two-value sign, so the retention period that was forgotten stays
+  // forgotten. (Asserted field-by-field rather than over the raw line because ch,
+  // sig and the timestamp are all hex/digits, so a substring check on "30" would
+  // be an accident in either direction.)
+  test("value signatures stay hashes and labels, never the value", async () => {
+    const withValue = "the production service retains audit records for 45 days before cleanup";
+    await tombstone(withValue, { reason: "wrong policy", source: "forget" });
+
+    const raw = readFileSync(rejectedFile(), "utf8");
+    expect(raw).not.toContain("retains");
+    expect(raw).toContain("num=");
+    expect(raw).toContain("pol=");
+
+    const row = (await tombstones())[0];
+    expect(row.num).toHaveLength(1);
+    expect(row.num?.[0]).toMatch(/^[0-9a-f]{8,}$/);
+    // Nothing in that sentence asserts an activation or prohibition, so the
+    // polarity set is empty but PRESENT — the difference between "no value" and
+    // "no signature at all" (a pre-tracking row) is what the guard keys on.
+    expect(row.pol).toEqual([]);
+  });
+
   test("rejected.logfmt is never ingested as a memory row", async () => {
     await tombstone(REJECTED, { reason: "wrong call", source: "forget" });
     expect(await loadAll()).toHaveLength(0);
@@ -280,6 +314,209 @@ describe("the tombstone holds hashes, never values", () => {
     // And the raw file really is 40 lines, so the count above cannot be a
     // parser coincidence.
     expect(readFileSync(rejectedFile(), "utf8").trimEnd().split("\n")).toHaveLength(40);
+  });
+});
+
+// ---- What a near-match must NOT refuse -------------------------------------
+//
+// A near-match refusal is AUTHORITATIVE: it tells the model "this is the value a
+// human rejected", and the only way out is lifting the rejection of the OLD
+// statement. So it has to be right about the two things that make a statement a
+// different fact. Both shapes below were measured on the shipped floor and both
+// were refused:
+//
+//   "retains audit records for 30 days" -> "…for 90 days"      sketch 0.800
+//   "must enable anonymous access"      -> "…must disable …"   sketch 0.778
+//
+// They score ABOVE the intended rewordings (0.500-0.615), which is why no scalar
+// floor can fix this: raising it past 0.8 to release the corrections also releases
+// nothing between them, and the corrections are the more common shape. What
+// distinguishes them is not the score but the fact that a load-bearing VALUE
+// moved, so the tombstone records one per value dimension (numeric hashes and
+// 3-letter polarity signs — never prose) and a disagreement on a dimension BOTH
+// sides assert vetoes the near-match.
+describe("a near-match releases a changed value, not only a rewording", () => {
+  const DAYS_WAS = "the production service retains audit records for 30 days before cleanup";
+  const DAYS_IS = "the production service retains audit records for 90 days before cleanup";
+  const MODE_WAS = "the service must enable anonymous access for production control endpoints";
+  const MODE_IS = "the service must disable anonymous access for production control endpoints";
+
+  test("a corrected number stores clean although the sketch clears the floor", async () => {
+    // The premise, pinned so a future tweak that changes the scoring cannot make
+    // this pass vacuously: without the value guard this pair IS a near-match.
+    expect(jac(sketchOf(DAYS_WAS), sketchOf(DAYS_IS))).toBeGreaterThanOrEqual(NEAR_FLOOR);
+
+    expect((await promote(DAYS_WAS)).action).toBe("promoted");
+    await prune("http", "decision", "wrong policy");
+
+    const next = await promote(DAYS_IS);
+    expect(next.action).toBe("promoted");
+    expect((await loadAll()).map((m) => m.content)).toContain(DAYS_IS);
+  });
+
+  test("an opposite instruction stores clean although the sketch clears the floor", async () => {
+    expect(jac(sketchOf(MODE_WAS), sketchOf(MODE_IS))).toBeGreaterThanOrEqual(NEAR_FLOOR);
+
+    expect((await promote(MODE_WAS)).action).toBe("promoted");
+    await prune("http", "decision", "wrong policy");
+
+    const next = await promote(MODE_IS);
+    expect(next.action).toBe("promoted");
+    expect((await loadAll()).map((m) => m.content)).toContain(MODE_IS);
+  });
+
+  // The other direction, and the one that keeps the guard honest: releasing
+  // corrections must not dissolve the rewording guarantee, which is the whole
+  // point of the near-match. Every pair below restates the rejected claim with
+  // its values INTACT (same number, or a synonym / negation of the same polarity
+  // verb) and must still be refused.
+  test("the guard does not dissolve the rewording guarantee", async () => {
+    const restatements = [
+      // same retention period, reworded prose
+      [DAYS_WAS, "audit records are kept by the production service for 30 days and then purged"],
+      // a synonym of the rejected polarity verb
+      [MODE_WAS, "the service shall allow anonymous access for production control endpoints"],
+      // the rejected polarity reached by negating its opposite. This pair also
+      // pins match SELECTION: it scores HIGHER against MODE_WAS (0.889, a flipped
+      // polarity, so correctly not the rejected fact) than against MODE_IS (0.700,
+      // the real one), so the guard must fall through to the weaker match rather
+      // than report the strongest — and name the rejection it actually restates.
+      [MODE_IS, "the service must not enable anonymous access for production control endpoints"],
+      // reworded with the value DROPPED: nothing asserts a change, so the
+      // near-match stands — otherwise deleting "30" would be a way to smuggle a
+      // rejected claim back in.
+      [DAYS_WAS, "the production service retains audit records before cleanup"],
+    ] as const;
+
+    const leaked: string[] = [];
+    for (const [wasRejected, reworded] of restatements) {
+      const { ch } = await tombstone(wasRejected, { reason: "wrong call", source: "forget" });
+      const again = await promote(reworded);
+      if (again.action !== "blocked" || again.reason !== "previously_rejected") {
+        leaked.push(`${reworded} <- action=${again.action} reason=${again.reason ?? "-"}`);
+      } else if (!(again.hint ?? "").includes(ch)) {
+        // Refusing is not enough — the hint has to name the rejection it actually
+        // restates, not the highest-scoring one. Three tombstones are in the file
+        // by the last iteration, and the third pair is refused by the weaker of
+        // two matches, so this is what catches a "strongest wins" regression.
+        leaked.push(`${reworded} <- refused, but pointing at the wrong rejection`);
+      }
+    }
+    expect(leaked).toEqual([]);
+  });
+
+  // Observability, because a guard that silently declines to refuse is
+  // unfalsifiable in the field: the veto and which dimension said "different
+  // fact" land on the evidence line.
+  test("a declined near-match is audited with the reason it declined", async () => {
+    await tombstone(DAYS_WAS, { reason: "wrong policy", source: "forget" });
+    const ev: string[] = [];
+    const out = await runWriteGate(
+      { type: "decision", scope: "http", content: DAYS_IS },
+      { ...ctx(), evidenceCalls: ev },
+    );
+    expect(out.action).toBe("promoted");
+
+    const log = readFileSync(
+      join(memoryRoot(), "evidence", `${new Date().toISOString().slice(0, 10)}.logfmt`),
+      "utf8",
+    );
+    expect(log).toContain("ev=rejection_vetoed");
+    expect(log).toContain("differs=numeric_value");
+    expect(log).toContain("match_ch=");
+    // Same rule as every other rejection line: hashes, never the rejected prose.
+    expect(log).not.toContain("audit records");
+  });
+
+  // The guard reads what the tombstone ASSERTED. Rows written before value
+  // tracking assert nothing, so there is no evidence of a change and the
+  // near-match stands as it shipped — pinned here along with the parser's
+  // tolerance of the missing fields.
+  test("a tombstone with no value signature degrades to the shipped behaviour", async () => {
+    await writeRawTombstone(DAYS_WAS, "wrong policy");
+    resetTombstoneCache();
+
+    const row = (await tombstones())[0];
+    expect(row.num).toBeUndefined();
+    expect(row.pol).toBeUndefined();
+    // No recorded values, so a numeric change is not evidence of a different
+    // fact for THIS row. Documented degradation, not a silent hole: every row
+    // written from now on carries both signatures.
+    expect((await findRejection(DAYS_IS))?.kind).toBe("near");
+    expect((await promote(DAYS_IS)).reason).toBe("previously_rejected");
+  });
+});
+
+// The two dimensions in isolation, because the behavioral tests above only see
+// them through a verdict, and everything in this table is a judgement the
+// vocabulary makes rather than one the sketch makes.
+describe("the value dimensions the sketch cannot see", () => {
+  test("synonyms collapse to one sign; a flip changes it; negation composes", () => {
+    expect(polaritySigns("the service must enable anonymous access")).toEqual(["pos"]);
+    // A rewording with a different verb of the same sign is still the same claim.
+    expect(polaritySigns("the service shall allow anonymous access")).toEqual(["pos"]);
+    expect(polaritySigns("the service must disable anonymous access")).toEqual(["neg"]);
+    // …and a reversal reached by negating the opposite verb is the REVERSAL, not
+    // a new claim, which is why it still matches a rejected "disable".
+    expect(polaritySigns("the service must not enable anonymous access")).toEqual(["neg"]);
+    expect(polaritySigns("the flag is not disabled")).toEqual(["pos"]);
+    // A copula keeps the negation alive across it; an ordinary word ends it.
+    expect(polaritySigns("the flag must not be enabled")).toEqual(["neg"]);
+    expect(polaritySigns("the flag was removed and enabled anyway")).toEqual(["neg", "pos"]);
+    // Prose that asserts neither presence nor prohibition has no polarity, and
+    // that is not the same as a row that recorded none (see differsIn).
+    expect(polaritySigns("the service retains records for 30 days")).toEqual([]);
+  });
+
+  test("numeric tokens are the quantities, versions and ids in the sentence", () => {
+    expect(numericTokens("retains records for 30 days")).toEqual(["30"]);
+    expect(numericTokens("pinned to alpine 3.19 with 2 retries")).toEqual(["2", "3.19"]);
+    expect(numericTokens("no numbers in this claim")).toEqual([]);
+    expect(numericTokens("30 days, then 30 days again")).toEqual(["30"]);
+  });
+});
+
+// ---- Credential scrub at the tombstone boundary ----------------------------
+//
+// `reason` is the one field of a tombstone that is free prose, and it is the
+// field copied into a model-facing refusal hint. The deletion audit has scrubbed
+// recognized credentials at its own write boundary since #128; this file is a
+// second durable record of the SAME human prose, written by a different call
+// site (prune passes its raw reason straight through). Both destinations are
+// pinned separately because they are separately reachable: the file on disk and
+// the hint that replays it.
+describe("a tombstone never carries an unscrubbed reason", () => {
+  test("a credential in a forget reason is scrubbed on disk and in the replay hint", async () => {
+    const token = "ghp_" + "a".repeat(36);
+    // Premise: this is a family the scrubber recognizes, so a pass below that
+    // finds the token is a leak and not simply an unrecognized string.
+    expect(redactSecrets(token)).toBe(REDACTED_SECRET);
+
+    expect((await promote(REJECTED)).action).toBe("promoted");
+    await prune("http", "decision", `rotated ${token} for the deployment`);
+
+    // Pre-existing boundary, unchanged.
+    expect(readFileSync(join(memoryRoot(), "deletions.logfmt"), "utf8")).not.toContain(token);
+    const rejected = readFileSync(rejectedFile(), "utf8");
+    expect(rejected).not.toContain(token);
+
+    const replay = await promote(REJECTED);
+    expect(replay.reason).toBe("previously_rejected");
+    expect(replay.hint ?? "").not.toContain(token);
+    expect(replay.hint ?? "").toContain(REDACTED_SECRET);
+  });
+
+  // Defense in depth for a reason ALREADY on disk — written by an older build or
+  // edited by hand: the read path is what feeds both the hint and the viewer.
+  test("a reason already on disk unscrubbed is scrubbed on the way out", async () => {
+    const token = "ghp_" + "b".repeat(36);
+    await writeRawTombstone(REJECTED, `rotated ${token}`);
+    resetTombstoneCache();
+
+    expect(readFileSync(rejectedFile(), "utf8")).toContain(token); // premise: disk is dirty
+    const row = (await tombstones())[0];
+    expect(row.reason).not.toContain(token);
+    expect((await promote(REJECTED)).hint ?? "").not.toContain(token);
   });
 });
 
@@ -344,4 +581,30 @@ function jac(a: string[], b: string[]): number {
   const inter = new Set(a.filter((x) => sb.has(x))).size;
   const union = new Set([...a, ...b]).size;
   return union === 0 ? 0 : inter / union;
+}
+
+/**
+ * Append a tombstone line BY HAND, bypassing tombstoneMany, so a test can hold
+ * the exact shape of a stored row: one written before the value signatures
+ * existed (omit both), or one whose reason was never scrubbed.
+ */
+async function writeRawTombstone(
+  content: string,
+  reason: string,
+  sigs: { num?: string[]; pol?: string[] } = {},
+): Promise<void> {
+  const file = rejectedFile();
+  await mkdir(dirname(file), { recursive: true });
+  await appendFile(
+    file,
+    `${formatLine({
+      ch: contentHash(content),
+      reason,
+      source: "forget",
+      rejected_at: new Date().toISOString(),
+      sig: sketchOf(content).join("."),
+      ...(sigs.num ? { num: sigs.num.join(".") } : {}),
+      ...(sigs.pol ? { pol: sigs.pol.join(".") } : {}),
+    })}\n`,
+  );
 }

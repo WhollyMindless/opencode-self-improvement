@@ -31,7 +31,7 @@ import {
   type LazyTree,
 } from "./resolver.ts";
 import { STOPWORDS, jaccard, rawTokens, tokens } from "./tokenize.ts";
-import { findRejection, tombstone, type Rejection } from "./tombstones.ts";
+import { probeRejection } from "./tombstones.ts";
 
 export interface WriteCandidate {
   type: string;
@@ -529,7 +529,8 @@ export async function runWriteGate(
   //
   // Computed here, enforced at GATE-4, so the ordered evidence chain
   // (gate_start → gate1 → gate2 → dedup_*) stays intact for every verdict.
-  const rejection = await findRejection(candidate.content);
+  const probe = await probeRejection(candidate.content);
+  const rejection = probe.rejection;
   const conflictProne = candidate.type === "decision" || candidate.type === "preference";
   const active = scopeMems.filter((m) => !m.superseded_by);
   // Exact duplicates are detected against the full scope (a drift-superseded
@@ -597,6 +598,22 @@ export async function runWriteGate(
     // near-duplicate of a live row.
     overlapMatch = rival.m;
     overlapScore = Math.round(rival.score * 100) / 100;
+  }
+
+  // A declined near-match, recorded so the guard is falsifiable in the field:
+  // without this line "it never over-blocks a correction" is a claim with no
+  // evidence either way, and this is exactly the kind of judgement that needs
+  // counting where it happens. Only reached when nothing refused the write.
+  if (!rejection && probe.vetoed) {
+    await rec("rejection_vetoed", {
+      gate: 3,
+      survivors: scopeMems.length,
+      match_ch: probe.vetoed.tombstone.ch,
+      score: probe.vetoed.score,
+      differs: probe.vetoed.differs,
+      action: "allow_different_fact",
+      chain,
+    });
   }
 
   if (rejection) {
@@ -671,7 +688,13 @@ export async function runWriteGate(
         ? [`ch=${rejection.tombstone.ch}`, "exact"]
         : [`ch=${rejection.tombstone.ch}`, `score=${rejection.score}`, "near_match"];
     const when = rejection.tombstone.rejected_at.slice(0, 10) || "an earlier session";
-    const why = rejection.tombstone.reason || "no reason recorded";
+    // Scrubbed here as well as on the way in and on the way out of tombstones():
+    // this string goes to the model, and the hint is built from a field a human
+    // typed. If the row already came through clean this is a no-op — deleting it
+    // changes nothing observable today, which is deliberate: the guarantee lives
+    // on the read path (it covers every consumer, the viewer included), and this
+    // is the seam where the value becomes a model-facing sentence.
+    const why = redactSecrets(rejection.tombstone.reason) || "no reason recorded";
     const tch = rejection.tombstone.ch;
     // The escape-hatch tail is shared by BOTH kinds. An earlier draft put it
     // only on the near-match branch, which left the COMMON case — a byte-exact
