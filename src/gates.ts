@@ -30,6 +30,8 @@ import {
   type DriftInfo,
   type LazyTree,
 } from "./resolver.ts";
+import { STOPWORDS, jaccard, rawTokens, tokens } from "./tokenize.ts";
+import { probeRejection } from "./tombstones.ts";
 
 export interface WriteCandidate {
   type: string;
@@ -132,44 +134,9 @@ export type GateOutcome =
   | (GateOutcomeFields & { action: "blocked"; reason: string })
   | (GateOutcomeFields & { action: "collapsed" });
 
-const STOPWORDS = new Set([
-  "use",
-  "using",
-  "the",
-  "a",
-  "an",
-  "in",
-  "of",
-  "to",
-  "with",
-  "on",
-  "and",
-  "or",
-  "for",
-  "is",
-  "are",
-]);
-
-function tokens(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9_.]+/)
-    .filter((t) => t.length > 0);
-}
-
-// Case-preserving tokens, for reporting asserted values back to the user.
-function rawTokens(text: string): string[] {
-  return text.split(/[^A-Za-z0-9_.]+/).filter(Boolean);
-}
-
-function jaccard(a: string[], b: string[]): number {
-  const sa = new Set(a);
-  const sb = new Set(b);
-  let inter = 0;
-  for (const t of sa) if (sb.has(t)) inter++;
-  const union = sa.size + sb.size - inter;
-  return union === 0 ? 0 : inter / union;
-}
+// STOPWORDS, tokens, rawTokens and jaccard now live in tokenize.ts so the
+// rejection sketch (#35) scores similarity with the same definition GATE-3
+// uses. Imported below; behavior is byte-identical to the local copies.
 
 // GATE-3 similarity floors. OVERLAP_FLOOR: reworded near-duplicates of any
 // type are merge-review candidates. CONFLICT_OVERLAP_FLOOR: decisions and
@@ -548,6 +515,19 @@ export async function runWriteGate(
   }
 
   // ---- GATE-3: no dupes ----------------------------------------------------
+  // #35: a value a human rejected stays rejected. This is the "have we already
+  // seen this" gate, and it is the only place a rejection can be enforced
+  // before a write becomes durable — but unlike every other check here, it is
+  // keyed on the VALUE, not on row identity. The blocklist keys on `ts` and
+  // prune deletes the row outright, so re-ingesting the original source (the
+  // same transcript through auto-capture, the same export through
+  // memory_import) stores a rejected fact again with a fresh `ts`, as if it had
+  // never been turned down.
+  //
+  // Computed here, enforced at GATE-4, so the ordered evidence chain
+  // (gate_start → gate1 → gate2 → dedup_*) stays intact for every verdict.
+  const probe = await probeRejection(candidate.content);
+  const rejection = probe.rejection;
   const conflictProne = candidate.type === "decision" || candidate.type === "preference";
   const active = scopeMems.filter((m) => !m.superseded_by);
   // Exact duplicates are detected against the full scope (a drift-superseded
@@ -617,7 +597,36 @@ export async function runWriteGate(
     overlapScore = Math.round(rival.score * 100) / 100;
   }
 
-  if (collapseMatch) {
+  // A declined near-match, recorded so the guard is falsifiable in the field:
+  // without this line "it never over-blocks a correction" is a claim with no
+  // evidence either way, and this is exactly the kind of judgement that needs
+  // counting where it happens. Only reached when nothing refused the write.
+  if (!rejection && probe.vetoed) {
+    await rec("rejection_vetoed", {
+      gate: 3,
+      survivors: scopeMems.length,
+      match_ch: probe.vetoed.tombstone.ch,
+      score: probe.vetoed.score,
+      differs: probe.vetoed.differs,
+      action: "allow_different_fact",
+      chain,
+    });
+  }
+
+  if (rejection) {
+    // The prior rejection's own hash, never the prose: the atlas step-10
+    // inversion is a deletion log that reproduces what it deleted.
+    await rec("dedup_rejected", {
+      gate: 3,
+      survivors: scopeMems.length,
+      match_ch: rejection.tombstone.ch,
+      match_kind: rejection.kind,
+      ...(rejection.kind === "near" ? { score: rejection.score } : {}),
+      rejected_at: rejection.tombstone.rejected_at,
+      action: "refuse_previously_rejected",
+      chain,
+    });
+  } else if (collapseMatch) {
     await rec("dedup_collapse", {
       gate: 3,
       survivors: scopeMems.length,
@@ -667,7 +676,38 @@ export async function runWriteGate(
   let blockReason: string | undefined;
   let blockFlags: string[] = [];
   let hint: string | undefined;
-  if (g1.candidateStale) {
+  if (rejection) {
+    // First in the chain: every other reason here is a heuristic about the
+    // write's shape, and a human already made a decision about this value.
+    blockReason = "previously_rejected";
+    blockFlags =
+      rejection.kind === "exact"
+        ? [`ch=${rejection.tombstone.ch}`, "exact"]
+        : [`ch=${rejection.tombstone.ch}`, `score=${rejection.score}`, "near_match"];
+    const when = rejection.tombstone.rejected_at.slice(0, 10) || "an earlier session";
+    // Scrubbed here as well as on the way in and on the way out of tombstones():
+    // this string goes to the model, and the hint is built from a field a human
+    // typed. If the row already came through clean this is a no-op — deleting it
+    // changes nothing observable today, which is deliberate: the guarantee lives
+    // on the read path (it covers every consumer, the viewer included), and this
+    // is the seam where the value becomes a model-facing sentence.
+    const why = redactSecrets(rejection.tombstone.reason) || "no reason recorded";
+    const tch = rejection.tombstone.ch;
+    // The escape-hatch tail is shared by BOTH kinds. An earlier draft put it
+    // only on the near-match branch, which left the COMMON case — a byte-exact
+    // replay — reported as a dead end with no way to lift it.
+    const lift =
+      `If this is genuinely a different fact, state it in clearly different terms; ` +
+      `if the earlier rejection was wrong, a human can lift it in the viewer ` +
+      `(Rejections → un-reject, hash ${tch}) — there is deliberately no tool that ` +
+      `lifts a rejection, so a blocked write cannot be re-submitted by the session ` +
+      `it was refused.`;
+    hint =
+      (rejection.kind === "exact"
+        ? `This exact content was rejected on ${when} (reason: ${why}; hash ${tch}). Nothing was stored. `
+        : `Content ${rejection.score} similar to a value rejected on ${when} (reason: ${why}; ` +
+          `hash ${tch}) — the same statement reworded counts as the rejected value. Nothing was stored. `) + lift;
+  } else if (g1.candidateStale) {
     blockReason = "drift_ref_stale_incoming";
     blockFlags = ["incoming_embeds_pre_drift_ref"];
   } else if (g1.missingPaths.length && !planningObject) {

@@ -10,6 +10,7 @@ import * as evidence from "../src/evidence.ts";
 import { appendMemory, isVisibleTo, loadAll, readerForSession, type Memory } from "../src/memory.ts";
 import { rememberSessionDir, resetSessionScopes, resolveRepo, sessionScope, setRepoScope } from "../src/repokey.ts";
 import { resetState, setCurrent } from "../src/state.ts";
+import { tombstone } from "../src/tombstones.ts";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
 
 const envKeys = ["OPENCODE_MEMORY_DIR", "OPENCODE_COMMANDS_DIR"] as const;
@@ -342,6 +343,28 @@ test("captured unresolved evidence stays private and scrubbed after binding", as
   expect(own.content).not.toContain("foreign-call");
   expect(own.content).not.toContain("repo=");
   expect(foreign.content).toBe("No evidence");
+});
+
+test.each([{ corrected: false }, { corrected: true }])("rejection evidence keeps its operation owner after a session move (corrected: $corrected)", async ({ corrected }) => {
+  const pa = await plugin(a);
+  const pb = await plugin(b);
+  const rejected = "the production service retains audit records for 30 days before cleanup";
+  await tombstone(rejected, { reason: "wrong retention policy", source: "forget" });
+  rememberSessionDir("writer", a);
+  setCurrent({ sessionID: "writer", callID: "rejection-call", tool: "memory_remember" });
+  const moved = moveDuringGate(pa);
+  const outcome = await runWriteGate({ ...fields, content: corrected ? rejected.replace("30", "90") : rejected }, {
+    sessionID: "writer", liveRoot: a, evidenceCalls: [], hasGateCheck: false,
+  });
+  expect(moved()).toBe(true);
+  expect(outcome.action).toBe(corrected ? "promoted" : "blocked");
+  if (outcome.action === "blocked") expect(outcome.reason).toBe("previously_rejected");
+  const event = corrected ? "rejection_vetoed" : "dedup_rejected";
+  const own = await pa.tools.memory_evidence.execute({ ev: event }, ctx("rejection-reader-a"));
+  const foreign = await pb.tools.memory_evidence.execute({ ev: event }, ctx("rejection-reader-b"));
+  expect(own.content).toContain(outcome.chain);
+  expect(own.content).toContain("call=rejection-call");
+  expect(foreign.content).not.toContain(outcome.chain);
 });
 
 test("ambient evidence captures its scope without adding suppressed session fields", async () => {
