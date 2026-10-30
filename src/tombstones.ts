@@ -208,22 +208,29 @@ export function valueSigOf(content: string): ValueSig {
  * write. What separates them is that a load-bearing value moved, and only the
  * tombstone's own record of what was ASSERTED can show it.
  *
- * A dimension counts only when BOTH sides assert it:
- *   - A value that went missing in a rewording is not evidence of a change. If it
- *     were, dropping "30 days" from a rejected sentence would be enough to
- *     smuggle it back in.
- *   - A row written before value tracking existed asserts nothing at all, so the
- *     near-match decides exactly as it shipped. Every row written from now on
- *     carries both signatures, so this degradation does not grow.
+ * A dimension has moved only when EACH side asserts something the other does not:
+ *   - Extension is not disagreement. "{30}" vs "{30, 2}" still asserts 30 days, so
+ *     a revision number, a count or a date appended to the rejected sentence stays
+ *     the rejected claim.
+ *   - Nor is something merely going missing. "{30, 90}" vs "{30}" only drops an
+ *     assertion, and if dropping counted, deleting "30 days" from a rejected
+ *     sentence would be enough to smuggle it back in.
+ *   - A row written before value tracking existed records nothing, so the
+ *     near-match decides exactly as it shipped (every row from here on carries
+ *     both signatures, so that degradation does not grow).
  */
 function differsIn(a: ValueSig, b: ValueSig): ValueDifference | undefined {
-  if (a.num.length > 0 && b.num.length > 0 && a.num.join(".") !== b.num.join(".")) {
-    return "numeric_value";
-  }
-  if (a.pol.length > 0 && b.pol.length > 0 && a.pol.join(".") !== b.pol.join(".")) {
-    return "polarity";
-  }
+  if (moved(a.num, b.num)) return "numeric_value";
+  if (moved(a.pol, b.pol)) return "polarity";
   return undefined;
+}
+
+/** True when each side names an element the other does not. An empty side answers
+ *  false, which is the "no evidence on this dimension" case above. */
+function moved(a: string[], b: string[]): boolean {
+  const sa = new Set(a);
+  const sb = new Set(b);
+  return a.some((x) => !sb.has(x)) && b.some((y) => !sa.has(y));
 }
 
 

@@ -171,15 +171,38 @@ const NEGATION_SPAN: ReadonlySet<string> = new Set([
 export function polaritySigns(text: string): string[] {
   const signs = new Set<string>();
   let negated = false;
+  // A negator that is itself a table term — "never" asserts a prohibition AND
+  // negates what follows — holds its own sign BACK. If something in its span
+  // consumes the negation, that flipped predicate is its whole contribution:
+  // counting the word too would make "must never disable" assert a prohibition
+  // and a permission at once, so it would stop matching the "must enable" claim
+  // it restates. Nothing consumed it ("the job never runs"), and the word's own
+  // ban is all there is.
+  let held: string | undefined;
   for (const t of tokens(text)) {
     const sign = POLARITY.get(t);
-    if (sign) signs.add(negated ? (sign === POL_POS ? POL_NEG : POL_POS) : sign);
-    // A negator opens the window, an ordinary word closes it, and a polarity
-    // word closes it after being read — so "must not enable" reads as one negation
-    // of "enable", not as a sign that survives to the next clause.
-    if (NEGATORS.has(t)) negated = true;
-    else if (!NEGATION_SPAN.has(t)) negated = false;
+    if (NEGATORS.has(t)) {
+      if (held) signs.add(held);
+      negated = true;
+      held = sign;
+      continue;
+    }
+    if (sign) {
+      signs.add(negated ? (sign === POL_POS ? POL_NEG : POL_POS) : sign);
+      negated = false;
+      held = undefined;
+      continue;
+    }
+    // A copula keeps the negation alive across it ("must not be enabled"); any
+    // other word closes the span, releasing a held dual-role negator as its own
+    // sign.
+    if (!NEGATION_SPAN.has(t)) {
+      if (held) signs.add(held);
+      negated = false;
+      held = undefined;
+    }
   }
+  if (held) signs.add(held);
   return [...signs].sort();
 }
 

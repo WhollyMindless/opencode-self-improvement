@@ -333,8 +333,10 @@ describe("the tombstone holds hashes, never values", () => {
 // nothing between them, and the corrections are the more common shape. What
 // distinguishes them is not the score but the fact that a load-bearing VALUE
 // moved, so the tombstone records one per value dimension (numeric hashes and
-// 3-letter polarity signs — never prose) and a disagreement on a dimension BOTH
-// sides assert vetoes the near-match.
+// 3-letter polarity signs — never prose) and vetoes the near-match when EACH side
+// asserts something the other does not on a dimension. Extension is not
+// disagreement and neither is omission — both were regressions, and both are
+// pinned in the restatement list below.
 describe("a near-match releases a changed value, not only a rewording", () => {
   const DAYS_WAS = "the production service retains audit records for 30 days before cleanup";
   const DAYS_IS = "the production service retains audit records for 90 days before cleanup";
@@ -382,10 +384,20 @@ describe("a near-match releases a changed value, not only a rewording", () => {
       // the real one), so the guard must fall through to the weaker match rather
       // than report the strongest — and name the rejection it actually restates.
       [MODE_IS, "the service must not enable anonymous access for production control endpoints"],
-      // reworded with the value DROPPED: nothing asserts a change, so the
-      // near-match stands — otherwise deleting "30" would be a way to smuggle a
+      // reworded with the value DROPPED: the value is gone, but nothing asserts it
+      // CHANGED — see differsIn, or deleting "30" would be a way to smuggle a
       // rejected claim back in.
       [DAYS_WAS, "the production service retains audit records before cleanup"],
+      // EXTRA numeric metadata around an intact assertion. The rejected claim
+      // still says 30 days, so "{30} vs {30,2}" is not a corrected value — this is
+      // the shape a note, a revision number or a count appended to the sentence
+      // makes, and it was being released.
+      [DAYS_WAS, `${DAYS_WAS} (policy revision 2)`],
+      // A negation of the opposite verb expressed with a word that is ITSELF a
+      // polarity term. "Never disable" asserts the same thing as "enable", so it
+      // restates the rejected claim; it was being released because `never`
+      // contributed its own sign as well as flipping "disable".
+      [MODE_WAS, "the service must never disable anonymous access for production control endpoints"],
     ] as const;
 
     const leaked: string[] = [];
@@ -426,6 +438,23 @@ describe("a near-match releases a changed value, not only a rewording", () => {
     expect(log).toContain("match_ch=");
     // Same rule as every other rejection line: hashes, never the rejected prose.
     expect(log).not.toContain("audit records");
+  });
+
+  // The veto is NOT "no numbers in common". Both statements assert 5 copies, and
+  // that shared metadata is not the point: each side also asserts a number the
+  // other does not, which is what makes 30 → 90 a moved claim rather than a
+  // sentence with something appended. Without this pair the guard could satisfy
+  // the 30→90 case with a "sets are disjoint" rule it should not have.
+  test("a value change vetoes even when both statements share another number", async () => {
+    const was = "the production service retains audit records for 30 days with 5 copies before cleanup";
+    const is = "the production service retains audit records for 90 days with 5 copies before cleanup";
+    expect(jac(sketchOf(was), sketchOf(is))).toBeGreaterThanOrEqual(NEAR_FLOOR);
+
+    expect((await promote(was)).action).toBe("promoted");
+    await prune("http", "decision", "wrong policy");
+    const next = await promote(is);
+    expect(next.action).toBe("promoted");
+    expect((await loadAll()).map((m) => m.content)).toContain(is);
   });
 
   // The guard reads what the tombstone ASSERTED. Rows written before value
@@ -473,6 +502,18 @@ describe("the value dimensions the sketch cannot see", () => {
     expect(numericTokens("pinned to alpine 3.19 with 2 retries")).toEqual(["2", "3.19"]);
     expect(numericTokens("no numbers in this claim")).toEqual([]);
     expect(numericTokens("30 days, then 30 days again")).toEqual(["30"]);
+  });
+
+  test("a negator that is itself a polarity term composes instead of double-counting", () => {
+    // "never" is BOTH a term in the table (it asserts a prohibition) and a word
+    // that negates what follows it. Used as a negator it must contribute only the
+    // flipped predicate, or "never disable" ends up asserting both signs and stops
+    // matching the "enable" claim it restates.
+    expect(polaritySigns("the service must never disable anonymous access")).toEqual(["pos"]);
+    expect(polaritySigns("the service must never enable anonymous access")).toEqual(["neg"]);
+    // Standalone — nothing in its span to negate — it still asserts the ban.
+    expect(polaritySigns("the job never runs")).toEqual(["neg"]);
+    expect(polaritySigns("we never allow it and never log it")).toEqual(["neg"]);
   });
 });
 
