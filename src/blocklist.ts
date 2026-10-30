@@ -3,6 +3,7 @@
 // path: recall, the injected digest and contextual pull, and the viewer's
 // active list. Blocklist lives at <memoryRoot>/blocklist.logfmt so a recursive
 // memory scan must never pick it up.
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { memoryRoot } from "./config.ts";
 import { appendLog, fileIdentity, formatLine, parseLine, readLines, writeAtomic } from "./logfmt.ts";
@@ -57,10 +58,15 @@ export async function removeBlock(ts: string): Promise<boolean> {
   return withStoreLock(
     file,
     async () => {
-      const store = Bun.file(file);
-      if (!(await store.exists())) return false;
       const since = await fileIdentity(file);
-      const kept = (await store.text()).split("\n").filter((l) => {
+      let text: string;
+      try {
+        text = await readFile(file, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw err;
+      }
+      const kept = text.split("\n").filter((l) => {
         const row = parseLine(l);
         return !(row && row.ts === ts);
       });

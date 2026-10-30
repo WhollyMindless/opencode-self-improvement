@@ -24,7 +24,7 @@
 // what you may read", the same rule memory_forget applies to global scope.
 // Admin readers (the viewer, out-of-plugin maintenance) keep the whole-file
 // restore exactly as it was.
-import { lstat, realpath, stat } from "node:fs/promises";
+import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { deletionsFile, snapshotDir } from "./config.ts";
 import { isWithin } from "./containment.ts";
@@ -213,7 +213,7 @@ export async function restoreSnapshot(
   // Checks above ran on real paths; lock and write through the same lexical
   // path every other writer uses, so the in-process lock queue is shared.
   const target = resolve(memoryRootDir, snap.original);
-  const rawSnapLines = rows(await Bun.file(snap.path).text());
+  const rawSnapLines = rows(await readFile(snap.path, "utf8"));
 
   // Comparing and publishing happen under the same lock: a divergence check on
   // a stale read would wave through a row that landed after it. A restore waits
@@ -226,8 +226,13 @@ export async function restoreSnapshot(
       // Identity before the first read of `target` here: everything published
       // below derives from what this read sees (logfmt.ts handoverRename).
       const since = await fileIdentity(target);
-      const cur = Bun.file(target);
-      const curLines = (await cur.exists()) ? rows(await cur.text()) : [];
+      let current = "";
+      try {
+        current = await readFile(target, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+      const curLines = rows(current);
       // Deliberate deletions are read inside the lock too, so a forget that
       // finished just before this restore is honoured.
       const audited = mode !== "force" ? await auditedDeletions() : new Set<string>();

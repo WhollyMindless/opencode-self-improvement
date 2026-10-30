@@ -14,6 +14,7 @@
 // is in memory.ts's RESERVED set so loadAll() cannot ingest it), and it logs no
 // prompt text — only the tokens a row and the query shared, each of which
 // already exists inside that row.
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { memoryRoot, HITS_FILENAME } from "./config.ts";
 import { appendLog, bracketList, fileIdentity, formatLine, parseLine, readLines, writeAtomic } from "./logfmt.ts";
@@ -63,14 +64,19 @@ export function resetHitThrottle(): void {
 }
 
 async function rotateIfNeeded(): Promise<void> {
-  const file = Bun.file(hitsFile());
-  const size = await file.size;
+  let size: number;
+  try {
+    size = (await stat(hitsFile())).size;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
   if (size <= MAX_HITS_BYTES) return;
   // #106: anchor the halving like every other whole-file publish (#89) - on
   // Windows the rename can be refused by a reader's handle, and the retry is
   // only safe while nothing else moved this file.
   const since = await fileIdentity(hitsFile());
-  const lines = (await file.text()).split("\n").filter((l) => l.trim());
+  const lines = (await readFile(hitsFile(), "utf8")).split("\n").filter((l) => l.trim());
   await writeAtomic(hitsFile(), lines.slice(Math.floor(lines.length / 2)).join("\n") + "\n", since);
 }
 

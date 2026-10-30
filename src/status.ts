@@ -12,7 +12,7 @@
 //
 // Scope of v2: same-machine reads. Against a REMOTE server the terminal panel
 // sees no status files (it says so) — the RPC surface is the planned follow-up.
-import { readdir, rm, stat } from "node:fs/promises";
+import { readFile, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { dateStr, evidenceDir, memoryRoot } from "./config.ts";
 import { parseLine, readLines } from "./logfmt.ts";
@@ -247,9 +247,7 @@ export async function writeStatus(p: StatusPayload): Promise<void> {
 
 async function readJson(path: string): Promise<StatusPayload | null> {
   try {
-    const f = Bun.file(path);
-    if (!(await f.exists())) return null;
-    const v: unknown = await f.json();
+    const v: unknown = JSON.parse((await readFile(path, "utf8")).replace(/^\uFEFF/, ""));
     if (!v || typeof v !== "object") return null;
     const p = v as Partial<StatusPayload>;
     if (typeof p.at !== "string" || typeof p.block !== "string") return null;
