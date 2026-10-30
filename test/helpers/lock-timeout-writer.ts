@@ -2,7 +2,9 @@
 // wait budget shortened. The production timeout policy remains untouched.
 import { appendMemory, clearSuperseded, markManySuperseded, markSuperseded, prune } from "../../src/memory.ts";
 import { addBlock, removeBlock } from "../../src/blocklist.ts";
-import { deleteMemory } from "../../src/viewer/mutate.ts";
+import { deleteMemory, unrejectMemory } from "../../src/viewer/mutate.ts";
+import { tombstoneMany } from "../../src/tombstones.ts";
+import { contentHash } from "../../src/evidence.ts";
 import { LOCK_WRITE } from "../../src/lock.ts";
 import { requireTempPath } from "./temp-root.ts";
 
@@ -24,6 +26,8 @@ try {
     case "delete": await deleteMemory({ ts, reason: "timeout regression" }); break;
     case "block": await addBlock(ts, "timeout regression"); break;
     case "unblock": await removeBlock(ts); break;
+    case "tombstone": await tombstoneMany([{ content: "newly rejected value" }], { reason: "timeout regression", source: "test" }); break;
+    case "unreject": await unrejectMemory(contentHash("existing value rejected by human")); break;
     default: throw new Error(`unknown operation: ${operation}`);
   }
   console.log(JSON.stringify({ ok: true }));

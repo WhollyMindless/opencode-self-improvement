@@ -10,6 +10,8 @@ import { LOCK_WRITE, lockFileFor, withStoreLock } from "../src/lock.ts";
 import { writeAtomic } from "../src/logfmt.ts";
 import { resetSessionScopes, setRepoScope } from "../src/repokey.ts";
 import { resetState } from "../src/state.ts";
+import { rejectedFile, resetTombstoneCache, tombstoneMany, tombstones } from "../src/tombstones.ts";
+import { contentHash } from "../src/evidence.ts";
 
 let root: string;
 const originalRoot = process.env.OPENCODE_MEMORY_DIR;
@@ -18,6 +20,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "osi-write-timeout-"));
   process.env.OPENCODE_MEMORY_DIR = root;
   resetState(); resetSessionScopes(); setRepoScope(null);
+  resetTombstoneCache();
 });
 afterEach(() => {
   LOCK_WRITE.timeoutMs = originalBudget;
@@ -86,14 +89,19 @@ test("a queued append refuses a busy store, preserves the holder, and succeeds o
   expect(await loadAll()).toHaveLength(2);
 }, 15_000);
 
-test.each(["append", "prune", "supersede", "batch", "clear", "delete", "block", "unblock"])(
+test.each(["append", "prune", "supersede", "batch", "clear", "delete", "block", "unblock", "tombstone", "unreject"])(
   "a separate-process %s refuses the held file; no false success, and retry lands",
   async (operation) => {
     const seeded = await seed();
     if (operation === "clear") await markSuperseded(seeded.ts, { superseded_by: "old", reason: "fixture" });
     const isBlock = operation === "block" || operation === "unblock";
     if (isBlock) await addBlock(seeded.ts, "fixture");
-    const file = isBlock ? blocklistFile() : seeded.file;
+    const isRejection = operation === "tombstone" || operation === "unreject";
+    if (isRejection) await tombstoneMany([
+      { content: "existing value rejected by human" },
+      { content: "unrelated rejection must survive" },
+    ], { reason: "fixture", source: "test" });
+    const file = isRejection ? rejectedFile() : isBlock ? blocklistFile() : seeded.file;
     const before = readFileSync(file, "utf8");
     const h = await holdRewrite(file);
     const owner = readFileSync(lockFileFor(file), "utf8");
@@ -113,6 +121,12 @@ test.each(["append", "prune", "supersede", "batch", "clear", "delete", "block", 
     if (operation === "append") {
       expect((await loadAll()).map((row) => row.content)).toContain("the child row must survive an acknowledged append");
       expect(await loadAll()).toHaveLength(2);
+    }
+    if (isRejection) {
+      const expected = operation === "tombstone"
+        ? ["existing value rejected by human", "unrelated rejection must survive", "newly rejected value"]
+        : ["unrelated rejection must survive"];
+      expect((await tombstones()).map((row) => row.ch).sort()).toEqual(expected.map(contentHash).sort());
     }
   }, 15_000,
 );
