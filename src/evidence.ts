@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { dateStr, evidenceDir } from "./config.ts";
 import { appendLog, formatLine } from "./logfmt.ts";
-import { repoScope, sessionScope } from "./repokey.ts";
+import { repoScope, sessionScope, type RepoScope } from "./repokey.ts";
 import { getCurrent } from "./state.ts";
 import { redactSecrets } from "./secrets.ts";
 
@@ -55,12 +55,15 @@ function scrubFields(fields: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-export async function record(
-  ev: EvidenceEvent,
-  fields: Record<string, unknown> = {},
-  includeContext = true,
-  sessionID?: string,
-): Promise<void> {
+// Immutable operation attribution, captured before the caller's first await.
+// Null scope is significant: a named-unresolved session must stay private.
+export interface EvidenceContext {
+  readonly sid: string;
+  readonly call: string | undefined;
+  readonly scope: Readonly<RepoScope> | null;
+}
+
+export function captureEvidenceContext(sessionID?: string): EvidenceContext {
   const cur = getCurrent();
   // An explicitly threaded session outranks the ambient one: gate-authored
   // lines must name the session the gate runs FOR, not whichever setCurrent
@@ -85,6 +88,17 @@ export async function record(
   // scope-less process) keep their historical global reading.
   const named = typeof sid === "string" && sid !== "" && sid !== "?";
   const scope = named ? sessionScope(sid) : repoScope();
+  return Object.freeze({ sid, call, scope: scope ? Object.freeze({ ...scope }) : null });
+}
+
+export async function record(
+  ev: EvidenceEvent,
+  fields: Record<string, unknown> = {},
+  includeContext = true,
+  sessionID?: string,
+  context?: EvidenceContext,
+): Promise<void> {
+  const { sid, call, scope } = context ?? captureEvidenceContext(sessionID);
   const line = formatLine({
     ev,
     ts: new Date().toISOString(),
@@ -135,6 +149,7 @@ export async function recordWriteBlocked(
   flags: string[],
   chain?: string,
   sessionID?: string,
+  context?: EvidenceContext,
 ): Promise<void> {
   await record(
     "write_blocked",
@@ -146,5 +161,6 @@ export async function recordWriteBlocked(
     },
     true,
     sessionID,
+    context,
   );
 }
