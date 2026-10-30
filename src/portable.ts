@@ -288,6 +288,10 @@ export async function importMemories(
   // the ambient current.
   sessionID?: string,
 ): Promise<ImportTally> {
+  // Capture the importing owner before file I/O: later session moves must not
+  // re-home rows partway through the import (#183). Resolve with the writer
+  // rule so an unresolved named session never borrows the ambient repo (#152).
+  const writeAt = writeTarget(sessionID ?? getCurrent().sid);
   const target = await resolveContained(path, memoryRoot(), {
     label: "memory_import file",
     // Deliberately no mention of the operator escape hatch: this string goes
@@ -307,12 +311,8 @@ export async function importMemories(
     throw err;
   }
   const tally: ImportTally = { promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0, unaudited: 0 };
-  // #152: the importing session's repository is resolved BEFORE the first row,
-  // through the writer rule rather than the ambient one. An unresolved named
-  // session has no write target, and half a file re-stamped into whatever
-  // workspace happened to set up last is worse than none — so this throws
-  // before a single row is gated, not partway through the tally.
-  const writeAt = writeTarget(sessionID ?? getCurrent().sid);
+  // Preserve file-validation error precedence, but reject an unresolved owner
+  // before gating any row. Resolution happened at entry, not at this await.
   if (!writeAt.ok) throw new UnresolvedWriterError(writeAt.sid);
   const currentScope = writeAt.scope;
   let allowFrontier = false;

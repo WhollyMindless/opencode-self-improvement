@@ -14,11 +14,12 @@ import {
   type SupersedeFields,
 } from "./memory.ts";
 import { chainId, contentHash, record, recordWriteBlocked } from "./evidence.ts";
-import { noteAuthored } from "./state.ts";
+import { getCurrent, noteAuthored } from "./state.ts";
 import { MAX_WRITE_EVIDENCE_REFS } from "./triggers.ts";
 import { flattenMemoryText } from "./sanitize.ts";
 import { containsSecret, redactSecrets } from "./secrets.ts";
-import { readerForSession } from "./memory.ts";
+import { readerFromSid, UnresolvedWriterError, type Reader } from "./memory.ts";
+import { writeTarget, type WriteTarget } from "./repokey.ts";
 import {
   displayCall,
   extractCallForms,
@@ -69,6 +70,11 @@ export const auditCaveat = (outcome: GateOutcome): string =>
 
 export interface GateContext {
   liveRoot: string;
+  // Capture authority before awaiting locks, model calls, or gate evidence.
+  // Named callers read their repo; named-unbound callers read global-only;
+  // absent/"?" callers capture ambient authority at entry (not after awaits).
+  reader?: Reader;
+  writeAt?: WriteTarget;
   evidenceCalls: string[];
   // Total before the telemetry window was selected. Legacy/direct callers
   // may still supply their complete list; the writer bounds that too.
@@ -274,6 +280,8 @@ export async function runWriteGate(
   candidate: WriteCandidate,
   ctx: GateContext,
 ): Promise<GateOutcome> {
+  const reader = ctx.reader ?? readerFromSid(ctx.sessionID);
+  const writeAt = ctx.writeAt ?? writeTarget(ctx.sessionID ?? getCurrent().sid);
   const chain = chainId();
   // Gate audit lines thread the session: runWriteGate awaits (analysis, the
   // locked append), and another session's dispatch can move the ambient
@@ -379,13 +387,7 @@ export async function runWriteGate(
   const scopeMems = candidate.scope
     ? await loadScope(
         candidate.scope,
-        // Dedup/stale reads partition on the WRITE's session, captured at
-        // flow entry — not the ambient current after this await (#127). An
-        // unknown "?" (or absent) caller is the readerFromSid AMBIENT case,
-        // exactly as before: readerForSession is for named sessions only.
-        ctx.sessionID !== undefined && ctx.sessionID !== "?"
-          ? readerForSession(ctx.sessionID)
-          : undefined,
+        reader,
       )
     : [];
   // One tree index per write, shared by gate1 and every gate2 stale scan.
@@ -740,7 +742,15 @@ export async function runWriteGate(
   const snapshot = await snapshotFiles([join(memoryRoot(), `${new Date().toISOString().split("T")[0]}.logfmt`)]);
   // The write carries the CALLER's session, not whatever current says after
   // the gate's own awaits - capture's stamp must follow the captured session.
-  const ts = await appendMemory({ ...candidate, sessionID: ctx.sessionID });
+  if (candidate.repo === undefined && !writeAt.ok) throw new UnresolvedWriterError(writeAt.sid);
+  // A captured unscoped ambient writer deliberately publishes repo=global.
+  // Leaving repo undefined would make appendMemory resolve ambient ownership
+  // again after awaits. This changes the old unstamped shape: exports now keep
+  // this row global on import instead of adopting the importing repository.
+  const owner = candidate.repo === undefined && writeAt.ok
+    ? { repo: writeAt.scope?.key ?? "global", repoPath: writeAt.scope?.path }
+    : {};
+  const ts = await appendMemory({ ...candidate, ...owner, sessionID: ctx.sessionID });
   // #165: remember who made this row, so the writing session is not billed a
   // prompt-cache bust to be shown its own thought. Only promoted writes are
   // attributed — a blocked candidate created nothing.
