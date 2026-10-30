@@ -162,6 +162,39 @@ describe("near-match closes the rewording hole", () => {
     expect((await promote(UNRELATED)).action).toBe("promoted");
   });
 
+  // The UPPER side of the floor. "An unrelated fact stores clean" is not enough
+  // to pin it: genuinely unrelated prose scores 0.0, so it stays green even with
+  // a near-floor of 0.05 and an over-aggressive mechanism looks fine. These are
+  // the pairs that actually score against a floor — same vocabulary, same topic,
+  // a DIFFERENT claim (measured 0.059-0.235). A human deleting one must not be
+  // allowed to veto the others.
+  test("a different claim in the same topic is NOT refused", async () => {
+    const sameTopicDifferentClaim = [
+      [
+        "decided to adopt the express framework for the http layer and terminate tls at the load balancer",
+        "decided to move the http layer to fastify because express lacks schema validation",
+      ],
+      [
+        "we run migrations with bun migrate before every deploy",
+        "migrations were rolled back manually once bun migrate timed out",
+      ],
+      [
+        "the release workflow publishes to npm before it creates the github release",
+        "the release workflow failed because the npm token expired mid run",
+      ],
+    ] as const;
+    const refused: string[] = [];
+    for (const [wasRejected, newClaim] of sameTopicDifferentClaim) {
+      expect((await promote(wasRejected)).action).toBe("promoted");
+      await prune("http", "decision", "wrong call");
+      const next = await promote(newClaim);
+      if (next.action === "blocked") refused.push(`${newClaim} <- ${next.hint ?? "?"}`);
+    }
+    // Empty means no legitimate rewrite was vetoed; a failure prints exactly
+    // which claim was refused and by what reasoning.
+    expect(refused).toEqual([]);
+  });
+
   test("near-match never fires on short content, which is where false positives live", async () => {
     await tombstone("use bun for scripts", { reason: "stale", source: "forget" });
     // Byte-identical: still refused, because that is an exact match, not a guess.
@@ -248,20 +281,26 @@ describe("lifting a rejection is a human action", () => {
     const { ch } = await tombstone(REJECTED, { reason: "wrong call", source: "forget" });
     expect((await promote(REJECTED)).action).toBe("blocked");
 
-    // The behavioral half of the pin: every registered tool is offered the most
-    // plausible-looking arguments it could take for clearing a tombstone, and
-    // none of them may change the tombstone file.
+    // Name scan first: nothing registered is even shaped like an un-reject.
+    const names = Object.keys((await loadPlugin()).tool);
+    expect(names.filter((n) => /unreject|tombstone|lift|approve/i.test(n))).toEqual([]);
+
+    // Then the behavioral half: every IN-PROCESS tool is offered the most
+    // plausible arguments it could take for clearing a tombstone, and none may
+    // change the file. memory_init is excluded deliberately — it spawns the
+    // external indexer (a child process, not a store mutation), which is what
+    // tripped this test under the parallel test workers.
     const loaded = await loadPlugin();
+    const invokable = names.filter((n) => n !== "memory_init");
+    expect(invokable.length).toBeGreaterThan(8);
     const before = readFileSync(rejectedFile(), "utf8");
-    for (const [name, t] of Object.entries(loaded.tool)) {
-      if (name === "memory_import" || name === "memory_undo") continue;
-      // The harness wraps execute() to one argument and unwraps .content.
-      await t
+    for (const name of invokable) {
+      await loaded.tool[name]
         .execute({ ch, ts: ch, scope: "http", type: "decision", reason: "lift", file: "x.jsonl" })
         .catch(() => undefined);
     }
     expect(readFileSync(rejectedFile(), "utf8")).toBe(before);
-    expect(Object.keys(loaded.tool).filter((n) => /unreject|tombstone|unreject/i.test(n))).toEqual([]);
+    expect((await promote(REJECTED)).action).toBe("blocked");
   });
 });
 
