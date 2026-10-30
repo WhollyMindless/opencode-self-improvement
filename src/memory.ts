@@ -20,6 +20,7 @@ import {
 } from "./logfmt.ts";
 import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 import { blockedTs } from "./blocklist.ts";
+import { tombstoneMany } from "./tombstones.ts";
 import { containsSecret, redactSecrets } from "./secrets.ts";
 import { flattenMemoryText } from "./sanitize.ts";
 
@@ -96,6 +97,9 @@ const RESERVED = new Set([
   "deleted.logfmt",
   "canonical.logfmt",
   "blocklist.logfmt",
+  // Value-keyed rejection tombstones (#35). Hashes only, never prose — and it
+  // must never be ingested as a row, exported, or restored by undo.
+  "rejected.logfmt",
   // The use ledger (src/hits.ts): telemetry, not memory. A hit line must never
   // be able to become a row — or to be superseded, exported, or injected.
   HITS_FILENAME,
@@ -651,6 +655,24 @@ export async function prune(
       LOCK_WRITE,
     );
   }
+  // #35: tombstone every forgotten VALUE, keyed on content rather than on the
+  // row's `ts`, so replaying the source cannot store the fact again.
+  //
+  // ONE batched call, not one per row: `memory_forget` deletes by scope+type and
+  // routinely removes hundreds of rows, and the per-row form issued a store-lock
+  // create/unlink pair plus a full re-read of the tombstone file for each one.
+  // Done AFTER the per-file locks are released as well — appending inside the
+  // loop would nest a second store lock (day file, then rejected.logfmt) inside
+  // the first, and one consistent order across the codebase is what keeps the
+  // lock manager from having to reason about nesting at all.
+  await tombstoneMany(
+    deleted.map((d) => ({
+      content: d.memory.content,
+      scope: d.memory.scope,
+      type: d.memory.type,
+    })),
+    { reason, source: "forget" },
+  );
   return { deleted, snapshot };
 }
 
