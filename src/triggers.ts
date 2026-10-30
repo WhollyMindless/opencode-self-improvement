@@ -33,6 +33,17 @@ export interface AfterOutput {
 const ENGAGEMENT_TOOLS = new Set(["grep", "glob", "read", "edit", "write", "bash", "shell"]);
 
 const RECENT_EVIDENCE_CALLS = 10;
+// Pending recovery stores IDs only; the full attribution ledger stays in calls.
+function trackPending(s: SessionState, rec: ToolResult): void {
+  const pending = s.pendingGate;
+  if (!pending) return;
+  pending.count++;
+  if (rec.tool === "edit" || rec.tool === "write") {
+    pending.fix = { call: rec.call, index: pending.count };
+  }
+  pending.chain.push(rec.call);
+  if (pending.chain.length > RECENT_EVIDENCE_CALLS) pending.chain.shift();
+}
 // Recent engagement + latest gate check + FAIL/fix/PASS + tool FAIL/PASS.
 export const MAX_WRITE_EVIDENCE_REFS = RECENT_EVIDENCE_CALLS + 1 + 3 + 2;
 
@@ -149,12 +160,12 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
     rec.cmd = family;
     await record("gate_check", { cmd: family, status }, true, sid);
     if (status === "FAIL") {
-      s.pendingGate = { call, cmd: family, chain: [] };
+      s.pendingGate = { call, cmd: family, chain: [], count: 0 };
     } else if (s.pendingGate && s.pendingGate.cmd === family) {
       const pend = s.pendingGate;
-      const chainCalls = [pend.call, ...pend.chain.map((c) => c.call), call];
-      const edits = pend.chain.filter((c) => c.tool === "edit" || c.tool === "write");
-      const fix = edits.length ? edits[edits.length - 1].call : call;
+      const fix = pend.fix?.call ?? call;
+      const oldFix = pend.fix && pend.fix.index <= pend.count - pend.chain.length;
+      const chainCalls = [pend.call, ...(oldFix ? [fix] : []), ...pend.chain, call];
       await record(
         "t4_learning",
         {
@@ -164,6 +175,7 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
           to: "PASS",
           gate_couple: true,
           evidence_chain: `[${chainCalls.join(",")}]`,
+          evidence_chain_count: pend.count + 2,
           fix_ref: fix,
         },
         false,
@@ -173,14 +185,14 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
       s.writeEvidence.gateRecovery = [pend.call, fix, call];
       s.pendingGate = null;
     } else if (s.pendingGate) {
-      s.pendingGate.chain.push(rec);
+      trackPending(s, rec);
     }
     trackCall(s, rec);
     return;
   }
 
   // Keep the pending gate chain (grep/read/edit between FAIL and PASS).
-  if (s.pendingGate) s.pendingGate.chain.push(rec);
+  trackPending(s, rec);
   trackCall(s, rec);
 
   // ---- Failed -> fixed retry (non-gate tools) -------------------------------
