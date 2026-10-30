@@ -45,6 +45,22 @@ async function replaceWithCachedHandle(file: string, text: string, before = "sho
 const day = () => join(root, "2026-10-29.logfmt");
 const row = (ts: string, content: string) => `ts=${ts} type=context scope=plan content="${content}"\n`;
 
+test("Bun cached-size premise: replacement text is cropped until the runtime is fixed", async () => {
+  // Deliberately fails when Bun fixes this: re-audit the readers and their
+  // negative controls instead of letting the cached-handle seam go vacuous.
+  // Distinct prefixes distinguish truncation from a valid old-version read.
+  const file = day();
+  writeFileSync(file, "AAAAA");
+  const cached = Bun.file(file);
+  expect(await cached.exists()).toBe(true);
+  const replacement = "B".repeat(37);
+  writeFileSync(`${file}.next`, replacement);
+  renameSync(`${file}.next`, file);
+  expect(readFileSync(file, "utf8")).toBe(replacement);
+  expect(await cached.text()).toBe("BBBBB");
+  expect(await cached.text()).toBe("BBBBB");
+});
+
 test("snapshot copies complete bytes including BOM and trailing newline", async () => {
   const text = "\uFEFF" + row("one", "x".repeat(10000)) + row("tail", "last row");
   await replaceWithCachedHandle(day(), text);
