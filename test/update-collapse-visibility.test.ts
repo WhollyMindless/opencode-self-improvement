@@ -270,7 +270,7 @@ test("a direct gate snapshots named read and write identity before its first awa
   expect((await row(outcome.ts!)).repoPath).toBe(resolveRepo(a).path);
 });
 
-test.each([false, true])("unscoped ambient gate pins explicit global ownership (scope moves: %s)", async (moves) => {
+test.each([{ moves: false }, { moves: true }])("unscoped ambient gate pins explicit global ownership (scope moves: $moves)", async ({ moves }) => {
   // No plugin, named session, or module scope at entry. The record seam lets
   // another setup acquire the ambient scope before appendMemory is reached.
   const record = evidence.record;
