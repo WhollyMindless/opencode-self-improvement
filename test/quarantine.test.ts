@@ -174,13 +174,18 @@ test("viewer renders quarantined rows and an explicit release action without tre
   const poisoned = '<img src=x onerror="alert(1)">';
   const row = { ts: "2026-10-30T00:00:00.000Z", type: "context", scope: "demo", content: poisoned, quarantined: true };
   node("fStatus").value = "quarantined";
-  renderRows({ memories: [row], blocked: [], deleted: [], snapshots: [] });
+  renderRows({ memories: [row], blocked: [], deleted: [], snapshots: [], rejections: [] });
   expect(node("rows").innerHTML).toContain('data-action="release-quarantine"');
   expect(node("rows").innerHTML).toContain("status-quarantined");
   expect(node("rows").innerHTML).toContain("&lt;img");
   expect(node("rows").innerHTML).not.toContain("<img");
-  renderRows({ memories: [{ ...row, quarantined: false }], blocked: [], deleted: [], snapshots: [] });
+  renderRows({ memories: [{ ...row, quarantined: false }], blocked: [], deleted: [], snapshots: [], rejections: [] });
   expect(node("rows").innerHTML).toBe("");
+  node("fStatus").value = "rejected";
+  renderRows({ memories: [], blocked: [], deleted: [], snapshots: [], rejections: [{ ch: "abcdef012345", reason: poisoned, rejected_at: "2026-10-30" }] });
+  expect(node("rows").innerHTML).toContain('data-action="un-reject"');
+  expect(node("rows").innerHTML).toContain("&lt;img");
+  expect(node("rows").innerHTML).not.toContain("<img");
 });
 
 test("releasing quarantine does not remove an independent human block", async () => {
@@ -190,4 +195,62 @@ test("releasing quarantine does not remove an independent human block", async ()
   expect((await blockedTs()).has(ts)).toBe(true);
   expect(await loadAll()).toEqual([]);
   expect(await compactionAnchor()).toBe("");
+});
+
+test("viewer rejection controls and quarantine release keep their independent protections", async () => {
+  const loaded = await plugin();
+  await loaded.tools.memory_import.execute({ file: inputFile() }, context);
+  const [row] = await loadAll();
+  viewer = await startViewer(0);
+  const post = async (path: string, body: unknown) => {
+    const response = await viewer!.server.fetch(new Request(new URL(path, viewer!.url), {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+    expect(response.status).toBe(200);
+    return response.json();
+  };
+  const data = async () => (await viewer!.server.fetch(new Request(new URL("/api/data", viewer!.url)))).json();
+
+  await post("/api/block", { ts: row.ts, reason: "human rejects this value" });
+  const blocked = await data();
+  expect(blocked.blocked.map((entry: { ts: string }) => entry.ts)).toContain(row.ts);
+  expect(blocked.rejections).toHaveLength(1);
+  const ch = blocked.rejections[0].ch;
+  // Releasing a scan flag must not silently lift a human rejection or block.
+  expect((await post("/api/release-quarantine", { ts: row.ts, reason: "scan false positive only" })).released).toBe(true);
+  expect((await data()).rejections[0].ch).toBe(ch);
+  expect((await blockedTs()).has(row.ts)).toBe(true);
+  expect((await loaded.tools.memory_recall.execute({}, context)).content).not.toContain(PAYLOAD);
+  expect((await loaded.tools.memory_import.execute({ file: inputFile() }, context)).content).toContain("1 blocked by the gate");
+
+  // Lifting the value rejection alone likewise leaves the row's block in place.
+  await post("/api/unreject", { ch });
+  expect((await data()).rejections).toEqual([]);
+  expect((await blockedTs()).has(row.ts)).toBe(true);
+  expect((await loaded.tools.memory_recall.execute({}, context)).content).not.toContain(PAYLOAD);
+  await post("/api/unblock", { ts: row.ts });
+  expect((await loaded.tools.memory_recall.execute({}, context)).content).toContain(PAYLOAD);
+});
+
+test("forgetting a quarantined import rejects re-ingestion; lifting the rejection still requires quarantine review", async () => {
+  const loaded = await plugin();
+  const file = inputFile();
+  await loaded.tools.memory_import.execute({ file }, context);
+  await loaded.tools.memory_forget.execute({ type: "context", scope: "moonstone", reason: "reject imported value" }, context);
+  expect(await loadAll()).toEqual([]);
+  expect((await loaded.tools.memory_import.execute({ file }, context)).content).toContain("1 blocked by the gate");
+  expect(await loadAll()).toEqual([]);
+
+  viewer = await startViewer(0);
+  const data = await (await viewer.server.fetch(new Request(new URL("/api/data", viewer.url)))).json();
+  expect(data.rejections).toHaveLength(1);
+  const response = await viewer.server.fetch(new Request(new URL("/api/unreject", viewer.url), {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ch: data.rejections[0].ch }),
+  }));
+  expect(response.status).toBe(200);
+  expect((await loaded.tools.memory_import.execute({ file }, context)).content).toContain("1 promoted rows quarantined");
+  const [again] = await loadAll();
+  expect(again.content).toBe(PAYLOAD);
+  expect(again.tags).toContain("quarantine");
+  expect((await loaded.tools.memory_recall.execute({}, context)).content).not.toContain(PAYLOAD);
 });
