@@ -20,7 +20,7 @@ import {
 } from "./logfmt.ts";
 import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 import { blockedTs } from "./blocklist.ts";
-import { tombstone } from "./tombstones.ts";
+import { tombstoneMany } from "./tombstones.ts";
 import { containsSecret, redactSecrets } from "./secrets.ts";
 import { flattenMemoryText } from "./sanitize.ts";
 
@@ -656,19 +656,23 @@ export async function prune(
     );
   }
   // #35: tombstone every forgotten VALUE, keyed on content rather than on the
-  // row's `ts`, so replaying the source cannot store the fact again. Done AFTER
-  // the per-file locks are released rather than inside the loop: appending here
-  // would nest a second store lock (day file, then rejected.logfmt) inside the
-  // first, and a single consistent order across the codebase is what keeps the
+  // row's `ts`, so replaying the source cannot store the fact again.
+  //
+  // ONE batched call, not one per row: `memory_forget` deletes by scope+type and
+  // routinely removes hundreds of rows, and the per-row form issued a store-lock
+  // create/unlink pair plus a full re-read of the tombstone file for each one.
+  // Done AFTER the per-file locks are released as well — appending inside the
+  // loop would nest a second store lock (day file, then rejected.logfmt) inside
+  // the first, and one consistent order across the codebase is what keeps the
   // lock manager from having to reason about nesting at all.
-  for (const d of deleted) {
-    await tombstone(d.memory.content, {
-      reason: d.reason,
-      source: "forget",
+  await tombstoneMany(
+    deleted.map((d) => ({
+      content: d.memory.content,
       scope: d.memory.scope,
       type: d.memory.type,
-    });
-  }
+    })),
+    { reason, source: "forget" },
+  );
   return { deleted, snapshot };
 }
 

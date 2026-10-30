@@ -135,8 +135,33 @@ export function sketchOf(content: string): string[] {
 }
 
 
+/**
+ * The tombstone set, cached against the file's change token.
+ *
+ * `findRejection` runs on EVERY gated write, so without this each write pays a
+ * full read of every rejection ever recorded — a cost this mechanism introduced
+ * into the hot path, and one that shows up badly on Windows, where the CI runner
+ * is slow enough for it to matter. `fileIdentity` is the repo's own change token
+ * (any append, rewrite or replacement changes it, "absent" means no file yet),
+ * so the cache is keyed on evidence rather than on a clock: a human lifting a
+ * rejection in the viewer process is seen by the next write in this one. A TTL
+ * would have been wrong here — it would keep refusing a value for the length of
+ * the TTL after the human said otherwise.
+ */
+let cache: { at: string; rows: Tombstone[] } | null = null;
+
+/** Drop the cached tombstone set. Exposed for tests and for the write paths,
+ *  which invalidate after touching the file so a same-process re-read cannot
+ *  serve a pre-write snapshot. */
+export function resetTombstoneCache(): void {
+  cache = null;
+}
+
 export async function tombstones(): Promise<Tombstone[]> {
-  const lines = await readLines(rejectedFile());
+  const file = rejectedFile();
+  const identity = await fileIdentity(file);
+  if (cache && cache.at === identity) return cache.rows;
+  const lines = await readLines(file);
   const out: Tombstone[] = [];
   for (const line of lines) {
     const f = parseLine(line);
@@ -151,39 +176,77 @@ export async function tombstones(): Promise<Tombstone[]> {
       sig: typeof f.sig === "string" ? f.sig.split(".").filter(Boolean) : [],
     });
   }
+  cache = { at: identity, rows: out };
   return out;
 }
 
 /**
- * Record that a human rejected this content.
+ * Record that a human rejected a batch of values.
  *
- * Idempotent by `ch`: replaying the same rejection appends a second line,
- * which is harmless to matching (the first match wins) but doubles the file.
- * The pre-check skips the append when the value is already tombstoned. It is a
- * read-then-write rather than a compare-and-set, so two processes rejecting the
- * SAME new value at the same instant can both append — the value ends up
- * tombstoned either way, and no third party's line is lost, because the append
- * is O_APPEND under the store lock.
+ * ONE read of the existing set, ONE lock, ONE append for the whole batch. This
+ * is not a micro-optimisation: the per-value version did a lock create/unlink
+ * pair plus a full read per row, and `memory_forget` deletes by scope+type, so a
+ * bulk forget issued hundreds of lock cycles while other sessions were writing.
+ * The heavy concurrent scenario on the Windows runner failed 2/2 with that shape
+ * (run 41112466339) and never on main; src/lock.ts gives up waiting after 5s and
+ * proceeds UNLOCKED, which is precisely how a row gets lost behind a long
+ * read-modify-write. Whether the batch is sufficient there is the open question
+ * this commit's CI run answers; the cost it removes is real either way.
+ *
+ * Still idempotent by `ch`, and de-duplicated WITHIN the batch too, so a forget
+ * that removes fifty rows carrying the same content records one tombstone.
+ * The read-then-write is not a compare-and-set: two processes rejecting the same
+ * NEW value at the same instant can both append. The value ends up tombstoned
+ * either way and no third party's line is lost, because every writer of this
+ * file takes the same lock and the append is O_APPEND.
+ */
+export async function tombstoneMany(
+  entries: Array<{ content: string; scope?: string; type?: string }>,
+  opts: { reason: string; source: string },
+): Promise<{ recorded: number; chs: string[] }> {
+  if (entries.length === 0) return { recorded: 0, chs: [] };
+  const known = new Set((await tombstones()).map((t) => t.ch));
+  const at = new Date().toISOString();
+  const fresh: string[] = [];
+  const chs: string[] = [];
+  for (const e of entries) {
+    const ch = contentHash(e.content);
+    chs.push(ch);
+    if (known.has(ch)) continue;
+    known.add(ch);
+    fresh.push(
+      formatLine({
+        ch,
+        reason: opts.reason,
+        source: opts.source,
+        scope: e.scope,
+        type: e.type,
+        sig: sketchOf(e.content).join("."),
+        rejected_at: at,
+      }),
+    );
+  }
+  if (fresh.length === 0) return { recorded: 0, chs };
+  const file = rejectedFile();
+  // formatLine returns a line WITHOUT its terminator (appendLog adds one), so a
+  // batch must be joined with newlines. Joining on "" silently published every
+  // record in the batch as one line, of which only the first parsed — and a
+  // caller forgetting one row at a time could not see it.
+  await withStoreLock(file, () => appendLog(file, fresh.join("\n")), LOCK_WRITE);
+  resetTombstoneCache();
+  return { recorded: fresh.length, chs };
+}
+
+/**
+ * Record that a human rejected one value. Delegates to {@link tombstoneMany};
+ * the batch form is the one a caller deleting many rows should use.
  */
 export async function tombstone(
   content: string,
   opts: { reason: string; source: string; scope?: string; type?: string },
 ): Promise<{ ch: string; recorded: boolean }> {
-  const ch = contentHash(content);
-  const all = await tombstones();
-  if (all.some((t) => t.ch === ch)) return { ch, recorded: false };
-  const line = formatLine({
-    ch,
-    reason: opts.reason,
-    source: opts.source,
-    scope: opts.scope,
-    type: opts.type,
-    sig: sketchOf(content).join("."),
-    rejected_at: new Date().toISOString(),
-  });
-  const file = rejectedFile();
-  await withStoreLock(file, () => appendLog(file, line), LOCK_WRITE);
-  return { ch, recorded: true };
+  const { recorded, chs } = await tombstoneMany([{ content, scope: opts.scope, type: opts.type }], opts);
+  return { ch: chs[0], recorded: recorded > 0 };
 }
 
 /**
@@ -251,6 +314,7 @@ export async function removeTombstone(ch: string): Promise<boolean> {
         return !(row && row.ch === ch);
       });
       await writeAtomic(file, kept.join("\n") + (kept.length ? "\n" : ""), since);
+      resetTombstoneCache();
       return true;
     },
     LOCK_WRITE,

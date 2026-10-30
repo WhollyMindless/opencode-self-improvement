@@ -75,8 +75,8 @@ const REWORDED =
 const UNRELATED =
   "the image pipeline resizes uploads to 2048 pixels before writing them to object storage";
 
-async function promote(content: string, scope = "http") {
-  return runWriteGate({ type: "decision", scope, content }, ctx());
+async function promote(content: string, scope = "http", type = "decision") {
+  return runWriteGate({ type, scope, content }, ctx());
 }
 
 describe("rejection survives deletion of the row that held it", () => {
@@ -245,6 +245,41 @@ describe("the tombstone holds hashes, never values", () => {
     const second = await tombstone(REJECTED, { reason: "again", source: "forget" });
     expect(second.recorded).toBe(false);
     expect(await tombstones()).toHaveLength(1);
+  });
+
+  // A bulk forget is the common shape (prune deletes by scope+type, not by row),
+  // and tombstones are written as ONE batched append. Every value in the batch
+  // has to survive as its own parseable line: an earlier version joined the
+  // batch with "" — formatLine returns no terminator — so 40 records landed as
+  // one line and only the first parsed. Nothing else in this suite wrote more
+  // than one value per call, so nothing caught it.
+  test("a bulk forget records EVERY value, not just the first", async () => {
+    // type "learning" on purpose: 40 near-identical rows are exactly what a bulk
+    // scope forget produces, and decisions compete at a 0.3 overlap floor, which
+    // would block them here for a reason unrelated to what this pins.
+    const lines = Array.from(
+      { length: 40 },
+      (_, i) => `release gate ${i} requires a distinct green pipeline run`,
+    );
+    for (const content of lines) {
+      expect((await promote(content, "http", "learning")).action).toBe("promoted");
+    }
+    const res = await prune("http", "learning", "bulk");
+    expect(res.deleted).toHaveLength(40);
+
+    const all = await tombstones();
+    expect(all).toHaveLength(40);
+    // Every one of them must be individually matched by the gate, which is the
+    // whole point: a rejection that failed to parse rejects nothing.
+    const refused: number[] = [];
+    for (const [i, content] of lines.entries()) {
+      const again = await promote(content, "http", "learning");
+      if (again.action === "blocked") refused.push(i);
+    }
+    expect(refused).toHaveLength(40);
+    // And the raw file really is 40 lines, so the count above cannot be a
+    // parser coincidence.
+    expect(readFileSync(rejectedFile(), "utf8").trimEnd().split("\n")).toHaveLength(40);
   });
 });
 
