@@ -14,6 +14,8 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { SessionEvent } from "@opencode/schema/session-event";
+import { Schema } from "effect";
 import { CAPTURE_EVENT_TYPES } from "../src/index.ts";
 import { IDENTITY_EVENT_TYPES } from "../src/host.ts";
 import moveRecording from "./fixtures/host-session-move.json";
@@ -58,7 +60,33 @@ describe("host event fidelity (#136, #137, #176)", () => {
     expect(observed.size).toBeGreaterThan(10);
     expect(observed.has("session.execution.succeeded")).toBe(true);
     expect(moveRecording.events.map((e) => e.type)).toContain("session.moved");
-    expect(observed.has("session.moved")).toBe(false); // separate recording, not an edited count
+    // Deliberately pins the original two-turn workload. A future capture that
+    // includes moves belongs in a separately identified recording; do not
+    // silently rewrite this historical absence or broaden its conclusion.
+    expect(observed.has("session.moved")).toBe(false);
+  });
+
+  test("the move extract declares its recording provenance", () => {
+    // Required metadata is a review aid, not authentication of a live capture.
+    for (const field of [moveRecording.provenance.host, moveRecording.provenance.recordedAt]) {
+      expect(typeof field).toBe("string");
+      expect(field.trim().length).toBeGreaterThan(0);
+    }
+    expect(Array.isArray(moveRecording.provenance.procedure)).toBe(true);
+    expect(moveRecording.provenance.procedure.length).toBeGreaterThan(0);
+    for (const step of moveRecording.provenance.procedure) {
+      expect(typeof step).toBe("string");
+      expect(step.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  test("every retained envelope round-trips through the pinned host schema", () => {
+    expect(moveRecording.events.length).toBeGreaterThan(0);
+    for (const event of moveRecording.events) {
+      const decoded = Schema.decodeUnknownSync(SessionEvent.All, { onExcessProperty: "error" })(event);
+      const encoded: unknown = Schema.encodeSync(SessionEvent.All)(decoded);
+      expect(encoded).toEqual(event);
+    }
   });
 
   test("every event type auto-capture reacts to is declared by the protocol", () => {
