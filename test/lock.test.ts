@@ -222,7 +222,7 @@ describe.skipIf(process.platform !== "win32")("broken store directory (Windows A
       const started = performance.now();
       return (exitCode?: number) => console.info(`[acl-fixture] ${JSON.stringify({
         phase, event: "end", elapsedMs: Math.round(performance.now() - started),
-        ...(exitCode === undefined ? {} : { exitCode }),
+        exitCode: exitCode ?? null,
       })}`);
     };
     const measure = <T,>(phase: string, fn: () => T): T => {
@@ -236,9 +236,12 @@ describe.skipIf(process.platform !== "win32")("broken store directory (Windows A
         return result;
       } finally { end(exitCode); }
     };
-    const dir = tmp();
-    const store = join(dir, "memory");
-    mkdirSync(store);
+    const store = measure("setup", () => {
+      const dir = tmp();
+      const path = join(dir, "memory");
+      mkdirSync(path);
+      return path;
+    });
     const file = join(store, "a.logfmt");
     const me = measure("identity", () => Bun.spawnSync(["whoami"], { stdout: "pipe" })).stdout?.toString().trim() ?? "";
     const icacls = (args: string[]) =>
