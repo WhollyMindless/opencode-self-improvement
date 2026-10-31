@@ -60,12 +60,16 @@ function allowedHostnames(): Set<string> {
 }
 
 function isLoopbackHostname(name: string): boolean {
+  // allowedHostnames supplies trimmed, lower-cased names (IPv6 bracketed).
   const host = name.replace(/^\[|\]$/g, "");
   if (host === "localhost") return true;
   if (isIP(host) === 4) return host.startsWith("127.");
-  // URL canonicalization also recognizes the expanded IPv6 loopback spelling.
-  return isIP(host) === 6 && new URL(`http://[${host}]/`).hostname === "[::1]";
+  // Closed spellings only: URL parsing throws on IPv6 zone ids. Ambiguous
+  // aliases (including abbreviated IPv4) conservatively trigger the warning.
+  return host === "::1" || host === "0:0:0:0:0:0:0:1";
 }
+
+const EXPOSURE_WARNING = "[memory-viewer] WARNING: non-loopback hosts are allowed. The viewer serves private memory over plain HTTP without authentication; anyone who can reach it with an allowed Host can read or modify the store. Use only on a network you trust.";
 
 function rejectRequest(req: Request, url: URL, port: number): Response | null {
   if (!allowedHostnames().has(url.hostname) || (url.port || "80") !== String(port)) {
@@ -139,11 +143,6 @@ export interface ViewerServer {
 
 export async function startViewer(port: number = PORT): Promise<ViewerServer> {
   const page = await Bun.file(PAGE).text();
-  if ([...allowedHostnames()].some((host) => !isLoopbackHostname(host))) {
-    console.warn(
-      "[memory-viewer] WARNING: non-loopback hosts are allowed. The viewer serves private memory over plain HTTP without authentication; anyone who can reach it with an allowed Host can read or modify the store. Use only on a network you trust.",
-    );
-  }
   const server = serve({
     hostname: HOST,
     port,
@@ -184,6 +183,10 @@ export async function startViewer(port: number = PORT): Promise<ViewerServer> {
     },
   });
   const bound = server.port ?? port;
+  // Warn after binding; wildcard binds (0.0.0.0 and ::) are non-loopback too.
+  if ([...allowedHostnames()].some((host) => !isLoopbackHostname(host))) {
+    console.warn(EXPOSURE_WARNING);
+  }
   return { server, url: `http://${HOST}:${bound}/` };
 }
 
