@@ -1228,6 +1228,9 @@ async function main(): Promise<number> {
 		base = await runSuite(baseDir);
 	}
 	const baselineFail = new Set(base.failed);
+	if (base.pass > 0 && base.passed.length === 0) {
+		console.warn("  baseline has passing tests but no harvested test identifiers: this Bun build/output mode may omit (pass)/(skip) lines; triage-71.ts cannot build a per-test ledger from this log (validated with Bun 1.4.4 on Windows)");
+	}
 	console.log(`  ${base.pass} pass / ${base.fail} fail / ${base.skip} skip in ${fmt(base.seconds)}`);
 	for (const name of base.failed) {
 		console.log(`  ${KNOWN_BASELINE_FAILS.some((re) => re.test(name)) ? "known" : "NEW "}  ${cut(name, 100)}`);

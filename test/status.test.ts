@@ -385,9 +385,13 @@ describe("memory_status tool + epoch wiring", () => {
     for (const output of delivered) {
       await p["experimental.chat.system.transform"]({ sessionID: "ses_m" }, output);
     }
-    const knowledge = delivered.map((output) => output.system.find((part) => part.startsWith("## Relevant durable memory")));
+    const knowledge = delivered.map((output, request) => {
+      const block = output.system.find((part) => part.startsWith("## Relevant durable memory"));
+      if (block === undefined) throw new Error(`provider request ${request + 1} did not receive its durable memory block`);
+      return block;
+    });
     for (const block of knowledge) expect(block).toContain("run bun test from the repo root to execute the suite");
-    const expectedChars = knowledge.reduce((sum, block) => sum + block!.length, 0);
+    const expectedChars = knowledge.reduce((sum, block) => sum + block.length, 0);
     // Measured usage arrives on the event bus (measured listener is default-on).
     p.capture.events.push({
       type: "message.updated",

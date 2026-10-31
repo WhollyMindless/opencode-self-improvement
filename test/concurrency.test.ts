@@ -75,10 +75,12 @@ describe("supersede racing appends", () => {
     const seeded = await seed(300);
     let observedPartial = 0;
     let incompleteReads = 0;
+    let reads = 0;
     const expected = seeded.map((ts, i) => `${ts}|seed row ${i} ${"x".repeat(40)}`).sort();
     const reader = (async () => {
       for (let i = 0; i < 400; i++) {
         const lines = await rawLines();
+        reads++;
         const observed = lines.map((line) => {
           const row = parseLine(line);
           return `${row?.ts}|${row?.content}`;
@@ -96,6 +98,7 @@ describe("supersede racing appends", () => {
     );
     await reader;
     // A parseable prefix (or an empty file) is still data loss.
+    expect(reads).toBe(400);
     expect(incompleteReads).toBe(0);
     expect(observedPartial).toBe(0);
     expect(await rawLines()).toHaveLength(300);
