@@ -70,8 +70,12 @@ export function captureEvidenceContext(sessionID?: string): EvidenceContext {
   // fired last during the gate's own awaits (#118 review note 1 — the rows
   // were fixed in #118, these lines were the residue). When the two disagree,
   // the ambient call belongs to the OTHER session's flow, so it is dropped
-  // rather than borrowed. With sessionID undefined (tool paths — issue #121)
-  // this is exactly the old ambient read.
+  // rather than borrowed. With sessionID undefined this captures the ambient
+  // session and call at entry by design (maintenance/direct callers). An
+  // explicit "?" keeps the ambient call only when cur.sid is also "?";
+  // otherwise it stays absent, even if a later setCurrent supplies a call.
+  // Normal tool hooks setCurrent before execute; this snapshot never guesses
+  // a missing operation call from a later hook. See #121 for identity context.
   const sid = sessionID ?? cur.sid;
   const call = sessionID !== undefined && sessionID !== cur.sid ? undefined : cur.call;
   // Read-side partitioning of the shared log (#131's rule, applied to

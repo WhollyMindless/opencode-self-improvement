@@ -324,7 +324,10 @@ test.each([{ blocked: false }, { blocked: true }])("gate evidence stays with ope
   expect(started.content).toContain(outcome.chain);
   expect(own.content).toContain("sid=writer");
   expect(own.content).toContain("call=operation-call");
-  if (!blocked) expect((await row(outcome.ts!)).repo).toBe(resolveRepo(a).key);
+  if (!blocked) {
+    if (!outcome.ts) throw new Error("promoted gate outcome is missing its row id");
+    expect((await row(outcome.ts)).repo).toBe(resolveRepo(a).key);
+  }
 });
 
 test("captured unresolved evidence stays private and scrubbed after binding", async () => {
