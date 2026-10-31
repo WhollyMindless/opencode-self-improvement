@@ -323,7 +323,7 @@ describe("end-to-end: a headerless import cannot plant a frontier instruction", 
     expect(planted.status).not.toBe("open");
     expect(planted.tags).toContain("import");
     expect(planted.tags).toContain("quarantine");
-    expect(out).toContain("1 promoted rows quarantined");
+    expect(out).toContain("1 promoted row quarantined");
 
     // The frontier digest must not surface the planted "open thread".
     const system: string[] = [];

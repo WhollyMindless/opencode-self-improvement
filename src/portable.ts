@@ -12,6 +12,7 @@ import { resolveContained } from "./containment.ts";
 import { isQuarantined, quarantineCandidate } from "./quarantine.ts";
 import {
   isActive,
+  isInjectable,
   isVisibleTo,
   loadAll,
   readerFromSid,
@@ -373,6 +374,6 @@ export async function findStaleOpen(days: number, sid?: string): Promise<Memory[
   return (await loadAll())
     // Decay is repo-scoped: running it here must not retire
     // another repo's open threads.
-    .filter((m) => isActive(m) && isVisibleTo(m, reader) && m.status === "open" && m.ts < cutoff)
+    .filter((m) => isInjectable(m) && isVisibleTo(m, reader) && m.status === "open" && m.ts < cutoff)
     .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 }

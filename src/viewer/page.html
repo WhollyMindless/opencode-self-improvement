@@ -339,7 +339,7 @@ function releaseQuarantine(ts) {
     async (reason) => {
       try {
         const result = await api("/api/release-quarantine", { ts, reason });
-        toast(result.auditError || (result.released ? "quarantine released" : "row is no longer quarantined"), !!result.auditError);
+        toast(result.auditError || (result.released ? "quarantine released" : result.reason === "not_found" ? "memory row not found; nothing released" : "row is already outside quarantine; nothing changed"), !!result.auditError || result.reason === "not_found");
         await refresh();
       } catch (e) { toast(String(e.message), true); }
     },

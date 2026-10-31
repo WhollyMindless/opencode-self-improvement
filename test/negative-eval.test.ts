@@ -586,13 +586,15 @@ describe("poisoned row end-to-end — import cannot forge instructions", () => {
 
     const rows = (await loadAll()).filter(isActive);
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.tags ?? []).toContain("import");
-    expect(rows[0]!.tags ?? []).toContain("quarantine");
+    const imported = rows[0];
+    if (!imported) throw new Error("expected the promoted import row");
+    expect(imported.tags ?? []).toContain("import");
+    expect(imported.tags ?? []).toContain("quarantine");
     expect(await relevantKnowledge("does the deploy gate need manual approval before prod ships", 5)).toBe("");
     // Keep the original framing assertions after explicit human approval:
     // releasing quarantine must not remove the other defenses.
     const { releaseQuarantinedMemory } = await import("../src/viewer/mutate.ts");
-    expect((await releaseQuarantinedMemory(rows[0]!.ts, "reviewed example")).released).toBe(true);
+    expect((await releaseQuarantinedMemory(imported.ts, "reviewed example")).released).toBe(true);
 
     const block = await relevantKnowledge("does the deploy gate need manual approval before prod ships", 5);
     // 1. Framing: the block declares itself reference data, in the header.

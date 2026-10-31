@@ -190,16 +190,18 @@ async function audit(
   );
 }
 
-export async function releaseQuarantinedMemory(ts: string, reason: string): Promise<{ released: boolean; auditError?: string }> {
+export async function releaseQuarantinedMemory(ts: string, reason: string): Promise<{ released: boolean; reason?: "not_found" | "not_quarantined"; auditError?: string }> {
+  // Layered with ReleaseQuarantineBody's trim/min check. Neither layer alone
+  // is pinned by the route rejection test; direct callers still need this one.
   requireReason(reason);
-  const released = await releaseQuarantine(ts);
-  if (!released) return { released };
+  const outcome = await releaseQuarantine(ts);
+  const result = outcome === "released" ? { released: true } : { released: false, reason: outcome };
   try {
-    await record("quarantine_released", { mem: ts, reason, source: "viewer" }, false);
-    return { released };
+    await record(result.released ? "quarantine_released" : "quarantine_release_noop", { mem: ts, reason, outcome, source: "viewer" }, false);
+    return result;
   } catch {
     // Release is already durable; an audit failure must not pretend otherwise.
-    return { released, auditError: "Release succeeded, but its audit line could not be recorded." };
+    return { ...result, auditError: `${result.released ? "Release succeeded" : `No release applied (${outcome})`}, but its audit line could not be recorded.` };
   }
 }
 

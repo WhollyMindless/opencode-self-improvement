@@ -886,7 +886,7 @@ const impl = {
         async execute(_args, context): Promise<{ content: string }> {
           const { sid } = toolIds(context);
           const reader = readerFromSid(sid);
-          const mems = (await loadAll()).filter(isActive).filter((m) => isVisibleTo(m, reader));
+          const mems = (await loadAll()).filter(isInjectable).filter((m) => isVisibleTo(m, reader));
           if (!mems.length) return { content: "No memories found" };
           const scopes = new Map<string, number>();
           const types = new Map<string, number>();
@@ -1156,7 +1156,7 @@ const impl = {
               content:
                 `Imported ${args.file}: ${t.promoted} promoted, ${t.collapsed} duplicates collapsed, ` +
                 `${t.blocked} blocked by the gate, ${t.skipped} malformed lines skipped.` +
-                (t.quarantined ? ` ${t.quarantined} promoted rows quarantined: withheld from recall/injection until human release in the viewer.` : "") +
+                (t.quarantined ? ` ${t.quarantined} promoted ${t.quarantined === 1 ? "row" : "rows"} quarantined: withheld from recall/injection until human release in the viewer.` : "") +
                 (t.downgraded
                   ? ` ${t.downgraded} open rows downgraded to settled (missing eligible memory_export header or verifiable repo scope).`
                   : "") +

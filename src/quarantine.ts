@@ -3,10 +3,10 @@
 export const QUARANTINE_TAG = "quarantine";
 const PATTERNS: readonly [string, RegExp][] = [
   ["instruction_override", /\b(?:ignore|disregard|override)\s+(?:all\s+)?(?:previous|prior|above)\s+(?:instructions|rules|prompts)\b/i],
-  ["role_header", /(?:^|\n)[ \t]*(?:#{1,6}[ \t]*)?(?:system|developer|assistant)[ \t]*:/i],
+  ["role_header", /(?:^|\n)[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*|__)?(?:system|developer|assistant)[ \t]*:/i],
   ["role_delimiter", /<\|(?:im_start|start_header_id)\|>|<\/?(?:system|developer|assistant)>|\[(?:system|developer|assistant)\]/i],
-  ["download_execute", /\b(?:curl|wget)\b[^\r\n|]{0,2048}\|\s*(?:sh|bash|zsh|powershell|pwsh)\b/i],
-  ["dynamic_execute", /\b(?:eval|exec)\s*\(|\b(?:Invoke-Expression|iex)\s+/i],
+  ["download_execute", /\b(?:curl|wget)\b[^\r\n|]{0,2048}(?:\||&&)\s*(?:sh|bash|zsh|powershell|pwsh)\b/i],
+  ["dynamic_execute", /(?<![$\w.])(?:eval|exec)\s*\(|\b(?:Invoke-Expression|iex)\s+/i],
 ];
 
 export function quarantinePatterns(content: string): string[] {
