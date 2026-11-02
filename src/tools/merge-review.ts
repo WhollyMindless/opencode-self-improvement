@@ -1,6 +1,5 @@
-// The memory_merge_review tool, extracted from index.ts (#168). Schema, description
-// and handler are byte-identical to the pre-split source; closure access arrives
-// through ToolDeps.
+// The memory_merge_review tool, extracted from index.ts (#168).
+// Closure access arrives through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
 import { memoryRoot } from "../core/config/paths.ts";
 import { record } from "../evidence/record.ts";
@@ -16,7 +15,7 @@ export const register: ToolRegister = (editor, deps) => {
     editor.add(validated(MergeReviewArgs, {
       name: "memory_merge_review",
       description:
-        "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor, and clear any supersession the survivor itself carries so the canonical row stays recallable. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. A session may merge exactly the rows it may read: global rows are mergeable from anywhere, but a row belonging to another repository is refused in either seat. Refuses before writing when the reason or the survivor id is missing, the survivor id names no row in the store, the loser is already superseded or is the survivor itself, or either seat names a foreign repository's row. Later lock or I/O failures can leave partial changes; the reply names the completed retirement and failure.",
+        "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor, and clear any supersession the survivor itself carries so the canonical row stays recallable. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. A session may merge exactly the rows it may read: global rows are mergeable from anywhere, but a row belonging to another repository is refused in either seat. Refuses before writing when the reason or the survivor id is missing, either id names a missing or blocklisted row, the loser is already superseded or is the survivor itself, or either seat names a foreign repository's row. Later lock or I/O failures can leave partial changes; the reply names the completed retirement and failure.",
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
@@ -57,6 +56,12 @@ export const register: ToolRegister = (editor, deps) => {
                 return { content: `merge_review blocked: survivor ${args.survivor} does not exist in the store — nothing to resolve. No evidence written.` };
               }
               const loserRow = all.find((m) => m.ts === args.loser);
+              // loadAll omits blocklisted rows. An unresolved id therefore
+              // proves neither existence nor ownership; raw mutation helpers
+              // must not use it to bypass this read boundary (#204).
+              if (!loserRow) {
+                return { content: "merge_review blocked: loser is missing or unavailable — nothing to resolve. No evidence written." };
+              }
               // Visibility is the authorization contract (#131): a session
               // may merge exactly the rows it may read. Global and legacy
               // unstamped rows are visible everywhere and therefore
@@ -64,7 +69,7 @@ export const register: ToolRegister = (editor, deps) => {
               // implicitly by store-wide reach. A foreign row in EITHER
               // seat — including an attempt to revive another repository's
               // superseded survivor — is refused before any mutation.
-              if (loserRow && !isVisibleTo(loserRow, reader)) {
+              if (!isVisibleTo(loserRow, reader)) {
                 return { content: "merge_review blocked: the loser belongs to another repository — this session may not retire it. Nothing was done. No evidence written." };
               }
               if (!isVisibleTo(survivorRow, reader)) {
