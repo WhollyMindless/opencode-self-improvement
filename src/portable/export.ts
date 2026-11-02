@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { allowOutsideStorePaths, exportsDir, memoryRoot } from "../core/config/paths.ts";
 import { resolveContained } from "../store/containment.ts";
 import { loadAll } from "../store/files/load.ts"
+import { redactSecrets } from "../store/secrets.ts"
 import { isActive } from "../store/model/predicates.ts"
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 
@@ -148,16 +149,20 @@ export async function exportMemories(opts: ExportOptions = {}): Promise<ExportRe
     exportedAt: new Date().toISOString(),
     count: mems.length,
   });
+  // An export is a copy at rest, so it must not carry credentials that were
+  // stored before the write-side redaction existed (#74 slice 1). Redaction is
+  // applied to the value being serialised, never to the row: export stays a
+  // read path, and the store remains the byte-of-record for memory_undo.
   const lines = mems.map((m) =>
     JSON.stringify({
       ts: m.ts,
       type: m.type,
       scope: m.scope,
-      content: m.content,
+      content: redactSecrets(m.content),
       status: m.status,
       tags: m.tags,
       kw: m.kw,
-      issue: m.issue,
+      issue: m.issue === undefined ? m.issue : redactSecrets(m.issue),
       // Origin stamps ride along so a same-repo machine hop can retain them.
       // Import validates them against its current repo before promotion.
       repo: m.repo,
