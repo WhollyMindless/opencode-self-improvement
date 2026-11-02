@@ -16,7 +16,7 @@
 // tests) and legacy rows predate the field: both read as GLOBAL — visible
 // everywhere — which keeps every upgrade non-breaking.
 import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { lstatSync, realpathSync, statSync } from "node:fs";
 
 export interface RepoScope {
   key: string;
@@ -59,11 +59,91 @@ function git(args: string[], cwd: string): string | null {
   }
 }
 
+// --- case-sensitivity probe (#109) --------------------------------------------
+// Folding case by PLATFORM leaked rows across directories: a case-SENSITIVE
+// APFS volume is a legitimate macOS choice (and NTFS has per-directory
+// sensitivity), where "Foo" and "foo" really are two dirs that must not share
+// one repo= key. Probe the filesystem instead: flip one cased character of the
+// deepest existing component; if the flipped spelling still names the SAME
+// dev+inode without following a symlink at the changed component, the probe
+// accepts case folding. A case-variant symlink is an alias, not evidence of
+// filesystem case folding. Answers cache per path (volume semantics do not
+// change at runtime). The map is FIFO-capped like the session map.
+// Undecided — nothing of the path exists, or no
+// component carries case — falls back to the old platform rule, which is also
+// a no-op whenever the path has no cased characters to fold.
+const caseFoldCache = new Map<string, boolean>();
+
+function statOrNull(p: string) {
+  try {
+    return statSync(p);
+  } catch {
+    return null;
+  }
+}
+
+// Return the component whose LAST cased character is flipped. Trim any
+// uncased descendants: lstat("Foo/123") would still follow a symlink at Foo,
+// whereas lstat("Foo") lets the caller distinguish that alias from a real
+// case-insensitive lookup. Index 0 stays untouched for Windows drive letters.
+function caseProbePair(p: string): { original: string; flipped: string } | null {
+  for (let i = p.length - 1; i > 0; i--) {
+    const c = p[i];
+    const f = c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase();
+    if (f !== c) {
+      const suffix = p.slice(i).search(/[\\/]/);
+      const end = suffix < 0 ? p.length : i + suffix;
+      return {
+        original: p.slice(0, end),
+        flipped: p.slice(0, i) + f + p.slice(i + 1, end),
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Does the filesystem holding `dir` name-match across case? true = fold is
+ * safe; false = "Foo" and "foo" are distinct; null = undecided (fall back to
+ * the platform rule). Walks up to the nearest existing component when `dir`
+ * itself is gone, and flips an ancestor's name when the deepest name has no
+ * case to flip.
+ */
+export function isCaseInsensitivePath(dir: string): boolean | null {
+  const cached = caseFoldCache.get(dir);
+  if (cached !== undefined) return cached;
+  let cur = dir;
+  for (let up = 0; up < 10; up++) {
+    const st = statOrNull(cur);
+    if (st) {
+      const pair = caseProbePair(cur);
+      if (pair) {
+        let ans = false;
+        try {
+          const original = lstatSync(pair.original);
+          const flipped = lstatSync(pair.flipped);
+          ans = !original.isSymbolicLink() && !flipped.isSymbolicLink()
+            && original.dev === flipped.dev && original.ino === flipped.ino;
+        } catch {
+          // Missing or unreadable alternate spelling cannot justify folding.
+        }
+        if (caseFoldCache.size >= 64)
+          caseFoldCache.delete(caseFoldCache.keys().next().value as string);
+        caseFoldCache.set(dir, ans);
+        return ans;
+      }
+    }
+    const parent = cur.replace(/[\\/]+$/, "").replace(/[\\/][^\\/]*$/, "");
+    if (!parent || parent === cur) break;
+    cur = parent;
+  }
+  return null;
+}
+
 // Normalize a directory for hashing: symlinks, junctions, and Windows 8.3
 // aliases collapse to the real path (realpath), separators unify to "/",
-// a trailing separator disappears, and case folds ONLY on the
-// case-insensitive filesystems (win32/darwin) where two spellings are the
-// same directory — Linux folds nothing, there "Foo" and "foo" are two dirs.
+// a trailing separator disappears, and case folds ONLY where the probe says
+// the volume folds names itself (#109) — never trusting the platform alone.
 export function normalizeDirPath(p: string): string {
   let r = p;
   try {
@@ -72,7 +152,8 @@ export function normalizeDirPath(p: string): string {
     // deleted/unreadable mid-resolve: hash the given spelling rather than throw
   }
   r = r.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (process.platform === "win32" || process.platform === "darwin") r = r.toLowerCase();
+  const fold = isCaseInsensitivePath(r) ?? (process.platform === "win32" || process.platform === "darwin");
+  if (fold) r = r.toLowerCase();
   return r || "/";
 }
 

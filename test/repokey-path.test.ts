@@ -6,11 +6,17 @@
 // case folded on case-insensitive filesystems), repoPath stays the raw
 // resolved path, and pre-hash rows keep matching through repoPath.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { normalizeDirPath, resolveRepo, resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  isCaseInsensitivePath,
+  normalizeDirPath,
+  resolveRepo,
+  resetSessionScopes,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { resetState } from "../src/core/state.ts";
 import { relevantKnowledge } from "../src/recall/relevant.ts";
@@ -26,6 +32,21 @@ const gitToplevel = (dir: string): string | null => {
 };
 
 const sha1 = (s: string) => createHash("sha1").update(s).digest("hex").slice(0, 12);
+
+// Independent ground truth for the volume under test (#109): write a lowercase
+// file and ask whether the UPPERCASE spelling names an existing file. A
+// case-insensitive volume says yes; a case-sensitive one says no. Deliberately
+// never calls the probe under test.
+const volumeFoldsCase = (dir: string): boolean => {
+  const name = "osi-case-oracle";
+  const a = join(dir, name);
+  try {
+    writeFileSync(a, "x");
+    return existsSync(join(dir, name.toUpperCase()));
+  } finally {
+    rmSync(a, { force: true });
+  }
+};
 
 let root: string;
 let memDir: string;
@@ -92,11 +113,16 @@ describe("non-git repo keys are bare tokens (#92)", () => {
       }
       // An unavailable link can be skipped; a failed equality cannot.
       if (linked) expect(resolveRepo(link).key).toBe(base);
-      if (process.platform === "win32" || process.platform === "darwin") {
+      const flippedPath = /[A-Z]/.test(dir)
+        ? dir.replace(/[A-Z]/, (c) => c.toLowerCase())
+        : dir.replace(/[a-z]/, (c) => c.toUpperCase());
+      if (volumeFoldsCase(dir)) {
         // case-insensitive filesystems must fold: same dir, other case, same key
-        const flipped = resolveRepo(/[A-Z]/.test(dir) ? dir.replace(/[A-Z]/, (c) => c.toLowerCase()) : dir.replace(/[a-z]/, (c) => c.toUpperCase()));
-        expect(flipped.key).toBe(base);
+        expect(resolveRepo(flippedPath).key).toBe(base);
       }
+      // The case-SENSITIVE direction needs both dirs to exist (a missing
+      // spelling only ever hits the undecided fallback); the dedicated
+      // "dirs differing only by case" test below pins that with real dirs.
     } finally {
       /* root cleaned by afterEach */
     }
@@ -121,7 +147,129 @@ describe("non-git repo keys are bare tokens (#92)", () => {
     const n = normalizeDirPath(dir);
     expect(n).not.toMatch(/\\/);
     expect(n.endsWith("/")).toBe(false); // this fixture is a child directory, never a filesystem root
-    if (process.platform === "win32" || process.platform === "darwin") expect(n).toBe(n.toLowerCase());
+    if (volumeFoldsCase(dir)) expect(n).toBe(n.toLowerCase());
     expect(normalizeDirPath(n + (process.platform === "win32" ? "\\" : "/"))).toBe(n);
+  });
+});
+
+describe("case folding follows the volume, not the platform (#109)", () => {
+  test("isCaseInsensitivePath agrees with the filesystem's own name-matching", () => {
+    const dir = mkdtempSync(join(tmpdir(), "osi-repokey-109-probe-"));
+    try {
+      expect(isCaseInsensitivePath(dir)).toBe(volumeFoldsCase(dir));
+      // A missing path is decided from the nearest existing component.
+      expect(isCaseInsensitivePath(join(dir, "gone", "deeper"))).toBe(volumeFoldsCase(dir));
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  test("normalizeDirPath folds exactly when the volume folds", () => {
+    const base = mkdtempSync(join(tmpdir(), "osi-repokey-109-fold-"));
+    const named = join(base, "MixedCase"); // guarantees cased characters to fold
+    mkdirSync(named);
+    try {
+      const n = normalizeDirPath(named);
+      if (volumeFoldsCase(base)) expect(n).toBe(n.toLowerCase());
+      else expect(n).toContain("MixedCase");
+    } finally {
+      rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  test("dirs differing only by case share a key only where the volume folds them", () => {
+    const base = mkdtempSync(join(tmpdir(), "osi-repokey-109-two-"));
+    const upper = join(base, "Proj");
+    const lower = join(base, "proj");
+    mkdirSync(upper);
+    let caseSensitive = false;
+    try {
+      mkdirSync(lower);
+      caseSensitive = true; // both spellings exist: the volume does not fold
+    } catch {
+      // EEXIST: the folded spelling names the same directory
+    }
+    try {
+      const hi = resolveRepo(upper).key;
+      const lo = resolveRepo(lower).key;
+      if (caseSensitive) expect(lo).not.toBe(hi);
+      else expect(lo).toBe(hi);
+    } finally {
+      rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+
+  test("a path with nothing existing falls back to the platform rule", () => {
+    const gone = "/Osi109NoSuchVolume/DefinitelyMissing";
+    expect(isCaseInsensitivePath(gone)).toBe(null);
+    const folded = process.platform === "win32" || process.platform === "darwin";
+    expect(normalizeDirPath(gone)).toBe(folded ? gone.toLowerCase() : gone);
+  });
+
+  test("rows stamped under the old platform fold stay visible through repoPath", async () => {
+    const base = mkdtempSync(join(tmpdir(), "osi-repokey-109-compat-"));
+    const projDir = join(base, "CompatProj"); // cased, so the old fold really differed
+    mkdirSync(projDir);
+    try {
+      // Exactly what the pre-fix normalizer stamped for this path on ANY
+      // platform: the lowercased spelling as the hash input.
+      const oldKey = sha1(projDir.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase());
+      await appendMemory({
+        type: "learning",
+        scope: "s",
+        content: "note stamped under the old platform fold",
+        repo: oldKey,
+        repoPath: projDir,
+      });
+      setRepoScope(resolveRepo(projDir));
+      const hits = await relevantKnowledge("old fold platform stamp", 5);
+      expect(hits).toContain("note stamped under the old platform fold");
+    } finally {
+      rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+});
+
+// These regressions require two distinct case-variant directories. Decide
+// from an independent filesystem oracle, not the implementation under test.
+// On POSIX use /tmp so the canonical ancestor can be all lowercase; an
+// uppercase random ancestor can hide a whole-path-lowercasing collision.
+const aliasTestParent = process.platform === "win32" ? tmpdir() : "/tmp";
+const aliasOracle = mkdtempSync(join(aliasTestParent, "osi250-oracle-"));
+let aliasVolumeFolds: boolean;
+try { aliasVolumeFolds = volumeFoldsCase(aliasOracle); }
+finally { rmSync(aliasOracle, { recursive: true, force: true }); }
+
+describe.skipIf(aliasVolumeFolds)("case-variant symlinks do not authorize folding (#250 F1)", () => {
+  test.each(["", "123"])("keeps sibling memories private with an uncased suffix '%s'", async (suffix) => {
+    const base = join(aliasTestParent, `osi250-${randomUUID()}`);
+    mkdirSync(base);
+    const upper = join(base, "Foo");
+    const lower = join(base, "foo");
+    const alias = join(base, "FoO");
+    mkdirSync(upper);
+    mkdirSync(lower);
+    try {
+      symlinkSync(upper, alias, process.platform === "win32" ? "junction" : "dir");
+      if (suffix) {
+        mkdirSync(join(upper, suffix));
+        mkdirSync(join(lower, suffix));
+      }
+      const owner = resolveRepo(join(upper, suffix));
+      const other = resolveRepo(join(lower, suffix));
+      expect(isCaseInsensitivePath(join(upper, suffix))).toBe(false);
+      expect(owner.key).not.toBe(other.key);
+      // An actual alias still resolves to its target: rejection of the false
+      // case probe must not break canonicalization of the input path itself.
+      expect(resolveRepo(join(alias, suffix)).key).toBe(owner.key);
+      const content = "the private widget pipeline requires an isolated staging queue";
+      await appendMemory({ type: "learning", scope: "s", content, repo: owner.key, repoPath: owner.path });
+      setRepoScope(owner);
+      expect(await relevantKnowledge(content, 5)).toContain(content);
+      setRepoScope(other);
+      expect(await relevantKnowledge(content, 5)).not.toContain(content);
+    } finally {
+      rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
   });
 });
