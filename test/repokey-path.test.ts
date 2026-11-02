@@ -6,7 +6,7 @@
 // case folded on case-insensitive filesystems), repoPath stays the raw
 // resolved path, and pre-hash rows keep matching through repoPath.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -242,7 +242,7 @@ finally { rmSync(aliasOracle, { recursive: true, force: true }); }
 
 describe.skipIf(aliasVolumeFolds)("case-variant symlinks do not authorize folding (#250 F1)", () => {
   test.each(["", "123"])("keeps sibling memories private with an uncased suffix '%s'", async (suffix) => {
-    const base = join(aliasTestParent, `osi250-${crypto.randomUUID()}`);
+    const base = join(aliasTestParent, `osi250-${randomUUID()}`);
     mkdirSync(base);
     const upper = join(base, "Foo");
     const lower = join(base, "foo");

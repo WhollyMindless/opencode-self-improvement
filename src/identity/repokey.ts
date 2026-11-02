@@ -67,9 +67,9 @@ function git(args: string[], cwd: string): string | null {
 // deepest existing component; if the flipped spelling still names the SAME
 // dev+inode without following a symlink at the changed component, the probe
 // accepts case folding. A case-variant symlink is an alias, not evidence of
-// filesystem case folding. Answers
-// cache per path (volume semantics do not change at runtime; the map is FIFO-
-// capped like the session map). Undecided — nothing of the path exists, or no
+// filesystem case folding. Answers cache per path (volume semantics do not
+// change at runtime). The map is FIFO-capped like the session map.
+// Undecided — nothing of the path exists, or no
 // component carries case — falls back to the old platform rule, which is also
 // a no-op whenever the path has no cased characters to fold.
 const caseFoldCache = new Map<string, boolean>();
