@@ -16,7 +16,7 @@
 // tests) and legacy rows predate the field: both read as GLOBAL — visible
 // everywhere — which keeps every upgrade non-breaking.
 import { createHash } from "node:crypto";
-import { realpathSync, statSync } from "node:fs";
+import { lstatSync, realpathSync, statSync } from "node:fs";
 
 export interface RepoScope {
   key: string;
@@ -65,9 +65,11 @@ function git(args: string[], cwd: string): string | null {
 // sensitivity), where "Foo" and "foo" really are two dirs that must not share
 // one repo= key. Probe the filesystem instead: flip one cased character of the
 // deepest existing component; if the flipped spelling still names the SAME
-// dev+inode, the volume folds names itself and folding is correct. Answers
-// cache per path (volume semantics do not change at runtime; the map is FIFO-
-// capped like the session map). Undecided — nothing of the path exists, or no
+// dev+inode without following a symlink at the changed component, the probe
+// accepts case folding. A case-variant symlink is an alias, not evidence of
+// filesystem case folding. Answers cache per path (volume semantics do not
+// change at runtime). The map is FIFO-capped like the session map.
+// Undecided — nothing of the path exists, or no
 // component carries case — falls back to the old platform rule, which is also
 // a no-op whenever the path has no cased characters to fold.
 const caseFoldCache = new Map<string, boolean>();
@@ -80,17 +82,21 @@ function statOrNull(p: string) {
   }
 }
 
-// Flip the LAST cased character: "a/Foo-bar" -> "a/Foo-Bar". Index 0 is left
-// alone so a Windows drive letter ("C:/...") never flips. Null when the
-// component carries no case at all.
-function flipLastCased(p: string): string | null {
-  const chars = p.split("");
-  for (let i = chars.length - 1; i > 0; i--) {
-    const c = chars[i];
+// Return the component whose LAST cased character is flipped. Trim any
+// uncased descendants: lstat("Foo/123") would still follow a symlink at Foo,
+// whereas lstat("Foo") lets the caller distinguish that alias from a real
+// case-insensitive lookup. Index 0 stays untouched for Windows drive letters.
+function caseProbePair(p: string): { original: string; flipped: string } | null {
+  for (let i = p.length - 1; i > 0; i--) {
+    const c = p[i];
     const f = c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase();
     if (f !== c) {
-      chars[i] = f;
-      return chars.join("");
+      const suffix = p.slice(i).search(/[\\/]/);
+      const end = suffix < 0 ? p.length : i + suffix;
+      return {
+        original: p.slice(0, end),
+        flipped: p.slice(0, i) + f + p.slice(i + 1, end),
+      };
     }
   }
   return null;
@@ -110,10 +116,17 @@ export function isCaseInsensitivePath(dir: string): boolean | null {
   for (let up = 0; up < 10; up++) {
     const st = statOrNull(cur);
     if (st) {
-      const flipped = flipLastCased(cur);
-      if (flipped) {
-        const st2 = statOrNull(flipped);
-        const ans = !!st2 && st2.dev === st.dev && st2.ino === st.ino;
+      const pair = caseProbePair(cur);
+      if (pair) {
+        let ans = false;
+        try {
+          const original = lstatSync(pair.original);
+          const flipped = lstatSync(pair.flipped);
+          ans = !original.isSymbolicLink() && !flipped.isSymbolicLink()
+            && original.dev === flipped.dev && original.ino === flipped.ino;
+        } catch {
+          // Missing or unreadable alternate spelling cannot justify folding.
+        }
         if (caseFoldCache.size >= 64)
           caseFoldCache.delete(caseFoldCache.keys().next().value as string);
         caseFoldCache.set(dir, ans);

@@ -6,7 +6,7 @@
 // case folded on case-insensitive filesystems), repoPath stays the raw
 // resolved path, and pre-hash rows keep matching through repoPath.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -224,6 +224,50 @@ describe("case folding follows the volume, not the platform (#109)", () => {
       setRepoScope(resolveRepo(projDir));
       const hits = await relevantKnowledge("old fold platform stamp", 5);
       expect(hits).toContain("note stamped under the old platform fold");
+    } finally {
+      rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  });
+});
+
+// These regressions require two distinct case-variant directories. Decide
+// from an independent filesystem oracle, not the implementation under test.
+// On POSIX use /tmp so the canonical ancestor can be all lowercase; an
+// uppercase random ancestor can hide a whole-path-lowercasing collision.
+const aliasTestParent = process.platform === "win32" ? tmpdir() : "/tmp";
+const aliasOracle = mkdtempSync(join(aliasTestParent, "osi250-oracle-"));
+let aliasVolumeFolds: boolean;
+try { aliasVolumeFolds = volumeFoldsCase(aliasOracle); }
+finally { rmSync(aliasOracle, { recursive: true, force: true }); }
+
+describe.skipIf(aliasVolumeFolds)("case-variant symlinks do not authorize folding (#250 F1)", () => {
+  test.each(["", "123"])("keeps sibling memories private with an uncased suffix '%s'", async (suffix) => {
+    const base = join(aliasTestParent, `osi250-${randomUUID()}`);
+    mkdirSync(base);
+    const upper = join(base, "Foo");
+    const lower = join(base, "foo");
+    const alias = join(base, "FoO");
+    mkdirSync(upper);
+    mkdirSync(lower);
+    try {
+      symlinkSync(upper, alias, process.platform === "win32" ? "junction" : "dir");
+      if (suffix) {
+        mkdirSync(join(upper, suffix));
+        mkdirSync(join(lower, suffix));
+      }
+      const owner = resolveRepo(join(upper, suffix));
+      const other = resolveRepo(join(lower, suffix));
+      expect(isCaseInsensitivePath(join(upper, suffix))).toBe(false);
+      expect(owner.key).not.toBe(other.key);
+      // An actual alias still resolves to its target: rejection of the false
+      // case probe must not break canonicalization of the input path itself.
+      expect(resolveRepo(join(alias, suffix)).key).toBe(owner.key);
+      const content = "the private widget pipeline requires an isolated staging queue";
+      await appendMemory({ type: "learning", scope: "s", content, repo: owner.key, repoPath: owner.path });
+      setRepoScope(owner);
+      expect(await relevantKnowledge(content, 5)).toContain(content);
+      setRepoScope(other);
+      expect(await relevantKnowledge(content, 5)).not.toContain(content);
     } finally {
       rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
