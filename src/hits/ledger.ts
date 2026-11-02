@@ -39,6 +39,8 @@ export { HITS_FILENAME };
 // own first line rather than inflating "never" (status.ledgerSince).
 const MAX_HITS_BYTES = 2_000_000;
 export const THROTTLE_MS = 3_600_000;
+// Per-key failure cooldown, measured from the attempt's observation time.
+export const RETRY_BACKOFF_MS = 60_000;
 const MAX_LOGGED_TERMS = 8;
 
 export function hitsFile(): string {
@@ -55,17 +57,18 @@ export interface HitEntry {
 
 // --- writing --------------------------------------------------------------------
 
-// key -> ms of the last line actually written. The epoch block rides EVERY
-// request of an epoch, so without this one "offer" would be counted dozens of
-// times and the dead-weight number would be fiction.
-const lastWrite = new Map<string, number>();
+// key -> next eligible observation time. Successful writes wait an hour;
+// failures wait only a minute so repeated reads do not each pay a lock timeout.
+const nextAttempt = new Map<string, number>();
 // Reserve identical calls only while I/O is pending. A failed attempt must
 // release this reservation without starting the hour-long success throttle.
 const inFlight = new Set<string>();
 
-/** Clear the throttle window (tests; also what a process restart does). */
+/** Clear completed-attempt cooldowns. Tests must await all writes first:
+ * clearing reservations cannot cancel I/O or isolate a still-running writer. */
 export function resetHitThrottle(): void {
-  lastWrite.clear();
+  if (inFlight.size) throw new Error("await pending recordHits calls before resetHitThrottle");
+  nextAttempt.clear();
 }
 
 async function rotateIfNeeded(): Promise<void> {
@@ -106,8 +109,8 @@ export async function recordHits(
   const ids = rows.map((m) => m.ts);
   const key = `${source}|${sid}|${ids.join(",")}`;
   if (inFlight.has(key)) return false;
-  const prev = lastWrite.get(key);
-  if (prev !== undefined && now - prev < THROTTLE_MS) return false;
+  const eligibleAt = nextAttempt.get(key);
+  if (eligibleAt !== undefined && now < eligibleAt) return false;
   const line = formatLine({
     ev: "memory_used",
     ts: new Date(now).toISOString(),
@@ -117,6 +120,7 @@ export async function recordHits(
     ...(terms.length ? { terms: bracketList(terms.slice(0, MAX_LOGGED_TERMS)) } : {}),
   });
   inFlight.add(key);
+  let cooldown = RETRY_BACKOFF_MS;
   try {
     await withStoreLock(
       hitsFile(),
@@ -126,12 +130,7 @@ export async function recordHits(
       },
       LOCK_WRITE,
     );
-    lastWrite.set(key, now);
-    // Bound completed writes without evicting reservations for pending I/O.
-    // Sessions churn; oldest-inserted successful entries go first.
-    if (lastWrite.size > 2000) {
-      for (const k of [...lastWrite.keys()].slice(0, 1000)) lastWrite.delete(k);
-    }
+    cooldown = THROTTLE_MS;
     return true;
   } catch {
     // Fail-closed lock contention can drop this use observation. Decay and
@@ -139,6 +138,11 @@ export async function recordHits(
     // retrieval remains available even when its telemetry cannot be persisted.
     return false; // telemetry never breaks retrieval
   } finally {
+    nextAttempt.set(key, now + cooldown);
+    // Bound both successful and failed keys with the existing eviction cap.
+    if (nextAttempt.size > 2000) {
+      for (const k of [...nextAttempt.keys()].slice(0, 1000)) nextAttempt.delete(k);
+    }
     inFlight.delete(key);
   }
 }

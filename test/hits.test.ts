@@ -12,6 +12,7 @@ import { memoryRoot } from "../src/core/config/paths.ts";
 import {
   HITS_FILENAME,
   THROTTLE_MS,
+  RETRY_BACKOFF_MS,
   hitsFile,
   neverRetrieved,
   readLedger,
@@ -28,7 +29,7 @@ import { sharedTerms } from "../src/recall/shared-terms.ts";
 import { ledgerIsYoung } from "../src/status/metrics.ts"
 import { renderMemoryReport } from "../src/status/report.ts";
 import type { Memory } from "../src/store/model/memory.ts";
-import { LOCK_WRITE, withStoreLock } from "../src/store/lock.ts";
+import { LOCK_WRITE, lockFileFor, withStoreLock } from "../src/store/lock.ts";
 
 let root: string;
 
@@ -101,6 +102,51 @@ describe("the ledger line", () => {
 });
 
 describe("the throttle", () => {
+  test("a filesystem lock refusal backs off repeated calls, then permits another attempt (#210)", async () => {
+    const t0 = Date.parse("2026-06-01T00:00:00Z");
+    const rows = [row("2026-01-01T00:00:00.000Z")];
+    const originalBudget = LOCK_WRITE.timeoutMs;
+    const originalEvent = LOCK_WRITE.onEvent;
+    const events: string[] = [];
+    // No in-process holder: this forces the O_EXCL lock-file path.
+    writeFileSync(lockFileFor(hitsFile()), "external-holder");
+    LOCK_WRITE.timeoutMs = 40;
+    LOCK_WRITE.onEvent = (event) => { events.push(event); };
+    try {
+      expect(await recordHits("recall", "ses", rows, [], t0)).toBe(false);
+      for (const delta of [1, 2, RETRY_BACKOFF_MS - 1]) {
+        expect(await recordHits("recall", "ses", rows, [], t0 + delta)).toBe(false);
+      }
+      // Counting lock attempts avoids a machine-speed-dependent latency test.
+      expect(events).toEqual(["timeout"]);
+      expect(await recordHits("recall", "ses", rows, [], t0 + RETRY_BACKOFF_MS)).toBe(false);
+      expect(events).toEqual(["timeout", "timeout"]);
+      expect((await readLedger()).lines).toBe(0);
+    } finally {
+      LOCK_WRITE.timeoutMs = originalBudget;
+      LOCK_WRITE.onEvent = originalEvent;
+      rmSync(lockFileFor(hitsFile()), { force: true });
+    }
+    expect(await recordHits("recall", "ses", rows, [], t0 + 2 * RETRY_BACKOFF_MS - 1)).toBe(false);
+    expect(await recordHits("recall", "ses", rows, [], t0 + 2 * RETRY_BACKOFF_MS)).toBe(true);
+    expect((await readLedger()).lines).toBe(1);
+  }, 30_000);
+
+  test("reset refuses active writes rather than clearing their duplicate guard", async () => {
+    const rows = [row("2026-01-01T00:00:00.000Z")];
+    const pending = recordHits("recall", "ses", rows);
+    try {
+      expect(() => resetHitThrottle()).toThrow("await pending recordHits calls");
+      expect(await recordHits("recall", "ses", rows)).toBe(false);
+    } finally {
+      await pending;
+    }
+    expect((await readLedger()).lines).toBe(1);
+    resetHitThrottle();
+    expect(await recordHits("recall", "ses", rows)).toBe(true);
+    expect((await readLedger()).lines).toBe(2);
+  });
+
   test("a refused lock does not throttle the retry after the holder releases (#210)", async () => {
     const t0 = Date.parse("2026-06-01T00:00:00Z");
     const rows = [row("2026-01-01T00:00:00.000Z")];
@@ -130,9 +176,9 @@ describe("the throttle", () => {
       release();
       await holder;
     }
-    // Same logical time: success cannot be explained by throttle expiry.
-    expect(await recordHits("recall", "ses", rows, [], t0)).toBe(true);
-    expect(await recordHits("recall", "ses", rows, [], t0)).toBe(false);
+    expect(await recordHits("recall", "ses", rows, [], t0 + RETRY_BACKOFF_MS - 1)).toBe(false);
+    expect(await recordHits("recall", "ses", rows, [], t0 + RETRY_BACKOFF_MS)).toBe(true);
+    expect(await recordHits("recall", "ses", rows, [], t0 + RETRY_BACKOFF_MS)).toBe(false);
     expect((await readLedger()).lines).toBe(1);
   }, 30_000);
 
@@ -145,8 +191,9 @@ describe("the throttle", () => {
     mkdirSync(hitsFile());
     expect(await recordHits("pull", "ses", rows, [], t0)).toBe(false);
     rmdirSync(hitsFile());
-    expect(await recordHits("pull", "ses", rows, [], t0)).toBe(true);
-    expect(await recordHits("pull", "ses", rows, [], t0)).toBe(false);
+    expect(await recordHits("pull", "ses", rows, [], t0 + RETRY_BACKOFF_MS - 1)).toBe(false);
+    expect(await recordHits("pull", "ses", rows, [], t0 + RETRY_BACKOFF_MS)).toBe(true);
+    expect(await recordHits("pull", "ses", rows, [], t0 + RETRY_BACKOFF_MS)).toBe(false);
     expect((await readLedger()).byRow.get(memory.ts)?.count).toBe(1);
   });
 
@@ -155,7 +202,7 @@ describe("the throttle", () => {
     const memory = row("2026-01-01T00:00:00.000Z");
     const rows = [memory];
     // Start every call before any async filesystem operation can finish.
-    // Moving lastWrite.set after the await without an in-flight guard must
+    // Setting the cooldown after the await without an in-flight guard must
     // fail this assertion: file locking alone serializes duplicate appends.
     const results = await Promise.all(Array.from({ length: 12 }, () =>
       recordHits("inject", "ses", rows, [], t0),
