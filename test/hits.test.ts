@@ -5,7 +5,7 @@
 // has never seen, and the qualifier the surfaces must carry when the ledger
 // is too young to call anything "never retrieved".
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, openSync, closeSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, openSync, closeSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryRoot } from "../src/core/config/paths.ts";
@@ -28,6 +28,7 @@ import { sharedTerms } from "../src/recall/shared-terms.ts";
 import { ledgerIsYoung } from "../src/status/metrics.ts"
 import { renderMemoryReport } from "../src/status/report.ts";
 import type { Memory } from "../src/store/model/memory.ts";
+import { LOCK_WRITE, withStoreLock } from "../src/store/lock.ts";
 
 let root: string;
 
@@ -100,6 +101,72 @@ describe("the ledger line", () => {
 });
 
 describe("the throttle", () => {
+  test("a refused lock does not throttle the retry after the holder releases (#210)", async () => {
+    const t0 = Date.parse("2026-06-01T00:00:00Z");
+    const rows = [row("2026-01-01T00:00:00.000Z")];
+    const originalBudget = LOCK_WRITE.timeoutMs;
+    const originalEvent = LOCK_WRITE.onEvent;
+    const events: string[] = [];
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => { enter = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const holder = withStoreLock(hitsFile(), async () => {
+      enter();
+      await released;
+    }, { onTimeout: "fail" });
+    try {
+      await Promise.race([entered, holder.then(() => { throw new Error("holder never entered"); })]);
+      LOCK_WRITE.timeoutMs = 40;
+      // Capture the refusal directly rather than leave fire-and-forget lock
+      // evidence writing into a temporary store during fixture teardown.
+      LOCK_WRITE.onEvent = (event) => { events.push(event); };
+      expect(await recordHits("recall", "ses", rows, [], t0)).toBe(false);
+      expect(events).toEqual(["timeout"]);
+      expect((await readLedger()).lines).toBe(0);
+    } finally {
+      LOCK_WRITE.timeoutMs = originalBudget;
+      LOCK_WRITE.onEvent = originalEvent;
+      release();
+      await holder;
+    }
+    // Same logical time: success cannot be explained by throttle expiry.
+    expect(await recordHits("recall", "ses", rows, [], t0)).toBe(true);
+    expect(await recordHits("recall", "ses", rows, [], t0)).toBe(false);
+    expect((await readLedger()).lines).toBe(1);
+  }, 30_000);
+
+  test("an append failure stays fail-soft and allows retry once the file is writable (#210)", async () => {
+    const t0 = Date.parse("2026-06-01T00:00:00Z");
+    const memory = row("2026-01-01T00:00:00.000Z");
+    const rows = [memory];
+    // The sibling lock can be acquired, but a directory cannot be appended
+    // to as a ledger. This exercises an I/O failure after lock acquisition.
+    mkdirSync(hitsFile());
+    expect(await recordHits("pull", "ses", rows, [], t0)).toBe(false);
+    rmdirSync(hitsFile());
+    expect(await recordHits("pull", "ses", rows, [], t0)).toBe(true);
+    expect(await recordHits("pull", "ses", rows, [], t0)).toBe(false);
+    expect((await readLedger()).byRow.get(memory.ts)?.count).toBe(1);
+  });
+
+  test("overlapping identical calls persist one use, then normal expiry permits another (#210)", async () => {
+    const t0 = Date.parse("2026-06-01T00:00:00Z");
+    const memory = row("2026-01-01T00:00:00.000Z");
+    const rows = [memory];
+    // Start every call before any async filesystem operation can finish.
+    // Moving lastWrite.set after the await without an in-flight guard must
+    // fail this assertion: file locking alone serializes duplicate appends.
+    const results = await Promise.all(Array.from({ length: 12 }, () =>
+      recordHits("inject", "ses", rows, [], t0),
+    ));
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect((await readLedger()).byRow.get(memory.ts)?.count).toBe(1);
+    expect(await recordHits("inject", "ses", rows, [], t0 + THROTTLE_MS - 1)).toBe(false);
+    expect(await recordHits("inject", "ses", rows, [], t0 + THROTTLE_MS)).toBe(true);
+    expect((await readLedger()).byRow.get(memory.ts)?.count).toBe(2);
+  });
+
   test("a repeat within the window adds nothing; after it, the use counts again", async () => {
     const t0 = Date.parse("2026-06-01T00:00:00Z");
     const rows = [row("2026-01-01T00:00:00.000Z")];

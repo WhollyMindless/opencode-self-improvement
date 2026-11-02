@@ -59,6 +59,9 @@ export interface HitEntry {
 // request of an epoch, so without this one "offer" would be counted dozens of
 // times and the dead-weight number would be fiction.
 const lastWrite = new Map<string, number>();
+// Reserve identical calls only while I/O is pending. A failed attempt must
+// release this reservation without starting the hour-long success throttle.
+const inFlight = new Set<string>();
 
 /** Clear the throttle window (tests; also what a process restart does). */
 export function resetHitThrottle(): void {
@@ -102,14 +105,9 @@ export async function recordHits(
   if (!rows.length) return false;
   const ids = rows.map((m) => m.ts);
   const key = `${source}|${sid}|${ids.join(",")}`;
+  if (inFlight.has(key)) return false;
   const prev = lastWrite.get(key);
   if (prev !== undefined && now - prev < THROTTLE_MS) return false;
-  lastWrite.set(key, now);
-  // Bound the throttle map: sessions churn, and a long-lived server must not
-  // grow one entry per row-set forever. Oldest-inserted entries go first.
-  if (lastWrite.size > 2000) {
-    for (const k of [...lastWrite.keys()].slice(0, 1000)) lastWrite.delete(k);
-  }
   const line = formatLine({
     ev: "memory_used",
     ts: new Date(now).toISOString(),
@@ -118,6 +116,7 @@ export async function recordHits(
     mem: bracketList(ids),
     ...(terms.length ? { terms: bracketList(terms.slice(0, MAX_LOGGED_TERMS)) } : {}),
   });
+  inFlight.add(key);
   try {
     await withStoreLock(
       hitsFile(),
@@ -127,12 +126,20 @@ export async function recordHits(
       },
       LOCK_WRITE,
     );
+    lastWrite.set(key, now);
+    // Bound completed writes without evicting reservations for pending I/O.
+    // Sessions churn; oldest-inserted successful entries go first.
+    if (lastWrite.size > 2000) {
+      for (const k of [...lastWrite.keys()].slice(0, 1000)) lastWrite.delete(k);
+    }
     return true;
   } catch {
     // Fail-closed lock contention can drop this use observation. Decay and
     // consolidation therefore see a best-effort ledger, not proof of non-use;
     // retrieval remains available even when its telemetry cannot be persisted.
     return false; // telemetry never breaks retrieval
+  } finally {
+    inFlight.delete(key);
   }
 }
 
