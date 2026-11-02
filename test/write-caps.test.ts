@@ -163,7 +163,7 @@ describe("write-side size + type floors", () => {
       "Exported 1 memories",
     );
     expect(readFileSync(exportFile, "utf8")).toContain(scope);
-    expect(readFileSync(exportFile, "utf8")).toContain(legacySecret);
+    expect(readFileSync(exportFile, "utf8")).toContain("[redacted] stays addressable");
     expect(
       await loaded.tool.memory_forget.execute({
         scope,
