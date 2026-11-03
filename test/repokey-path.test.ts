@@ -20,6 +20,7 @@ import {
 import { appendMemory } from "../src/store/files/append.ts";
 import { resetState } from "../src/core/state.ts";
 import { relevantKnowledge } from "../src/recall/relevant.ts";
+import { dayFile } from "./helpers/logfmt.ts";
 
 const gitToplevel = (dir: string): string | null => {
   try {
@@ -68,8 +69,6 @@ afterEach(() => {
   delete process.env.OPENCODE_MEMORY_DIR;
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
-
-const dayFile = () => join(memDir, `${new Date().toISOString().split("T")[0]}.logfmt`);
 
 describe("non-git repo keys are bare tokens (#92)", () => {
   test("a session dir containing a space stamps repo= as an unquoted hash, repoPath stays raw", async () => {

@@ -18,6 +18,7 @@ import { appendMemory } from "../src/store/files/append.ts"
 import { loadAll, malformedCount } from "../src/store/files/load.ts";
 import { loadPlugin } from "./harness.ts";
 import { startViewer, type ViewerServer } from "../src/viewer/server.ts";
+import { dayFile } from "./helpers/logfmt.ts";
 
 // Captured from main (v0.4.1) via loadPlugin() before the zod migration, then
 // re-captured for each deliberate move of the model-facing contract — recorded
@@ -239,8 +240,6 @@ afterEach(() => {
   delete process.env.OPENCODE_MEMORY_DIR;
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
-
-const dayFile = () => join(process.env.OPENCODE_MEMORY_DIR!, `${new Date().toISOString().split("T")[0]}.logfmt`);
 
 describe("wire contract — zod generates the exact pre-zod JSON Schema", () => {
   test("all 14 registered tool inputs deep-equal the capture from main", async () => {

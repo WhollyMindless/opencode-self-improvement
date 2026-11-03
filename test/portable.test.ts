@@ -21,9 +21,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { evidenceDir, exportsDir, memoryRoot, snapshotDir } from "../src/core/config/paths.ts"
-import { dateStr } from "../src/core/time.ts";
-import { formatLine, parseLine, type Fields } from "../src/core/logfmt/format.ts";
+import { exportsDir, memoryRoot, snapshotDir } from "../src/core/config/paths.ts"
+import { formatLine, } from "../src/core/logfmt/format.ts";
 import { resetState } from "../src/core/state.ts";
 import { appendMemory } from "../src/store/files/append.ts"
 import { loadAll } from "../src/store/files/load.ts"
@@ -35,6 +34,7 @@ import { importMemories } from "../src/portable/import.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
 import { systemDigest } from "../src/inject/digest.ts";
 import { loadPlugin } from "./harness.ts";
+import { readEvidenceLog as evidence } from "./helpers/logfmt.ts";
 
 let root: string;
 let liveRoot: string;
@@ -86,16 +86,6 @@ function seed(type: string, scope: string, content: string, extra: SeedOpts = {}
     }) + "\n",
   );
   return ts;
-}
-
-function evidence(): Fields[] {
-  const file = join(evidenceDir(), `${dateStr()}.logfmt`);
-  if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => parseLine(l))
-    .filter((f): f is Fields => f !== null);
 }
 
 // NOTE: the store's own uniqueness guarantee lives in appendMemory; these

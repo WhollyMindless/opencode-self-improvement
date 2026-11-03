@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts"
+import { memoryRoot } from "../src/core/config/paths.ts"
 import { dateStr } from "../src/core/time.ts";
 import { runWriteGate } from "../src/gate/gate.ts";
 import { parseLine, type Fields } from "../src/core/logfmt/format.ts";
@@ -26,6 +26,7 @@ import { resetCaptureCooldowns } from "../src/index.ts";
 import { rememberSessionDir, repoScopeFor, resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
+import { readEvidenceLog as evidence, sleep } from "./helpers/logfmt.ts";
 
 let root: string;
 let liveRoot: string;
@@ -59,21 +60,6 @@ afterEach(() => {
   delete process.env.OPENCODE_COMMANDS_DIR;
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
-
-function evidence(): Fields[] {
-  const file = join(evidenceDir(), `${dateStr()}.logfmt`);
-  try {
-    return readFileSync(file, "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .map((l) => parseLine(l))
-      .filter((f): f is Fields => f !== null);
-  } catch {
-    return [];
-  }
-}
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<void> {
   const start = Date.now();

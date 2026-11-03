@@ -6,12 +6,11 @@
 // whole-line boundaries. Hermetic: temp OPENCODE_MEMORY_DIR /
 // OPENCODE_COMMANDS_DIR, nothing touches the real store.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { frontierBudget, injectBudget } from "../src/core/config/budgets.ts"
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts"
-import { dateStr } from "../src/core/time.ts";
+import { memoryRoot } from "../src/core/config/paths.ts"
 import { capToBudget } from "../src/inject/budget.ts"
 import { storeVersion } from "../src/inject/version.ts";
 import { addBlock, removeBlock } from "../src/store/blocklist.ts";
@@ -23,6 +22,7 @@ import { rememberSessionDir } from "../src/identity/repokey.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
 import { SESSION_CAP } from "../src/core/lru.ts";
 import { loadPlugin } from "./harness.ts";
+import { readEvidenceLog as evidence } from "./helpers/logfmt.ts";
 
 let root: string;
 let liveRoot: string;
@@ -62,16 +62,6 @@ function rewriteContent(ts: string, content: string): void {
     return fields?.ts === ts ? formatLine({ ...fields, content }) : line;
   });
   writeFileSync(file, `${rewritten.join("\n")}\n`);
-}
-
-function evidence(): Fields[] {
-  const file = join(evidenceDir(), `${dateStr()}.logfmt`);
-  if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => parseLine(l))
-    .filter((f): f is Fields => f !== null);
 }
 
 type Loaded = Awaited<ReturnType<typeof loadPlugin>>;
