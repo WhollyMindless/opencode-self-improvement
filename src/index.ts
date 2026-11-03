@@ -37,6 +37,7 @@ import { formatMemory } from "./inject/format.ts"
 import { sharedTerms } from "./recall/shared-terms.ts";
 import { configureAutoCapture, CAPTURE_EVENT_TYPES } from "./capture/runtime.ts";
 export { resetCaptureCooldowns, TURN_END_EVENTS, CAPTURE_EVENT_TYPES, captureTriggerFor } from "./capture/runtime.ts";
+export { resetSessionModels } from "./capture/session-model.ts";
 import { createInjectionEpochs } from "./inject/epochs.ts";
 import { createSessionContext } from "./identity/session-context.ts";
 import { registerMemoryTools } from "./tools/registry.ts";
@@ -208,9 +209,11 @@ const impl = {
         // a heartbeat with an unknown version still beats no heartbeat
       }
       const wantCapture = ctx.options?.autoCapture === true;
-      const modelOk = !!parseModelRef(
-        typeof ctx.options?.captureModel === "string" ? ctx.options.captureModel : "",
-      );
+      // #139: an omitted captureModel is a valid arm — the capture inherits
+      // the session's model (session.context) or the host default. Only an
+      // explicit but malformed string is invalid_model.
+      const captureModelOpt = ctx.options?.captureModel;
+      const modelOk = captureModelOpt === undefined || !!parseModelRef(captureModelOpt);
       const capabilities = ["event.subscribe", "generate.text", "session.context"].filter((name) => {
         const [domain, method] = name.split(".");
         return typeof (ctx as unknown as Record<string, any>)?.[domain]?.[method] === "function";

@@ -9,6 +9,7 @@ import { captureSessionID } from "../identity/host-events.ts";
 import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
+import { sessionModel, type SessionModelRef } from "./session-model.ts";
 import { lagSince } from "./lag.ts";
 import { buildCapturePrompt } from "./prompt.ts";
 import { flattenTranscript } from "./transcript.ts";
@@ -18,6 +19,9 @@ interface CaptureHost {
   event?: { subscribe: (o?: { signal?: AbortSignal }) => AsyncIterable<unknown> };
   generate?: { text: (input: unknown) => Promise<{ text?: string } | string> };
   session?: { context?: (input: { sessionID: string }) => Promise<unknown> };
+  // Host default model (#139): the last-resort source for an omitted
+  // captureModel. Optional-call everywhere: older/fake hosts expose none.
+  model?: { default?: { get?: () => { providerID: string; modelID: string } | undefined } };
 }
 
 interface CaptureDependencies {
@@ -94,16 +98,24 @@ export function configureAutoCapture(
   let onCompactCapture: ((sid: string, messages: unknown) => void) | undefined;
   let captureCleanup: Cleanup | undefined;
   if (ctx.options?.autoCapture === true) {
-    const captureModel =
-      typeof ctx.options.captureModel === "string" ? ctx.options.captureModel : "";
+    const captureModelOpt = ctx.options.captureModel;
+    // #139: an OMITTED captureModel no longer disables the subscription. It
+    // resolves per capture — the per-session ref last seen on session.context,
+    // else the host default — and only when both are missing does the pass
+    // skip. autoCapture:true is already the explicit opt-in; a second required
+    // config string was a syntax tax whose failure mode was a console.warn
+    // nobody reads. An explicit but INVALID captureModel keeps today's
+    // fail-closed setup behaviour: silently substituting another model than
+    // the one the user typed is worse than the tax it replaces.
+    const omitted = captureModelOpt === undefined;
     const captureMax = Number(ctx.options.captureMax) || 3;
     const captureOnCompact = ctx.options?.captureOnCompact !== false;
-    const modelRef = parseModelRef(captureModel);
-    if (!modelRef) {
-      // Invalid/missing model: skip registering the whole subscription
+    const modelRef = omitted ? null : parseModelRef(captureModelOpt);
+    if (!omitted && !modelRef) {
+      // Invalid explicit model: skip registering the whole subscription
       // rather than guess (and warn once, at setup).
       console.warn(
-        `[opencode-self-improvement] autoCapture is on but captureModel ${JSON.stringify(captureModel)} is invalid (expected "provider/id"); auto-capture disabled.`,
+        `[opencode-self-improvement] autoCapture is on but captureModel ${JSON.stringify(captureModelOpt)} is invalid (expected "provider/id"); auto-capture disabled.`,
       );
     } else if (!ctx.event?.subscribe || !ctx.generate?.text || !ctx.session?.context) {
       console.warn(
@@ -119,6 +131,21 @@ export function configureAutoCapture(
       // setup guard proves it exists, but property narrowing does not survive
       // into the closure, and undefined degrades safely (empty transcript).
       const contextFn = (input: { sessionID: string }) => ctx.session?.context?.(input);
+
+      // #139 model resolution: explicit option (captured above) wins; else the
+      // ref this session's context hook last carried; else the host default.
+      // Warn-once per setup when even the last resort is empty — a per-event
+      // warn would spam the log for every turn of a model-less session.
+      let warnedNoModel = false;
+      const hostDefault = (): SessionModelRef | null => {
+        const d = ctx.model?.default?.get?.();
+        if (
+          d && typeof d.providerID === "string" && d.providerID &&
+          typeof d.modelID === "string" && d.modelID
+        )
+          return { providerID: d.providerID, id: d.modelID };
+        return null;
+      };
 
       // ONE capture pass, shared by both triggers. `seeded` is a transcript
       // already in hand — the compaction hook carries the PRE-compaction
@@ -145,12 +172,29 @@ export function configureAutoCapture(
         // zero-token promise of the capture tests.
         bindSessionProvisional(sid, instanceDir);
         const captureGate = gateContext(sid);
+        // #139: resolve the model BEFORE any skip so every capture evidence
+        // line below can carry model= (cost attributable to a named model —
+        // the real answer to the cost-surprise concern that justified the
+        // required captureModel). Resolution itself is token-free.
+        const model = modelRef ?? sessionModel(sid) ?? hostDefault();
+        const modelTag = model ? `${model.providerID}/${model.id}` : undefined;
         // #152: an instance with no workspace cannot say which repository the
         // mined rows belong to, and rows with no owner are exactly what the
         // store refuses. Skip BEFORE the model call — no tokens spent on a
         // capture that cannot be stored — and leave the reason in evidence.
         if (!writeTarget(sid).ok) {
-          await record("auto_capture_refused", { session: sid, trigger }, true, sid, captureGate.evidenceContext);
+          await record("auto_capture_refused", { session: sid, trigger, ...(modelTag ? { model: modelTag } : {}) }, true, sid, captureGate.evidenceContext);
+          return;
+        }
+        if (!model) {
+          // Both inheritance sources empty: today's last resort, warn + skip.
+          if (!warnedNoModel) {
+            warnedNoModel = true;
+            console.warn(
+              "[opencode-self-improvement] autoCapture is on but captureModel is omitted and neither session.context nor the host default names a model; capture skipped (warned once).",
+            );
+          }
+          await record("auto_capture_refused", { session: sid, trigger, reason: "no_model" }, true, sid, captureGate.evidenceContext);
           return;
         }
         let transcript = seeded;
@@ -166,7 +210,7 @@ export function configureAutoCapture(
         // session context for idle), so both triggers' lag is comparable.
         const lagMs = lagSince(msgs);
         const out = await generateApi.text({
-          model: modelRef,
+          model,
           // Redact the COMPLETE transcript, THEN apply the character budget
           // (#132). Cropping first can start the window INSIDE a credential:
           // a PEM body whose BEGIN marker fell off, or a token whose prefix
@@ -195,7 +239,7 @@ export function configureAutoCapture(
             // wrapper. Preserve any earlier gate retirements in the receipt.
             await record(durable.length ? "auto_capture_partial" : "auto_capture_refused", {
               session: sid, trigger, type: c.type, scope: redactSecrets(c.scope),
-              reason: String(err), retired: durable.join(",") || undefined,
+              reason: String(err), retired: durable.join(",") || undefined, model: modelTag,
             }, false, sid, captureGate.evidenceContext);
             continue;
           }
@@ -214,13 +258,14 @@ export function configureAutoCapture(
               scope: redactSecrets(c.scope),
               reason: outcome.reason ?? "",
               audit_error: outcome.evidenceError,
+              model: modelTag,
             },
             false,
             sid,
             captureGate.evidenceContext,
           );
         }
-        await recordCaptureLag(sid, lagMs, candidates.length ? "candidates" : "empty", captureGate.evidenceContext);
+        await recordCaptureLag(sid, lagMs, candidates.length ? "candidates" : "empty", captureGate.evidenceContext, modelTag);
       }
 
       void (async () => {

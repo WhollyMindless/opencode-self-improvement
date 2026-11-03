@@ -11,6 +11,7 @@ import { setCurrent } from "./core/state.ts";
 import { bindSessionProvisional, rememberSessionDir } from "./identity/repokey.ts";
 import { sessionIdentityEvent, sessionUsageEvent } from "./identity/host-events.ts";
 import { afterTool, markTurn, checkNewSession, onCompacting } from "./capture/triggers.ts";
+import { recordSessionModel } from "./capture/session-model.ts";
 import { contextualPull } from "./inject/pull.ts";
 import { pullQuery } from "./recall/relevant.ts";
 import { compactionAnchor } from "./inject/anchor.ts";
@@ -108,6 +109,10 @@ export async function registerHooks(
       const sid = typeof event?.sessionID === "string" ? event.sessionID : undefined;
       setCurrent({ sessionID: event?.sessionID });
       if (typeof sid === "string") sessions.touch(sid);
+      // #139: SessionRequest declares a readonly model, so the host already
+      // tells us which model this session runs on. Remember it: an omitted
+      // captureModel inherits it in capture/runtime.ts.
+      if (typeof sid === "string") recordSessionModel(sid, event?.model);
       // Resolve WHOSE repository this injection reads before the store
       // read below: an unbound session would otherwise fall to global-only
       // and silently lose its own frontier rows. SYNC provisional bind to
