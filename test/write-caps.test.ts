@@ -4,9 +4,8 @@
 // tests pin the blocked outcome AND the speed bound (a fix that "works" by
 // scanning faster but is still O(n²) will fail the <100ms assertion on a
 // 1MB payload).
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runWriteGate } from "../src/gate/gate.ts";
 import { evidenceDir, exportsDir, memoryRoot } from "../src/core/config/paths.ts"
@@ -16,18 +15,12 @@ import { appendMemory } from "../src/store/files/append.ts"
 import { loadAll } from "../src/store/files/load.ts"
 import { MAX_CONTENT_CHARS } from "../src/store/model/memory.ts";
 import { extractCallForms, extractPathRefs } from "../src/gate/resolver.ts";
-import { loadPlugin } from "./harness.ts";
+import { loadPlugin, withTempStore } from "./harness.ts";
 
+const store = withTempStore({ prefix: "osi-caps-" });
 let root: string;
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "osi-caps-"));
-  process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
-  process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
-});
-afterEach(() => {
-  delete process.env.OPENCODE_MEMORY_DIR;
-  delete process.env.OPENCODE_COMMANDS_DIR;
-  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  root = store.root;
 });
 
 const gateCtx = () => ({
