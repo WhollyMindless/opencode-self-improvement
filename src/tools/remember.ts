@@ -41,7 +41,12 @@ export const register: ToolRegister = (editor, deps) => {
         if (outcome.action === "collapsed") return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
         return {
           content: `Write blocked at GATE (${outcome.reason}). ${
-            outcome.hint ?? "Evidence recorded; inspect with memory_evidence."
+            // #268 F1: the catch-all must name the filter a reader needs.
+            // `ev` matches the EVENT type (`write_blocked`), never the block
+            // reason — a session that guesses the reason gets "No evidence"
+            // while the row is in the log. Keep the `ev=write_blocked`
+            // literal in any future hint change.
+            outcome.hint ?? "Evidence recorded; inspect with memory_evidence ev=write_blocked."
           }`,
         };
       },
