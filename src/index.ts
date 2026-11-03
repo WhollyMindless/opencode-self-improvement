@@ -11,15 +11,14 @@ import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { basename, join } from "node:path";
 import { frontierBudget, injectBudget } from "./core/config/budgets.ts"
 import { memoryRoot } from "./core/config/paths.ts";
-import { unresolvedWriteMessage } from "./store/files/append.ts"
 import { loadAll, malformedCount } from "./store/files/load.ts"
 import { snapshotFiles } from "./store/files/snapshots.ts"
 import { clearSuperseded, markManySuperseded, markSuperseded } from "./store/files/supersede.ts"
 import { resolveMemoryTarget } from "./store/files/target.ts"
 import { type Memory } from "./store/model/memory.ts"
 import { isActive, isInjectable } from "./store/model/predicates.ts"
-import { evidenceVisibleTo, isVisibleTo, readerFromSid } from "./store/model/visibility.ts";
-import { auditCaveat, runWriteGate, sameStrList, type GateContext, type WriteCandidate } from "./gate/gate.ts";
+import { evidenceVisibleTo, isVisibleTo } from "./store/model/visibility.ts";
+import { auditCaveat, runWriteGate, sameStrList, type WriteCandidate } from "./gate/gate.ts";
 import { withStoreLock } from "./store/lock.ts";
 import { isQuarantined, quarantineCandidate, quarantineReasons } from "./store/quarantine/quarantine.ts";
 import { pruneMemory } from "./store/prune.ts";
@@ -27,8 +26,7 @@ import { findStaleOpen } from "./portable/decay.ts"
 import { exportMemories } from "./portable/export.ts"
 import { importMemories } from "./portable/import.ts";
 import { listSnapshots, restoreSnapshot } from "./store/undo.ts";
-import { SESSION_CAP, SessionLru } from "./core/lru.ts";
-import { captureEvidenceContext, evidenceFileFor, record, recordCaptureLag } from "./evidence/record.ts";
+import { evidenceFileFor, record, recordCaptureLag } from "./evidence/record.ts";
 import { proposeConsolidations } from "./consolidate/propose.ts"
 import { renderProposals } from "./consolidate/render.ts";
 import { readReads } from "./hits/ledger.ts";
@@ -38,6 +36,7 @@ import { contextualPull } from "./inject/pull.ts"
 import { pullQuery } from "./recall/relevant.ts"
 import { sharedTerms } from "./recall/shared-terms.ts";
 import { createInjectionEpochs } from "./inject/epochs.ts";
+import { createSessionContext } from "./identity/session-context.ts";
 import { registerMemoryTools } from "./tools/registry.ts";
 import { readLedger, neverRetrieved, recordHits, useSignals, type HitSource } from "./hits/ledger.ts";
 import { formatInit } from "./init/format.ts"
@@ -50,16 +49,13 @@ import { blockedRecent } from "./status/write.ts";
 import {
   afterTool,
   checkNewSession,
-  writeEvidence,
   firstFrontierTap,
-  hasEngagement,
-  hasGateCheck,
   markFrontierTap,
   markTurn,
   onCompacting,
 } from "./capture/triggers.ts";
-import { getCurrent, setCurrent } from "./core/state.ts";
-import { resolveRepo, setRepoScope, rememberSessionDir, sessionDir, sessionDirFirm, bindSessionProvisional, writeTarget } from "./identity/repokey.ts";
+import { setCurrent } from "./core/state.ts";
+import { resolveRepo, setRepoScope, rememberSessionDir, bindSessionProvisional, writeTarget } from "./identity/repokey.ts";
 import { parseLine } from "./core/logfmt/format.ts"
 import { readLines } from "./core/logfmt/read.ts";
 import { parseCandidates, parseModelRef } from "./capture/candidates.ts"
@@ -71,11 +67,8 @@ import { flattenMemoryText } from "./store/sanitize.ts";
 import { bunFloorWarning } from "./core/runtime.ts";
 import {
   captureSessionID,
-  sessionDirectoryFromMessages,
-  sessionDirectoryFromRow,
   sessionIdentityEvent,
   sessionUsageEvent,
-  toolIdentity,
 } from "./identity/host-events.ts";
 
 // Tool/input boundaries are zod schemas (src/schema.ts): the JSON Schema the
@@ -272,130 +265,8 @@ const impl = {
       }
     }
 
-    const gateContext = (sid?: string): GateContext => {
-      // Every session-scoped member resolves for the CALLER's session when it
-      // knows one (#116): capture awaits a model call between setCurrent and
-      // persistence, and on a multi-session server the global current moves
-      // during that await. Falling back to getCurrent() is exactly today's
-      // behavior for callers whose current IS their session (tool hooks).
-      const bound = sid ?? getCurrent().sid;
-      return {
-        sessionID: sid,
-        reader: readerFromSid(sid),
-        writeAt: writeTarget(bound),
-        evidenceContext: captureEvidenceContext(sid),
-        // NOTE (re-review): this one lookup is intentionally NON-firm — a
-        // provisional binding may supply the gate's verification TREE. The
-        // tree is where a referenced file is checked to exist, not who the
-        // caller is: "as far as the flow can know" is the right confidence
-        // level, and a wrong guess fails a code-reference gate loudly rather
-        // than leaking across repositories. Identity itself never resolves
-        // through here (readers and stamps use the firm-or-provisional split
-        // in repokey/memory); do not mistake this for one.
-        liveRoot: sessionDir(bound) ?? liveRoot,
-        ...writeEvidence(bound),
-        hasGateCheck: hasGateCheck(bound),
-        hasEngagement: hasEngagement(bound),
-      };
-    };
-
-    // A durable write needs an OWNER (#152). Reads already fail closed for a
-    // session whose repository never resolved — it sees global rows and nothing
-    // else — so such a session may not write either: the alternatives were the
-    // last setup's repository or an unstamped (hence global) row. This answers
-    // at the entry, where the model can be told what to do, and records the
-    // refusal so "why is nothing stored" is answerable from memory_evidence.
-    // appendMemory throws the same rule at the choke point; the two share one
-    // message so they cannot drift.
-    const ownerlessWriter = (sid: string | undefined): string | null => {
-      const target = writeTarget(sid);
-      return target.ok ? null : target.sid;
-    };
-
-    const refuseOwnerlessWrite = async (sid: string, op: string): Promise<{ content: string }> => {
-      await record("write_refused", { op }, true, sid);
-      return { content: unresolvedWriteMessage(sid) };
-    };
-
-    // Identity of a tool call, captured SYNCHRONOUSLY at the tool's entry —
-    // the first await of the call comes after this. The V2 host hands every
-    // execute a per-call ToolContext carrying sessionID; the harness and any
-    // host that omits it fall back to the ambient current, which is correct
-    // exactly because execute.before ran immediately before this tool with
-    // no await between (#116's documented fallback). Never re-read the global
-    // after an await to learn who is calling (#127).
-    const toolIds = (context?: unknown): { sid: string; call: string } => {
-      const { sessionID: fromCtx, callID: call } = toolIdentity(context);
-      // Entry binding: a session this instance has never seen is resolved to
-      // THIS workspace (provisional — a firm event/API identity still
-      // replaces it), so the tool's reader partitions by the repository the
-      // call reached, not by the last setup's module scope (#127).
-      if (fromCtx && fromCtx !== "?") {
-        bindSessionProvisional(fromCtx, instanceDir);
-      }
-      return {
-        sid: fromCtx ?? getCurrent().sid,
-        call: call ?? getCurrent().call,
-      };
-    };
-
-    // Identity-event race backstop: a resumed session's FIRST turn can write
-    // before the subscription has delivered its execution.started, and the
-    // module-scope fallback is the last setup instance — possibly another
-    // workspace. Bind once from the session context API for unmapped sids —
-    // but note host 2.1.4 sends message payloads WITHOUT any location field,
-    // so this path is a legacy-shape best-effort; the session-row fallback
-    // below is what actually resolves serve-host sessions.
-    // One-shot: never overwrites an event-bound entry.
-    const bindingSids = new Set<string>();
-    async function bindSessionFromMessages(sid: string | undefined): Promise<void> {
-      if (!sid || sid === "?" || sessionDirFirm(sid) || bindingSids.has(sid)) return;
-      bindingSids.add(sid);
-      try {
-        const msgs = await ctx.session?.context?.({ sessionID: sid });
-        const dir = sessionDirectoryFromMessages(msgs);
-        if (dir !== undefined) rememberSessionDir(sid, dir);
-      } catch {
-        // no context access or host error: the event stream still binds later
-      } finally {
-        bindingSids.delete(sid);
-      }
-    }
-
-    // Serve-host reality (recorded on 2.1.4 `serve --service`): the plugin
-    // instance loads AFTER the session was created, so `session.created` — the
-    // only event carrying a location — is never delivered; `execution.started`
-    // arrives with just {sessionID}. The session ROW is the remaining source
-    // of truth: the host's session get returns `location.directory`. One
-    // lookup per session; a miss is remembered so a host without the API is
-    // not re-asked on every turn (bounded LRU, same cap as the scope cache).
-    const apiBindTried = new Set<string>();
-    const apiBindOrder = new SessionLru(SESSION_CAP, (evicted) => apiBindTried.delete(evicted));
-    async function bindSessionFromApi(sid: string | undefined): Promise<void> {
-      if (!sid || sid === "?" || sessionDirFirm(sid) || apiBindTried.has(sid)) return;
-      apiBindTried.add(sid);
-      apiBindOrder.touch(sid);
-      try {
-        const got = await ctx.session?.get?.({ sessionID: sid });
-        const dir = sessionDirectoryFromRow(got);
-        if (dir !== undefined) rememberSessionDir(sid, dir);
-      } catch {
-        // no session.get on this host (or unknown session): stay unbound
-      }
-    }
-
-    // Identity must resolve BEFORE a row is stamped or a read is partitioned:
-    // try the (legacy) message payloads, then the session row. A session the
-    // host cannot describe (fresh, or a host without the lookup) is bound to
-    // THIS instance's workspace — the caller's repository as the flow knows
-    // it, and strictly better than an unbound read inheriting the module
-    // scope of whoever loaded last (#127's multi-setup residue).
-    async function bindSessionIdentity(sid: string | undefined): Promise<void> {
-      if (!sid || sid === "?" || sessionDirFirm(sid)) return;
-      await bindSessionFromMessages(sid);
-      if (!sessionDirFirm(sid)) await bindSessionFromApi(sid);
-      bindSessionProvisional(sid, instanceDir);
-    }
+    const { gateContext, ownerlessWriter, refuseOwnerlessWrite, toolIds, bindSessionFromApi, bindSessionIdentity } =
+      createSessionContext(ctx, { instanceDir, liveRoot });
 
     // ---- tools --------------------------------------------------------------
     // Use ledger (#42). `query` is what retrieval was asked with; what gets
