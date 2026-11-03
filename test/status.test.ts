@@ -15,7 +15,10 @@ import { cacheHealth, cacheRate, estTok, fmtCount } from "../src/status/format.t
 import { type StatusPayload } from "../src/status/payload.ts"
 import { attributionLines, contextLines, renderMemoryReport, windowLines } from "../src/status/report.ts"
 import { blockedRecent, readStatus, sessionStatusFile, statusDir, statusFile, writeStatus } from "../src/status/write.ts";
-import { setRepoScope } from "../src/identity/repokey.ts";
+import { bindSessionProvisional, resolveRepo, resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
+import { addBlock } from "../src/store/blocklist.ts";
+import { createInjectionEpochs } from "../src/inject/epochs.ts";
+import { hitsFile } from "../src/hits/ledger.ts";
 import { loadPlugin } from "./harness.ts";
 import { resetState } from "../src/core/state.ts";
 
@@ -336,6 +339,44 @@ async function poll<T>(fn: () => Promise<T | null>, tries = 100): Promise<T | nu
 }
 
 describe("memory_status tool + epoch wiring", () => {
+  test("chat and epoch summaries retain the same mixed-repository totals (#168)", async () => {
+    const repoA = join(root, "repo-a"), repoB = join(root, "repo-b");
+    mkdirSync(repoA); mkdirSync(repoB);
+    const ids = ["2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", "2026-01-01T00:00:02.000Z", "2026-01-01T00:00:03.000Z"];
+    const rows = [
+      { ts: ids[0], scope: "build", status: "open", repo: resolveRepo(repoA).key },
+      { ts: ids[1], scope: "deploy", status: "settled", repo: resolveRepo(repoB).key },
+      { ts: ids[2], scope: "retired", superseded_by: ids[0], repo: resolveRepo(repoA).key },
+      { ts: ids[3], scope: "blocked", repo: resolveRepo(repoB).key },
+    ];
+    writeFileSync(join(memoryRoot(), `${dateStr()}.logfmt`), rows.map((r) =>
+      formatLine({ type: "learning", content: "remember the build command", ...r }),
+    ).join("\n") + "\n");
+    await addBlock(ids[3], "fixture block");
+    const usedAt = new Date().toISOString();
+    writeFileSync(hitsFile(), formatLine({ ev: "memory_used", ts: usedAt, src: "recall", sid: "summary", mem: `[${ids[0]}]` }) + "\n");
+    const p = await loadPlugin(repoA);
+    try {
+      bindSessionProvisional("summary", repoA);
+      const epochs = createInjectionEpochs({
+        budget: 1200, frontierBudget: 3600, measuredTurns: new Map(),
+        noteHits: async () => {}, // keep the fixture's recorded-use history fixed
+      });
+      await epochs.prompt("summary", "build command");
+      const status = await epochs.buildPayload("summary");
+      expect(status?.store).toEqual({
+        active: 2, superseded: 1, open: 1, scopes: 2, malformed: 0,
+        neverRetrieved: 1, ledgerSince: usedAt,
+      });
+      const report = await p.tools.memory_status.execute({}, { sessionID: "summary" });
+      expect(report.content).toContain("2 active · 1 superseded · 1 open · 2 scopes");
+      expect(report.content).toContain("never retrieved 1 (50%)");
+    } finally {
+      await p.cleanup();
+      resetSessionScopes();
+    }
+  });
+
   test("fresh process: reports no epoch; a prompt creates the epoch AND status.json", async () => {
     const p = await loadPlugin(process.cwd());
     const first = await p.tools.memory_status!.execute({});

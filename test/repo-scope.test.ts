@@ -5,8 +5,7 @@
 // anchor, storeVersion), the tools (recall, list, update targeting, forget,
 // decay), gate dedup, import/export carry-through, and the /repo-init stamp.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setRepoScope } from "../src/identity/repokey.ts";
 import { normalizeRemote } from "../src/identity/repokey.ts";
@@ -21,20 +20,19 @@ import { findStaleOpen } from "../src/portable/decay.ts"
 import { exportMemories } from "../src/portable/export.ts"
 import { importMemories } from "../src/portable/import.ts";
 import { runWriteGate } from "../src/gate/gate.ts";
+import { withTempStore } from "./harness.ts";
 
 const REPO_A = { key: "aaa111", path: "/work/alpha" };
 const REPO_B = { key: "bbb222", path: "/work/beta" };
 
+const store = withTempStore({ prefix: "osi-reposcope-" });
 let root: string;
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "osi-reposcope-"));
-  process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
+  root = store.root;
   setRepoScope(REPO_A);
 });
 afterEach(() => {
   setRepoScope(null);
-  delete process.env.OPENCODE_MEMORY_DIR;
-  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
 const dayFile = () => join(process.env.OPENCODE_MEMORY_DIR!, `${new Date().toISOString().split("T")[0]}.logfmt`);
