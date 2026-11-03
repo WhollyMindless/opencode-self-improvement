@@ -9,7 +9,7 @@ import { listSnapshots, restoreSnapshot } from "../store/undo.ts";
 import { basename } from "node:path";
 
 export const register: ToolRegister = (editor, deps) => {
-  const { toolIds, direct } = deps;
+  const { toolIds, bindSessionIdentity, direct } = deps;
     editor.add(validated(UndoArgs, {
       name: "memory_undo",
       description:
@@ -22,6 +22,12 @@ export const register: ToolRegister = (editor, deps) => {
           // carries the CALLER's reader, so rows another repo owns survive
           // untouched in every mode instead of riding the snapshot wholesale.
           const { sid } = toolIds(context);
+          // Identity before ownership partitioning (#260): the caller's
+          // repository must be resolved from the host before the Reader
+          // decides which lines are foreign, exactly as merge and forget now
+          // do; the day file is shared (#153) and a wrong reader is a write
+          // into another repository's history.
+          await bindSessionIdentity(sid);
           const res = await restoreSnapshot(args.snapshot, memoryRoot(), mode, readerFromSid(sid));
           if (!res.restored) {
             const parts = [...res.concurrentAdded, ...res.concurrentChanged];

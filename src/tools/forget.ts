@@ -6,7 +6,7 @@ import { pruneMemory } from "../store/prune.ts";
 import { ForgetArgs, validated } from "./schema.ts";
 
 export const register: ToolRegister = (editor, deps) => {
-  const { toolIds, direct } = deps;
+  const { toolIds, bindSessionIdentity, direct } = deps;
     editor.add(validated(ForgetArgs, {
       name: "memory_forget",
       description:
@@ -14,6 +14,11 @@ export const register: ToolRegister = (editor, deps) => {
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
+        // Identity before the prune's repo floor (#260): resolve the session
+        // from the host (messages, then session row) before pruneMemory
+        // captures the Reader, so an unseen serve-host session is partitioned
+        // by its own repository, not the instance's provisional binding.
+        await bindSessionIdentity(sid);
         const res = await pruneMemory(args.scope, args.type, args.reason, sid);
         if (res.error) return { content: `memory_forget PARTIAL: deleted row(s) ${res.deleted.map((d) => d.memory.ts).join(", ")}; stopped: ${res.error}. Rejection tombstones or audit lines may be incomplete. Inspect memory_evidence / memory_undo before retrying.` };
         if (!res.deleted.length) return { content: `No memories found for ${args.type} in ${args.scope}` };
