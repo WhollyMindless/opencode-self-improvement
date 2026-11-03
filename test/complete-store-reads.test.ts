@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
   mkdirSync,
   mkdtempSync,
@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { replaceWithCachedHandle } from "./helpers/cached-handle.ts";
 import { snapshotFiles } from "../src/store/files/snapshots.ts";
 import { type Memory } from "../src/store/model/memory.ts";
 import { removeBlock, blocklistFile } from "../src/store/blocklist.ts";
@@ -46,26 +47,6 @@ afterEach(() => {
     throw new Error("Unexpected fixture root");
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
-// Only the factory is intercepted: the returned handle reads real replacement
-// bytes with genuinely stale metadata. Every unrelated path uses real Bun.file.
-async function replaceWithCachedHandle(
-  file: string,
-  text: string,
-  before = "short\n",
-) {
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, before);
-  const cached = Bun.file(file);
-  expect(await cached.exists()).toBe(true);
-  writeFileSync(`${file}.next`, text);
-  renameSync(`${file}.next`, file);
-  const real = Bun.file;
-  const spy = spyOn(Bun, "file").mockImplementation(
-    (path: unknown, options?: BlobPropertyBag) =>
-      path === file ? cached : Reflect.apply(real, Bun, [path, options]),
-  );
-  restore = () => spy.mockRestore();
-}
 const day = () => join(root, "2026-10-29.logfmt");
 const row = (ts: string, content: string) =>
   `ts=${ts} type=context scope=plan content="${content}"\n`;
@@ -89,7 +70,7 @@ test("Bun cached-size premise: replacement text is cropped until the runtime is 
 test("snapshot copies complete bytes including BOM and trailing newline", async () => {
   const text =
     "\uFEFF" + row("one", "x".repeat(10000)) + row("tail", "last row");
-  await replaceWithCachedHandle(day(), text);
+  restore = await replaceWithCachedHandle(day(), text);
   const [snap] = await snapshotFiles([day()]);
   expect(readFileSync(snap)).toEqual(Buffer.from(text));
 });
@@ -100,7 +81,11 @@ test("undo merge retains the complete live tail", async () => {
     row("original", "original row") +
     row("large", "x".repeat(10000)) +
     row("tail", "keep this live row");
-  await replaceWithCachedHandle(day(), text, row("original", "original row"));
+  restore = await replaceWithCachedHandle(
+    day(),
+    text,
+    row("original", "original row"),
+  );
   await restoreSnapshot(snap, root, "merge");
   expect(readFileSync(day(), "utf8")).toContain(
     row("tail", "keep this live row").trim(),
@@ -111,7 +96,7 @@ test("undo merge retains the complete live tail", async () => {
 });
 test("unblocking one row conserves complete later block entries", async () => {
   const tail = `ts=tail reason="${"x".repeat(10000)}" blocked_at=now\n`;
-  await replaceWithCachedHandle(
+  restore = await replaceWithCachedHandle(
     blocklistFile(),
     `ts=remove reason=old blocked_at=now\n${tail}`,
   );
@@ -124,7 +109,7 @@ test("ledger rotation keeps the newer half from the complete replacement", async
     { length: 4 },
     (_, i) => `ts=${i} padding="${"x".repeat(700000)}"`,
   );
-  await replaceWithCachedHandle(
+  restore = await replaceWithCachedHandle(
     hitsFile(),
     lines.join("\n") + "\n",
     " ".repeat(2000001),
@@ -145,7 +130,7 @@ test("ledger rotation keeps the newer half from the complete replacement", async
 test("import processes the final JSONL row rather than a cropped prefix", async () => {
   const file = join(root, "import.jsonl");
   const texts = ["x".repeat(10000), "last complete imported row"];
-  await replaceWithCachedHandle(
+  restore = await replaceWithCachedHandle(
     file,
     texts
       .map((content) =>
@@ -164,7 +149,10 @@ test("import processes the final JSONL row rather than a cropped prefix", async 
 });
 test("status parses the complete replacement JSON", async () => {
   const payload = { at: "now", block: "x".repeat(10000) };
-  await replaceWithCachedHandle(statusFile(), JSON.stringify(payload));
+  restore = await replaceWithCachedHandle(
+    statusFile(),
+    JSON.stringify(payload),
+  );
   expect(await readStatus()).toMatchObject(payload);
 });
 test("missing callers preserve their distinct results", async () => {
