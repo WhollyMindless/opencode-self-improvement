@@ -20,6 +20,7 @@ import { releaseQuarantinedMemory } from "./mutate.ts";
 import { isQuarantined, quarantineReasons } from "../store/quarantine/quarantine.ts";
 import { deleteMemory, editMemory, blockMemory, unblockMemory, unrejectMemory, type MutationResult } from "./mutate.ts";
 import { tombstones } from "../store/tombstones/tombstone.ts";
+import { assertViewerWriteAllowed } from "./rejections.ts";
 
 const PAGE = join(import.meta.dir, "page.html");
 const HOST = process.env.OPENCODE_VIEWER_HOST || "127.0.0.1";
@@ -315,6 +316,7 @@ async function unrejectRoute(body: z.infer<typeof UnrejectBody>): Promise<Respon
 }
 
 async function restoreEntryRoute(body: z.infer<typeof RestoreEntryBody>): Promise<Response> {
+  await assertViewerWriteAllowed(body.content);
   // Origin survives the restore round trip (#129): when the audit line carried
   // a repo stamp, the restored row carries it again — the viewer's own missing
   // repository scope must never be what decides a row's visibility. No repo
