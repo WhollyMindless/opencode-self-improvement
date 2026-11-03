@@ -120,6 +120,10 @@ export interface CaptureFakes {
     getCalls: string[];
     row: unknown;
   };
+  // #139: what the fake ctx.model.default.get() returns (undefined = the host
+  // exposes no default model). Tests set this to drive the last-resort
+  // inheritance path of an omitted captureModel.
+  modelDefault?: { providerID: string; modelID: string };
 }
 
 export interface LoadedPlugin {
@@ -248,6 +252,12 @@ export async function loadPlugin(
         return { text: capture.generate.response };
       },
     },
+    // #139: host default model domain; get() returns whatever the test set.
+    model: {
+      default: {
+        get: () => capture.modelDefault,
+      },
+    },
   };
 
   const cleanup = await plugin.setup(ctx as never);
@@ -282,10 +292,12 @@ export async function loadPlugin(
       });
     },
     // Drive the real session.context hook (guarded), mapping its text parts
-    // back onto the V1 `output.system: string[]` shape.
+    // back onto the V1 `output.system: string[]` shape. `model` (the V2
+    // SessionRequest ref) rides along so #139 model inheritance can be
+    // replayed with the ref a real host delivers.
     "experimental.chat.system.transform": async (input: any, output: any) => {
       const parts: Array<{ type: string; text: string }> = [];
-      await sessionHooks["context"]?.({ sessionID: input?.sessionID, system: parts });
+      await sessionHooks["context"]?.({ sessionID: input?.sessionID, system: parts, model: input?.model });
       if (Array.isArray(output?.system)) for (const p of parts) output.system.push(p.text);
     },
     // Drive the real session.compaction hook (guarded), mirroring the context

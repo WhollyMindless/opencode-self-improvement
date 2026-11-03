@@ -141,6 +141,10 @@ export async function recordCaptureLag(
   lagMs: number | null,
   outcome: string,
   context?: EvidenceContext,
+  // #139: the model the capture actually ran on, so a cost audit can join a
+  // lag line to the model that spent the tokens. Optional: metric tests and
+  // any caller without a resolved model keep the old shape.
+  model?: string,
 ): Promise<void> {
   await record(
     "capture_lag",
@@ -148,6 +152,7 @@ export async function recordCaptureLag(
       session,
       ...(lagMs !== null && Number.isFinite(lagMs) && lagMs >= 0 ? { lag: Math.round(lagMs) } : {}),
       outcome,
+      ...(model ? { model } : {}),
     },
     false,
     session,

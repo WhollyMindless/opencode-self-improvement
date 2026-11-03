@@ -3,8 +3,9 @@
 // Unit tests for the pure core (parseCandidates / parseModelRef / buildCapturePrompt
 // / flattenTranscript — all total functions) plus end-to-end runs through the
 // harness fake event queue proving: default OFF never subscribes; an invalid
-// captureModel skips registration; candidates flow through runWriteGate (the
-// dupe collapses, only the fresh one lands, tagged auto-capture); the 5-minute
+// EXPLICIT captureModel skips registration while an omitted one inherits the
+// session's model (#139); candidates flow through runWriteGate (the dupe
+// collapses, only the fresh one lands, tagged auto-capture); the 5-minute
 // per-session cooldown bounds model calls; and setup's cleanup aborts the
 // subscription. Keywords (#40) ride the same path: the capture model's `kw`
 // list reaches the stored row through the gate.
@@ -17,7 +18,7 @@ import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts"
 import { dateStr } from "../src/core/time.ts";
 import { formatLine, parseLine, type Fields } from "../src/core/logfmt/format.ts";
 import { resetState } from "../src/core/state.ts";
-import { resetCaptureCooldowns } from "../src/index.ts";
+import { resetCaptureCooldowns, resetSessionModels } from "../src/index.ts";
 import { loadAll } from "../src/store/files/load.ts"
 import { isActive } from "../src/store/model/predicates.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
@@ -38,6 +39,7 @@ beforeEach(() => {
   mkdirSync(liveRoot, { recursive: true });
   resetState();
   resetCaptureCooldowns(); // cooldown truth is module-level since #108 - and bun test shares module state across files, so a fresh test needs this explicit clear
+  resetSessionModels(); // same module-level truth for the #139 session-model registry
 });
 
 afterEach(() => {
@@ -589,6 +591,95 @@ describe("turn-end trigger vocabulary (#136)", () => {
   });
 });
 
+// ---- capture model inheritance (#139) ---------------------------------------
+// Requiring captureModel alongside autoCapture was a syntax tax: the opt-in is
+// autoCapture:true, the host already delivers the session's model on every
+// session hook (SessionRequest.model), and the tax's failure mode was a silent
+// disable. These pin the inheritance chain — explicit option, then the ref the
+// session.context hook carried, then the host default, and only then a skip —
+// plus model= on the capture evidence lines so cost is attributable.
+describe("capture model inheritance (#139)", () => {
+  test("no captureModel: capture fires with the ref the session.context hook carried", async () => {
+    const loaded = await loadCapturePlugin({ autoCapture: true });
+    // Red on main: an omitted captureModel disabled the whole subscription,
+    // so subscribeCalls stayed 1 (measured listener only).
+    await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+    await loaded["experimental.chat.system.transform"](
+      { sessionID: "ses-inherit", model: { providerID: "fake", id: "session-model" } },
+      { system: [] },
+    );
+    loaded.capture.context.messages = [{ role: "user", content: "x".repeat(300) }];
+    loaded.capture.generate.response = "[]";
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-inherit" } });
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+    expect(loaded.capture.generate.calls[0].model).toEqual({ providerID: "fake", id: "session-model" });
+    await loaded.cleanup();
+  });
+
+  test("no session ref recorded: the host default model is used", async () => {
+    const loaded = await loadCapturePlugin({ autoCapture: true });
+    await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+    loaded.capture.modelDefault = { providerID: "host", modelID: "default-model" };
+    loaded.capture.context.messages = [{ role: "user", content: "x".repeat(300) }];
+    loaded.capture.generate.response = "[]";
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-default" } });
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+    expect(loaded.capture.generate.calls[0].model).toEqual({ providerID: "host", id: "default-model" });
+    await loaded.cleanup();
+  });
+
+  test("neither session ref nor host default: skip with reason=no_model, no tokens spent", async () => {
+    const loaded = await loadCapturePlugin({ autoCapture: true });
+    await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+    loaded.capture.context.messages = [{ role: "user", content: "x".repeat(300) }];
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-nomodel" } });
+    await waitFor(() => evidence().some((l) => l.ev === "auto_capture_refused" && l.reason === "no_model"));
+    expect(loaded.capture.generate.calls.length).toBe(0);
+    expect(loaded.capture.context.calls.length).toBe(0);
+    await loaded.cleanup();
+  });
+
+  test("an explicit captureModel still wins over the session's model", async () => {
+    const loaded = await loadCapturePlugin({ autoCapture: true, captureModel: "explicit/model" });
+    await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+    await loaded["experimental.chat.system.transform"](
+      { sessionID: "ses-explicit", model: { providerID: "fake", id: "session-model" } },
+      { system: [] },
+    );
+    loaded.capture.context.messages = [{ role: "user", content: "x".repeat(300) }];
+    loaded.capture.generate.response = "[]";
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-explicit" } });
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+    expect(loaded.capture.generate.calls[0].model).toEqual({ providerID: "explicit", id: "model" });
+    await loaded.cleanup();
+  });
+
+  test("capture evidence lines carry model= for the model that ran", async () => {
+    const loaded = await loadCapturePlugin({ autoCapture: true });
+    await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+    // Ground the session so the gate promotes the candidate (see the dupe test).
+    await loaded["tool.execute.after"](
+      { tool: "read", sessionID: "ses-modeltag", callID: "C1", args: { filePath: "x.ts" } },
+      { title: "read", output: "content", metadata: {} },
+    );
+    await loaded["experimental.chat.system.transform"](
+      { sessionID: "ses-modeltag", model: { providerID: "fake", id: "session-model" } },
+      { system: [] },
+    );
+    loaded.capture.context.messages = [{ role: "user", content: "x".repeat(300) }];
+    loaded.capture.generate.response = JSON.stringify([
+      { type: "learning", scope: "capture", content: "Evidence lines name the model that produced the candidate row." },
+    ]);
+    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-modeltag" } });
+    await waitFor(() => evidence().some((l) => l.ev === "auto_capture_promoted"));
+    const promoted = evidence().find((l) => l.ev === "auto_capture_promoted");
+    expect(String(promoted?.model)).toBe("fake/session-model");
+    const lag = evidence().find((l) => l.ev === "capture_lag" && l.session === "ses-modeltag");
+    expect(String(lag?.model)).toBe("fake/session-model");
+    await loaded.cleanup();
+  });
+});
+
 // ---- startup heartbeat (#138) ----------------------------------------------
 // Every other evidence line is written BY something that already worked, so
 // "off", "misconfigured" and "armed but inert" looked identical from any
@@ -617,6 +708,14 @@ describe("plugin_load heartbeat (#138)", () => {
     const line = heartbeat();
     expect(line?.capture).toBe("on");
     expect(String(line?.capabilities)).toBe("[event.subscribe,generate.text,session.context]");
+    await loaded.cleanup();
+  });
+
+  test("armed with NO captureModel: capture=on, the inherited-model arm (#139)", async () => {
+    // Omitted is a valid arm now: the capture inherits per session. Only an
+    // explicit malformed string is invalid_model (the test above).
+    const loaded = await loadCapturePlugin({ autoCapture: true });
+    expect(heartbeat()?.capture).toBe("on");
     await loaded.cleanup();
   });
 });
