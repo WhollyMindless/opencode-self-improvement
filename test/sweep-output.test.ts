@@ -44,8 +44,18 @@ test("ACL accounting identifier stays tied to the real fixture declarations", as
   // the actual source too, even on hosts where the Windows fixture is skipped.
   const [file, suite, title] = aclId.split(" > ");
   const source = await Bun.file(new URL(file, import.meta.url)).text();
-  expect(source).toContain(`("${suite}", () => {`);
-  expect(source).toContain(`test("${title}", async () => {`);
+  // Permit formatter whitespace only OUTSIDE the quoted accounting names:
+  // changing either name must still break this source-to-runner identity pin.
+  const quoted = (value: string) =>
+    JSON.stringify(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  expect(source).toMatch(
+    new RegExp(String.raw`\(\s*${quoted(suite)}\s*,\s*\(\)\s*=>\s*\{`),
+  );
+  expect(source).toMatch(
+    new RegExp(
+      String.raw`\btest\(\s*${quoted(title)}\s*,\s*async\s*\(\)\s*=>\s*\{`,
+    ),
+  );
 });
 
 test.each(["acl-deny-failed", "denial-not-effective"])(

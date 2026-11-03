@@ -179,7 +179,7 @@ export const MUTANTS: Mutant[] = [
   {
     id: "append-nolock",
     file: "src/store/files/append.ts",
-    find: `return withStoreLock(file, async () => {`,
+    find: L("return withStoreLock(", "    file,", "    async () => {"),
     replace: `return ((...a: unknown[]) => (a[1] as () => Promise<unknown>)())(file, async () => {`,
     invariant: "appends hold the store lock: none lands inside an RMW window",
     class: "D2",
@@ -213,7 +213,14 @@ export const MUTANTS: Mutant[] = [
   {
     id: "prune-repofloor-off",
     file: "src/store/files/prune.ts",
-    find: `if (m && m.scope === scope && m.type === type && isVisibleTo(m, reader)) {`,
+    find: L(
+      "if (",
+      "            m &&",
+      "            m.scope === scope &&",
+      "            m.type === type &&",
+      "            isVisibleTo(m, reader)",
+      "          ) {",
+    ),
     replace: `if (m && m.scope === scope && m.type === type) {`,
     invariant: "forget never deletes another repo's row for the same scope",
     class: "guard",
@@ -271,7 +278,10 @@ export const MUTANTS: Mutant[] = [
   {
     id: "undo-force-safety-removed",
     file: "src/store/undo.ts",
-    find: `const safety = mode === "force" ? (await snapshotFiles([target]))[0] : undefined;`,
+    find: L(
+      "const safety =",
+      '        mode === "force" ? (await snapshotFiles([target]))[0] : undefined;',
+    ),
     replace: `const safety: string | undefined = undefined;`,
     invariant: "force-restore snapshots what it drops, inside the lock:",
     class: "D4", // the pair - a dropped row must never be in neither place
@@ -281,7 +291,8 @@ export const MUTANTS: Mutant[] = [
     id: "undo-force-safety-after-publish",
     file: "src/store/undo.ts",
     find: L(
-      '      const safety = mode === "force" ? (await snapshotFiles([target]))[0] : undefined;',
+      "const safety =",
+      '        mode === "force" ? (await snapshotFiles([target]))[0] : undefined;',
       "",
       "      let out = snapLines;",
       '      if (mode === "merge") {',
@@ -290,9 +301,9 @@ export const MUTANTS: Mutant[] = [
       "        // rows the snapshot never saw. Merge is a deliberate superset: rows the",
       "        // snapshotter wrote after the snapshot are NOT dropped here; choose FORCE",
       "        // for that.",
-      "        out = snapLines.map((l) => curByKey.get(rowKey(l)) ?? l).concat(",
-      "          curOwn.filter((l) => !snapByKey.has(rowKey(l))),",
-      "        );",
+      "        out = snapLines",
+      "          .map((l) => curByKey.get(rowKey(l)) ?? l)",
+      "          .concat(curOwn.filter((l) => !snapByKey.has(rowKey(l))));",
       "      }",
       "      // FORCE's \"exact rollback\" is exact FOR THE CALLER'S REPOSITORY, not",
       "      // beyond it: foreign live lines rejoin the file verbatim in every mode,",
@@ -354,7 +365,12 @@ export const MUTANTS: Mutant[] = [
   {
     id: "undo-check-mutates",
     file: "src/store/undo.ts",
-    find: `if (mode === "check" && (concurrentAdded.length || concurrentChanged.length)) {`,
+    find: L(
+      "if (",
+      '        mode === "check" &&',
+      "        (concurrentAdded.length || concurrentChanged.length)",
+      "      ) {",
+    ),
     replace: `if (mode === "check" && (concurrentAdded.length || concurrentChanged.length) && false) {`,
     invariant:
       "check mode never writes: a diverged store is refused, untouched",
@@ -420,7 +436,12 @@ export const MUTANTS: Mutant[] = [
   {
     id: "viewer-host-guard-off",
     file: "src/viewer/server.ts",
-    find: `if (!allowedHostnames().has(url.hostname) || (url.port || "80") !== String(port)) {`,
+    find: L(
+      "if (",
+      "    !allowedHostnames().has(url.hostname) ||",
+      '    (url.port || "80") !== String(port)',
+      "  ) {",
+    ),
     replace: `if (false && (!allowedHostnames().has(url.hostname) || (url.port || "80") !== String(port))) {`,
     invariant:
       "the loopback viewer rejects foreign Host headers (DNS rebinding)",
@@ -429,7 +450,10 @@ export const MUTANTS: Mutant[] = [
   {
     id: "viewer-content-type-off",
     file: "src/viewer/server.ts",
-    find: `if (type !== "application/json") return error("content-type must be application/json", 415);`,
+    find: L(
+      'if (type !== "application/json")',
+      '    return error("content-type must be application/json", 415);',
+    ),
     replace: `if (false && type !== "application/json") return error("content-type must be application/json", 415);`,
     invariant: "writes must be application/json (cross-site form refusal)",
     class: "guard",
@@ -500,9 +524,9 @@ export const MUTANTS: Mutant[] = [
     id: "restore-merge-drops",
     file: "src/store/undo.ts",
     find: L(
-      `        out = snapLines.map((l) => curByKey.get(rowKey(l)) ?? l).concat(`,
-      `          curOwn.filter((l) => !snapByKey.has(rowKey(l))),`,
-      `        );`,
+      "out = snapLines",
+      "          .map((l) => curByKey.get(rowKey(l)) ?? l)",
+      "          .concat(curOwn.filter((l) => !snapByKey.has(rowKey(l))));",
     ),
     replace: `        out = snapLines;`,
     invariant:
@@ -529,7 +553,9 @@ export const MUTANTS: Mutant[] = [
   {
     id: "repo-floor-off",
     file: "src/store/model/visibility.ts",
-    find: `  return m.repo === reader.scope.key || (!!m.repoPath && m.repoPath === reader.scope.path);`,
+    // #254 moved the repository decision behind the shared matcher. Keep this
+    // same floor-bypass mutant aimed at the read predicate's final decision.
+    find: `  return matchesRepository(m.repo, m.repoPath, reader.scope);`,
     replace: `  return true;`,
     invariant: "another repo's rows never surface or get deleted here",
     class: "guard",
@@ -585,7 +611,10 @@ export const MUTANTS: Mutant[] = [
   {
     id: "viewer-origin-guard-off",
     file: "src/viewer/server.ts",
-    find: `  if (origin !== null && origin !== url.origin) return error("cross-origin request refused", 403);`,
+    find: L(
+      "if (origin !== null && origin !== url.origin)",
+      '    return error("cross-origin request refused", 403);',
+    ),
     replace: `  if (origin !== null && false) return error("cross-origin request refused", 403);`,
     invariant: "cross-origin writes to the viewer are refused",
     class: "guard",
@@ -601,7 +630,12 @@ export const MUTANTS: Mutant[] = [
   {
     id: "import-open-status-unconditional",
     file: "src/portable/import.ts",
-    find: `    if (c.status === "open" && (!allowFrontier || claimedGlobal || (hadStamp && !currentScope))) {`,
+    find: L(
+      "if (",
+      '      c.status === "open" &&',
+      "      (!allowFrontier || claimedGlobal || (hadStamp && !currentScope))",
+      "    ) {",
+    ),
     replace: `    if (false) {`,
     invariant:
       "status:open is honored only under its guards (export header, own repo, current scope)",
