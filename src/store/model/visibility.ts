@@ -1,5 +1,6 @@
-// visibility — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
-import { repoScopeFor, sessionScope, type RepoScope } from "../../identity/repokey.ts";
+// Repository visibility, shared by memory rows, restore lines, and evidence.
+import { createHash } from "node:crypto";
+import { normalizeDirPath, repoScopeFor, sessionScope, type RepoScope } from "../../identity/repokey.ts";
 import { getCurrent } from "../../core/state.ts";
 import { parseLine } from "../../core/logfmt/format.ts";
 import { prune } from "../files/prune.ts";
@@ -60,6 +61,25 @@ export function readerFromSid(sid?: unknown): Reader {
     : readerForAmbient();
 }
 
+// Before #109, path-derived keys on win32/darwin hashed the whole canonical
+// path in lowercase, even on case-sensitive volumes. Such a key can equal a
+// distinct lowercase sibling's current key (#254). The stored path identifies
+// these legacy stamps without a migration: require the same directory, allowing
+// real symlink/case-insensitive aliases, instead of trusting that key alone.
+// Remote-derived keys still share across clones with different paths. A stamp
+// without repoPath cannot be classified this way and keeps key-only matching.
+function matchesRepository(repo: string, repoPath: string | undefined, scope: RepoScope): boolean {
+  if (repoPath === scope.path) return true; // pre-hash and legacy owner access
+  if (repoPath) {
+    // The historical hash used realpath too: repoPath itself may name a
+    // symlink/junction, a short Windows spelling, or contain dot segments.
+    const canonical = normalizeDirPath(repoPath);
+    const legacyKey = createHash("sha1").update(canonical.toLowerCase()).digest("hex").slice(0, 12);
+    if (repo === legacyKey) return canonical === normalizeDirPath(scope.path);
+  }
+  return repo === scope.key;
+}
+
 // The ONLY repo filter every read path uses (injection sinks, recall, list,
 // update targeting, prune, decay, gate scope reads). A row is visible when it
 // is global (explicit marker OR no stamp — legacy rows and writes by
@@ -70,7 +90,7 @@ export function isVisibleTo(m: Pick<Memory, "repo" | "repoPath">, reader: Reader
   if (reader.kind === "admin") return true;
   if (!m.repo || m.repo === "global") return true;
   if (reader.kind === "global-only") return false;
-  return m.repo === reader.scope.key || (!!m.repoPath && m.repoPath === reader.scope.path);
+  return matchesRepository(m.repo, m.repoPath, reader.scope);
 }
 
 export function visibleTo(mems: Memory[], reader: Reader): Memory[] {
@@ -116,10 +136,7 @@ export function evidenceVisibleTo(
     if (repo === "global") return true;
     if (reader.kind === "global-only") return false;
     const repoPath = fields.repoPath;
-    return (
-      repo === reader.scope.key ||
-      (typeof repoPath === "string" && !!repoPath && repoPath === reader.scope.path)
-    );
+    return matchesRepository(repo, typeof repoPath === "string" ? repoPath : undefined, reader.scope);
   }
   const sid = fields.sid;
   if (typeof sid === "string" && sid !== "" && sid !== "?") {
