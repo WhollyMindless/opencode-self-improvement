@@ -4,8 +4,11 @@
 // through the same loadAll() used by recall/inject (so blocked entries are
 // hidden), and all mutations are non-destructive (snapshot + audit + supersede).
 // I2: serves only file data; never writes into any repo.
+// #223: a non-loopback bind or allowed host mints a startup token (0600, in
+// the store root) and every request must present it; loopback stays open.
 import { basename, join } from "node:path";
 import { isIP } from "node:net";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { serve, type Server } from "bun";
 import { z, type ZodTypeAny } from "zod";
 import {
@@ -43,6 +46,7 @@ import {
 } from "./mutate.ts";
 import { tombstones } from "../store/tombstones/tombstone.ts";
 import { assertViewerWriteAllowed } from "./rejections.ts";
+import { preparePrivateFile } from "../core/permissions.ts";
 
 const PAGE = join(import.meta.dir, "page.html");
 const HOST = process.env.OPENCODE_VIEWER_HOST || "127.0.0.1";
@@ -97,8 +101,63 @@ function isLoopbackHostname(name: string): boolean {
   return host === "::1" || host === "0:0:0:0:0:0:0:1";
 }
 
-const EXPOSURE_WARNING =
-  "[memory-viewer] WARNING: non-loopback hosts are allowed. The viewer serves private memory over plain HTTP without authentication; anyone who can reach it with an allowed Host can read or modify the store. Use only on a network you trust.";
+// #223: exposure without authentication was the defect — with a non-loopback
+// bind (or an allowed non-loopback name) every read and mutation was open HTTP
+// for the whole LAN. A token is now minted at startup and every request must
+// present it: the Host/Origin layer stays as the CSRF defence it always was,
+// but it is no longer the only thing between the LAN and the store.
+const TOKEN_FILE = "viewer.token";
+const TOKEN_COOKIE = "osi-viewer";
+const TOKEN_SHAPE = /^[0-9a-f]{64}$/;
+
+function tokenPath(): string {
+  return join(memoryRoot(), TOKEN_FILE);
+}
+
+// Reuse a token already in the file so a restart does not invalidate URLs a
+// human has open (and two viewers sharing a store share one token); mint a
+// fresh one otherwise. The file is claimed 0600 before any content lands.
+async function mintViewerToken(): Promise<string> {
+  const path = tokenPath();
+  const prior = (
+    await Bun.file(path)
+      .text()
+      .catch(() => "")
+  ).trim();
+  preparePrivateFile(path);
+  if (TOKEN_SHAPE.test(prior)) return prior;
+  const token = randomBytes(32).toString("hex");
+  await Bun.write(path, token);
+  return token;
+}
+
+function tokenMatches(candidate: string, expected: string): boolean {
+  const a = Buffer.from(candidate);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function cookieValue(req: Request, name: string): string | null {
+  for (const part of (req.headers.get("cookie") ?? "").split(";")) {
+    const eq = part.indexOf("=");
+    if (eq !== -1 && part.slice(0, eq).trim() === name)
+      return decodeURIComponent(part.slice(eq + 1));
+  }
+  return null;
+}
+
+function exposureWarning(path: string): string {
+  return (
+    "[memory-viewer] WARNING: non-loopback hosts are allowed. Every request " +
+    "must present the startup-minted token (Authorization: Bearer, the " +
+    TOKEN_COOKIE +
+    " cookie, or ?token= on /); requests without it are refused with 401. " +
+    "Token: " +
+    path +
+    " (mode 0600). Plain HTTP still exposes the token on the wire — use " +
+    "only on a network you trust."
+  );
+}
 
 function rejectRequest(req: Request, url: URL, port: number): Response | null {
   if (
@@ -178,10 +237,20 @@ async function blockedRows(): Promise<Row[]> {
 export interface ViewerServer {
   server: Server<any>;
   url: string;
+  /** The minted token when exposure requires auth; null on a loopback-only bind. */
+  token: string | null;
 }
 
 export async function startViewer(port: number = PORT): Promise<ViewerServer> {
   const page = await Bun.file(PAGE).text();
+  // The same condition that used to only warn now switches authentication on:
+  // if any allowed name can be reached from another machine, the token is
+  // mandatory for every request, reads included (the store is the blast
+  // radius of a read too). Loopback-only binds keep the token-free flow.
+  const exposed = [...allowedHostnames()].some(
+    (host) => !isLoopbackHostname(host),
+  );
+  const viewerToken = exposed ? await mintViewerToken() : null;
   const server = serve({
     hostname: HOST,
     port,
@@ -207,13 +276,30 @@ export async function startViewer(port: number = PORT): Promise<ViewerServer> {
       }
       const rejected = rejectRequest(req, url, server.port ?? port);
       if (rejected) return rejected;
+      if (viewerToken !== null) {
+        // Bearer header or cookie on every path; the raw ?token= is accepted
+        // on / only, as the bootstrap a human pastes once. The page's own
+        // fetches are same-origin and carry the cookie, so the token never
+        // has to appear in an API URL (or in a log line).
+        const auth = req.headers.get("authorization");
+        const bearer =
+          auth && /^Bearer /i.test(auth) ? auth.slice(7).trim() : null;
+        const cookie = cookieValue(req, TOKEN_COOKIE);
+        const bootstrap =
+          url.pathname === "/" ? url.searchParams.get("token") : null;
+        const candidate = bearer ?? cookie ?? bootstrap;
+        if (!candidate || !tokenMatches(candidate, viewerToken))
+          return error("viewer authentication required", 401);
+      }
       if (url.pathname === "/") {
-        return new Response(page, {
-          headers: {
-            ...SECURITY_HEADERS,
-            "content-type": "text/html; charset=utf-8",
-          },
-        });
+        const headers: Record<string, string> = {
+          ...SECURITY_HEADERS,
+          "content-type": "text/html; charset=utf-8",
+        };
+        if (viewerToken !== null)
+          headers["set-cookie"] =
+            `${TOKEN_COOKIE}=${viewerToken}; HttpOnly; SameSite=Strict; Path=/`;
+        return new Response(page, { headers });
       }
       if (req.method === "GET" && url.pathname === "/api/data") {
         return loaded().then(
@@ -228,10 +314,14 @@ export async function startViewer(port: number = PORT): Promise<ViewerServer> {
   });
   const bound = server.port ?? port;
   // Warn after binding; wildcard binds (0.0.0.0 and ::) are non-loopback too.
-  if ([...allowedHostnames()].some((host) => !isLoopbackHostname(host))) {
-    console.warn(EXPOSURE_WARNING);
-  }
-  return { server, url: `http://${HOST}:${bound}/` };
+  if (exposed) console.warn(exposureWarning(tokenPath()));
+  return {
+    server,
+    url: viewerToken
+      ? `http://${HOST}:${bound}/?token=${viewerToken}`
+      : `http://${HOST}:${bound}/`,
+    token: viewerToken,
+  };
 }
 
 async function loaded(): Promise<Record<string, unknown>> {
