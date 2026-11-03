@@ -58,7 +58,8 @@ export const register: ToolRegister = (editor, deps) => {
             // reason — a session that guesses the reason gets "No evidence"
             // while the row is in the log. Keep the `ev=write_blocked`
             // literal in any future hint change.
-            outcome.hint ?? "Evidence recorded; inspect with memory_evidence ev=write_blocked."
+            outcome.hint ??
+            "Evidence recorded; inspect with memory_evidence ev=write_blocked."
           }`,
         };
       },
