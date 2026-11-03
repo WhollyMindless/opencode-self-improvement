@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { replaceWithCachedHandle } from "./helpers/cached-handle.ts";
-import { snapshotFiles } from "../src/store/files/snapshots.ts"
+import { snapshotFiles } from "../src/store/files/snapshots.ts";
 import { type Memory } from "../src/store/model/memory.ts";
 import { removeBlock, blocklistFile } from "../src/store/blocklist.ts";
 import { hitsFile, recordHits, resetHitThrottle } from "../src/hits/ledger.ts";
@@ -20,18 +27,29 @@ beforeEach(() => {
   old = process.env.OPENCODE_MEMORY_DIR;
   root = mkdtempSync(join(tmpdir(), "osi-complete-reads-"));
   process.env.OPENCODE_MEMORY_DIR = root;
-  resetState(); resetSessionScopes(); setRepoScope(null); resetHitThrottle();
+  resetState();
+  resetSessionScopes();
+  setRepoScope(null);
+  resetHitThrottle();
 });
 afterEach(() => {
   restore();
-  resetState(); resetSessionScopes(); setRepoScope(null); resetHitThrottle();
+  resetState();
+  resetSessionScopes();
+  setRepoScope(null);
+  resetHitThrottle();
   if (old === undefined) delete process.env.OPENCODE_MEMORY_DIR;
   else process.env.OPENCODE_MEMORY_DIR = old;
-  if (dirname(resolve(root)) !== resolve(tmpdir()) || !basename(root).startsWith("osi-complete-reads-")) throw new Error("Unexpected fixture root");
+  if (
+    dirname(resolve(root)) !== resolve(tmpdir()) ||
+    !basename(root).startsWith("osi-complete-reads-")
+  )
+    throw new Error("Unexpected fixture root");
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 const day = () => join(root, "2026-10-29.logfmt");
-const row = (ts: string, content: string) => `ts=${ts} type=context scope=plan content="${content}"\n`;
+const row = (ts: string, content: string) =>
+  `ts=${ts} type=context scope=plan content="${content}"\n`;
 
 test("Bun cached-size premise: replacement text is cropped until the runtime is fixed", async () => {
   // Deliberately fails when Bun fixes this: re-audit the readers and their
@@ -50,7 +68,8 @@ test("Bun cached-size premise: replacement text is cropped until the runtime is 
 });
 
 test("snapshot copies complete bytes including BOM and trailing newline", async () => {
-  const text = "\uFEFF" + row("one", "x".repeat(10000)) + row("tail", "last row");
+  const text =
+    "\uFEFF" + row("one", "x".repeat(10000)) + row("tail", "last row");
   restore = await replaceWithCachedHandle(day(), text);
   const [snap] = await snapshotFiles([day()]);
   expect(readFileSync(snap)).toEqual(Buffer.from(text));
@@ -58,23 +77,51 @@ test("snapshot copies complete bytes including BOM and trailing newline", async 
 test("undo merge retains the complete live tail", async () => {
   writeFileSync(day(), row("original", "original row"));
   const [snap] = await snapshotFiles([day()]);
-  const text = row("original", "original row") + row("large", "x".repeat(10000)) + row("tail", "keep this live row");
-  restore = await replaceWithCachedHandle(day(), text, row("original", "original row"));
+  const text =
+    row("original", "original row") +
+    row("large", "x".repeat(10000)) +
+    row("tail", "keep this live row");
+  restore = await replaceWithCachedHandle(
+    day(),
+    text,
+    row("original", "original row"),
+  );
   await restoreSnapshot(snap, root, "merge");
-  expect(readFileSync(day(), "utf8")).toContain(row("tail", "keep this live row").trim());
-  expect(readFileSync(day(), "utf8")).toContain(row("large", "x".repeat(10000)).trim());
+  expect(readFileSync(day(), "utf8")).toContain(
+    row("tail", "keep this live row").trim(),
+  );
+  expect(readFileSync(day(), "utf8")).toContain(
+    row("large", "x".repeat(10000)).trim(),
+  );
 });
 test("unblocking one row conserves complete later block entries", async () => {
   const tail = `ts=tail reason="${"x".repeat(10000)}" blocked_at=now\n`;
-  restore = await replaceWithCachedHandle(blocklistFile(), `ts=remove reason=old blocked_at=now\n${tail}`);
+  restore = await replaceWithCachedHandle(
+    blocklistFile(),
+    `ts=remove reason=old blocked_at=now\n${tail}`,
+  );
   expect(await removeBlock("remove")).toBe(true);
   expect(readFileSync(blocklistFile(), "utf8")).toContain(tail.trim());
   expect(readFileSync(blocklistFile(), "utf8")).not.toContain("ts=remove");
 });
 test("ledger rotation keeps the newer half from the complete replacement", async () => {
-  const lines = Array.from({length: 4}, (_, i) => `ts=${i} padding="${"x".repeat(700000)}"`);
-  restore = await replaceWithCachedHandle(hitsFile(), lines.join("\n") + "\n", " ".repeat(2000001));
-  const memory = { ts: "new", type: "context", scope: "plan", content: "new row", file: "x", index: 0 } as Memory;
+  const lines = Array.from(
+    { length: 4 },
+    (_, i) => `ts=${i} padding="${"x".repeat(700000)}"`,
+  );
+  restore = await replaceWithCachedHandle(
+    hitsFile(),
+    lines.join("\n") + "\n",
+    " ".repeat(2000001),
+  );
+  const memory = {
+    ts: "new",
+    type: "context",
+    scope: "plan",
+    content: "new row",
+    file: "x",
+    index: 0,
+  } as Memory;
   expect(await recordHits("recall", "test", [memory])).toBe(true);
   const retained = readFileSync(hitsFile(), "utf8").trim().split("\n");
   expect(retained).toHaveLength(3);
@@ -83,30 +130,51 @@ test("ledger rotation keeps the newer half from the complete replacement", async
 test("import processes the final JSONL row rather than a cropped prefix", async () => {
   const file = join(root, "import.jsonl");
   const texts = ["x".repeat(10000), "last complete imported row"];
-  restore = await replaceWithCachedHandle(file, texts.map(content => JSON.stringify({type: "context", scope: "plan", content})).join("\n") + "\n");
+  restore = await replaceWithCachedHandle(
+    file,
+    texts
+      .map((content) =>
+        JSON.stringify({ type: "context", scope: "plan", content }),
+      )
+      .join("\n") + "\n",
+  );
   const seen: string[] = [];
-  const tally = await importMemories(file, async c => { seen.push(c.content); return {action: "promoted"}; });
+  const tally = await importMemories(file, async (c) => {
+    seen.push(c.content);
+    return { action: "promoted" };
+  });
   expect(seen).toEqual(texts);
   expect(tally.promoted).toBe(2);
   expect(tally.skipped).toBe(0);
 });
 test("status parses the complete replacement JSON", async () => {
   const payload = { at: "now", block: "x".repeat(10000) };
-  restore = await replaceWithCachedHandle(statusFile(), JSON.stringify(payload));
+  restore = await replaceWithCachedHandle(
+    statusFile(),
+    JSON.stringify(payload),
+  );
   expect(await readStatus()).toMatchObject(payload);
 });
 test("missing callers preserve their distinct results", async () => {
   expect(await snapshotFiles([day()])).toEqual([]);
   expect(await removeBlock("missing")).toBe(false);
   expect(await readStatus()).toBeNull();
-  await expect(importMemories(join(root, "missing.jsonl"), async () => ({action: "promoted"}))).rejects.toThrow("import file not found");
+  await expect(
+    importMemories(join(root, "missing.jsonl"), async () => ({
+      action: "promoted",
+    })),
+  ).rejects.toThrow("import file not found");
 });
 
 test("read failures propagate for store mutations while status stays fail-soft", async () => {
   mkdirSync(day());
-  await expect(snapshotFiles([day()])).rejects.toMatchObject({code: "EISDIR"});
+  await expect(snapshotFiles([day()])).rejects.toMatchObject({
+    code: "EISDIR",
+  });
   mkdirSync(blocklistFile());
-  await expect(removeBlock("missing")).rejects.toMatchObject({code: "EISDIR"});
+  await expect(removeBlock("missing")).rejects.toMatchObject({
+    code: "EISDIR",
+  });
   writeFileSync(statusFile(), "invalid JSON");
   expect(await readStatus()).toBeNull();
 });
@@ -114,9 +182,15 @@ test("JSON readers retain BOM compatibility", async () => {
   writeFileSync(statusFile(), '\uFEFF{"at":"now","block":"complete"}');
   expect((await readStatus())?.block).toBe("complete");
   const path = join(root, "bom.jsonl");
-  writeFileSync(path, '\uFEFF{"type":"context","scope":"plan","content":"complete"}\n');
+  writeFileSync(
+    path,
+    '\uFEFF{"type":"context","scope":"plan","content":"complete"}\n',
+  );
   const seen: string[] = [];
-  const tally = await importMemories(path, async c => { seen.push(c.content); return {action: "promoted"}; });
+  const tally = await importMemories(path, async (c) => {
+    seen.push(c.content);
+    return { action: "promoted" };
+  });
   expect(tally.promoted).toBe(1);
   expect(seen).toEqual(["complete"]);
 });

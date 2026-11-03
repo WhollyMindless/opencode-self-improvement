@@ -1,7 +1,14 @@
 // Command self-install: the plugin mirrors /repo-init into opencode's commands
 // dir on load — no terminal copy step. Idempotent (never overwrites edits).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin } from "./harness.ts";
@@ -24,6 +31,22 @@ afterEach(() => {
 });
 
 describe("ensureInitCommand", () => {
+  test.each(["repo-init", "memory-report"])(
+    "fresh /%s installation retains its description frontmatter",
+    async (name) => {
+      const target = await ensureCommand(name);
+      if (!target) throw new Error(`command ${name} was not installed`);
+      const installed = readFileSync(target, "utf8");
+      expect(installed).toMatch(/^---\r?\ndescription: [^\r\n]+\r?\n---\r?\n/);
+      expect(installed).toBe(
+        readFileSync(
+          join(import.meta.dir, "..", "command", `${name}.md`),
+          "utf8",
+        ),
+      );
+    },
+  );
+
   test("writes /repo-init on plugin load; content points at memory_init", async () => {
     mkdirSync(commandsDirPath, { recursive: true });
     await loadPlugin(process.cwd());

@@ -46,13 +46,27 @@ import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { contentHash } from "../../evidence/record.ts";
-import { formatLine, parseLine } from "../../core/logfmt/format.ts"
-import { appendLog, fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts"
+import { formatLine, parseLine } from "../../core/logfmt/format.ts";
+import {
+  appendLog,
+  fileIdentity,
+  writeAtomic,
+} from "../../core/logfmt/publish.ts";
 import { readLines } from "../../core/logfmt/read.ts";
 import { withStoreLock, LOCK_WRITE } from "../lock.ts";
 import { redactSecrets } from "../secrets.ts";
-import { STOPWORDS, tokens, numericTokens, polaritySigns } from "../../core/tokenize.ts";
-import { type Rejection, type ValueDifference, findRejection, rejectedFile } from "./rejection.ts";
+import {
+  STOPWORDS,
+  tokens,
+  numericTokens,
+  polaritySigns,
+} from "../../core/tokenize.ts";
+import {
+  type Rejection,
+  type ValueDifference,
+  findRejection,
+  rejectedFile,
+} from "./rejection.ts";
 
 /** How many lowest token-hashes the sketch keeps. */
 const SKETCH_SIZE = 64;
@@ -118,7 +132,10 @@ export interface Tombstone {
 }
 
 function tokenHash(token: string): string {
-  return createHash("sha1").update(token).digest("hex").slice(0, TOKEN_HASH_CHARS);
+  return createHash("sha1")
+    .update(token)
+    .digest("hex")
+    .slice(0, TOKEN_HASH_CHARS);
 }
 
 /** The GATE-3 token set minus the filler words, so the sketch is a set of
@@ -193,7 +210,10 @@ export function valueSigOf(content: string): ValueSig {
  *     near-match decides exactly as it shipped (every row from here on carries
  *     both signatures, so that degradation does not grow).
  */
-export function differsIn(a: ValueSig, b: ValueSig): ValueDifference | undefined {
+export function differsIn(
+  a: ValueSig,
+  b: ValueSig,
+): ValueDifference | undefined {
   if (moved(a.num, b.num)) return "numeric_value";
   if (moved(a.pol, b.pol)) return "polarity";
   return undefined;
@@ -252,8 +272,14 @@ export async function tombstones(): Promise<Tombstone[]> {
       sig: typeof f.sig === "string" ? f.sig.split(".").filter(Boolean) : [],
       // Present-but-empty ("num=") means tracked with nothing asserted; absent
       // means the row predates value tracking. differsIn treats them apart.
-      num: typeof f.num === "string" ? f.num.split(".").filter(Boolean) : undefined,
-      pol: typeof f.pol === "string" ? f.pol.split(".").filter(Boolean) : undefined,
+      num:
+        typeof f.num === "string"
+          ? f.num.split(".").filter(Boolean)
+          : undefined,
+      pol:
+        typeof f.pol === "string"
+          ? f.pol.split(".").filter(Boolean)
+          : undefined,
     });
   }
   cache = { at: identity, rows: out };
@@ -319,7 +345,11 @@ export async function tombstoneMany(
   // batch must be joined with newlines. Joining on "" silently published every
   // record in the batch as one line, of which only the first parsed — and a
   // caller forgetting one row at a time could not see it.
-  await withStoreLock(file, () => appendLog(file, fresh.join("\n")), LOCK_WRITE);
+  await withStoreLock(
+    file,
+    () => appendLog(file, fresh.join("\n")),
+    LOCK_WRITE,
+  );
   resetTombstoneCache();
   return { recorded: fresh.length, chs };
 }
@@ -332,7 +362,10 @@ export async function tombstone(
   content: string,
   opts: { reason: string; source: string; scope?: string; type?: string },
 ): Promise<{ ch: string; recorded: boolean }> {
-  const { recorded, chs } = await tombstoneMany([{ content, scope: opts.scope, type: opts.type }], opts);
+  const { recorded, chs } = await tombstoneMany(
+    [{ content, scope: opts.scope, type: opts.type }],
+    opts,
+  );
   return { ch: chs[0], recorded: recorded > 0 };
 }
 
@@ -360,7 +393,11 @@ export async function removeTombstone(ch: string): Promise<boolean> {
         const row = parseLine(l);
         return !(row && row.ch === ch);
       });
-      await writeAtomic(file, kept.join("\n") + (kept.length ? "\n" : ""), since);
+      await writeAtomic(
+        file,
+        kept.join("\n") + (kept.length ? "\n" : ""),
+        since,
+      );
       resetTombstoneCache();
       return true;
     },

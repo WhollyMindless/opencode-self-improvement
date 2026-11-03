@@ -4,7 +4,15 @@
 // turns against it, and exposes the event stream + provider request log for
 // BDD assertions. Nothing here reads or writes the developer's real config.
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -63,10 +71,14 @@ export interface Fake {
 
 export async function startFake(): Promise<Fake> {
   const dir = mkdtempSync(join(tmpdir(), "psi-e2e-fake-"));
-  const child = spawn(process.execPath, [join(import.meta.dir, "fake-model.ts")], {
-    env: { ...process.env, SMOKE_DIR: dir, FAKE_PORT: "0" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child = spawn(
+    process.execPath,
+    [join(import.meta.dir, "fake-model.ts")],
+    {
+      env: { ...process.env, SMOKE_DIR: dir, FAKE_PORT: "0" },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   child.stdout.resume();
   child.stderr.resume();
   const portFile = join(dir, "port");
@@ -85,11 +97,15 @@ export async function startFake(): Promise<Fake> {
   return {
     port,
     dir,
-    setSteps: (steps) => writeFileSync(join(dir, "steps.json"), JSON.stringify(steps, null, 2)),
+    setSteps: (steps) =>
+      writeFileSync(join(dir, "steps.json"), JSON.stringify(steps, null, 2)),
     reset: async () => {
       await fetch(`http://127.0.0.1:${port}/__reset`, { method: "POST" });
     },
-    requests: async () => (await (await fetch(`http://127.0.0.1:${port}/__requests`)).json()) as any[],
+    requests: async () =>
+      (await (
+        await fetch(`http://127.0.0.1:${port}/__requests`)
+      ).json()) as any[],
     stop: () => child.kill(),
   };
 }
@@ -127,7 +143,10 @@ export function makeGuest(fake: Fake, pluginPath: string): Guest {
           fake: {
             npm: "@ai-sdk/openai-compatible",
             name: "Fake",
-            options: { baseURL: `http://127.0.0.1:${fake.port}/v1`, apiKey: "fake-key" },
+            options: {
+              baseURL: `http://127.0.0.1:${fake.port}/v1`,
+              apiKey: "fake-key",
+            },
             models: { scripted: { name: "Scripted" } },
           },
         },
@@ -158,7 +177,7 @@ export function makeGuest(fake: Fake, pluginPath: string): Guest {
 export function resolveOpencode(): string {
   const bin = process.env.OPENCODE_BIN
     ? process.env.OPENCODE_BIN
-    : Bun.which("opencode") ?? undefined;
+    : (Bun.which("opencode") ?? undefined);
   if (!bin)
     throw new Error(
       "opencode CLI not found — install it (or set OPENCODE_BIN). The terminal merge gate cannot run without a real host.",
@@ -199,8 +218,23 @@ export async function turn(
   // newer runtimes, while Bun's own spawn still runs it (with quoting kept
   // correct); resolveOpencode() usually has already unwrapped it to the exe.
   const child = Bun.spawn(
-    [resolveOpencode(), "run", "--standalone", "--format", "json", "-m", "fake/scripted", prompt],
-    { cwd: guest.projDir, env: guest.env, stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+    [
+      resolveOpencode(),
+      "run",
+      "--standalone",
+      "--format",
+      "json",
+      "-m",
+      "fake/scripted",
+      prompt,
+    ],
+    {
+      cwd: guest.projDir,
+      env: guest.env,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    },
   );
   const reading = Promise.all([
     new Response(child.stdout).text(),
@@ -246,7 +280,8 @@ export async function turn(
     events,
     stderr,
     toolUses,
-    outputs: (name) => toolUses.filter((t) => t.tool === name).map((t) => t.output),
+    outputs: (name) =>
+      toolUses.filter((t) => t.tool === name).map((t) => t.output),
     text: () =>
       events
         .filter((e) => e.type === "text")
@@ -259,9 +294,11 @@ export async function turn(
 
 /** Combined host-visible failure scan: turn exit, error events, stderr. */
 export function loadFailure(run: Run): string | undefined {
-  if (run.exit !== 0) return `opencode run exited ${run.exit} (timeout kill if null)`;
+  if (run.exit !== 0)
+    return `opencode run exited ${run.exit} (timeout kill if null)`;
   const errs = run.errors();
-  if (errs.length) return `error events: ${JSON.stringify(errs[0]).slice(0, 300)}`;
+  if (errs.length)
+    return `error events: ${JSON.stringify(errs[0]).slice(0, 300)}`;
   const m = run.stderr.match(LOAD_ERROR_RE);
   if (m) return `stderr load error: ${m[0]}`;
   return undefined;
@@ -290,17 +327,33 @@ export async function installPacked(): Promise<string> {
   // bun 1.4.3 writes nothing, exit 0, when the destination does not exist.
   const packDir = join(work, "packdir");
   mkdirSync(packDir, { recursive: true });
-  const pack = Bun.spawnSync(["bun", "pm", "pack", "--destination", packDir], { cwd: REPO });
-  if (pack.exitCode !== 0) throw new Error(`bun pm pack failed: ${pack.stderr}`);
+  const pack = Bun.spawnSync(["bun", "pm", "pack", "--destination", packDir], {
+    cwd: REPO,
+  });
+  if (pack.exitCode !== 0)
+    throw new Error(`bun pm pack failed: ${pack.stderr}`);
   const tgz = readdirTgz(packDir);
   const install = join(work, "install");
   mkdirSync(install, { recursive: true });
-  writeFileSync(join(install, "package.json"), '{"name":"psi-e2e-consumer","private":true}');
+  writeFileSync(
+    join(install, "package.json"),
+    '{"name":"psi-e2e-consumer","private":true}',
+  );
   const npm = Bun.spawnSync(
-    ["npm", "install", "--prefix", install, "--omit=dev", "--no-audit", "--no-fund", tgz],
+    [
+      "npm",
+      "install",
+      "--prefix",
+      install,
+      "--omit=dev",
+      "--no-audit",
+      "--no-fund",
+      tgz,
+    ],
     { cwd: install },
   );
-  if (npm.exitCode !== 0) throw new Error(`npm install of packed tarball failed: ${npm.stderr}`);
+  if (npm.exitCode !== 0)
+    throw new Error(`npm install of packed tarball failed: ${npm.stderr}`);
   return join(install, "node_modules", "opencode-self-improvement");
 }
 
@@ -323,7 +376,15 @@ export function tuiJsxSource(installedDir: string): string {
   const scratch = mkdtempSync(join(tmpdir(), "psi-e2e-tui-"));
   const out = join(scratch, "out.js");
   const p = Bun.spawnSync(
-    ["bun", "build", join(installedDir, "src", "tui", "panel.tsx"), "--target=bun", "--packages=external", "--outfile", out],
+    [
+      "bun",
+      "build",
+      join(installedDir, "src", "tui", "panel.tsx"),
+      "--target=bun",
+      "--packages=external",
+      "--outfile",
+      out,
+    ],
     { cwd: scratch },
   );
   if (p.exitCode !== 0) throw new Error(`tui compile failed: ${p.stderr}`);

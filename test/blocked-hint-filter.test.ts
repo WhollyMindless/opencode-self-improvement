@@ -50,7 +50,11 @@ test("a blocked write's hint names a memory_evidence filter that returns the blo
   // gate blocks ambiguous_memory with no block-specific hint, so the
   // catch-all text is what the session sees.
   const blocked = await loaded.tools.memory_remember.execute(
-    { type: "learning", scope: "", content: "The worker drains the queue before shutdown." },
+    {
+      type: "learning",
+      scope: "",
+      content: "The worker drains the queue before shutdown.",
+    },
     ctx,
   );
   expect(blocked.content).toContain("Write blocked at GATE (ambiguous_memory)");

@@ -9,21 +9,32 @@
 // Global (explicit or unstamped) rows stay mergeable from anywhere; that is
 // now stated in the tool contract instead of granted implicitly.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir } from "../src/core/config/paths.ts"
+import { evidenceDir } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
-import { parseLine } from "../src/core/logfmt/format.ts"
+import { parseLine } from "../src/core/logfmt/format.ts";
 import { readLines } from "../src/core/logfmt/read.ts";
-import { appendMemory } from "../src/store/files/append.ts"
-import { loadAll } from "../src/store/files/load.ts"
-import { markSuperseded } from "../src/store/files/supersede.ts"
+import { appendMemory } from "../src/store/files/append.ts";
+import { loadAll } from "../src/store/files/load.ts";
+import { markSuperseded } from "../src/store/files/supersede.ts";
 import { addBlock, removeBlock } from "../src/store/blocklist.ts";
-import { type Memory } from "../src/store/model/memory.ts"
+import { type Memory } from "../src/store/model/memory.ts";
 import { isActive } from "../src/store/model/predicates.ts";
 import { resetState } from "../src/core/state.ts";
-import { bindSessionProvisional, resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  bindSessionProvisional,
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
 
 let root: string;
@@ -58,7 +69,11 @@ afterEach(async () => {
 // Rows are seeded with an EXPLICIT repo stamp (ambient scope is null while
 // seeding, so nothing else leaks in): these are "known by other means" ids —
 // exactly what the issue says must not be authority.
-async function seedRow(dir: string, marker: string, repoTag?: string): Promise<string> {
+async function seedRow(
+  dir: string,
+  marker: string,
+  repoTag?: string,
+): Promise<string> {
   const scope = resolveRepo(dir);
   return appendMemory({
     type: "context",
@@ -79,8 +94,9 @@ const merge = (args: Record<string, unknown>): Promise<string> =>
 async function mergeResolvedLines(): Promise<boolean> {
   const file = join(evidenceDir(), `${dateStr()}.logfmt`);
   if (!existsSync(file)) return false;
-  return (await readLines(file))
-    .some((l) => parseLine(l)?.ev === "merge_resolved");
+  return (await readLines(file)).some(
+    (l) => parseLine(l)?.ev === "merge_resolved",
+  );
 }
 
 test("repository B's row is not retired from a session in A — even with both ids known", async () => {
@@ -88,7 +104,11 @@ test("repository B's row is not retired from a session in A — even with both i
   const bLoser = await seedRow(b, "B_MERGE_TARGET_ROW");
   const aSurvivor = await seedRow(a, "A_MERGE_SURVIVOR_ROW");
 
-  const out = await merge({ loser: bLoser, survivor: aSurvivor, reason: "cross-repo attempt" });
+  const out = await merge({
+    loser: bLoser,
+    survivor: aSurvivor,
+    reason: "cross-repo attempt",
+  });
   expect(out).toContain("another repository");
   expect(out).not.toContain("canonical");
 
@@ -99,37 +119,50 @@ test("repository B's row is not retired from a session in A — even with both i
   expect(await mergeResolvedLines()).toBe(false);
 });
 
-test.each(["foreign", "own", "global"])("a blocked %s loser cannot be retired through its known id (#204)", async (seat) => {
-  plugin = await loadPlugin(a);
-  bindSessionProvisional("merge-204", a);
-  const loser = await seedRow(seat === "own" ? a : b, "BLOCKED_LOSER", seat === "global" ? "global" : undefined);
-  const survivor = await seedRow(a, "OWN_SURVIVOR");
-  // A refused merge must not revive the survivor as a side effect either.
-  await markSuperseded(survivor, { superseded_by: "2099-01-01T00:00:00.000Z", reason: "prior decision" });
-  const loserRow = await byId(loser);
-  if (!loserRow) throw new Error("seeded loser missing");
-  await addBlock(loser, "human block");
-  expect(await byId(loser)).toBeUndefined(); // pin the hidden-row premise
-  const before = readFileSync(loserRow.file, "utf8");
-  const out = await plugin.tools.memory_merge_review.execute(
-    { loser, survivor, reason: "known id is not authority" },
-    { sessionID: "merge-204", id: "merge-204-call" },
-  );
-  expect(readFileSync(loserRow.file, "utf8")).toBe(before);
-  expect(out.content).not.toContain("is canonical");
-  expect(await mergeResolvedLines()).toBe(false);
-  expect(await removeBlock(loser)).toBe(true);
-  const restored = await byId(loser);
-  if (!restored) throw new Error("unblocked loser missing");
-  expect(restored.superseded_by).toBeUndefined();
-  expect(isActive(restored)).toBe(true);
-});
+test.each(["foreign", "own", "global"])(
+  "a blocked %s loser cannot be retired through its known id (#204)",
+  async (seat) => {
+    plugin = await loadPlugin(a);
+    bindSessionProvisional("merge-204", a);
+    const loser = await seedRow(
+      seat === "own" ? a : b,
+      "BLOCKED_LOSER",
+      seat === "global" ? "global" : undefined,
+    );
+    const survivor = await seedRow(a, "OWN_SURVIVOR");
+    // A refused merge must not revive the survivor as a side effect either.
+    await markSuperseded(survivor, {
+      superseded_by: "2099-01-01T00:00:00.000Z",
+      reason: "prior decision",
+    });
+    const loserRow = await byId(loser);
+    if (!loserRow) throw new Error("seeded loser missing");
+    await addBlock(loser, "human block");
+    expect(await byId(loser)).toBeUndefined(); // pin the hidden-row premise
+    const before = readFileSync(loserRow.file, "utf8");
+    const out = await plugin.tools.memory_merge_review.execute(
+      { loser, survivor, reason: "known id is not authority" },
+      { sessionID: "merge-204", id: "merge-204-call" },
+    );
+    expect(readFileSync(loserRow.file, "utf8")).toBe(before);
+    expect(out.content).not.toContain("is canonical");
+    expect(await mergeResolvedLines()).toBe(false);
+    expect(await removeBlock(loser)).toBe(true);
+    const restored = await byId(loser);
+    if (!restored) throw new Error("unblocked loser missing");
+    expect(restored.superseded_by).toBeUndefined();
+    expect(isActive(restored)).toBe(true);
+  },
+);
 
 test("a missing loser is refused before reviving a valid survivor (#204)", async () => {
   plugin = await loadPlugin(a);
   bindSessionProvisional("merge-204", a);
   const survivor = await seedRow(a, "OWN_SURVIVOR");
-  await markSuperseded(survivor, { superseded_by: "2099-01-01T00:00:00.000Z", reason: "prior decision" });
+  await markSuperseded(survivor, {
+    superseded_by: "2099-01-01T00:00:00.000Z",
+    reason: "prior decision",
+  });
   const survivorRow = await byId(survivor);
   if (!survivorRow) throw new Error("seeded survivor missing");
   const before = readFileSync(survivorRow.file, "utf8");
@@ -156,7 +189,11 @@ test("a foreign row is not promoted (or revived) from the survivor seat", async 
   ).toBe(true);
   const aLoser = await seedRow(a, "A_MERGE_LOSER_ROW");
 
-  const out = await merge({ loser: aLoser, survivor: bSurvivor, reason: "revive attempt" });
+  const out = await merge({
+    loser: aLoser,
+    survivor: bSurvivor,
+    reason: "revive attempt",
+  });
   expect(out).toContain("another repository");
   expect(out).not.toContain("canonical");
 

@@ -7,7 +7,8 @@ import { ForgetArgs, validated } from "./schema.ts";
 
 export const register: ToolRegister = (editor, deps) => {
   const { toolIds, bindSessionIdentity, direct } = deps;
-    editor.add(validated(ForgetArgs, {
+  editor.add(
+    validated(ForgetArgs, {
       name: "memory_forget",
       description:
         "Delete memories by scope and type. Snapshots first, logs the reason for audit, never touches a repo.",
@@ -20,9 +21,18 @@ export const register: ToolRegister = (editor, deps) => {
         // by its own repository, not the instance's provisional binding.
         await bindSessionIdentity(sid);
         const res = await pruneMemory(args.scope, args.type, args.reason, sid);
-        if (res.error) return { content: `memory_forget PARTIAL: deleted row(s) ${res.deleted.map((d) => d.memory.ts).join(", ")}; stopped: ${res.error}. Rejection tombstones or audit lines may be incomplete. Inspect memory_evidence / memory_undo before retrying.` };
-        if (!res.deleted.length) return { content: `No memories found for ${args.type} in ${args.scope}` };
-        return { content: `Deleted ${res.deleted.length} ${args.type} memory(s) from ${args.scope}. Audit: ${res.audit}` };
+        if (res.error)
+          return {
+            content: `memory_forget PARTIAL: deleted row(s) ${res.deleted.map((d) => d.memory.ts).join(", ")}; stopped: ${res.error}. Rejection tombstones or audit lines may be incomplete. Inspect memory_evidence / memory_undo before retrying.`,
+          };
+        if (!res.deleted.length)
+          return {
+            content: `No memories found for ${args.type} in ${args.scope}`,
+          };
+        return {
+          content: `Deleted ${res.deleted.length} ${args.type} memory(s) from ${args.scope}. Audit: ${res.audit}`,
+        };
       },
-    }));
+    }),
+  );
 };

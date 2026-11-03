@@ -8,9 +8,20 @@ import type { HitSource } from "./hits/ledger.ts";
 import type { Memory } from "./store/model/memory.ts";
 import { useSignals } from "./hits/ledger.ts";
 import { setCurrent } from "./core/state.ts";
-import { bindSessionProvisional, rememberSessionDir } from "./identity/repokey.ts";
-import { sessionIdentityEvent, sessionUsageEvent } from "./identity/host-events.ts";
-import { afterTool, markTurn, checkNewSession, onCompacting } from "./capture/triggers.ts";
+import {
+  bindSessionProvisional,
+  rememberSessionDir,
+} from "./identity/repokey.ts";
+import {
+  sessionIdentityEvent,
+  sessionUsageEvent,
+} from "./identity/host-events.ts";
+import {
+  afterTool,
+  markTurn,
+  checkNewSession,
+  onCompacting,
+} from "./capture/triggers.ts";
 import { recordSessionModel } from "./capture/session-model.ts";
 import { contextualPull } from "./inject/pull.ts";
 import { pullQuery } from "./recall/relevant.ts";
@@ -21,12 +32,19 @@ interface HookDependencies {
   sessions: ReturnType<typeof createInjectionEpochs>;
   instanceDir: string | undefined;
   budget: number;
-  noteHits: (src: HitSource, sid: string, rows: Memory[], query: string) => Promise<void>;
+  noteHits: (
+    src: HitSource,
+    sid: string,
+    rows: Memory[],
+    query: string,
+  ) => Promise<void>;
   bindSessionIdentity: (sid: string | undefined) => Promise<void>;
   bindSessionFromApi: (sid: string | undefined) => Promise<void>;
   measuredTurns: Map<string, Measured>;
   flushStatus: (sid: string) => Promise<void>;
-  getCompactCapture: () => ((sid: string, messages: unknown) => void) | undefined;
+  getCompactCapture: () =>
+    | ((sid: string, messages: unknown) => void)
+    | undefined;
 }
 
 // Best-effort extraction of a tool's textual output + metadata from the V2
@@ -57,8 +75,18 @@ function resultMeta(result: unknown): Record<string, unknown> {
 
 export async function registerHooks(
   ctx: PluginCtx,
-  { guarded, sessions, instanceDir, budget, noteHits, bindSessionIdentity,
-    bindSessionFromApi, measuredTurns, flushStatus, getCompactCapture }: HookDependencies,
+  {
+    guarded,
+    sessions,
+    instanceDir,
+    budget,
+    noteHits,
+    bindSessionIdentity,
+    bindSessionFromApi,
+    measuredTurns,
+    flushStatus,
+    getCompactCapture,
+  }: HookDependencies,
 ) {
   // Bookkeeping: track the active session/tool/call before a tool runs.
   await ctx.tool?.hook("execute.before", (event: any) =>
@@ -87,14 +115,33 @@ export async function registerHooks(
       if (typeof event?.sessionID === "string") {
         bindSessionProvisional(event.sessionID, instanceDir);
       }
-      const out = { output: resultText(event?.result), metadata: resultMeta(event?.result) };
+      const out = {
+        output: resultText(event?.result),
+        metadata: resultMeta(event?.result),
+      };
       await afterTool(input, out);
-      const pulled = await contextualPull(input, out as { output?: unknown }, budget, await useSignals());
-      if (pulled.length) await noteHits("pull", String(event?.sessionID ?? ""), pulled, pullQuery(input.args));
+      const pulled = await contextualPull(
+        input,
+        out as { output?: unknown },
+        budget,
+        await useSignals(),
+      );
+      if (pulled.length)
+        await noteHits(
+          "pull",
+          String(event?.sessionID ?? ""),
+          pulled,
+          pullQuery(input.args),
+        );
       // Write a contextual-pull append back when the tool result is text we own.
-      if (event?.result && typeof event.result === "object" && typeof event.result.content === "string") {
+      if (
+        event?.result &&
+        typeof event.result === "object" &&
+        typeof event.result.content === "string"
+      ) {
         const text = resultText(event.result);
-        if (out.output && out.output !== text) event.result.content = out.output;
+        if (out.output && out.output !== text)
+          event.result.content = out.output;
       }
     }),
   );
@@ -106,7 +153,8 @@ export async function registerHooks(
       // the sid is captured from the event BEFORE any await and carried
       // explicitly — the global current set here is legacy bookkeeping
       // only, never the identity this flow filters with (#127).
-      const sid = typeof event?.sessionID === "string" ? event.sessionID : undefined;
+      const sid =
+        typeof event?.sessionID === "string" ? event.sessionID : undefined;
       setCurrent({ sessionID: event?.sessionID });
       if (typeof sid === "string") sessions.touch(sid);
       // #139: SessionRequest declares a readonly model, so the host already
@@ -120,7 +168,9 @@ export async function registerHooks(
       // already bound firmly in production, so no host lookup belongs in
       // this hot path (#127).
       if (typeof sid === "string") bindSessionProvisional(sid, instanceDir);
-      await sessions.deliver(sid, (text) => event?.system?.push?.({ type: "text", text }));
+      await sessions.deliver(sid, (text) =>
+        event?.system?.push?.({ type: "text", text }),
+      );
     }),
   );
 
@@ -155,7 +205,8 @@ export async function registerHooks(
   // while it still exists, BEFORE the summarizer replaces it.
   await ctx.session?.hook("compaction", (event: any) =>
     guarded("session.compaction (onCompacting)", async () => {
-      const sid = typeof event?.sessionID === "string" ? event.sessionID : undefined;
+      const sid =
+        typeof event?.sessionID === "string" ? event.sessionID : undefined;
       setCurrent({ sessionID: event?.sessionID });
       // The anchor read and the capture pass below partition by the session's
       // repository; SYNC provisional bind only — a host lookup from this
@@ -193,7 +244,9 @@ export async function registerHooks(
     const eventApi = ctx.event;
     void (async () => {
       try {
-        for await (const raw of eventApi.subscribe({ signal: measuredController.signal })) {
+        for await (const raw of eventApi.subscribe({
+          signal: measuredController.signal,
+        })) {
           // Session identity: created fires for new sessions, execution.started
           // every turn (covers sessions resumed across a restart), moved on a
           // workspace change. Stamps and visibility resolve through this.
@@ -203,7 +256,8 @@ export async function registerHooks(
             if (dir !== undefined) rememberSessionDir(sid, dir);
             // 2.1.4 serve sends execution.started with no location at all:
             // resolve the session row instead of leaving the session unbound.
-            else void guarded("session bind (api)", () => bindSessionFromApi(sid));
+            else
+              void guarded("session bind (api)", () => bindSessionFromApi(sid));
             continue;
           }
           const usage = sessionUsageEvent(raw);
@@ -216,7 +270,9 @@ export async function registerHooks(
             read,
             write,
           });
-          await guarded("status flush (measured)", () => flushStatus(sessionID));
+          await guarded("status flush (measured)", () =>
+            flushStatus(sessionID),
+          );
         }
       } catch {
         // the subscription ended (abort or host error); nothing to do

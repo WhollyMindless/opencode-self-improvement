@@ -13,9 +13,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
 import { appendMemory } from "../src/store/files/append.ts";
-import { rememberSessionDir, resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  rememberSessionDir,
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
-import { deletionsFile, evidenceDir } from "../src/core/config/paths.ts"
+import { deletionsFile, evidenceDir } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 import { redactSecrets } from "../src/store/secrets.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
@@ -66,7 +71,10 @@ const evidenceText = (): string => {
   }
 };
 
-async function driveToolResult(output: string, options?: Record<string, unknown>): Promise<LoadedPlugin> {
+async function driveToolResult(
+  output: string,
+  options?: Record<string, unknown>,
+): Promise<LoadedPlugin> {
   plugin = await loadPlugin(a, options);
   await plugin.toolHooks["execute.after"]({
     sessionID: "ses-a",
@@ -121,8 +129,17 @@ test("multiline private-key material is scrubbed whole, not folded into fragment
 test("deletion audit records scrub a credential carried in the reason", async () => {
   // The audit/reason family is the same write-boundary class (#128): a human
   // reason like "rotated ghp_..." must not persist the secret verbatim.
-  const ts = await appendMemory({ type: "context", scope: "secrets-audit", content: "note" });
-  const res = await pruneMemory("secrets-audit", "context", `rotated ${TOKEN}`, "ses-a");
+  const ts = await appendMemory({
+    type: "context",
+    scope: "secrets-audit",
+    content: "note",
+  });
+  const res = await pruneMemory(
+    "secrets-audit",
+    "context",
+    `rotated ${TOKEN}`,
+    "ses-a",
+  );
   expect(res.deleted.length).toBe(1);
   const audit = readFileSync(deletionsFile(), "utf8");
   expect(audit).toContain(ts); // the audit line itself is intact

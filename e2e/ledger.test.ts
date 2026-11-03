@@ -1,10 +1,24 @@
 // BDD: the use ledger as a user observes it — a captured fact that keeps
 // matching later turns accrues `inject` hits, an explicit memory_recall
 // accrues `recall` hits, and memory_status reports what was never retrieved.
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { REPO, type Fake, type Guest, makeGuest, startFake, turn } from "./support/harness.ts";
+import {
+  REPO,
+  type Fake,
+  type Guest,
+  makeGuest,
+  startFake,
+  turn,
+} from "./support/harness.ts";
 
 let fake: Fake;
 const guests: Guest[] = [];
@@ -15,10 +29,14 @@ beforeAll(async () => {
 afterEach(() => {
   // KEEP=1 leaves guest dirs behind for debugging store/ledger assertions.
   if (process.env.KEEP) {
-    for (const g of guests.splice(0)) console.log(`[keep] ${g.root} store=${join(g.root, "home", ".opencode")}`);
+    for (const g of guests.splice(0))
+      console.log(
+        `[keep] ${g.root} store=${join(g.root, "home", ".opencode")}`,
+      );
     return;
   }
-  for (const g of guests.splice(0)) rmSync(g.root, { recursive: true, force: true });
+  for (const g of guests.splice(0))
+    rmSync(g.root, { recursive: true, force: true });
 });
 afterAll(() => fake.stop());
 
@@ -29,19 +47,31 @@ function guest(): Guest {
 }
 
 function call(id: string, tool: string, args: Record<string, unknown>) {
-  return { tool_calls: [{ id, type: "function", function: { name: tool, arguments: JSON.stringify(args) } }] };
+  return {
+    tool_calls: [
+      {
+        id,
+        type: "function",
+        function: { name: tool, arguments: JSON.stringify(args) },
+      },
+    ],
+  };
 }
 
 function hostLedger(g: Guest): string[] {
   const p = join(g.memoryDir, "hits.logfmt");
-  return existsSync(p) ? readFileSync(p, "utf8").trim().split("\n").filter(Boolean) : [];
+  return existsSync(p)
+    ? readFileSync(p, "utf8").trim().split("\n").filter(Boolean)
+    : [];
 }
 function storeLines(g: Guest): string[] {
   const dir = g.memoryDir;
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((f) => /^\d{4}-\d{2}-\d{2}\.logfmt$/.test(f))
-    .flatMap((f) => readFileSync(join(dir, f), "utf8").trim().split("\n").filter(Boolean));
+    .flatMap((f) =>
+      readFileSync(join(dir, f), "utf8").trim().split("\n").filter(Boolean),
+    );
 }
 
 const FACT =
@@ -53,7 +83,12 @@ const UNRELATED =
 
 /** A scripted memory_remember step. `open` keeps the row out of ref-grounding. */
 function remember(id: string, scope: string, content: string) {
-  return call(id, "memory_remember", { type: "learning", scope, content, status: "open" });
+  return call(id, "memory_remember", {
+    type: "learning",
+    scope,
+    content,
+    status: "open",
+  });
 }
 
 describe("use ledger end-to-end", () => {
@@ -68,7 +103,11 @@ describe("use ledger end-to-end", () => {
         { content: "CAP-DONE" },
       ],
     });
-    const cap = await turn(fake, g, "SMOKE::cap please store both facts: " + FACT + " — and: " + UNRELATED);
+    const cap = await turn(
+      fake,
+      g,
+      "SMOKE::cap please store both facts: " + FACT + " — and: " + UNRELATED,
+    );
     expect(cap.exit).toBe(0);
     expect(storeLines(g).length).toBe(2);
 
@@ -98,16 +137,29 @@ describe("use ledger end-to-end", () => {
 
     // When the model calls memory_recall explicitly, that source is recorded too.
     fake.setSteps({
-      "SMOKE::rc": [call("r1", "memory_recall", { query: "flimflam widget pipeline compile" }), { content: "RC-DONE" }],
+      "SMOKE::rc": [
+        call("r1", "memory_recall", {
+          query: "flimflam widget pipeline compile",
+        }),
+        { content: "RC-DONE" },
+      ],
     });
-    const t3 = await turn(fake, g, "SMOKE::rc what do we know about the flimflam widget pipeline compiling?");
+    const t3 = await turn(
+      fake,
+      g,
+      "SMOKE::rc what do we know about the flimflam widget pipeline compiling?",
+    );
     expect(t3.exit).toBe(0);
     expect(t3.outputs("memory_recall").join("\n")).toInclude("flimflam");
-    expect(hostLedger(g).filter((l) => l.includes("src=recall")).length).toBeGreaterThanOrEqual(1);
+    expect(
+      hostLedger(g).filter((l) => l.includes("src=recall")).length,
+    ).toBeGreaterThanOrEqual(1);
 
     // When the store report is asked for, retrieval is counted and the row that
     // never matched is on the record as never retrieved.
-    fake.setSteps({ "SMOKE::st": [call("s1", "memory_status", {}), { content: "ST-DONE" }] });
+    fake.setSteps({
+      "SMOKE::st": [call("s1", "memory_status", {}), { content: "ST-DONE" }],
+    });
     const t4 = await turn(fake, g, "SMOKE::st give me the memory store report");
     expect(t4.exit).toBe(0);
     const report = t4.outputs("memory_status").join("\n");
@@ -117,7 +169,9 @@ describe("use ledger end-to-end", () => {
     // is not re-shown its own row (#165) and no later turn matched its
     // vocabulary. That is real dead weight, which is exactly what this line
     // exists to surface.
-    const m = report.match(/retrieved (\d+) rows in the last 30d; never retrieved (\d+) \((\d+)%\)/);
+    const m = report.match(
+      /retrieved (\d+) rows in the last 30d; never retrieved (\d+) \((\d+)%\)/,
+    );
     expect(m, "the report carries the use-ledger line").not.toBeNull();
     const [used, dead] = [Number(m![1]), Number(m![2])];
     expect(used + dead).toBe(2);

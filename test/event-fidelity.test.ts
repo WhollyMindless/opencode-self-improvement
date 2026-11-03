@@ -20,7 +20,10 @@ import { CAPTURE_EVENT_TYPES } from "../src/index.ts";
 import { IDENTITY_EVENT_TYPES } from "../src/identity/host-events.ts";
 import moveRecording from "./fixtures/host-session-move.json";
 
-const MANIFEST = join(import.meta.dir, "../node_modules/@opencode/schema/dist/event-manifest.d.ts");
+const MANIFEST = join(
+  import.meta.dir,
+  "../node_modules/@opencode/schema/dist/event-manifest.d.ts",
+);
 const RECORDING = join(import.meta.dir, "fixtures/host-events.jsonl");
 const SRC = join(import.meta.dir, "../src");
 
@@ -38,7 +41,10 @@ const observed = new Map<string, number>(
 // The separate 2.2.2 recording exercises a move, which the original two-turn
 // recording did not. Keep their counts/provenance separate; absence from one
 // workload alone does not establish that a declared event is never emitted.
-const identityObserved = new Set([...observed.keys(), ...moveRecording.events.map((e) => e.type)]);
+const identityObserved = new Set([
+  ...observed.keys(),
+  ...moveRecording.events.map((e) => e.type),
+]);
 
 // Names absent from the original recording, not proof that they are dead.
 const declaredButUnobserved = (declared: Set<string>) =>
@@ -49,7 +55,11 @@ const declaredButUnobserved = (declared: Set<string>) =>
 const LEGACY_HOST_EVENTS = new Set(["message.updated"]);
 
 const declaredSet = new Set<string>(
-  [...readFileSync(MANIFEST, "utf8").matchAll(/\btype:\s*"([a-z][a-z0-9_.]*)"/g)].map((m) => m[1]),
+  [
+    ...readFileSync(MANIFEST, "utf8").matchAll(
+      /\btype:\s*"([a-z][a-z0-9_.]*)"/g,
+    ),
+  ].map((m) => m[1]),
 );
 
 describe("host event fidelity (#136, #137, #176)", () => {
@@ -68,7 +78,10 @@ describe("host event fidelity (#136, #137, #176)", () => {
 
   test("the move extract declares its recording provenance", () => {
     // Required metadata is a review aid, not authentication of a live capture.
-    for (const field of [moveRecording.provenance.host, moveRecording.provenance.recordedAt]) {
+    for (const field of [
+      moveRecording.provenance.host,
+      moveRecording.provenance.recordedAt,
+    ]) {
       expect(typeof field).toBe("string");
       expect(field.trim().length).toBeGreaterThan(0);
     }
@@ -83,7 +96,9 @@ describe("host event fidelity (#136, #137, #176)", () => {
   test("every retained envelope round-trips through the pinned host schema", () => {
     expect(moveRecording.events.length).toBeGreaterThan(0);
     for (const event of moveRecording.events) {
-      const decoded = Schema.decodeUnknownSync(SessionEvent.All, { onExcessProperty: "error" })(event);
+      const decoded = Schema.decodeUnknownSync(SessionEvent.All, {
+        onExcessProperty: "error",
+      })(event);
       const encoded: unknown = Schema.encodeSync(SessionEvent.All)(decoded);
       expect(encoded).toEqual(event);
     }
@@ -105,7 +120,9 @@ describe("host event fidelity (#136, #137, #176)", () => {
   });
 
   test("every identity trigger was observed in a live-host recording", () => {
-    expect(IDENTITY_EVENT_TYPES.filter((t) => !identityObserved.has(t))).toEqual([]);
+    expect(
+      IDENTITY_EVENT_TYPES.filter((t) => !identityObserved.has(t)),
+    ).toEqual([]);
   });
 
   test("`session.idle` is declared but absent from the recorded turns and capture triggers", () => {
@@ -124,7 +141,9 @@ describe("host event fidelity (#136, #137, #176)", () => {
           // Only lines reading an event envelope's `type`, so memory row types
           // ("decision", "learning") and prose stay out of scope.
           if (!/\b(?:ev|event)\??\.type\b/.test(line)) return;
-          for (const m of line.matchAll(/"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"/g)) {
+          for (const m of line.matchAll(
+            /"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"/g,
+          )) {
             const name = m[1];
             if (declaredSet.has(name) || LEGACY_HOST_EVENTS.has(name)) continue;
             offenders.push(`${file}:${i + 1} → ${name}`);

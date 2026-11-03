@@ -1,7 +1,7 @@
 // pull — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
-import { loadAll } from "../store/files/load.ts"
-import { type Memory } from "../store/model/memory.ts"
-import { isInjectable } from "../store/model/predicates.ts"
+import { loadAll } from "../store/files/load.ts";
+import { type Memory } from "../store/model/memory.ts";
+import { isInjectable } from "../store/model/predicates.ts";
 import { readerFromSid, visibleTo } from "../store/model/visibility.ts";
 import { injectBudget } from "../core/config/budgets.ts";
 import { FRAME, capToBudget, injectedRows } from "./budget.ts";
@@ -37,11 +37,17 @@ export async function contextualPull(
   if (!term) return [];
   // Repo-scoped: model-facing reads see the CALLER's repo + global rows —
   // the pull's own sessionID, resolved before the store read (#127).
-  const mems = visibleTo((await loadAll()).filter(isInjectable), readerFromSid(input.sessionID));
+  const mems = visibleTo(
+    (await loadAll()).filter(isInjectable),
+    readerFromSid(input.sessionID),
+  );
   const top = scoreMemories(term, mems, 3, use);
   if (!top.length) return [];
   // Held to the injection budget too: three long rows were ~12 KB per call.
-  const block = capToBudget(`## Related durable memory (pull)${FRAME}\n${top.map(formatMemory).join("\n")}`, budget);
+  const block = capToBudget(
+    `## Related durable memory (pull)${FRAME}\n${top.map(formatMemory).join("\n")}`,
+    budget,
+  );
   if (block && typeof output.output === "string") {
     output.output += `\n${block}`;
     // What the ledger counts is what actually rode the result — the budget can

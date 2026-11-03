@@ -8,10 +8,9 @@ import { fileURLToPath } from "node:url";
 import { tightenDirectory } from "../permissions.ts";
 
 export function memoryRoot(): string {
-  const root = (
+  const root =
     process.env.OPENCODE_MEMORY_DIR ||
-    join(homedir(), ".config", "opencode", "memory")
-  );
+    join(homedir(), ".config", "opencode", "memory");
   // Protect old stores even on read-only use; do not create an absent store.
   tightenDirectory(root);
   return root;

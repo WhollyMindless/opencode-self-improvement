@@ -31,21 +31,43 @@ import { resetState } from "../src/core/state.ts";
  * Both memory and command output are confined to the fixture. Prior environment
  * values (including absent ones) are restored even if cleanup refuses or fails.
  */
-export function withTempStore({ prefix = "osi-test-" }: { prefix?: string } = {}): {
+export function withTempStore({
+  prefix = "osi-test-",
+}: {
+  prefix?: string;
+} = {}): {
   readonly root: string;
   readonly memoryDir: string;
 } {
   if (!/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(prefix)) {
-    throw new Error("withTempStore prefix must be a nonempty filename prefix without path separators");
+    throw new Error(
+      "withTempStore prefix must be a nonempty filename prefix without path separators",
+    );
   }
-  let active: { root: string; memoryDir: string; tempParent: string; memory?: string; commands?: string } | undefined;
+  let active:
+    | {
+        root: string;
+        memoryDir: string;
+        tempParent: string;
+        memory?: string;
+        commands?: string;
+      }
+    | undefined;
 
   function assertRoot(root: string, tempParent: string): void {
     const canonical = realpathSync(root);
     const below = relative(tempParent, canonical);
-    if (!below || below === ".." || below.startsWith(`..${sep}`) || isAbsolute(below)
-      || lstatSync(root).isSymbolicLink() || canonical !== root) {
-      throw new Error("withTempStore: refusing cleanup of a root outside its original temporary directory");
+    if (
+      !below ||
+      below === ".." ||
+      below.startsWith(`..${sep}`) ||
+      isAbsolute(below) ||
+      lstatSync(root).isSymbolicLink() ||
+      canonical !== root
+    ) {
+      throw new Error(
+        "withTempStore: refusing cleanup of a root outside its original temporary directory",
+      );
     }
   }
 
@@ -54,7 +76,9 @@ export function withTempStore({ prefix = "osi-test-" }: { prefix?: string } = {}
     const root = mkdtempSync(join(tempParent, prefix));
     assertRoot(root, tempParent);
     active = {
-      root, memoryDir: join(root, "memory"), tempParent,
+      root,
+      memoryDir: join(root, "memory"),
+      tempParent,
       memory: process.env.OPENCODE_MEMORY_DIR,
       commands: process.env.OPENCODE_COMMANDS_DIR,
     };
@@ -66,27 +90,42 @@ export function withTempStore({ prefix = "osi-test-" }: { prefix?: string } = {}
     const state = active;
     if (!state) return;
     try {
-      try { lstatSync(state.root); }
-      catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return; throw err; }
+      try {
+        lstatSync(state.root);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw err;
+      }
       // Re-check the owned root, never a test-modified environment variable.
       assertRoot(state.root, state.tempParent);
-      rmSync(state.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      rmSync(state.root, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     } finally {
       if (state.memory === undefined) delete process.env.OPENCODE_MEMORY_DIR;
       else process.env.OPENCODE_MEMORY_DIR = state.memory;
-      if (state.commands === undefined) delete process.env.OPENCODE_COMMANDS_DIR;
+      if (state.commands === undefined)
+        delete process.env.OPENCODE_COMMANDS_DIR;
       else process.env.OPENCODE_COMMANDS_DIR = state.commands;
       resetState();
       active = undefined;
     }
   });
   function current() {
-    if (!active) throw new Error("withTempStore paths are available only during a test");
+    if (!active)
+      throw new Error("withTempStore paths are available only during a test");
     return active;
   }
   return {
-    get root() { return current().root; },
-    get memoryDir() { return current().memoryDir; },
+    get root() {
+      return current().root;
+    },
+    get memoryDir() {
+      return current().memoryDir;
+    },
   };
 }
 
@@ -130,14 +169,20 @@ export interface LoadedPlugin {
   tools: Record<string, ToolRecord>;
   toolHooks: Record<string, (event: any) => Promise<void>>;
   sessionHooks: Record<string, (event: any) => Promise<void>>;
-  commands: Record<string, { name: string; execute: (input: any) => Promise<void> }>;
+  commands: Record<
+    string,
+    { name: string; execute: (input: any) => Promise<void> }
+  >;
   capture: CaptureFakes;
   cleanup: () => void | Promise<void>;
   // V1-shaped adapter (delegates to the real V2 registrations)
   tool: Record<string, { execute: (args: any) => Promise<string> }>;
   "tool.execute.before": (input: any) => Promise<void>;
   "tool.execute.after": (input: any, output: any) => Promise<void>;
-  "experimental.chat.system.transform": (input: any, output: any) => Promise<void>;
+  "experimental.chat.system.transform": (
+    input: any,
+    output: any,
+  ) => Promise<void>;
   "experimental.session.compacting": (input: any, output: any) => Promise<void>;
 }
 
@@ -148,7 +193,10 @@ export async function loadPlugin(
   const tools: Record<string, ToolRecord> = {};
   const toolHooks: Record<string, (event: any) => Promise<void>> = {};
   const sessionHooks: Record<string, (event: any) => Promise<void>> = {};
-  const commands: Record<string, { name: string; execute: (input: any) => Promise<void> }> = {};
+  const commands: Record<
+    string,
+    { name: string; execute: (input: any) => Promise<void> }
+  > = {};
 
   // --- Fakes -----------------------------------------------------------------
   // Broadcast event bus: every subscribe() registers its own parked consumer,
@@ -182,7 +230,9 @@ export async function loadPlugin(
     ...(directory ? { location: { directory } } : {}),
     options: options ?? {},
     tool: {
-      transform: async (cb: (editor: { add: (t: ToolRecord) => void }) => void) =>
+      transform: async (
+        cb: (editor: { add: (t: ToolRecord) => void }) => void,
+      ) =>
         cb({
           add: (t) => {
             tools[t.name] = t;
@@ -264,7 +314,9 @@ export async function loadPlugin(
 
   const tool: LoadedPlugin["tool"] = {};
   for (const [name, t] of Object.entries(tools)) {
-    tool[name] = { execute: async (args: any) => (await t.execute(args, {})).content };
+    tool[name] = {
+      execute: async (args: any) => (await t.execute(args, {})).content,
+    };
   }
 
   return {
@@ -273,7 +325,10 @@ export async function loadPlugin(
     sessionHooks,
     commands,
     capture,
-    cleanup: typeof cleanup === "function" ? (cleanup as () => void | Promise<void>) : () => {},
+    cleanup:
+      typeof cleanup === "function"
+        ? (cleanup as () => void | Promise<void>)
+        : () => {},
     tool,
     "tool.execute.before": async (input: any) => {
       await toolHooks["execute.before"]?.({
@@ -297,8 +352,13 @@ export async function loadPlugin(
     // replayed with the ref a real host delivers.
     "experimental.chat.system.transform": async (input: any, output: any) => {
       const parts: Array<{ type: string; text: string }> = [];
-      await sessionHooks["context"]?.({ sessionID: input?.sessionID, system: parts, model: input?.model });
-      if (Array.isArray(output?.system)) for (const p of parts) output.system.push(p.text);
+      await sessionHooks["context"]?.({
+        sessionID: input?.sessionID,
+        system: parts,
+        model: input?.model,
+      });
+      if (Array.isArray(output?.system))
+        for (const p of parts) output.system.push(p.text);
     },
     // Drive the real session.compaction hook (guarded), mirroring the context
     // adapter: the hook sees a `system` parts array and pushed part texts are
@@ -313,7 +373,8 @@ export async function loadPlugin(
         system: parts,
         messages: input?.messages,
       });
-      if (Array.isArray(output?.system)) for (const p of parts) output.system.push(p.text);
+      if (Array.isArray(output?.system))
+        for (const p of parts) output.system.push(p.text);
     },
   };
 }

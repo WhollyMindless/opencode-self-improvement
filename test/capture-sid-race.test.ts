@@ -18,12 +18,17 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts"
+import { memoryRoot } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 import { runWriteGate } from "../src/gate/gate.ts";
 import { parseLine, type Fields } from "../src/core/logfmt/format.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
-import { rememberSessionDir, repoScopeFor, resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  rememberSessionDir,
+  repoScopeFor,
+  resetSessionScopes,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
 import { readEvidenceLog as evidence, sleep } from "./helpers/logfmt.ts";
@@ -82,8 +87,16 @@ function rows(): Fields[] {
   }
 }
 
-async function driveCompaction(loaded: LoadedPlugin, sessionID: string, messages: unknown): Promise<void> {
-  await loaded.sessionHooks["compaction"]?.({ sessionID, system: [], messages });
+async function driveCompaction(
+  loaded: LoadedPlugin,
+  sessionID: string,
+  messages: unknown,
+): Promise<void> {
+  await loaded.sessionHooks["compaction"]?.({
+    sessionID,
+    system: [],
+    messages,
+  });
 }
 
 // Ground the CAPTURING session so the candidate promotes (same seam as the
@@ -95,7 +108,8 @@ async function ground(loaded: LoadedPlugin, sessionID: string): Promise<void> {
   );
 }
 
-const FRESH_CONTENT = "The staging API rate limit is 120 requests per minute per key as of October 2026.";
+const FRESH_CONTENT =
+  "The staging API rate limit is 120 requests per minute per key as of October 2026.";
 
 function thickMessages(): unknown[] {
   return [
@@ -107,7 +121,8 @@ function thickMessages(): unknown[] {
     },
     {
       role: "assistant",
-      content: "Understood: the staging rate limit is 120 requests per minute per key, respected in the importer.",
+      content:
+        "Understood: the staging rate limit is 120 requests per minute per key, respected in the importer.",
     },
   ];
 }
@@ -119,13 +134,18 @@ describe("capture repo stamp follows the captured session (#116)", () => {
     rememberSessionDir("ses-capture", liveRoot);
     rememberSessionDir("ses-other", otherRoot);
 
-    const loaded = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    const loaded = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
     await ground(loaded, "ses-capture");
     let release!: () => void;
     loaded.capture.generate.park = new Promise<void>((r) => {
       release = r;
     });
-    loaded.capture.generate.response = JSON.stringify([{ type: "pattern", scope: "api", content: FRESH_CONTENT }]);
+    loaded.capture.generate.response = JSON.stringify([
+      { type: "pattern", scope: "api", content: FRESH_CONTENT },
+    ]);
 
     await driveCompaction(loaded, "ses-capture", thickMessages());
     await waitFor(() => loaded.capture.generate.calls.length === 1); // parked INSIDE the await
@@ -135,8 +155,14 @@ describe("capture repo stamp follows the captured session (#116)", () => {
     release();
 
     // Wait for the capture to FINISH (either verdict), then judge what it left.
-    await waitFor(() => evidence().some((e) => String(e.ev ?? "").startsWith("auto_capture_compaction_")));
-    const captured = rows().find((r) => String(r.content ?? "").includes("staging API rate limit"));
+    await waitFor(() =>
+      evidence().some((e) =>
+        String(e.ev ?? "").startsWith("auto_capture_compaction_"),
+      ),
+    );
+    const captured = rows().find((r) =>
+      String(r.content ?? "").includes("staging API rate limit"),
+    );
     const a = repoScopeFor("ses-capture");
     const b = repoScopeFor("ses-other");
     expect(a?.key).not.toBe(b?.key); // the two workspaces really are distinct scopes
@@ -164,22 +190,39 @@ describe("capture repo stamp follows the captured session (#116)", () => {
 
   test("control: a capture with no competing session stamps its own repo", async () => {
     rememberSessionDir("ses-capture", liveRoot);
-    const loaded = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    const loaded = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
     await ground(loaded, "ses-capture");
-    loaded.capture.generate.response = JSON.stringify([{ type: "pattern", scope: "api", content: FRESH_CONTENT }]);
+    loaded.capture.generate.response = JSON.stringify([
+      { type: "pattern", scope: "api", content: FRESH_CONTENT },
+    ]);
     await driveCompaction(loaded, "ses-capture", thickMessages());
     // Wait on the verdict record, not the row: the row lands a beat BEFORE the
     // outcome evidence line is appended, and reading evidence in that window is
     // a test-induced race, not a plugin bug.
-    await waitFor(() => evidence().some((e) => String(e.ev ?? "").startsWith("auto_capture_compaction_")));
-    expect(rows().find((r) => String(r.content ?? "").includes("staging API rate limit"))!.repo).toBe(
-      repoScopeFor("ses-capture")?.key,
+    await waitFor(() =>
+      evidence().some((e) =>
+        String(e.ev ?? "").startsWith("auto_capture_compaction_"),
+      ),
     );
-    expect(evidence().some((e) => String(e.ev ?? "").startsWith("auto_capture_compaction_"))).toBe(true);
+    expect(
+      rows().find((r) =>
+        String(r.content ?? "").includes("staging API rate limit"),
+      )!.repo,
+    ).toBe(repoScopeFor("ses-capture")?.key);
+    expect(
+      evidence().some((e) =>
+        String(e.ev ?? "").startsWith("auto_capture_compaction_"),
+      ),
+    ).toBe(true);
     // This is the no-interleave control: captureSession itself binds setCurrent,
     // so ambient-read code can pass this assertion by coincidence. The hijack
     // cases above establish that the session survives an actual interleave.
-    expect(evidence().find((e) => e.ev === "write_promoted")!.sid).toBe("ses-capture");
+    expect(evidence().find((e) => e.ev === "write_promoted")!.sid).toBe(
+      "ses-capture",
+    );
   });
 
   test("a BLOCKED gate write names the ctx session in its audit lines, ambient be damned", async () => {
@@ -192,8 +235,17 @@ describe("capture repo stamp follows the captured session (#116)", () => {
     rememberSessionDir("ses-other", otherRoot);
     setCurrent({ sessionID: "ses-other" });
     const out = await runWriteGate(
-      { type: "learning", scope: "engine", content: "engine uses the clp logger, not winston" },
-      { liveRoot, evidenceCalls: [], hasGateCheck: false, sessionID: "ses-capture" },
+      {
+        type: "learning",
+        scope: "engine",
+        content: "engine uses the clp logger, not winston",
+      },
+      {
+        liveRoot,
+        evidenceCalls: [],
+        hasGateCheck: false,
+        sessionID: "ses-capture",
+      },
     );
     expect(out.action).toBe("blocked");
     expect(out.reason).toBe("ambiguous_memory");

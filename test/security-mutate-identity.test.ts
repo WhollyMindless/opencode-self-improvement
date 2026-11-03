@@ -12,11 +12,15 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { appendMemory } from "../src/store/files/append.ts"
+import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { snapshotFiles } from "../src/store/files/snapshots.ts";
 import { resetState } from "../src/core/state.ts";
-import { resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
 
 let root: string;
@@ -57,7 +61,12 @@ async function serveHostSessionInB(sid: string): Promise<LoadedPlugin> {
   const p = await loadPlugin(a);
   plugins.push(p);
   p.capture.context.messages = [
-    { id: "msg_user0001", time: { created: 1792879840340 }, text: "hello", type: "user" },
+    {
+      id: "msg_user0001",
+      time: { created: 1792879840340 },
+      text: "hello",
+      type: "user",
+    },
   ]; // recorded serve shape: no location on any row
   p.capture.session.row = { id: sid, location: { directory: b } };
   return p;
@@ -86,13 +95,19 @@ test("merge_review resolves session identity before authorizing (#260)", async (
   const loser = await tsOf("A260_MERGE_LOSER");
 
   const res = await p.tools.memory_merge_review.execute(
-    { loser, survivor: await tsOf("A260_MERGE_WINNER"), reason: "cross-repo probe" },
+    {
+      loser,
+      survivor: await tsOf("A260_MERGE_WINNER"),
+      reason: "cross-repo probe",
+    },
     { sessionID: sid, id: "call-260-merge" },
   );
   // The session's repository is B (per the row); A's rows are foreign. The
   // provisional instance-A binding must NOT authorize the retirement.
   expect(String(res.content)).toContain("another repository");
-  expect((await loadAll()).find((m) => m.ts === loser)?.superseded_by).toBeUndefined();
+  expect(
+    (await loadAll()).find((m) => m.ts === loser)?.superseded_by,
+  ).toBeUndefined();
 });
 
 test("control: a session whose row names A still merges A's rows", async () => {
@@ -104,7 +119,11 @@ test("control: a session whose row names A still merges A's rows", async () => {
   await seedA("A260_OWN_LOSER");
 
   const res = await p.tools.memory_merge_review.execute(
-    { loser: await tsOf("A260_OWN_LOSER"), survivor: await tsOf("A260_OWN_WINNER"), reason: "dupes" },
+    {
+      loser: await tsOf("A260_OWN_LOSER"),
+      survivor: await tsOf("A260_OWN_WINNER"),
+      reason: "dupes",
+    },
     { sessionID: sid, id: "call-260-own" },
   );
   expect(String(res.content)).toContain("Resolved merge");
@@ -129,9 +148,15 @@ test("undo resolves session identity before restoring (#260)", async () => {
   const sid = "ses-260-undo";
   const p = await serveHostSessionInB(sid);
   await seedA("A260_UNDO_BASELINE");
-  const [snapshot] = await snapshotFiles([(await loadAll()).find((m) => m.content.includes("A260_UNDO_BASELINE"))!.file]);
+  const [snapshot] = await snapshotFiles([
+    (await loadAll()).find((m) => m.content.includes("A260_UNDO_BASELINE"))!
+      .file,
+  ]);
 
-  await p.tools.memory_undo.execute({ snapshot: basename(snapshot!) }, { sessionID: sid, id: "call-260-undo" });
+  await p.tools.memory_undo.execute(
+    { snapshot: basename(snapshot!) },
+    { sessionID: sid, id: "call-260-undo" },
+  );
   // Whatever the restore decided, the caller's repository must have been
   // resolved from the host first — the same guarantee the write tools give.
   expect(p.capture.session.getCalls).toContain(sid);

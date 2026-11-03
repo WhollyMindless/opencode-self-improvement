@@ -27,7 +27,12 @@ function registrationSources(): string {
     for (const f of readdirSync(dir, { withFileTypes: true })) {
       const p = join(dir, f.name);
       if (f.isDirectory()) walk(p);
-      else if (f.name.endsWith(".ts") && f.name !== "deps.ts" && f.name !== "registry.ts") text += readFileSync(p, "utf8");
+      else if (
+        f.name.endsWith(".ts") &&
+        f.name !== "deps.ts" &&
+        f.name !== "registry.ts"
+      )
+        text += readFileSync(p, "utf8");
     }
   };
   walk(SRC_ROOT);
@@ -39,7 +44,8 @@ const REG_SRC = registrationSources();
 /** Tool names as registered by the plugin (index.ts + src/tools/*). */
 function registeredTools(): string[] {
   const out = new Set<string>();
-  for (const m of REG_SRC.matchAll(/name:\s*"(memory_[a-z_]+)"/g)) out.add(m[1]);
+  for (const m of REG_SRC.matchAll(/name:\s*"(memory_[a-z_]+)"/g))
+    out.add(m[1]);
   return [...out].sort();
 }
 
@@ -88,7 +94,8 @@ function scenarioFiles(): ScenarioFile[] {
           continue;
         }
         // Any other code line closes the comment block: tags must be adjacent.
-        if (line.trim() !== "" && !/^\s*\/\//.test(line) && pending.length) pending.length = 0;
+        if (line.trim() !== "" && !/^\s*\/\//.test(line) && pending.length)
+          pending.length = 0;
       }
       return { name, source, scenarios };
     });
@@ -110,10 +117,15 @@ describe("Feature: characterization-matrix gate (#241)", () => {
   test("every registered tool is exercised by a real-host scenario", () => {
     const exercised = new Set<string>();
     for (const f of files)
-      for (const m of f.source.matchAll(/call\(\s*"[^"]+"\s*,\s*"(memory_[a-z_]+)"/g))
+      for (const m of f.source.matchAll(
+        /call\(\s*"[^"]+"\s*,\s*"(memory_[a-z_]+)"/g,
+      ))
         exercised.add(m[1]);
     const missing = tools.filter((t) => !exercised.has(t));
-    expect(missing, `tools with no scripted call in e2e/: ${missing.join(", ")}`).toEqual([]);
+    expect(
+      missing,
+      `tools with no scripted call in e2e/: ${missing.join(", ")}`,
+    ).toEqual([]);
   });
 
   test("every registered event hook has a tagged scenario", () => {
@@ -121,9 +133,15 @@ describe("Feature: characterization-matrix gate (#241)", () => {
     for (const f of files)
       for (const s of f.scenarios)
         for (const c of s.covers)
-          if (c.startsWith("hook:")) tagged.set(c.slice(5), [...(tagged.get(c.slice(5)) ?? []), `${f.name}: ${s.title}`]);
+          if (c.startsWith("hook:"))
+            tagged.set(c.slice(5), [
+              ...(tagged.get(c.slice(5)) ?? []),
+              `${f.name}: ${s.title}`,
+            ]);
     const missing = hooks.filter((h) => !tagged.has(h));
-    expect(missing, `hooks with no @covers tag: ${missing.join(", ")}`).toEqual([]);
+    expect(missing, `hooks with no @covers tag: ${missing.join(", ")}`).toEqual(
+      [],
+    );
   });
 
   test("every @covers tag names a hook that is registered today", () => {
@@ -133,6 +151,9 @@ describe("Feature: characterization-matrix gate (#241)", () => {
         for (const c of s.covers)
           if (c.startsWith("hook:") && !hooks.includes(c.slice(5)))
             stale.push(`${f.name}: ${s.title} -> ${c}`);
-    expect(stale, `@covers tags pointing at unregistered hooks: ${stale.join("; ")}`).toEqual([]);
+    expect(
+      stale,
+      `@covers tags pointing at unregistered hooks: ${stale.join("; ")}`,
+    ).toEqual([]);
   });
 });

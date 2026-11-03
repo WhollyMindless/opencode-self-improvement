@@ -15,10 +15,15 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { rememberSessionDir, resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  rememberSessionDir,
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState } from "../src/core/state.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
-import { evidenceDir } from "../src/core/config/paths.ts"
+import { evidenceDir } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 
 let root: string;
@@ -46,7 +51,10 @@ afterEach(async () => {
   setRepoScope(null);
   delete process.env.OPENCODE_MEMORY_DIR;
   delete process.env.OPENCODE_COMMANDS_DIR;
-  if (dirname(resolve(root)) !== resolve(tmpdir()) || !basename(root).startsWith("osi-evidserv-")) {
+  if (
+    dirname(resolve(root)) !== resolve(tmpdir()) ||
+    !basename(root).startsWith("osi-evidserv-")
+  ) {
     throw new Error("Unexpected fixture cleanup path");
   }
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -82,7 +90,9 @@ test("new evidence from an unresolved server session is not global to other sess
     { ev: "tool_result" },
     { sessionID: "ses-unresolved-a", id: "evidence-a" },
   );
-  expect(String((own as { content?: string }).content ?? "")).toContain("UNRESOLVED_A_CONFIDENTIAL_RESULT");
+  expect(String((own as { content?: string }).content ?? "")).toContain(
+    "UNRESOLVED_A_CONFIDENTIAL_RESULT",
+  );
 });
 
 // Probe 2: the scope-less plugin loads FIRST, a repository-B plugin loads
@@ -106,7 +116,9 @@ test("unresolved server-session evidence never borrows another instance's repo s
   // file: instance B's own boot records (session-less writes) legitimately
   // stamp B's repository, and they share the day file — the reviewers'
   // smoking-gun line is the one that carries A's marker.
-  const aLine = raw.split("\n").find((l) => l.includes("UNRESOLVED_A_WRONG_REPO_RESULT"));
+  const aLine = raw
+    .split("\n")
+    .find((l) => l.includes("UNRESOLVED_A_WRONG_REPO_RESULT"));
   expect(aLine).toBeDefined();
   expect(aLine).not.toContain(`repo=${resolveRepo(b).key}`);
   const res = await pb.tools.memory_evidence.execute(

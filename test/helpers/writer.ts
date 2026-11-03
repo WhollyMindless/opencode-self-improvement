@@ -2,7 +2,7 @@
 // for another opencode session (or the viewer) sharing one memory root. Runs
 // appends and whole-file rewrites concurrently, exactly as two live sessions
 // would, and reports what it believes it wrote.
-import { appendMemory } from "../../src/store/files/append.ts"
+import { appendMemory } from "../../src/store/files/append.ts";
 import { markSuperseded } from "../../src/store/files/supersede.ts";
 import { requireTempPath } from "./temp-root.ts";
 
@@ -19,9 +19,17 @@ const supersede = (supersededRaw ?? "").split(",").filter(Boolean);
 
 await Promise.all([
   ...Array.from({ length: appends }, (_, i) =>
-    appendMemory({ type: "learning", scope: "stress", content: `child row ${i} ${process.pid}` }),
+    appendMemory({
+      type: "learning",
+      scope: "stress",
+      content: `child row ${i} ${process.pid}`,
+    }),
   ),
-  ...supersede.map((ts) => markSuperseded(ts, { superseded_by: "stress", reason: "stress" })),
+  ...supersede.map((ts) =>
+    markSuperseded(ts, { superseded_by: "stress", reason: "stress" }),
+  ),
 ]);
 
-console.log(JSON.stringify({ pid: process.pid, appends, superseded: supersede.length }));
+console.log(
+  JSON.stringify({ pid: process.pid, appends, superseded: supersede.length }),
+);

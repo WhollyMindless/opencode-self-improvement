@@ -17,7 +17,11 @@ import { dirname } from "node:path";
 // replace the file with `text`, then intercept `Bun.file(file)` so readers
 // under test receive the stale handle. Returns the restore function; the
 // caller owns it (finally block or afterEach).
-export async function replaceWithCachedHandle(file: string, text: string, before = "short\n"): Promise<() => void> {
+export async function replaceWithCachedHandle(
+  file: string,
+  text: string,
+  before = "short\n",
+): Promise<() => void> {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, before);
   const cached = Bun.file(file);
@@ -25,7 +29,9 @@ export async function replaceWithCachedHandle(file: string, text: string, before
   writeFileSync(`${file}.next`, text);
   renameSync(`${file}.next`, file);
   const real = Bun.file;
-  const spy = spyOn(Bun, "file").mockImplementation((path: unknown, options?: BlobPropertyBag) =>
-    path === file ? cached : Reflect.apply(real, Bun, [path, options]));
+  const spy = spyOn(Bun, "file").mockImplementation(
+    (path: unknown, options?: BlobPropertyBag) =>
+      path === file ? cached : Reflect.apply(real, Bun, [path, options]),
+  );
   return () => spy.mockRestore();
 }

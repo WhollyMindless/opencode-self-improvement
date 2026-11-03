@@ -7,15 +7,26 @@
 // gracefully when the binary or git is absent, so install-from-scratch still
 // writes script memories.
 import { basename } from "node:path";
-import { loadAll } from "../store/files/load.ts"
-import { markSuperseded } from "../store/files/supersede.ts"
-import { isVisibleTo, readerFromSid, type Reader } from "../store/model/visibility.ts";
+import { loadAll } from "../store/files/load.ts";
+import { markSuperseded } from "../store/files/supersede.ts";
+import {
+  isVisibleTo,
+  readerFromSid,
+  type Reader,
+} from "../store/model/visibility.ts";
 import { runWriteGate, type GateContext } from "../gate/gate.ts";
 import { captureEvidenceContext, record } from "../evidence/record.ts";
 import { writeEvidence, hasGateCheck } from "../capture/triggers.ts";
 import { writeTarget } from "../identity/repokey.ts";
 import { getCurrent } from "../core/state.ts";
-import { type GraphStatus, type ScriptRecord, detectScripts, ensureGraph, gitHead, gitRootOf } from "./detect.ts";
+import {
+  type GraphStatus,
+  type ScriptRecord,
+  detectScripts,
+  ensureGraph,
+  gitHead,
+  gitRootOf,
+} from "./detect.ts";
 
 export interface InitArgs {
   liveRoot: string;
@@ -42,7 +53,10 @@ export interface InitSummary {
   unaudited?: number;
 }
 
-export async function run(cmd: string[], cwd: string): Promise<{ ok: boolean; out: string }> {
+export async function run(
+  cmd: string[],
+  cwd: string,
+): Promise<{ ok: boolean; out: string }> {
   try {
     const p = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
     const [so, se] = await Promise.all([
@@ -61,13 +75,19 @@ export interface InitStamp {
   head: string;
 }
 
-export async function initStamp(scope: string, sid?: string, reader: Reader = readerFromSid(sid)): Promise<InitStamp | null> {
+export async function initStamp(
+  scope: string,
+  sid?: string,
+  reader: Reader = readerFromSid(sid),
+): Promise<InitStamp | null> {
   // Scope is a basename, so two different repos can share one
   // ("api" next to "api", a fork beside its upstream). Visibility filtering
   // makes each repo see only its own stamp — basename collisions no longer
   // alias init state between repos. The reader comes from the CALLER's
   // session, not from the global current after this await (#127).
-  const mems = (await loadAll()).filter((m) => !m.superseded_by && isVisibleTo(m, reader));
+  const mems = (await loadAll()).filter(
+    (m) => !m.superseded_by && isVisibleTo(m, reader),
+  );
   for (const m of mems) {
     if (m.type !== "context" || m.scope !== scope) continue;
     if (!m.tags?.some((t) => t === "init-stamp")) continue;
@@ -102,7 +122,13 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
 
   const prior = await initStamp(scope, args.sessionID, reader);
   if (prior && !force && prior.head === head) {
-    await record("init_skip", { scope, head, since: prior.ts }, false, args.sessionID, evidenceContext);
+    await record(
+      "init_skip",
+      { scope, head, since: prior.ts },
+      false,
+      args.sessionID,
+      evidenceContext,
+    );
     return {
       scope,
       root,
@@ -117,7 +143,13 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
     };
   }
 
-  await record("init_start", { scope, head, force, mode }, false, args.sessionID, evidenceContext);
+  await record(
+    "init_start",
+    { scope, head, force, mode },
+    false,
+    args.sessionID,
+    evidenceContext,
+  );
 
   const graph = await ensureGraph(root, mode, force);
   const scripts = await detectScripts(root);
@@ -148,9 +180,16 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
   );
   const stampTs = stampOutcome.ts ?? prior?.ts;
   if (stampOutcome.action === "promoted" && prior && stampOutcome.ts) {
-    await markSuperseded(prior.ts, { superseded_by: stampOutcome.ts, reason: "init" });
+    await markSuperseded(prior.ts, {
+      superseded_by: stampOutcome.ts,
+      reason: "init",
+    });
   }
-  if (stampOutcome.action === "promoted" && stampOutcome.evidenceError !== undefined) unaudited++;
+  if (
+    stampOutcome.action === "promoted" &&
+    stampOutcome.evidenceError !== undefined
+  )
+    unaudited++;
 
   await record(
     "init_complete",

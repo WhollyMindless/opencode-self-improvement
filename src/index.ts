@@ -12,52 +12,78 @@ import { guarded } from "./core/hooks.ts";
 import type { PluginCtx } from "./core/host.ts";
 import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { basename, join } from "node:path";
-import { frontierBudget, injectBudget } from "./core/config/budgets.ts"
+import { frontierBudget, injectBudget } from "./core/config/budgets.ts";
 import { memoryRoot } from "./core/config/paths.ts";
-import { loadAll, malformedCount } from "./store/files/load.ts"
-import { snapshotFiles } from "./store/files/snapshots.ts"
-import { clearSuperseded, markManySuperseded, markSuperseded } from "./store/files/supersede.ts"
-import { resolveMemoryTarget } from "./store/files/target.ts"
-import { type Memory } from "./store/model/memory.ts"
-import { isActive, isInjectable } from "./store/model/predicates.ts"
+import { loadAll, malformedCount } from "./store/files/load.ts";
+import { snapshotFiles } from "./store/files/snapshots.ts";
+import {
+  clearSuperseded,
+  markManySuperseded,
+  markSuperseded,
+} from "./store/files/supersede.ts";
+import { resolveMemoryTarget } from "./store/files/target.ts";
+import { type Memory } from "./store/model/memory.ts";
+import { isActive, isInjectable } from "./store/model/predicates.ts";
 import { evidenceVisibleTo, isVisibleTo } from "./store/model/visibility.ts";
 import { auditCaveat, sameStrList, type WriteCandidate } from "./gate/gate.ts";
 import { withStoreLock } from "./store/lock.ts";
-import { isQuarantined, quarantineReasons } from "./store/quarantine/quarantine.ts";
+import {
+  isQuarantined,
+  quarantineReasons,
+} from "./store/quarantine/quarantine.ts";
 import { pruneMemory } from "./store/prune.ts";
-import { findStaleOpen } from "./portable/decay.ts"
-import { exportMemories } from "./portable/export.ts"
+import { findStaleOpen } from "./portable/decay.ts";
+import { exportMemories } from "./portable/export.ts";
 import { importMemories } from "./portable/import.ts";
 import { listSnapshots, restoreSnapshot } from "./store/undo.ts";
 import { evidenceFileFor, record } from "./evidence/record.ts";
-import { proposeConsolidations } from "./consolidate/propose.ts"
+import { proposeConsolidations } from "./consolidate/propose.ts";
 import { renderProposals } from "./consolidate/render.ts";
 import { readReads } from "./hits/ledger.ts";
-import { formatMemory } from "./inject/format.ts"
+import { formatMemory } from "./inject/format.ts";
 import { sharedTerms } from "./recall/shared-terms.ts";
-import { configureAutoCapture, CAPTURE_EVENT_TYPES } from "./capture/runtime.ts";
-export { resetCaptureCooldowns, TURN_END_EVENTS, CAPTURE_EVENT_TYPES, captureTriggerFor } from "./capture/runtime.ts";
+import {
+  configureAutoCapture,
+  CAPTURE_EVENT_TYPES,
+} from "./capture/runtime.ts";
+export {
+  resetCaptureCooldowns,
+  TURN_END_EVENTS,
+  CAPTURE_EVENT_TYPES,
+  captureTriggerFor,
+} from "./capture/runtime.ts";
 export { resetSessionModels } from "./capture/session-model.ts";
 import { createInjectionEpochs } from "./inject/epochs.ts";
 import { createSessionContext } from "./identity/session-context.ts";
 import { registerMemoryTools } from "./tools/registry.ts";
-import { readLedger, neverRetrieved, recordHits, type HitSource } from "./hits/ledger.ts";
-import { formatInit } from "./init/format.ts"
-import { runInit } from "./init/run.ts";
-import { ensureInitCommand, ensureMemoryReportCommand } from "./command/ensure.ts";
-import { captureLag, captureLagLines, rowsPerDay } from "./status/metrics.ts"
-import { type Measured, type StoreCounts } from "./status/payload.ts"
-import { renderMemoryReport } from "./status/report.ts"
-import { blockedRecent } from "./status/write.ts";
 import {
-  firstFrontierTap,
-  markFrontierTap,
-} from "./capture/triggers.ts";
+  readLedger,
+  neverRetrieved,
+  recordHits,
+  type HitSource,
+} from "./hits/ledger.ts";
+import { formatInit } from "./init/format.ts";
+import { runInit } from "./init/run.ts";
+import {
+  ensureInitCommand,
+  ensureMemoryReportCommand,
+} from "./command/ensure.ts";
+import { captureLag, captureLagLines, rowsPerDay } from "./status/metrics.ts";
+import { type Measured, type StoreCounts } from "./status/payload.ts";
+import { renderMemoryReport } from "./status/report.ts";
+import { blockedRecent } from "./status/write.ts";
+import { firstFrontierTap, markFrontierTap } from "./capture/triggers.ts";
 import { setCurrent } from "./core/state.ts";
-import { resolveRepo, setRepoScope, rememberSessionDir, bindSessionProvisional, writeTarget } from "./identity/repokey.ts";
-import { parseLine } from "./core/logfmt/format.ts"
+import {
+  resolveRepo,
+  setRepoScope,
+  rememberSessionDir,
+  bindSessionProvisional,
+  writeTarget,
+} from "./identity/repokey.ts";
+import { parseLine } from "./core/logfmt/format.ts";
 import { readLines } from "./core/logfmt/read.ts";
-import { parseModelRef } from "./capture/candidates.ts"
+import { parseModelRef } from "./capture/candidates.ts";
 import { flattenMemoryText } from "./store/sanitize.ts";
 import { bunFloorWarning } from "./core/runtime.ts";
 
@@ -100,21 +126,25 @@ const impl = {
     // THIS instance's own workspace. The module scope says who loaded last;
     // this says who I am. An unbound session that calls into THIS instance
     // resolves here — never to another instance's scope (#127, multi-setup).
-    const instanceDir = typeof setupRoot === "string" && setupRoot ? setupRoot : undefined;
+    const instanceDir =
+      typeof setupRoot === "string" && setupRoot ? setupRoot : undefined;
 
     // Character budgets: relevance injection and contextual pulls share the
     // existing cap; the session-start frontier has its own larger cap. Plugin
     // options win over env fallbacks, and the frontier defaults to 3x the
     // effective injection budget.
     const budget = Number(ctx.options?.injectBudget) || injectBudget();
-    const openBudget = Number(ctx.options?.frontierBudget) || frontierBudget(budget);
+    const openBudget =
+      Number(ctx.options?.frontierBudget) || frontierBudget(budget);
 
     // Warn-once Bun floor check (same setup-time warning style as the
     // captureModel warnings below): opencode embeds Bun, and the store code's
     // fs failure modes are Bun-version dependent, so flag an old host.
     if (!bunFloorChecked) {
       bunFloorChecked = true;
-      const floorWarning = bunFloorWarning(typeof Bun === "undefined" ? undefined : Bun.version);
+      const floorWarning = bunFloorWarning(
+        typeof Bun === "undefined" ? undefined : Bun.version,
+      );
       if (floorWarning) console.warn(floorWarning);
     }
 
@@ -124,18 +154,31 @@ const impl = {
     await ensureInitCommand();
     await ensureMemoryReportCommand();
 
-    const { gateContext, ownerlessWriter, refuseOwnerlessWrite, toolIds, bindSessionFromApi, bindSessionIdentity } =
-      createSessionContext(ctx, { instanceDir, liveRoot });
+    const {
+      gateContext,
+      ownerlessWriter,
+      refuseOwnerlessWrite,
+      toolIds,
+      bindSessionFromApi,
+      bindSessionIdentity,
+    } = createSessionContext(ctx, { instanceDir, liveRoot });
 
     // ---- tools --------------------------------------------------------------
     // Use ledger (#42). `query` is what retrieval was asked with; what gets
     // stored is the vocabulary the answer SHARES with the query, taken from the
     // memory side, so the ledger can never become a copy of user prompts.
     // Fail-soft inside recordHits: telemetry must not break a read path.
-    const noteHits = async (src: HitSource, sid: string, rows: Memory[], query: string): Promise<void> => {
+    const noteHits = async (
+      src: HitSource,
+      sid: string,
+      rows: Memory[],
+      query: string,
+    ): Promise<void> => {
       if (!rows.length || !query.trim()) return;
       const terms: string[] = [];
-      for (const m of rows) for (const t of sharedTerms(query, m)) if (!terms.includes(t)) terms.push(t);
+      for (const m of rows)
+        for (const t of sharedTerms(query, m))
+          if (!terms.includes(t)) terms.push(t);
       await recordHits(src, sid, rows, terms);
     };
     // The host listener owns measured usage; the epoch controller drops it
@@ -166,11 +209,20 @@ const impl = {
     // trigger is live (autoCapture on, captureOnCompact not false, valid
     // captureModel). The compaction hook calls it fire-and-forget; undefined
     // means "off". Declared here because the hook registers before capture.
-    let onCompactCapture: ((sid: string, messages: unknown) => void) | undefined;
+    let onCompactCapture:
+      | ((sid: string, messages: unknown) => void)
+      | undefined;
 
     const measuredController = await registerHooks(ctx, {
-      guarded, sessions, instanceDir, budget, noteHits, bindSessionIdentity,
-      bindSessionFromApi, measuredTurns, flushStatus,
+      guarded,
+      sessions,
+      instanceDir,
+      budget,
+      noteHits,
+      bindSessionIdentity,
+      bindSessionFromApi,
+      measuredTurns,
+      flushStatus,
       getCompactCapture: () => onCompactCapture,
     });
     // ---- opt-in auto-capture (idle + compaction triggers) ------------------
@@ -188,7 +240,11 @@ const impl = {
     // so decay/status — and bench/capture-trigger-compare.ts — can measure
     // which trigger earns its tokens. Every failure is swallowed: capture must
     // never be able to break a session.
-    const capture = configureAutoCapture(ctx, { instanceDir, gateContext, guarded });
+    const capture = configureAutoCapture(ctx, {
+      instanceDir,
+      gateContext,
+      guarded,
+    });
     onCompactCapture = capture.onCompactCapture;
     const captureCleanup = capture.cleanup;
     // ---- startup heartbeat (#138) ------------------------------------------
@@ -203,7 +259,9 @@ const impl = {
     await guarded("plugin_load heartbeat", async () => {
       let pluginVersion = "unknown";
       try {
-        const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json();
+        const pkg = await Bun.file(
+          new URL("../package.json", import.meta.url),
+        ).json();
         if (typeof pkg?.version === "string") pluginVersion = pkg.version;
       } catch {
         // a heartbeat with an unknown version still beats no heartbeat
@@ -213,10 +271,18 @@ const impl = {
       // the session's model (session.context) or the host default. Only an
       // explicit but malformed string is invalid_model.
       const captureModelOpt = ctx.options?.captureModel;
-      const modelOk = captureModelOpt === undefined || !!parseModelRef(captureModelOpt);
-      const capabilities = ["event.subscribe", "generate.text", "session.context"].filter((name) => {
+      const modelOk =
+        captureModelOpt === undefined || !!parseModelRef(captureModelOpt);
+      const capabilities = [
+        "event.subscribe",
+        "generate.text",
+        "session.context",
+      ].filter((name) => {
         const [domain, method] = name.split(".");
-        return typeof (ctx as unknown as Record<string, any>)?.[domain]?.[method] === "function";
+        return (
+          typeof (ctx as unknown as Record<string, any>)?.[domain]?.[method] ===
+          "function"
+        );
       });
       const captureState = !wantCapture
         ? "off"

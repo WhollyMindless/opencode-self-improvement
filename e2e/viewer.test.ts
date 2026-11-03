@@ -6,7 +6,15 @@
 // shared store files, and both sides here are the real implementations.
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { request as httpRequest } from "node:http";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";import { tmpdir } from "node:os";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPO } from "./support/harness.ts";
 
@@ -36,17 +44,20 @@ async function startViewer(storeLines: string): Promise<Viewer> {
   mkdirSync(memoryDir, { recursive: true });
   writeFileSync(join(memoryDir, "2026-01-01.logfmt"), storeLines);
 
-  const child = Bun.spawn([process.execPath, join(REPO, "src", "viewer", "server.ts")], {
-    cwd: REPO,
-    env: {
-      HOME: join(root, "home"),
-      PATH: process.env.PATH ?? "/usr/bin:/bin",
-      OPENCODE_MEMORY_DIR: memoryDir,
-      OPENCODE_VIEWER_PORT: "0",
+  const child = Bun.spawn(
+    [process.execPath, join(REPO, "src", "viewer", "server.ts")],
+    {
+      cwd: REPO,
+      env: {
+        HOME: join(root, "home"),
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        OPENCODE_MEMORY_DIR: memoryDir,
+        OPENCODE_VIEWER_PORT: "0",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
     },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  );
   let port = 0;
   const deadline = Date.now() + 15_000;
   let out = "";
@@ -73,7 +84,12 @@ function req(
   v: Viewer,
   method: string,
   path: string,
-  opts: { body?: string; host?: string; origin?: string; contentType?: string } = {},
+  opts: {
+    body?: string;
+    host?: string;
+    origin?: string;
+    contentType?: string;
+  } = {},
 ): Promise<Resp> {
   return new Promise((resolve, reject) => {
     const r = httpRequest(
@@ -116,7 +132,12 @@ const jsonReq = (v: Viewer, path: string, payload: unknown) =>
 function storeLines(memoryDir: string): string {
   return readdirSync(memoryDir)
     .filter((f) => /^\d{4}-\d{2}-\d{2}\.logfmt$/.test(f))
-    .flatMap((f) => readFileSync(join(memoryDir, f), "utf8").trim().split("\n").filter(Boolean))
+    .flatMap((f) =>
+      readFileSync(join(memoryDir, f), "utf8")
+        .trim()
+        .split("\n")
+        .filter(Boolean),
+    )
     .join("\n");
 }
 
@@ -140,7 +161,9 @@ describe("Feature: viewer routes over real HTTP (#241)", () => {
     const data = await req(v, "GET", "/api/data");
     expect(data.status).toBe(200);
     const parsed = JSON.parse(data.body);
-    expect(parsed.memoryRoot ?? parsed.roots?.memoryRoot ?? v.memoryDir).toInclude("memory");
+    expect(
+      parsed.memoryRoot ?? parsed.roots?.memoryRoot ?? v.memoryDir,
+    ).toInclude("memory");
     const tss = (parsed.memories as { ts: string }[]).map((m) => m.ts);
     expect(tss).toContain(TS_A);
     expect(tss).toContain(TS_B);
@@ -167,7 +190,10 @@ describe("Feature: viewer routes over real HTTP (#241)", () => {
     expect(lines).toContain(`superseded_by=${edited.superseded_by}`);
 
     // When a row is deleted, it leaves the store and enters the audit log
-    const del = await jsonReq(v, "/api/delete", { ts: TS_B, reason: "e2e characterization delete" });
+    const del = await jsonReq(v, "/api/delete", {
+      ts: TS_B,
+      reason: "e2e characterization delete",
+    });
     expect(del.status).toBe(200);
     expect(JSON.parse(del.body).action).toBe("deleted");
     lines = storeLines(v.memoryDir);
@@ -191,18 +217,27 @@ describe("Feature: viewer routes over real HTTP (#241)", () => {
     const v = await startViewer(SEED);
     guests.push(v);
 
-    const block = await jsonReq(v, "/api/block", { ts: TS_A, reason: "e2e characterization block" });
+    const block = await jsonReq(v, "/api/block", {
+      ts: TS_A,
+      reason: "e2e characterization block",
+    });
     expect(block.status).toBe(200);
     let parsed = JSON.parse((await req(v, "GET", "/api/data")).body);
-    expect((parsed.memories as { ts: string }[]).map((m) => m.ts)).not.toContain(TS_A);
-    expect((parsed.blocked as { ts: string }[]).map((b) => b.ts)).toContain(TS_A);
+    expect(
+      (parsed.memories as { ts: string }[]).map((m) => m.ts),
+    ).not.toContain(TS_A);
+    expect((parsed.blocked as { ts: string }[]).map((b) => b.ts)).toContain(
+      TS_A,
+    );
     // The row itself is still on disk — the blocklist hides, never deletes.
     expect(storeLines(v.memoryDir)).toContain("nightly board sync");
 
     const unblock = await jsonReq(v, "/api/unblock", { ts: TS_A });
     expect(unblock.status).toBe(200);
     parsed = JSON.parse((await req(v, "GET", "/api/data")).body);
-    expect((parsed.memories as { ts: string }[]).map((m) => m.ts)).toContain(TS_A);
+    expect((parsed.memories as { ts: string }[]).map((m) => m.ts)).toContain(
+      TS_A,
+    );
   }, 60_000);
 
   test("Scenario: rebinding Host, cross-origin writes and non-JSON bodies are refused", async () => {
@@ -211,7 +246,9 @@ describe("Feature: viewer routes over real HTTP (#241)", () => {
     const payload = JSON.stringify({ ts: TS_A, reason: "should never land" });
 
     // A rebinding page arrives with a foreign Host: refused before any route.
-    const rebinding = await req(v, "GET", "/api/data", { host: "evil.example" });
+    const rebinding = await req(v, "GET", "/api/data", {
+      host: "evil.example",
+    });
     expect(rebinding.status).toBe(403);
     expect(JSON.parse(rebinding.body).error).toContain("Host");
 
@@ -245,7 +282,10 @@ describe("Feature: viewer routes over real HTTP (#241)", () => {
       reason: "e2e negative probe",
     });
     expect(badTs.status).toBe(400);
-    const noReason = await jsonReq(v, "/api/delete", { ts: TS_A, reason: "   " });
+    const noReason = await jsonReq(v, "/api/delete", {
+      ts: TS_A,
+      reason: "   ",
+    });
     expect(noReason.status).toBe(400);
     expect(noReason.body).toInclude("reason is required");
     const emptyBody = await jsonReq(v, "/api/delete", {});

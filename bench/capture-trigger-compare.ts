@@ -30,14 +30,22 @@
 // cannot fail does not count.
 //
 //   bun bench/capture-trigger-compare.ts
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir } from "../src/core/config/paths.ts"
+import { evidenceDir } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 import { formatLine, parseLine } from "../src/core/logfmt/format.ts";
-import { loadAll } from "../src/store/files/load.ts"
-import { type Memory } from "../src/store/model/memory.ts"
+import { loadAll } from "../src/store/files/load.ts";
+import { type Memory } from "../src/store/model/memory.ts";
 import { isActive } from "../src/store/model/predicates.ts";
 import { resetState } from "../src/core/state.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
@@ -53,7 +61,10 @@ import { loadPlugin } from "../test/harness.ts";
 // candidates from the SAME capture), which measures GATE-3's merge policy,
 // not the trigger.
 const GOLDS = MEMORIES.filter(
-  (m) => !/\w\/\w/.test(m.content) && m.type !== "decision" && m.type !== "preference",
+  (m) =>
+    !/\w\/\w/.test(m.content) &&
+    m.type !== "decision" &&
+    m.type !== "preference",
 ).slice(0, 24);
 const GOLD_IDS = new Set(GOLDS.map((m) => m.id));
 const QUERIES_HERE = QUERIES.filter((q) => GOLD_IDS.has(q.gold));
@@ -71,7 +82,12 @@ const byId = new Map(GOLDS.map((m) => [m.id, m]));
 //     control below asserts every mined fact promotes, so a future gate change
 //     that silently stops promoting captured facts turns this bench red.
 const DISTRACTORS = buildStore(600)
-  .filter((m) => !GOLD_IDS.has(m.id.split("#")[0]!) && m.type !== "decision" && m.type !== "preference")
+  .filter(
+    (m) =>
+      !GOLD_IDS.has(m.id.split("#")[0]!) &&
+      m.type !== "decision" &&
+      m.type !== "preference",
+  )
   .slice(0, 150);
 
 // The simulated cliff: 53% of exact-wording rules survive one compaction
@@ -84,7 +100,9 @@ function cliffSurvivors(): number[] {
     const j = Math.floor(rand() * (i + 1));
     [idx[i], idx[j]] = [idx[j]!, idx[i]!];
   }
-  return idx.slice(0, Math.round(GOLDS.length * KEEP_RATE)).sort((a, b) => a - b);
+  return idx
+    .slice(0, Math.round(GOLDS.length * KEEP_RATE))
+    .sort((a, b) => a - b);
 }
 const SURVIVORS = cliffSurvivors();
 
@@ -93,8 +111,12 @@ const factMessages = (facts: { content: string; scope: string }[]) =>
     role: "user",
     content: `${f.content} That came up while working in ${f.scope}; it mattered for the rest of the session.`,
   }));
-const factCandidates = (facts: { type: string; scope: string; content: string }[]) =>
-  JSON.stringify(facts.map((f) => ({ type: f.type, scope: f.scope, content: f.content })));
+const factCandidates = (
+  facts: { type: string; scope: string; content: string }[],
+) =>
+  JSON.stringify(
+    facts.map((f) => ({ type: f.type, scope: f.scope, content: f.content })),
+  );
 
 // --- world runner ---------------------------------------------------------------
 
@@ -102,7 +124,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(cond: () => boolean, timeoutMs = 15_000): Promise<void> {
   const start = Date.now();
   while (!cond()) {
-    if (Date.now() - start > timeoutMs) throw new Error("bench waitFor timed out");
+    if (Date.now() - start > timeoutMs)
+      throw new Error("bench waitFor timed out");
     await sleep(10);
   }
 }
@@ -139,20 +162,34 @@ async function runWorld(
   const liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
   // Equal hand-seeded competition on every side (never captured, never gold).
-  const storeFile = join(process.env.OPENCODE_MEMORY_DIR, `${dateStr()}.logfmt`);
+  const storeFile = join(
+    process.env.OPENCODE_MEMORY_DIR,
+    `${dateStr()}.logfmt`,
+  );
   mkdirSync(join(process.env.OPENCODE_MEMORY_DIR), { recursive: true });
   appendFileSync(
     storeFile,
     DISTRACTORS.map((d) =>
-      formatLine({ ts: `2026-01-01T00:00:0${(d.id.length % 9) + 1}.000Z`, type: d.type, scope: d.scope, content: d.content, status: "settled" }),
+      formatLine({
+        ts: `2026-01-01T00:00:0${(d.id.length % 9) + 1}.000Z`,
+        type: d.type,
+        scope: d.scope,
+        content: d.content,
+        status: "settled",
+      }),
     ).join("\n") + "\n",
   );
 
-  const loaded = await loadPlugin(liveRoot, trigger === "off" ? {} : {
-    autoCapture: true,
-    captureModel: "fake/model",
-    captureMax: 30,
-  });
+  const loaded = await loadPlugin(
+    liveRoot,
+    trigger === "off"
+      ? {}
+      : {
+          autoCapture: true,
+          captureModel: "fake/model",
+          captureMax: 30,
+        },
+  );
 
   // Ground the session so ref-free candidates promote through the gate's
   // behavior-grounding path, exactly as the capture unit tests do.
@@ -178,13 +215,17 @@ async function runWorld(
     // Same session shape, but the compaction happened first and the session
     // only THEN went idle: context now carries the post-cliff survivors.
     loaded.capture.context.messages = factMessages(mined);
-    loaded.capture.events.push({ type: "session.idle", data: { sessionID: sid } });
+    loaded.capture.events.push({
+      type: "session.idle",
+      data: { sessionID: sid },
+    });
   }
 
   if (trigger === "off") {
     await sleep(150);
   } else {
-    const stem = trigger === "compaction" ? "auto_capture_compaction" : "auto_capture";
+    const stem =
+      trigger === "compaction" ? "auto_capture_compaction" : "auto_capture";
     try {
       await waitFor(() => {
         const evs = evidenceEvs(evFile);
@@ -197,7 +238,9 @@ async function runWorld(
               "changed; this comparison no longer isolates the trigger. Re-read the evidence log before trusting numbers.",
           );
         }
-        return evs.filter((e) => e === `${stem}_promoted`).length >= mined.length;
+        return (
+          evs.filter((e) => e === `${stem}_promoted`).length >= mined.length
+        );
       });
     } catch (err) {
       // A TIMEOUT means the capture never completed — on src without the
@@ -205,12 +248,15 @@ async function runWorld(
       // captures, and the controls below report the honest RED (a raw crash
       // before the report would hide which control failed). Any other error
       // (the moat canary) stays loud.
-      if (!String((err as Error)?.message ?? "").includes("timed out")) throw err;
+      if (!String((err as Error)?.message ?? "").includes("timed out"))
+        throw err;
     }
   }
 
   const rows = (await loadAll()).filter(isActive);
-  const capturedRows = rows.filter((m) => m.tags?.includes("auto-capture")).length;
+  const capturedRows = rows.filter((m) =>
+    m.tags?.includes("auto-capture"),
+  ).length;
   const result: WorldResult = {
     name,
     rows,
@@ -225,10 +271,16 @@ async function runWorld(
 // --- scoring: shipped matcher, k=3 (same protocol as bench/recall-quality) -----
 
 const STOP = new Set(
-  "a an and are at be but by can did do does for from had has have how i in into is it its me my no not of on or our so than that the their them then there these they this to us was we were what when where which who why will with you your run runs getting want needs right back yet also just still ever".split(" "),
+  "a an and are at be but by can did do does for from had has have how i in into is it its me my no not of on or our so than that the their them then there these they this to us was we were what when where which who why will with you your run runs getting want needs right back yet also just still ever".split(
+    " ",
+  ),
 );
-const contentTokens = (t: string) => new Set(words(t).filter((x) => !STOP.has(x)));
-function measureClass(query: string, gold: { scope: string; type: string; content: string }): string {
+const contentTokens = (t: string) =>
+  new Set(words(t).filter((x) => !STOP.has(x)));
+function measureClass(
+  query: string,
+  gold: { scope: string; type: string; content: string },
+): string {
   const gt = contentTokens(`${gold.scope} ${gold.type} ${gold.content}`);
   let shared = 0;
   for (const t of contentTokens(query)) if (gt.has(t)) shared++;
@@ -244,12 +296,19 @@ interface WorldScore {
 }
 
 function scoreWorld(w: WorldResult): WorldScore {
-  const s: WorldScore = { n: 0, hits: 0, goldMissing: 0, rankMiss: 0, byClass: new Map() };
+  const s: WorldScore = {
+    n: 0,
+    hits: 0,
+    goldMissing: 0,
+    rankMiss: 0,
+    byClass: new Map(),
+  };
   for (const q of QUERIES_HERE) {
     const gold = byId.get(q.gold)!;
     const present = w.rows.some((m) => m.content === gold.content);
     const ranked = scoreMemories(q.q, w.rows, w.rows.length);
-    const hit = present && ranked.slice(0, 3).some((m) => m.content === gold.content);
+    const hit =
+      present && ranked.slice(0, 3).some((m) => m.content === gold.content);
     s.n++;
     if (hit) s.hits++;
     else if (!present) s.goldMissing++;
@@ -283,9 +342,12 @@ try {
     { w: WorldResult; s: WorldScore },
   ];
 
-  const pct = (h: number, n: number) => (n ? `${Math.round((h / n) * 100)}%` : "-");
+  const pct = (h: number, n: number) =>
+    n ? `${Math.round((h / n) * 100)}%` : "-";
   const lines: string[] = [];
-  lines.push("# Capture on compaction vs capture on idle — measured retrieval hit-rate");
+  lines.push(
+    "# Capture on compaction vs capture on idle — measured retrieval hit-rate",
+  );
   lines.push("");
   lines.push(
     `${QUERIES_HERE.length} queries over ${GOLDS.length} session facts (committed dataset), ` +
@@ -296,7 +358,9 @@ try {
       "(prompt containment asserted by control 6).",
   );
   lines.push("");
-  lines.push("| world | trigger | captured rows | R@3 | gold missing (lost to cliff) | rank miss | model calls |");
+  lines.push(
+    "| world | trigger | captured rows | R@3 | gold missing (lost to cliff) | rank miss | model calls |",
+  );
   lines.push("| --- | --- | ---: | ---: | ---: | ---: | ---: |");
   for (const { w, s } of worlds) {
     lines.push(
@@ -305,7 +369,9 @@ try {
     );
   }
   lines.push("");
-  lines.push(`| query class | ${worlds.map(({ w }) => `${w.name} R@3`).join(" | ")} |`);
+  lines.push(
+    `| query class | ${worlds.map(({ w }) => `${w.name} R@3`).join(" | ")} |`,
+  );
   lines.push("| --- | ---: | ---: | ---: |");
   for (const cls of ["lexical", "near", "strict"]) {
     const cells = worlds.map(({ s }) => {
@@ -338,13 +404,21 @@ try {
     `the cliff is the difference: compaction (${compact.s.hits}/${compact.s.n}) beats idle-after-compaction (${idle.s.hits}/${idle.s.n})`,
   );
   check(
-    compact.w.capturedRows === GOLDS.length && idle.w.capturedRows === SURVIVORS.length && off.w.capturedRows === 0,
+    compact.w.capturedRows === GOLDS.length &&
+      idle.w.capturedRows === SURVIVORS.length &&
+      off.w.capturedRows === 0,
     `conservation: captured rows == mined facts (compaction ${compact.w.capturedRows}/${GOLDS.length}, idle ${idle.w.capturedRows}/${SURVIVORS.length}, off ${off.w.capturedRows}/0) — nothing else wrote rows`,
   );
   const contained = (w: WorldResult, facts: { content: string }[]) =>
-    w.generateCalls === 1 && facts.every((f) => w.prompts[0]!.includes(f.content));
+    w.generateCalls === 1 &&
+    facts.every((f) => w.prompts[0]!.includes(f.content));
   check(
-    contained(compact.w, GOLDS) && contained(idle.w, SURVIVORS.map((i) => GOLDS[i]!)) && off.w.generateCalls === 0,
+    contained(compact.w, GOLDS) &&
+      contained(
+        idle.w,
+        SURVIVORS.map((i) => GOLDS[i]!),
+      ) &&
+      off.w.generateCalls === 0,
     "prompt containment: every mined fact really rode the capture prompt (the scripted model reads what the trigger hands it)",
   );
   lines.push("## Controls");
@@ -363,6 +437,11 @@ try {
   // Same convention as recall-quality.ts: the report lands next to the bench.
   writeFileSync(join(import.meta.dir, "capture-trigger-results.md"), out);
 } finally {
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  rmSync(scratch, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 20,
+  });
 }
 process.exitCode = failed ? 1 : 0;

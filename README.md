@@ -322,7 +322,11 @@ Nothing merges without the full gate; CI runs it as required checks (`lint`, `te
 ```sh
 bun run gate          # typecheck + lint + unit tests + terminal smoke & BDD
 bun run gate:hooks    # once per clone: run the gate on `git push`
+bun run format        # apply the shared two-space TypeScript/TSX style
+bun run format:check  # check formatting without changing files
 ```
+
+`bun run lint` checks lint rules and TypeScript/TSX formatting; CI calls the same command. Lint warnings remain advisory, while formatting differences fail the check. Markdown commands, prose, JSON data and historical benchmark records are outside the formatter's scope.
 
 Use Bun **1.4.4** for development checks, matching CI. `bun run test` and `bun run test:e2e` run files across at most four worker processes with Bun's file isolation; cases inside each file stay sequential because fixtures share environment variables and module state. The local gate uses those same scripts. To diagnose order-dependent failures in the original shared-process mode, run `bun test ./test/` or `bun test ./e2e/ --timeout 240000` directly.
 

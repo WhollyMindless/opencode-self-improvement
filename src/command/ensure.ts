@@ -9,7 +9,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { commandsDir } from "../core/config/paths.ts";
 
-const PKG_COMMANDS = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "command");
+const PKG_COMMANDS = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "command",
+);
 
 export async function ensureCommand(name: string): Promise<string | null> {
   try {

@@ -6,8 +6,12 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { memoryRoot } from "../core/config/paths.ts";
-import { formatLine, parseLine } from "../core/logfmt/format.ts"
-import { appendLog, fileIdentity, writeAtomic } from "../core/logfmt/publish.ts"
+import { formatLine, parseLine } from "../core/logfmt/format.ts";
+import {
+  appendLog,
+  fileIdentity,
+  writeAtomic,
+} from "../core/logfmt/publish.ts";
 import { readLines } from "../core/logfmt/read.ts";
 import { withStoreLock, LOCK_WRITE } from "./lock.ts";
 
@@ -47,7 +51,11 @@ export async function addBlock(ts: string, reason: string): Promise<string> {
   const file = blocklistFile();
   await withStoreLock(
     file,
-    () => appendLog(file, formatLine({ ts, reason, blocked_at: new Date().toISOString() })),
+    () =>
+      appendLog(
+        file,
+        formatLine({ ts, reason, blocked_at: new Date().toISOString() }),
+      ),
     LOCK_WRITE,
   );
   return ts;
@@ -72,7 +80,11 @@ export async function removeBlock(ts: string): Promise<boolean> {
         const row = parseLine(l);
         return !(row && row.ts === ts);
       });
-      await writeAtomic(file, kept.join("\n") + (kept.length ? "\n" : ""), since);
+      await writeAtomic(
+        file,
+        kept.join("\n") + (kept.length ? "\n" : ""),
+        since,
+      );
       return true;
     },
     LOCK_WRITE,

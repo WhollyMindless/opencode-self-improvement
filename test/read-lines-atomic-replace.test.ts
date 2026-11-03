@@ -23,7 +23,11 @@ test("a larger atomic replacement is not cropped to the previous file size", asy
   ];
   // The helper supplies the actual BunFile whose metadata predates the
   // rename: no sleeps, no mocked bytes, both readers see the real file.
-  const restore = await replaceWithCachedHandle(file, rows.join("\n") + "\n", 'ts=old content="short"\n');
+  const restore = await replaceWithCachedHandle(
+    file,
+    rows.join("\n") + "\n",
+    'ts=old content="short"\n',
+  );
   try {
     const lines = await readLines(file);
     expect(lines).toHaveLength(2);

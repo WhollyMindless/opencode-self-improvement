@@ -3,7 +3,13 @@
 // (variant distractors carry a "note-" tag no query uses, so gold matching by
 // content can never hit a variant).
 import { describe, expect, test } from "bun:test";
-import { buildStore, KEYWORDS, keywordsFor, MEMORIES, QUERIES } from "../bench/recall-dataset.ts";
+import {
+  buildStore,
+  KEYWORDS,
+  keywordsFor,
+  MEMORIES,
+  QUERIES,
+} from "../bench/recall-dataset.ts";
 
 describe("recall dataset integrity", () => {
   test("memory ids are unique", () => {
@@ -17,7 +23,8 @@ describe("recall dataset integrity", () => {
       expect(ids.has(gold)).toBe(true);
       goldCount.set(gold, (goldCount.get(gold) ?? 0) + 1);
     }
-    for (const m of MEMORIES) expect(goldCount.get(m.id) ?? 0).toBeGreaterThanOrEqual(2);
+    for (const m of MEMORIES)
+      expect(goldCount.get(m.id) ?? 0).toBeGreaterThanOrEqual(2);
   });
 
   test("no query text is a verbatim memory body (eval measures recall, not copy)", () => {
@@ -42,7 +49,8 @@ describe("recall dataset integrity", () => {
   });
 
   test("content memory never leaks real home paths (synthetic dataset promise)", () => {
-    for (const m of MEMORIES) expect(m.content).not.toMatch(/\/Users\/|\/home\/[\w-]/);
+    for (const m of MEMORIES)
+      expect(m.content).not.toMatch(/\/Users\/|\/home\/[\w-]/);
   });
 });
 

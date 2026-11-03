@@ -10,6 +10,6 @@ export async function assertViewerWriteAllowed(content: string): Promise<void> {
   if (!rejection) return;
   throw new Error(
     `viewer write blocked: previously_rejected (${rejection.kind}; hash ${rejection.tombstone.ch}). ` +
-    "Nothing was stored. Use Rejections → un-reject in the viewer to explicitly lift that rejection before retrying.",
+      "Nothing was stored. Use Rejections → un-reject in the viewer to explicitly lift that rejection before retrying.",
   );
 }

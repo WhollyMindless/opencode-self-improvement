@@ -8,11 +8,15 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runWriteGate } from "../src/gate/gate.ts";
-import { evidenceDir, exportsDir, memoryRoot } from "../src/core/config/paths.ts"
+import {
+  evidenceDir,
+  exportsDir,
+  memoryRoot,
+} from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
-import { appendMemory } from "../src/store/files/append.ts"
-import { loadAll } from "../src/store/files/load.ts"
+import { appendMemory } from "../src/store/files/append.ts";
+import { loadAll } from "../src/store/files/load.ts";
 import { MAX_CONTENT_CHARS } from "../src/store/model/memory.ts";
 import { extractCallForms, extractPathRefs } from "../src/gate/resolver.ts";
 import { loadPlugin, withTempStore } from "./harness.ts";
@@ -45,7 +49,11 @@ describe("write-side size + type floors", () => {
 
   test("non-string content (a host that skipped schema validation) is blocked, not stored", async () => {
     const out = await runWriteGate(
-      { type: "learning", scope: "caps", content: { nested: true } as unknown as string },
+      {
+        type: "learning",
+        scope: "caps",
+        content: { nested: true } as unknown as string,
+      },
       gateCtx(),
     );
     expect(out.action).toBe("blocked");
@@ -54,7 +62,11 @@ describe("write-side size + type floors", () => {
 
   test("appendMemory hard floor rejects oversized content on gate-bypassing paths", async () => {
     await expect(
-      appendMemory({ type: "learning", scope: "caps", content: "A".repeat(MAX_CONTENT_CHARS + 1) }),
+      appendMemory({
+        type: "learning",
+        scope: "caps",
+        content: "A".repeat(MAX_CONTENT_CHARS + 1),
+      }),
     ).rejects.toThrow(/content exceeds 4000/);
   });
 
@@ -94,10 +106,22 @@ describe("write-side size + type floors", () => {
 
     for (const input of [
       { type: "learning", scope: secret, content: "scope is rejected" },
-      { type: "learning", scope: "credentials", content: "tags are rejected", tags: [secret] },
-      { type: "learning", scope: "credentials", content: "issue is rejected", issue: secret },
+      {
+        type: "learning",
+        scope: "credentials",
+        content: "tags are rejected",
+        tags: [secret],
+      },
+      {
+        type: "learning",
+        scope: "credentials",
+        content: "issue is rejected",
+        issue: secret,
+      },
     ]) {
-      await expect(appendMemory(input)).rejects.toThrow(/metadata.*credential-shaped/);
+      await expect(appendMemory(input)).rejects.toThrow(
+        /metadata.*credential-shaped/,
+      );
     }
     expect(await loadAll()).toHaveLength(1);
   });
@@ -105,14 +129,33 @@ describe("write-side size + type floors", () => {
   test("gate blocks credential-shaped metadata with evidence and stores nothing", async () => {
     const secret = "gh" + "p_AbCdEf0123456789AbCdEf0123456789AbCd";
     for (const candidate of [
-      { type: "learning", scope: secret, content: "scope metadata candidate", status: "open" as const },
-      { type: "learning", scope: "credentials", content: "tag metadata candidate", tags: [secret], status: "open" as const },
-      { type: "learning", scope: "credentials", content: "issue metadata candidate", issue: secret, status: "open" as const },
+      {
+        type: "learning",
+        scope: secret,
+        content: "scope metadata candidate",
+        status: "open" as const,
+      },
+      {
+        type: "learning",
+        scope: "credentials",
+        content: "tag metadata candidate",
+        tags: [secret],
+        status: "open" as const,
+      },
+      {
+        type: "learning",
+        scope: "credentials",
+        content: "issue metadata candidate",
+        issue: secret,
+        status: "open" as const,
+      },
     ]) {
       const out = await runWriteGate(candidate, gateCtx());
       expect(out.action).toBe("blocked");
       expect(out.reason).toBe("credential_in_metadata");
-      expect(out.hint).toContain("Only memory content is redacted automatically");
+      expect(out.hint).toContain(
+        "Only memory content is redacted automatically",
+      );
     }
     expect(await loadAll()).toHaveLength(0);
     const evidenceFile = join(evidenceDir(), `${dateStr()}.logfmt`);
@@ -148,15 +191,19 @@ describe("write-side size + type floors", () => {
     const liveRoot = join(root, "repo");
     mkdirSync(liveRoot, { recursive: true });
     const loaded = await loadPlugin(liveRoot);
-    expect(await loaded.tool.memory_recall.execute({ scope })).toContain(legacySecret);
+    expect(await loaded.tool.memory_recall.execute({ scope })).toContain(
+      legacySecret,
+    );
 
     // An export is a copy of the store, so it lands inside it (#24).
     const exportFile = join(exportsDir(), "legacy.jsonl");
-    expect(await loaded.tool.memory_export.execute({ scope, file: exportFile })).toContain(
-      "Exported 1 memories",
-    );
+    expect(
+      await loaded.tool.memory_export.execute({ scope, file: exportFile }),
+    ).toContain("Exported 1 memories");
     expect(readFileSync(exportFile, "utf8")).toContain(scope);
-    expect(readFileSync(exportFile, "utf8")).toContain("[redacted] stays addressable");
+    expect(readFileSync(exportFile, "utf8")).toContain(
+      "[redacted] stays addressable",
+    );
     expect(
       await loaded.tool.memory_forget.execute({
         scope,
@@ -178,7 +225,11 @@ describe("write-side size + type floors", () => {
 
   test("a normal-length memory still promotes", async () => {
     const out = await runWriteGate(
-      { type: "learning", scope: "caps", content: "run bun test from the repo root; it is hermetic and fast" },
+      {
+        type: "learning",
+        scope: "caps",
+        content: "run bun test from the repo root; it is hermetic and fast",
+      },
       gateCtx(),
     );
     expect(out.action).toBe("promoted");

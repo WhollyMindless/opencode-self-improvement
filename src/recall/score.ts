@@ -1,6 +1,6 @@
 // score — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
-import { loadAll } from "../store/files/load.ts"
-import { type Memory } from "../store/model/memory.ts"
+import { loadAll } from "../store/files/load.ts";
+import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";
 import { cmpTs } from "../core/cmp-ts.ts";
 import { type UseSignals, useBoost } from "./relevant.ts";
@@ -19,7 +19,9 @@ export function words(text: string): string[] {
 // Memory-side tokens are never filtered: a memory stating "the" must not
 // gain or lose rank from it, only queries drive matching.
 export const QUERY_STOPWORDS = new Set(
-  "a an and are at be but by can did do does for from had has have how i in into is it its me my no not of on or our so than that the their them then there these they this to us was we were what when where which who why will with you your run runs getting want needs right back yet also just still ever should would could might may must shall ought nothing something anything everything thing things".split(" "),
+  "a an and are at be but by can did do does for from had has have how i in into is it its me my no not of on or our so than that the their them then there these they this to us was we were what when where which who why will with you your run runs getting want needs right back yet also just still ever should would could might may must shall ought nothing something anything everything thing things".split(
+    " ",
+  ),
 );
 
 // A free-text prompt long enough to carry >= this many content tokens must

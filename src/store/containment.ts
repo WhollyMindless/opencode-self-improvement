@@ -24,7 +24,14 @@
 //     device policy, not a path check.
 import { lstat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 
 // True when `child` is `parent` itself or lives beneath it. Both must already
 // be absolute and lexically normalised (resolve()).
@@ -64,7 +71,8 @@ function normalize(requested: string, reject: (why: string) => string): string {
   // actually truncate or confuse a path survive it and are still caught here.
   const trimmed = requested.trim();
   if (!trimmed) throw new Error(reject("must not be empty"));
-  if (CONTROL_CHARS.test(trimmed)) throw new Error(reject("must not contain control characters"));
+  if (CONTROL_CHARS.test(trimmed))
+    throw new Error(reject("must not contain control characters"));
   const expanded = expandHome(trimmed);
   if (expanded === trimmed && expanded.split(/[/\\]/)[0]?.startsWith("~")) {
     throw new Error(reject("must not use a `~` home path"));
@@ -81,7 +89,10 @@ function normalize(requested: string, reject: (why: string) => string): string {
 // becomes the same neutral rejection. Letting them through verbatim is both an
 // existence oracle — ENOTDIR on `<root>/status.json/x` proves status.json is
 // there — and a raw Bun error in a model-facing tool result.
-async function realAncestor(path: string, reject: (why: string) => string): Promise<string> {
+async function realAncestor(
+  path: string,
+  reject: (why: string) => string,
+): Promise<string> {
   const missing: string[] = [];
   let cursor = path;
   for (;;) {
@@ -147,7 +158,8 @@ export async function resolveContained(
   opts: ContainOptions,
 ): Promise<string> {
   const { label } = opts;
-  const reject = (why: string) => `${label} ${why}${opts.hint ? ` — ${opts.hint}` : ""}`;
+  const reject = (why: string) =>
+    `${label} ${why}${opts.hint ? ` — ${opts.hint}` : ""}`;
   const clean = normalize(requested, reject);
   // Escape hatch: still no control characters, no `~` smuggling, but the caller
   // owns the destination and a relative path means what it always meant here —
@@ -157,7 +169,9 @@ export async function resolveContained(
   const rootAbs = resolve(rootDir);
   const reqAbs = resolve(rootAbs, clean);
   if (relative(rootAbs, reqAbs) === "") {
-    throw new Error(reject("must name a file inside the root, not the root itself"));
+    throw new Error(
+      reject("must name a file inside the root, not the root itself"),
+    );
   }
   if (!isWithin(rootAbs, reqAbs)) {
     throw new Error(reject(`must stay inside ${rootAbs} (got "${requested}")`));
@@ -182,12 +196,16 @@ export async function resolveContained(
 
   const realReq = await realAncestor(reqAbs, reject);
   if (!isWithin(realRoot, realReq)) {
-    throw new Error(reject(`escapes ${rootAbs} through a symbolic link (got "${requested}")`));
+    throw new Error(
+      reject(`escapes ${rootAbs} through a symbolic link (got "${requested}")`),
+    );
   }
   if (opts.outerRoot) {
     const realOuter = await realAncestor(resolve(opts.outerRoot), reject);
     if (!isWithin(realOuter, realReq)) {
-      throw new Error(reject(`escapes the store root ${realOuter} (got "${requested}")`));
+      throw new Error(
+        reject(`escapes the store root ${realOuter} (got "${requested}")`),
+      );
     }
   }
 
@@ -201,7 +219,8 @@ export async function resolveContained(
     if (!isNotFound(err)) throw new Error(reject("could not be resolved"));
   }
   if (finalInfo) {
-    if (finalInfo.isSymbolicLink()) throw new Error(reject("must not be a symbolic link"));
+    if (finalInfo.isSymbolicLink())
+      throw new Error(reject("must not be a symbolic link"));
     if (!finalInfo.isFile()) throw new Error(reject("is not a regular file"));
   }
   return reqAbs;

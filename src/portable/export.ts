@@ -8,11 +8,15 @@ import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { mkdir, open } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { allowOutsideStorePaths, exportsDir, memoryRoot } from "../core/config/paths.ts";
+import {
+  allowOutsideStorePaths,
+  exportsDir,
+  memoryRoot,
+} from "../core/config/paths.ts";
 import { resolveContained } from "../store/containment.ts";
-import { loadAll } from "../store/files/load.ts"
-import { redactSecrets } from "../store/secrets.ts"
-import { isActive } from "../store/model/predicates.ts"
+import { loadAll } from "../store/files/load.ts";
+import { redactSecrets } from "../store/secrets.ts";
+import { isActive } from "../store/model/predicates.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 
 // --- export -------------------------------------------------------------------
@@ -83,7 +87,8 @@ async function resolveExportTarget(file: string | undefined): Promise<string> {
   // copy outside the store on the argument-free call — the one a model reaches
   // without knowing anything about the layout. Under the operator escape hatch
   // there is nothing to check, so the plain join is what remains.
-  if (file === undefined && allowOutside) return join(exportsDir(), `${stamp()}.jsonl`);
+  if (file === undefined && allowOutside)
+    return join(exportsDir(), `${stamp()}.jsonl`);
   return resolveContained(file ?? `${stamp()}.jsonl`, exportsDir(), opts);
 }
 
@@ -101,7 +106,11 @@ async function resolveExportTarget(file: string | undefined): Promise<string> {
 // Exported so the flag itself can be pinned: the containment layer refuses an
 // existing link long before this runs, so the only way to test O_NOFOLLOW
 // without racing is to call the writer directly.
-export async function writeExport(path: string, text: string, exclusive = false): Promise<void> {
+export async function writeExport(
+  path: string,
+  text: string,
+  exclusive = false,
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   // exclusive = a default destination WE chose: create it or fail, never
   // silently replace another export's file. An explicit caller-supplied
@@ -138,10 +147,14 @@ export async function writeExport(path: string, text: string, exclusive = false)
 // The destination is model-supplied, so it is resolved and confined BEFORE the
 // store is read: a rejected export must not leave a file behind, and must not
 // be a way to learn how many rows matched either.
-export async function exportMemories(opts: ExportOptions = {}): Promise<ExportResult> {
+export async function exportMemories(
+  opts: ExportOptions = {},
+): Promise<ExportResult> {
   const path = await resolveExportTarget(opts.file);
   const reader = readerFromSid(opts.sessionID);
-  let mems = (await loadAll()).filter(isActive).filter((m) => isVisibleTo(m, reader));
+  let mems = (await loadAll())
+    .filter(isActive)
+    .filter((m) => isVisibleTo(m, reader));
   if (opts.scope) mems = mems.filter((m) => m.scope === opts.scope);
   const header = JSON.stringify({
     _export: EXPORT_HEADER,
@@ -170,13 +183,20 @@ export async function exportMemories(opts: ExportOptions = {}): Promise<ExportRe
     }),
   );
   try {
-    await writeExport(path, `${[header, ...lines].join("\n")}\n`, opts.file === undefined);
+    await writeExport(
+      path,
+      `${[header, ...lines].join("\n")}\n`,
+      opts.file === undefined,
+    );
   } catch (err) {
     // Past containment, so this is not an existence oracle: `path` is one the
     // plugin chose or already validated. The errno stays, because it is the
     // operator's only diagnostic — but in our sentence rather than the runtime's,
     // so a model-facing tool result never carries a raw stack-adjacent string.
-    const code = err instanceof Error && "code" in err ? String(err.code) : "unknown error";
+    const code =
+      err instanceof Error && "code" in err
+        ? String(err.code)
+        : "unknown error";
     throw new Error(`memory_export could not write ${path} (${code})`);
   }
   return { path, count: mems.length };

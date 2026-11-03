@@ -8,14 +8,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin } from "./harness.ts";
 import { resetState } from "../src/core/state.ts";
-import { loadAll } from "../src/store/files/load.ts"
+import { loadAll } from "../src/store/files/load.ts";
 import { isActive } from "../src/store/model/predicates.ts";
 import type { InitSummary } from "../src/init/run.ts";
 
 let memoryDir: string;
 let fixture: string;
 let root: string;
-let init: { execute(args: { force?: boolean; mode?: string }): Promise<string> };
+let init: {
+  execute(args: { force?: boolean; mode?: string }): Promise<string>;
+};
 
 beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), "osi-init-"));
@@ -27,7 +29,10 @@ beforeEach(async () => {
   mkdirSync(fixture, { recursive: true });
   writeFileSync(
     join(fixture, "package.json"),
-    JSON.stringify({ name: "fixture-app", scripts: { test: "vitest run", lint: "eslint .", deploy: "x" } }),
+    JSON.stringify({
+      name: "fixture-app",
+      scripts: { test: "vitest run", lint: "eslint .", deploy: "x" },
+    }),
   );
   resetState();
   const hooks = await loadPlugin(fixture);
@@ -48,7 +53,9 @@ describe("memory_init", () => {
     expect(out).toContain("npm run lint");
 
     const mems = (await loadAll()).filter(isActive);
-    const patterns = mems.filter((m) => m.type === "pattern" && m.scope === "repo");
+    const patterns = mems.filter(
+      (m) => m.type === "pattern" && m.scope === "repo",
+    );
     expect(patterns.length).toBe(2);
     expect(patterns.every((m) => m.tags?.includes("init"))).toBe(true);
 
@@ -64,7 +71,9 @@ describe("memory_init", () => {
     expect(out2).toContain("Already initialized");
 
     const mems = (await loadAll()).filter(isActive);
-    expect(mems.filter((m) => m.type === "pattern" && m.scope === "repo").length).toBe(2);
+    expect(
+      mems.filter((m) => m.type === "pattern" && m.scope === "repo").length,
+    ).toBe(2);
     expect(mems.filter((m) => m.tags?.includes("init-stamp")).length).toBe(1);
   });
 
@@ -73,7 +82,9 @@ describe("memory_init", () => {
     expect(out).not.toContain("Already initialized");
 
     const mems = (await loadAll()).filter(isActive);
-    const patterns = mems.filter((m) => m.type === "pattern" && m.scope === "repo");
+    const patterns = mems.filter(
+      (m) => m.type === "pattern" && m.scope === "repo",
+    );
     expect(patterns.length).toBe(2);
     const stamps = mems.filter((m) => m.tags?.includes("init-stamp"));
     expect(stamps.length).toBe(1);
@@ -90,7 +101,9 @@ describe("memory_init", () => {
 
 describe("init internals", () => {
   test("gitRootOf/gitHead degrade on non-git dirs", async () => {
-    const { gitRootOf, gitHead, detectScripts } = await import("../src/init/detect.ts");
+    const { gitRootOf, gitHead, detectScripts } = await import(
+      "../src/init/detect.ts"
+    );
     expect(await gitRootOf(fixture)).toBe(fixture);
     expect(await gitHead(fixture)).toBe("-");
     const recs = await detectScripts(fixture);
@@ -98,8 +111,8 @@ describe("init internals", () => {
   });
 
   test("formatInit renders a readable summary; runInit returns one", async () => {
-    const { formatInit } = await import("../src/init/format.ts")
-const { runInit } = await import("../src/init/run.ts");
+    const { formatInit } = await import("../src/init/format.ts");
+    const { runInit } = await import("../src/init/run.ts");
     const s: InitSummary = {
       scope: "x",
       root: fixture,

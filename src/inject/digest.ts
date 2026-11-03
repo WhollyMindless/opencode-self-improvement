@@ -1,10 +1,10 @@
 // digest — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
-import { loadAll } from "../store/files/load.ts"
-import { type Memory } from "../store/model/memory.ts"
-import { isInjectable } from "../store/model/predicates.ts"
+import { loadAll } from "../store/files/load.ts";
+import { type Memory } from "../store/model/memory.ts";
+import { isInjectable } from "../store/model/predicates.ts";
 import { readerFromSid, visibleTo } from "../store/model/visibility.ts";
 import { record } from "../evidence/record.ts";
-import { frontierBudget } from "../core/config/budgets.ts"
+import { frontierBudget } from "../core/config/budgets.ts";
 import { dateStr } from "../core/time.ts";
 import { bracketList } from "../core/logfmt/format.ts";
 import { recentConvergenceSummary } from "../capture/triggers.ts";
@@ -32,7 +32,8 @@ export async function systemDigest(
   opts: DigestOptions = {},
 ): Promise<void> {
   const sid =
-    typeof _input === "object" && _input !== null &&
+    typeof _input === "object" &&
+    _input !== null &&
     "sessionID" in _input &&
     typeof (_input as Record<string, unknown>).sessionID === "string"
       ? String((_input as Record<string, unknown>).sessionID)
@@ -40,7 +41,9 @@ export async function systemDigest(
   // Repo-scoped: model-facing reads see the CALLER's repo + global rows, via
   // the sid carried on this flow's input (#127) — never a global re-read
   // after the loadAll await.
-  const mems = (opts.rows ?? visibleTo(await loadAll(), readerFromSid(sid))).filter(isInjectable);
+  const mems = (
+    opts.rows ?? visibleTo(await loadAll(), readerFromSid(sid))
+  ).filter(isInjectable);
   if (!mems.length) return;
   // CACHE-STABLE BY CONSTRUCTION (issue #162): this line carries no row count
   // and no latest-ts. Both change on every promoted write, and the digest rides
@@ -61,7 +64,10 @@ export async function systemDigest(
     .slice(0, OPEN_THREAD_LIMIT);
   if (!open.length) return;
 
-  const frontier = cappedFrontier(open, opts.frontierBudget ?? frontierBudget());
+  const frontier = cappedFrontier(
+    open,
+    opts.frontierBudget ?? frontierBudget(),
+  );
   output.system.push(`\n${frontier.block}`);
 
   // Aggregate of past sessions' convergence (one line, gated on data existing;
@@ -77,7 +83,9 @@ export async function systemDigest(
     "frontier_injected",
     {
       session: sid,
-      scopes: bracketList([...new Set(frontier.shown.map((m) => flattenMemoryText(m.scope)))]),
+      scopes: bracketList([
+        ...new Set(frontier.shown.map((m) => flattenMemoryText(m.scope))),
+      ]),
       shown: frontier.shown.length,
       omitted: frontier.omitted,
       ...(frontier.omitted ? { reason: "over_budget" } : {}),

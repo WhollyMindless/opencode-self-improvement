@@ -2,12 +2,13 @@
 // how stale a capture is, and how much of the store never gets retrieved.
 // These are reported, never acted on; the tests pin the math and the wording.
 import { describe, expect, test } from "bun:test";
-import { fmtBytes, fmtMs } from "../src/status/format.ts"
+import { fmtBytes, fmtMs } from "../src/status/format.ts";
 import { captureLag, percentile, rowsPerDay } from "../src/status/metrics.ts";
 import { lagSince } from "../src/capture/lag.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
 
-const at = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString();
+const at = (daysAgo: number) =>
+  new Date(Date.now() - daysAgo * 86_400_000).toISOString();
 
 describe("store self-metrics (#44)", () => {
   test("percentile is nearest-rank and never invents a number", () => {
@@ -29,18 +30,49 @@ describe("store self-metrics (#44)", () => {
   test("rowsPerDay ignores rows older than the window", () => {
     // Three rows across two distinct days inside 30d -> 1.5 per active day.
     // The two 40-day-old rows count as neither growth nor an active day.
-    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10) + "T12:00:00.000Z";
+    const daysAgo = (n: number) =>
+      new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10) +
+      "T12:00:00.000Z";
     const rows = [daysAgo(1), daysAgo(1), daysAgo(2), daysAgo(40), daysAgo(41)];
-    expect(rowsPerDay(rows.map((ts) => ({ ts })), 30)).toBe(1.5);
+    expect(
+      rowsPerDay(
+        rows.map((ts) => ({ ts })),
+        30,
+      ),
+    ).toBe(1.5);
   });
 
   test("captureLag reads capture_lag evidence inside the window", () => {
     const lines = [
-      formatLine({ ev: "capture_lag", ts: at(1), session: "s", lag: 1000, outcome: "candidates" }),
-      formatLine({ ev: "capture_lag", ts: at(2), session: "s", lag: 5000, outcome: "candidates" }),
-      formatLine({ ev: "capture_lag", ts: at(3), session: "s", lag: 900, outcome: "empty" }),
+      formatLine({
+        ev: "capture_lag",
+        ts: at(1),
+        session: "s",
+        lag: 1000,
+        outcome: "candidates",
+      }),
+      formatLine({
+        ev: "capture_lag",
+        ts: at(2),
+        session: "s",
+        lag: 5000,
+        outcome: "candidates",
+      }),
+      formatLine({
+        ev: "capture_lag",
+        ts: at(3),
+        session: "s",
+        lag: 900,
+        outcome: "empty",
+      }),
       // outside the window, and not ours
-      formatLine({ ev: "capture_lag", ts: at(60), session: "s", lag: 999_999, outcome: "candidates" }),
+      formatLine({
+        ev: "capture_lag",
+        ts: at(60),
+        session: "s",
+        lag: 999_999,
+        outcome: "candidates",
+      }),
       formatLine({ ev: "epoch_recompute", ts: at(1), session: "s", lag: 42 }),
     ];
     const lag = captureLag(lines, 30);
@@ -50,7 +82,14 @@ describe("store self-metrics (#44)", () => {
   });
 
   test("a capture with no observed message time contributes no lag", () => {
-    const lines = [formatLine({ ev: "capture_lag", ts: at(1), session: "s", outcome: "empty" })];
+    const lines = [
+      formatLine({
+        ev: "capture_lag",
+        ts: at(1),
+        session: "s",
+        outcome: "empty",
+      }),
+    ];
     const lag = captureLag(lines, 30);
     expect(lag.n).toBe(0);
     expect(lag.p50).toBe(0);
@@ -58,8 +97,18 @@ describe("store self-metrics (#44)", () => {
 
   test("lagSince takes the newest timestamp it can parse", () => {
     const now = Date.UTC(2026, 9, 25, 12);
-    expect(lagSince([{ time: { updated: now - 5_000 } }, { time: { updated: now - 90_000 } }], now)).toBe(5_000);
-    expect(lagSince([{ createdAt: new Date(now - 2_000).toISOString() }], now)).toBe(2_000);
+    expect(
+      lagSince(
+        [
+          { time: { updated: now - 5_000 } },
+          { time: { updated: now - 90_000 } },
+        ],
+        now,
+      ),
+    ).toBe(5_000);
+    expect(
+      lagSince([{ createdAt: new Date(now - 2_000).toISOString() }], now),
+    ).toBe(2_000);
     expect(lagSince([], now)).toBeNull();
     expect(lagSince([{ content: "no timestamp anywhere" }], now)).toBeNull();
     expect(lagSince("not an array", now)).toBeNull();

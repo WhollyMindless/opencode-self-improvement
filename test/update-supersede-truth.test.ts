@@ -20,10 +20,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { appendMemory } from "../src/store/files/append.ts"
-import { loadAll } from "../src/store/files/load.ts"
+import { appendMemory } from "../src/store/files/append.ts";
+import { loadAll } from "../src/store/files/load.ts";
 import { markManySuperseded } from "../src/store/files/supersede.ts";
-import { resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState } from "../src/core/state.ts";
 import * as evidence from "../src/evidence/record.ts";
 
@@ -75,7 +79,10 @@ describe("the row an update replaces is retired BY the update", () => {
     // id) made markSuperseded a first-call-wins no-op, so the tool printed
     // "Updated ... (superseded T)" about a retirement it did not perform, and
     // the retry could not follow the chain id to the successor.
-    writeFileSync(join(a, "table_manager.ts"), "export function save(config, opts) {\n  return [config, opts];\n}\n");
+    writeFileSync(
+      join(a, "table_manager.ts"),
+      "export function save(config, opts) {\n  return [config, opts];\n}\n",
+    );
     const pa = await plugin(a);
     const T = await appendMemory({
       type: "pattern",
@@ -85,22 +92,38 @@ describe("the row an update replaces is retired BY the update", () => {
       ...stampOf(a),
     });
     const out = await pa.tools.memory_update.execute(
-      { type: "pattern", scope: "ctl", query: T, content: "use table_manager.save(config, opts)", status: "open" },
+      {
+        type: "pattern",
+        scope: "ctl",
+        query: T,
+        content: "use table_manager.save(config, opts)",
+        status: "open",
+      },
       ctx("ses-drift"),
     );
     expect(out.content).toMatch(/^Updated pattern in ctl \(superseded /);
     const rows = await loadAll();
     const tRow = rows.find((m) => m.ts === T)!;
-    const succ = (await active()).find((m) => m.content.includes("config, opts"))!;
+    const succ = (await active()).find((m) =>
+      m.content.includes("config, opts"),
+    )!;
     expect(tRow.reason).toBe("update");
     expect(tRow.superseded_by).toBe(succ.ts);
     // A retry of the same update reports the duplicate (not the dead-end
     // "no active row... Nothing was written" about a write that happened).
     const retry = await pa.tools.memory_update.execute(
-      { type: "pattern", scope: "ctl", query: T, content: "use table_manager.save(config, opts)", status: "open" },
+      {
+        type: "pattern",
+        scope: "ctl",
+        query: T,
+        content: "use table_manager.save(config, opts)",
+        status: "open",
+      },
       ctx("ses-drift"),
     );
-    expect(retry.content).toMatch(/was already updated to exactly this content/);
+    expect(retry.content).toMatch(
+      /was already updated to exactly this content/,
+    );
     expect(await active()).toHaveLength(1);
   });
 
@@ -127,19 +150,36 @@ describe("the row an update replaces is retired BY the update", () => {
     });
     const record = evidence.record;
     let fired = false;
-    const spy = spyOn(evidence, "record").mockImplementation(async (...args: Parameters<typeof record>) => {
-      if (args[0] === "gate_start" && !fired) {
-        fired = true;
-        await markManySuperseded([
-          { ts: T, fields: { superseded_by: D, reason: "canonical", entity: "queue pruning", from: "evening", to: "size" } },
-        ]);
-      }
-      return record(...args);
-    });
+    const spy = spyOn(evidence, "record").mockImplementation(
+      async (...args: Parameters<typeof record>) => {
+        if (args[0] === "gate_start" && !fired) {
+          fired = true;
+          await markManySuperseded([
+            {
+              ts: T,
+              fields: {
+                superseded_by: D,
+                reason: "canonical",
+                entity: "queue pruning",
+                from: "evening",
+                to: "size",
+              },
+            },
+          ]);
+        }
+        return record(...args);
+      },
+    );
     let out: { content: string };
     try {
       out = await pa.tools.memory_update.execute(
-        { type: "context", scope: "planning", query: T, content: "Plan to prune aged queue entries every morning", status: "open" },
+        {
+          type: "context",
+          scope: "planning",
+          query: T,
+          content: "Plan to prune aged queue entries every morning",
+          status: "open",
+        },
         ctx("ses-race"),
       );
     } finally {
@@ -166,14 +206,22 @@ describe("the row an update replaces is retired BY the update", () => {
         ...stampOf(a),
       });
       const record = evidence.record;
-      const spy = spyOn(evidence, "record").mockImplementation(async (...args: Parameters<typeof record>) => {
-        if (args[0] === "write_promoted") throw fault;
-        return record(...args);
-      });
+      const spy = spyOn(evidence, "record").mockImplementation(
+        async (...args: Parameters<typeof record>) => {
+          if (args[0] === "write_promoted") throw fault;
+          return record(...args);
+        },
+      );
       let out: { content: string };
       try {
         out = await pa.tools.memory_update.execute(
-          { type: "context", scope: "audit", query: T, content: `Row for the messageless-fault probe ${String(fault)}, revised`, status: "open" },
+          {
+            type: "context",
+            scope: "audit",
+            query: T,
+            content: `Row for the messageless-fault probe ${String(fault)}, revised`,
+            status: "open",
+          },
           ctx(`ses-fault-${typeof fault}`),
         );
       } finally {
@@ -182,7 +230,10 @@ describe("the row an update replaces is retired BY the update", () => {
       expect(out.content).toMatch(/PARTIAL/);
       // Proof the injection really landed: the audit line is missing even
       // though the replacement is durable.
-      const ev = await pa.tools.memory_evidence.execute({ ev: "write_promoted", limit: 50 }, ctx(`ses-fault-${typeof fault}`));
+      const ev = await pa.tools.memory_evidence.execute(
+        { ev: "write_promoted", limit: 50 },
+        ctx(`ses-fault-${typeof fault}`),
+      );
       expect(ev.content).not.toContain("revised");
     }
   });
@@ -204,15 +255,29 @@ describe("the successor verdict tells the truth about content and metadata", () 
     });
     const withSecret = `Rotate the deploy token ${secret} every friday`;
     const out = await pa.tools.memory_update.execute(
-      { type: "context", scope: "ops", query: T, content: withSecret, status: "open" },
+      {
+        type: "context",
+        scope: "ops",
+        query: T,
+        content: withSecret,
+        status: "open",
+      },
       ctx("ses-red"),
     );
     expect(out.content).toMatch(/^Updated/);
     const retry = await pa.tools.memory_update.execute(
-      { type: "context", scope: "ops", query: T, content: withSecret, status: "open" },
+      {
+        type: "context",
+        scope: "ops",
+        query: T,
+        content: withSecret,
+        status: "open",
+      },
       ctx("ses-red"),
     );
-    expect(retry.content).toMatch(/was already updated to exactly this content/);
+    expect(retry.content).toMatch(
+      /was already updated to exactly this content/,
+    );
     expect(await active()).toHaveLength(1);
   });
 
@@ -228,16 +293,33 @@ describe("the successor verdict tells the truth about content and metadata", () 
       status: "open",
       ...stampOf(a),
     });
-    const args = { type: "context", scope: "ev", query: T, content: "Ledger reconciliation runs after the daily standup", status: "open" };
+    const args = {
+      type: "context",
+      scope: "ev",
+      query: T,
+      content: "Ledger reconciliation runs after the daily standup",
+      status: "open",
+    };
     const out = await pa.tools.memory_update.execute(args, ctx("ses-ev"));
     expect(out.content).toMatch(/^Updated/);
-    const before = await pa.tools.memory_evidence.execute({ limit: 200 }, ctx("ses-ev"));
+    const before = await pa.tools.memory_evidence.execute(
+      { limit: 200 },
+      ctx("ses-ev"),
+    );
     const retry = await pa.tools.memory_update.execute(args, ctx("ses-ev"));
-    expect(retry.content).toMatch(/was already updated to exactly this content/);
-    const after = await pa.tools.memory_evidence.execute({ limit: 200 }, ctx("ses-ev"));
+    expect(retry.content).toMatch(
+      /was already updated to exactly this content/,
+    );
+    const after = await pa.tools.memory_evidence.execute(
+      { limit: 200 },
+      ctx("ses-ev"),
+    );
     expect(after.content.length).toBeGreaterThan(before.content.length);
     const succ = (await active())[0];
-    const dedup = await pa.tools.memory_evidence.execute({ ev: "dedup_collapse", limit: 50 }, ctx("ses-ev"));
+    const dedup = await pa.tools.memory_evidence.execute(
+      { ev: "dedup_collapse", limit: 50 },
+      ctx("ses-ev"),
+    );
     expect(dedup.content).toContain(succ.ts);
   });
 
@@ -255,13 +337,26 @@ describe("the successor verdict tells the truth about content and metadata", () 
       ...stampOf(a),
     });
     const first = await pa.tools.memory_update.execute(
-      { type: "context", scope: "kw", query: T, content: "Payment retries back off exponentially by two", status: "open" },
+      {
+        type: "context",
+        scope: "kw",
+        query: T,
+        content: "Payment retries back off exponentially by two",
+        status: "open",
+      },
       ctx("ses-kw"),
     );
     expect(first.content).toMatch(/^Updated/);
     const succ = (await active())[0];
     const retry = await pa.tools.memory_update.execute(
-      { type: "context", scope: "kw", query: T, content: "Payment retries back off exponentially by two", status: "open", kw: ["billing"] },
+      {
+        type: "context",
+        scope: "kw",
+        query: T,
+        content: "Payment retries back off exponentially by two",
+        status: "open",
+        kw: ["billing"],
+      },
       ctx("ses-kw"),
     );
     expect(retry.content).toMatch(/^Updated/);
@@ -270,7 +365,9 @@ describe("the successor verdict tells the truth about content and metadata", () 
     expect(rows).toHaveLength(1);
     expect(rows[0].kw).toEqual(["billing"]);
     expect(rows[0].ts).not.toBe(succ.ts);
-    expect((await loadAll()).find((m) => m.ts === succ.ts)!.superseded_by).toBeTruthy();
+    expect(
+      (await loadAll()).find((m) => m.ts === succ.ts)!.superseded_by,
+    ).toBeTruthy();
   });
 
   test("a metadata edit lands while the prose is restated verbatim", async () => {
@@ -286,14 +383,23 @@ describe("the successor verdict tells the truth about content and metadata", () 
       ...stampOf(a),
     });
     const out = await pa.tools.memory_update.execute(
-      { type: "context", scope: "edit", query: T, content: "Feature flags live in the launch board, not code", status: "open", kw: ["launchboard"] },
+      {
+        type: "context",
+        scope: "edit",
+        query: T,
+        content: "Feature flags live in the launch board, not code",
+        status: "open",
+        kw: ["launchboard"],
+      },
       ctx("ses-meta"),
     );
     expect(out.content).toMatch(/^Updated/);
     const rows = await active();
     expect(rows).toHaveLength(1);
     expect(rows[0].kw).toEqual(["launchboard"]);
-    expect(rows[0].content).toBe("Feature flags live in the launch board, not code");
+    expect(rows[0].content).toBe(
+      "Feature flags live in the launch board, not code",
+    );
   });
 
   test("an update whose prose already stands elsewhere consolidates instead of ignoring", async () => {
@@ -317,7 +423,13 @@ describe("the successor verdict tells the truth about content and metadata", () 
       ...stampOf(a),
     });
     const out = await pa.tools.memory_update.execute(
-      { type: "context", scope: "cons", query: A, content: "Search index rebuilds hourly from the replica", status: "open" },
+      {
+        type: "context",
+        scope: "cons",
+        query: A,
+        content: "Search index rebuilds hourly from the replica",
+        status: "open",
+      },
       ctx("ses-cons"),
     );
     expect(out.content).toContain(B);
@@ -344,7 +456,13 @@ describe("the successor verdict tells the truth about content and metadata", () 
     let first: { content: string };
     try {
       first = await pa.tools.memory_update.execute(
-        { type: "context", scope: "h2", query: T, content: "Certificate rotation is automated by certbot", status: "open" },
+        {
+          type: "context",
+          scope: "h2",
+          query: T,
+          content: "Certificate rotation is automated by certbot",
+          status: "open",
+        },
         ctx("ses-h2"),
       );
     } finally {
@@ -353,7 +471,13 @@ describe("the successor verdict tells the truth about content and metadata", () 
     expect(first.content).toMatch(/PARTIAL/);
     expect(first.content).toMatch(/merge or force/);
     const retry = await pa.tools.memory_update.execute(
-      { type: "context", scope: "h2", query: T, content: "Certificate rotation is automated by certbot", status: "open" },
+      {
+        type: "context",
+        scope: "h2",
+        query: T,
+        content: "Certificate rotation is automated by certbot",
+        status: "open",
+      },
       ctx("ses-h2"),
     );
     expect(retry.content).toMatch(/retired in its favor/);
@@ -376,7 +500,13 @@ describe("an update carries the row's standing with its prose", () => {
       ...stampOf(a),
     });
     const out = await pa.tools.memory_update.execute(
-      { type: "context", scope: "frontier", query: T, content: "The flaky upload progress bar resizes on slow uplinks, capped at 4 MB" },
+      {
+        type: "context",
+        scope: "frontier",
+        query: T,
+        content:
+          "The flaky upload progress bar resizes on slow uplinks, capped at 4 MB",
+      },
       ctx("ses-open"),
     );
     expect(out.content).toMatch(/^Updated/);
@@ -401,14 +531,23 @@ describe("an update carries the row's standing with its prose", () => {
       repo: "global",
     });
     const out = await pa.tools.memory_update.execute(
-      { type: "preference", scope: "prefs", query: G, content: "Prefers concise answers with code first, tests second", status: "open" },
+      {
+        type: "preference",
+        scope: "prefs",
+        query: G,
+        content: "Prefers concise answers with code first, tests second",
+        status: "open",
+      },
       ctx("ses-global"),
     );
     expect(out.content).toMatch(/^Updated/);
     const rows = await active();
     expect(rows).toHaveLength(1);
     expect(rows[0].repo).toBe("global");
-    const fromB = await pb.tools.memory_recall.execute({ scope: "prefs", query: "concise" }, ctx("ses-other"));
+    const fromB = await pb.tools.memory_recall.execute(
+      { scope: "prefs", query: "concise" },
+      ctx("ses-other"),
+    );
     expect(fromB.content).toMatch(/Found 1/);
   });
 
@@ -426,7 +565,13 @@ describe("an update carries the row's standing with its prose", () => {
       ...stampOf(a),
     });
     const out = await pa.tools.memory_update.execute(
-      { type: "learning", scope: "prov", query: T, content: "Migrated session tables via import [via import], verified", status: "open" },
+      {
+        type: "learning",
+        scope: "prov",
+        query: T,
+        content: "Migrated session tables via import [via import], verified",
+        status: "open",
+      },
       ctx("ses-prov"),
     );
     expect(out.content).toMatch(/^Updated/);

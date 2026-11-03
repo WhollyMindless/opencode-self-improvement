@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Full merge gate: the exact sequence the CI jobs enforce (typecheck, lint,
+// Full merge gate: the exact sequence the CI jobs enforce (typecheck, lint/format,
 // unit tests, terminal smoke + BDD integration against a real opencode host).
 // The .githooks/pre-push hook runs this so a broken build never even reaches
 // a PR; CI remains the authoritative gate via the required "smoke" check.
@@ -9,7 +9,7 @@ const REPO = join(import.meta.dir, "..");
 
 const steps: [string, string[]][] = [
   ["typecheck (tsc)", ["bun", "x", "tsc", "--noEmit", "-p", "tsconfig.json"]],
-  ["lint (biome)", ["bun", "x", "biome", "lint"]],
+  ["lint + format (biome)", ["bun", "run", "lint"]],
   // Share the bounded worker count and test options with CI's package scripts.
   ["unit tests", ["bun", "run", "test"]],
   ["terminal smoke + BDD (real opencode host)", ["bun", "run", "test:e2e"]],
@@ -33,11 +33,19 @@ for (const [k, v] of Object.entries(process.env)) {
   }
   env[k] = v;
 }
-if (scrubbed) console.log(`(scrubbed ${scrubbed} GIT_* variables — running under a git hook)`);
+if (scrubbed)
+  console.log(
+    `(scrubbed ${scrubbed} GIT_* variables — running under a git hook)`,
+  );
 
 for (const [label, cmd] of steps) {
   console.log(`\n=== merge gate: ${label} ===`);
-  const p = Bun.spawnSync(cmd, { cwd: REPO, env, stdout: "inherit", stderr: "inherit" });
+  const p = Bun.spawnSync(cmd, {
+    cwd: REPO,
+    env,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
   if (p.exitCode !== 0) {
     console.error(`\nmerge gate FAILED at: ${label}`);
     process.exit(p.exitCode ?? 1);

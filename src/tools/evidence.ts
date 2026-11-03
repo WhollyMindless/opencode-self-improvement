@@ -3,16 +3,18 @@
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
 import { evidenceFileFor } from "../evidence/record.ts";
-import { parseLine } from "../core/logfmt/format.ts"
+import { parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
 import { evidenceVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 import { EvidenceArgs, validated } from "./schema.ts";
 
 export const register: ToolRegister = (editor, deps) => {
   const { toolIds, direct } = deps;
-    editor.add(validated(EvidenceArgs, {
+  editor.add(
+    validated(EvidenceArgs, {
       name: "memory_evidence",
-      description: "Read captured evidence (data only) for a date, optionally filtered by event.",
+      description:
+        "Read captured evidence (data only) for a date, optionally filtered by event.",
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
@@ -44,5 +46,6 @@ export const register: ToolRegister = (editor, deps) => {
         const limit = args.limit || 50;
         return { content: lines.slice(-limit).join("\n") };
       },
-    }));
+    }),
+  );
 };

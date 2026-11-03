@@ -5,11 +5,30 @@
 // to prove the durable-memory anchor actually rode into the summarizer call.
 // Uses the service shape (opencode serve --service + HTTP API) because the
 // compaction trigger is a host-side operation `opencode run` never performs.
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { REPO, type Fake, startFake, resolveOpencode } from "./support/harness.ts";
+import {
+  REPO,
+  type Fake,
+  startFake,
+  resolveOpencode,
+} from "./support/harness.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -50,7 +69,10 @@ function makeServeGuest(fake: Fake, pluginPath: string): ServeGuest {
           fake: {
             npm: "@ai-sdk/openai-compatible",
             name: "Fake",
-            options: { baseURL: `http://127.0.0.1:${fake.port}/v1`, apiKey: "fake-key" },
+            options: {
+              baseURL: `http://127.0.0.1:${fake.port}/v1`,
+              apiKey: "fake-key",
+            },
             models: { scripted: { name: "Scripted" } },
           },
         },
@@ -79,14 +101,19 @@ function makeServeGuest(fake: Fake, pluginPath: string): ServeGuest {
   const base = `http://127.0.0.1:${port}`;
   const pwFile = join(cfg, "opencode", "service.json");
   let password = "";
-  const authHeader = () => ({ authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}` });
-
-  const child = Bun.spawn([resolveOpencode(), "serve", "--service", "--port", String(port)], {
-    cwd: serveRoot,
-    env,
-    stdout: "ignore",
-    stderr: "ignore",
+  const authHeader = () => ({
+    authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`,
   });
+
+  const child = Bun.spawn(
+    [resolveOpencode(), "serve", "--service", "--port", String(port)],
+    {
+      cwd: serveRoot,
+      env,
+      stdout: "ignore",
+      stderr: "ignore",
+    },
+  );
 
   return {
     root,
@@ -97,8 +124,11 @@ function makeServeGuest(fake: Fake, pluginPath: string): ServeGuest {
       for (let i = 0; i < 150; i++) {
         if (existsSync(pwFile)) {
           try {
-            password = JSON.parse(readFileSync(pwFile, "utf8")).password as string;
-            const r = await fetch(`${base}/api/session?limit=1`, { headers: authHeader() });
+            password = JSON.parse(readFileSync(pwFile, "utf8"))
+              .password as string;
+            const r = await fetch(`${base}/api/session?limit=1`, {
+              headers: authHeader(),
+            });
             if (r.status === 200) return;
           } catch {}
         }
@@ -109,7 +139,11 @@ function makeServeGuest(fake: Fake, pluginPath: string): ServeGuest {
     req: (path, init = {}) =>
       fetch(base + path, {
         ...init,
-        headers: { "content-type": "application/json", ...authHeader(), ...(init.headers ?? {}) },
+        headers: {
+          "content-type": "application/json",
+          ...authHeader(),
+          ...(init.headers ?? {}),
+        },
       }),
   };
 }
@@ -130,7 +164,15 @@ afterEach(async () => {
 afterAll(() => fake.stop());
 
 function call(id: string, tool: string, args: Record<string, unknown>) {
-  return { tool_calls: [{ id, type: "function", function: { name: tool, arguments: JSON.stringify(args) } }] };
+  return {
+    tool_calls: [
+      {
+        id,
+        type: "function",
+        function: { name: tool, arguments: JSON.stringify(args) },
+      },
+    ],
+  };
 }
 
 const ANCHOR = "Durable memory to preserve in this summary";
@@ -146,7 +188,10 @@ describe("Feature: memory-aware compaction over the service host (#241)", () => 
     await g.waitService();
 
     const created = await (
-      await g.req("/api/session", { method: "POST", body: JSON.stringify({ location: { directory: g.projDir } }) })
+      await g.req("/api/session", {
+        method: "POST",
+        body: JSON.stringify({ location: { directory: g.projDir } }),
+      })
     ).json();
     const sid: string = created.data.id;
 
@@ -163,7 +208,9 @@ describe("Feature: memory-aware compaction over the service host (#241)", () => 
     });
     const prompt = await g.req(`/api/session/${sid}/prompt`, {
       method: "POST",
-      body: JSON.stringify({ text: "CMPCT::store please store the probe fact" }),
+      body: JSON.stringify({
+        text: "CMPCT::store please store the probe fact",
+      }),
     });
     expect(prompt.status).toBe(200);
 
@@ -195,11 +242,15 @@ describe("Feature: memory-aware compaction over the service host (#241)", () => 
     while (Date.now() < summarizerDeadline && !anchorReq) {
       for (const body of await fake.requests()) {
         const dump = JSON.stringify(body.messages ?? []);
-        if (dump.includes(ANCHOR) && dump.includes("zephyr-quota")) anchorReq = body;
+        if (dump.includes(ANCHOR) && dump.includes("zephyr-quota"))
+          anchorReq = body;
       }
       if (!anchorReq) await sleep(250);
     }
-    expect(anchorReq, "a provider request carried the durable-memory anchor").toBeTruthy();
+    expect(
+      anchorReq,
+      "a provider request carried the durable-memory anchor",
+    ).toBeTruthy();
     // Characterization: the anchor rides as a system/developer part, not as a
     // user turn the model could mistake for instructions from the transcript.
     const carried = (anchorReq.messages as any[]).filter((m) =>

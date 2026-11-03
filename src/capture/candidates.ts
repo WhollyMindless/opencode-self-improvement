@@ -7,7 +7,11 @@
 // never a throw.
 import { TYPES } from "../core/types.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
-import { CAPTURE_KEYWORD_CAP, CAPTURE_KEYWORD_CHARS, type CaptureCandidate } from "./prompt.ts";
+import {
+  CAPTURE_KEYWORD_CAP,
+  CAPTURE_KEYWORD_CHARS,
+  type CaptureCandidate,
+} from "./prompt.ts";
 
 function cleanKeywords(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
@@ -15,7 +19,8 @@ function cleanKeywords(value: unknown): string[] | undefined {
   for (const item of value) {
     if (typeof item !== "string") continue;
     const k = item.trim().toLowerCase();
-    if (!k || k.length > CAPTURE_KEYWORD_CHARS || flattenMemoryText(k) !== k) continue;
+    if (!k || k.length > CAPTURE_KEYWORD_CHARS || flattenMemoryText(k) !== k)
+      continue;
     if (!out.includes(k)) out.push(k);
     if (out.length === CAPTURE_KEYWORD_CAP) break;
   }
@@ -79,14 +84,18 @@ export function parseCandidates(raw: string, max: number): CaptureCandidate[] {
       if (
         flattenMemoryText(rawType) !== rawType ||
         flattenMemoryText(rawScope) !== rawScope
-      ) continue;
+      )
+        continue;
       if (!VALID_TYPES.has(type)) continue;
       if (content.length < 20 || content.length > 600) continue;
-      const status = o.status === "open" || o.status === "settled" ? o.status : undefined;
+      const status =
+        o.status === "open" || o.status === "settled" ? o.status : undefined;
       // A bad kw list costs the row its keywords, never the row itself.
       const kw = cleanKeywords(o.kw);
       out.push({
-        ...(status ? { type, scope, content, status } : { type, scope, content }),
+        ...(status
+          ? { type, scope, content, status }
+          : { type, scope, content }),
         ...(kw ? { kw } : {}),
       });
     }
@@ -99,7 +108,9 @@ export function parseCandidates(raw: string, max: number): CaptureCandidate[] {
 // "provider/id" -> { providerID, id }, splitting on the FIRST "/". Returns
 // null when the string has no slash or either half is empty — the caller then
 // skips capture entirely rather than guessing a model.
-export function parseModelRef(ref: unknown): { providerID: string; id: string } | null {
+export function parseModelRef(
+  ref: unknown,
+): { providerID: string; id: string } | null {
   if (typeof ref !== "string") return null;
   const i = ref.indexOf("/");
   if (i <= 0) return null;

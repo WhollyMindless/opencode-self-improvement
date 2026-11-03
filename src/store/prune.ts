@@ -2,7 +2,7 @@
 // reversible (snapshot) and never touches a repo. The `prune` evidence line is
 // emitted before/around the mutation so S5 can assert the reason and snapshot.
 import { deletionsFile } from "../core/config/paths.ts";
-import { prune, type PruneResult } from "./files/prune.ts"
+import { prune, type PruneResult } from "./files/prune.ts";
 import { readerFromSid } from "./model/visibility.ts";
 import { record } from "../evidence/record.ts";
 

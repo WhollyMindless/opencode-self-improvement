@@ -12,15 +12,22 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir, memoryRoot, snapshotDir } from "../src/core/config/paths.ts"
+import {
+  evidenceDir,
+  memoryRoot,
+  snapshotDir,
+} from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
-import { parseLine } from "../src/core/logfmt/format.ts"
+import { parseLine } from "../src/core/logfmt/format.ts";
 import { readLines } from "../src/core/logfmt/read.ts";
-import { appendMemory } from "../src/store/files/append.ts"
-import { loadAll } from "../src/store/files/load.ts"
-import { clearSuperseded, markSuperseded } from "../src/store/files/supersede.ts"
-import { resolveMemoryTarget } from "../src/store/files/target.ts"
-import { type Memory } from "../src/store/model/memory.ts"
+import { appendMemory } from "../src/store/files/append.ts";
+import { loadAll } from "../src/store/files/load.ts";
+import {
+  clearSuperseded,
+  markSuperseded,
+} from "../src/store/files/supersede.ts";
+import { resolveMemoryTarget } from "../src/store/files/target.ts";
+import { type Memory } from "../src/store/model/memory.ts";
 import { isActive } from "../src/store/model/predicates.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
 import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
@@ -69,12 +76,22 @@ async function tools(): Promise<Tool> {
   return loaded.tool;
 }
 
-async function seed(content: string, extra: { tags?: string[]; status?: "open" | "settled" } = {}): Promise<string> {
-  return appendMemory({ type: "pattern", scope: "targeting", content, ...extra });
+async function seed(
+  content: string,
+  extra: { tags?: string[]; status?: "open" | "settled" } = {},
+): Promise<string> {
+  return appendMemory({
+    type: "pattern",
+    scope: "targeting",
+    content,
+    ...extra,
+  });
 }
 
 async function rows(): Promise<Memory[]> {
-  return (await loadAll()).filter((m) => m.scope === "targeting" && m.type === "pattern");
+  return (await loadAll()).filter(
+    (m) => m.scope === "targeting" && m.type === "pattern",
+  );
 }
 
 async function byId(ts: string): Promise<Memory | undefined> {
@@ -83,7 +100,12 @@ async function byId(ts: string): Promise<Memory | undefined> {
 
 async function update(args: Record<string, unknown>): Promise<string> {
   const t = await tools();
-  return t.memory_update.execute({ type: "pattern", scope: "targeting", status: "open", ...args });
+  return t.memory_update.execute({
+    type: "pattern",
+    scope: "targeting",
+    status: "open",
+    ...args,
+  });
 }
 
 describe("memory_update row targeting", () => {
@@ -92,13 +114,18 @@ describe("memory_update row targeting", () => {
     const b = await seed(BETA);
     const c = await seed(GAMMA); // newest — the old code always hit this one
 
-    const out = await update({ query: a, content: "alpha lint step runs oxlint instead" });
+    const out = await update({
+      query: a,
+      content: "alpha lint step runs oxlint instead",
+    });
     expect(out).toContain(`superseded ${a}`);
 
     expect((await byId(a))?.superseded_by).toBeTruthy();
     expect(isActive((await byId(b))!)).toBe(true);
     expect(isActive((await byId(c))!)).toBe(true);
-    const replacements = (await rows()).filter((m) => m.content.includes("oxlint"));
+    const replacements = (await rows()).filter((m) =>
+      m.content.includes("oxlint"),
+    );
     expect(replacements.length).toBe(1);
     expect(isActive(replacements[0])).toBe(true);
   });
@@ -108,8 +135,14 @@ describe("memory_update row targeting", () => {
     const b = await seed(BETA);
     const c = await seed(GAMMA);
 
-    const first = await update({ query: a, content: "alpha lint step runs oxlint instead" });
-    const second = await update({ query: c, content: "gamma changelog notes are auto-generated" });
+    const first = await update({
+      query: a,
+      content: "alpha lint step runs oxlint instead",
+    });
+    const second = await update({
+      query: c,
+      content: "gamma changelog notes are auto-generated",
+    });
     expect(first).toContain(`superseded ${a}`);
     expect(second).toContain(`superseded ${c}`);
 
@@ -118,7 +151,9 @@ describe("memory_update row targeting", () => {
     expect(isActive((await byId(c))!)).toBe(false);
     // The row written by the FIRST update must survive: this is the clobber.
     const alpha2 = (await rows()).find((m) => m.content.includes("oxlint"));
-    const gamma2 = (await rows()).find((m) => m.content.includes("auto-generated"));
+    const gamma2 = (await rows()).find((m) =>
+      m.content.includes("auto-generated"),
+    );
     expect(alpha2 && isActive(alpha2)).toBe(true);
     expect(gamma2 && isActive(gamma2)).toBe(true);
   });
@@ -127,11 +162,17 @@ describe("memory_update row targeting", () => {
     const a = await seed(ALPHA);
     const c = await seed(GAMMA);
 
-    const out = await update({ query: "docker registry", content: "beta deploy pushes to GHCR" });
+    const out = await update({
+      query: "docker registry",
+      content: "beta deploy pushes to GHCR",
+    });
     expect(out).toContain("blocked");
     expect(out).not.toContain(`superseded ${a}`);
 
-    const ok = await update({ query: "changelog", content: "gamma changelog notes are auto-generated" });
+    const ok = await update({
+      query: "changelog",
+      content: "gamma changelog notes are auto-generated",
+    });
     expect(ok).toContain(`superseded ${c}`);
     expect(isActive((await byId(c))!)).toBe(false);
   });
@@ -140,18 +181,28 @@ describe("memory_update row targeting", () => {
     await seed(ALPHA);
     const before = await rows();
 
-    const out = await update({ query: "no-such-row-anywhere", content: "beta deploy builds a tarball" });
+    const out = await update({
+      query: "no-such-row-anywhere",
+      content: "beta deploy builds a tarball",
+    });
     expect(out).toContain("blocked");
     expect(out).toContain("Nothing was written.");
     expect((await rows()).length).toBe(before.length);
   });
 
   test("an ambiguous query writes nothing and lists the candidates", async () => {
-    const a = await seed("delta periodic vacuum job sweeps stale sessions alpha");
-    const b = await seed("delta periodic vacuum job sweeps stale sessions beta");
+    const a = await seed(
+      "delta periodic vacuum job sweeps stale sessions alpha",
+    );
+    const b = await seed(
+      "delta periodic vacuum job sweeps stale sessions beta",
+    );
     const before = await rows();
 
-    const out = await update({ query: "periodic vacuum job", content: "delta periodic vacuum job runs nightly" });
+    const out = await update({
+      query: "periodic vacuum job",
+      content: "delta periodic vacuum job runs nightly",
+    });
     expect(out).toContain("blocked");
     expect(out).toContain(a);
     expect(out).toContain(b);
@@ -162,7 +213,9 @@ describe("memory_update row targeting", () => {
     const a = await seed(ALPHA);
     const c = await seed(GAMMA);
 
-    const out = await update({ content: "gamma changelog notes are auto-generated" });
+    const out = await update({
+      content: "gamma changelog notes are auto-generated",
+    });
     expect(out).toContain(`superseded ${c}`);
     expect(isActive((await byId(a))!)).toBe(true);
   });
@@ -172,12 +225,28 @@ describe("memory_update row targeting", () => {
     const b = await seed(BETA);
     const all = await rows();
 
-    expect(resolveMemoryTarget(all, a)).toMatchObject({ status: "ok", target: { ts: a } });
-    expect(resolveMemoryTarget(all, b.slice(11, 23))).toMatchObject({ status: "ok", target: { ts: b } });
-    expect(resolveMemoryTarget(all, "eslint")).toMatchObject({ status: "ok", target: { ts: a } });
-    expect(resolveMemoryTarget(all, "nothing matches this")).toEqual({ status: "not_found" });
-    expect(resolveMemoryTarget([], "anything")).toEqual({ status: "not_found" });
-    expect(resolveMemoryTarget(all)).toMatchObject({ status: "ok", target: { ts: b } });
+    expect(resolveMemoryTarget(all, a)).toMatchObject({
+      status: "ok",
+      target: { ts: a },
+    });
+    expect(resolveMemoryTarget(all, b.slice(11, 23))).toMatchObject({
+      status: "ok",
+      target: { ts: b },
+    });
+    expect(resolveMemoryTarget(all, "eslint")).toMatchObject({
+      status: "ok",
+      target: { ts: a },
+    });
+    expect(resolveMemoryTarget(all, "nothing matches this")).toEqual({
+      status: "not_found",
+    });
+    expect(resolveMemoryTarget([], "anything")).toEqual({
+      status: "not_found",
+    });
+    expect(resolveMemoryTarget(all)).toMatchObject({
+      status: "ok",
+      target: { ts: b },
+    });
   });
 });
 
@@ -190,7 +259,8 @@ describe("memory_update on conflict-prone rows", () => {
     const p = await appendMemory({
       type: "preference",
       scope: "reviews",
-      content: "prefer small focused pull requests that ship one reviewable change each",
+      content:
+        "prefer small focused pull requests that ship one reviewable change each",
     });
     const loaded = await tools();
     const out = await loaded.memory_update.execute({
@@ -198,11 +268,14 @@ describe("memory_update on conflict-prone rows", () => {
       scope: "reviews",
       status: "open",
       query: p,
-      content: "prefer small focused pull requests that ship one reviewable change and pass ci before merge",
+      content:
+        "prefer small focused pull requests that ship one reviewable change and pass ci before merge",
     });
     expect(out).toContain(`superseded ${p}`);
 
-    const rows = (await loadAll()).filter((m) => m.scope === "reviews" && m.type === "preference");
+    const rows = (await loadAll()).filter(
+      (m) => m.scope === "reviews" && m.type === "preference",
+    );
     expect(isActive(rows.find((m) => m.ts === p)!)).toBe(false);
     const fresh = rows.filter(isActive);
     expect(fresh.length).toBe(1);
@@ -225,14 +298,16 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
       type: "decision",
       scope: "pivot",
       status: "open",
-      content: "decided to use postgres for the primary datastore with pgbouncer pooling",
+      content:
+        "decided to use postgres for the primary datastore with pgbouncer pooling",
     });
     const loaded = await tools();
     const blocked = await loaded.memory_remember.execute({
       type: "decision",
       scope: "pivot",
       status: "open",
-      content: "decided to use mysql for the primary datastore with proxysql pooling",
+      content:
+        "decided to use mysql for the primary datastore with proxysql pooling",
     });
     expect(blocked).toContain("superseded_overlap");
 
@@ -241,10 +316,13 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
       scope: "pivot",
       status: "open",
       query: X,
-      content: "decided to use mysql for the primary datastore with proxysql pooling",
+      content:
+        "decided to use mysql for the primary datastore with proxysql pooling",
     });
     expect(out).toContain(`superseded ${X}`);
-    const fresh = (await loadAll()).filter((m) => m.scope === "pivot" && isActive(m));
+    const fresh = (await loadAll()).filter(
+      (m) => m.scope === "pivot" && isActive(m),
+    );
     expect(fresh.length).toBe(1);
     expect(fresh[0]!.content).toContain("mysql");
   });
@@ -257,8 +335,18 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
     // supersede, as predicted here: the named target is retired pointing AT
     // the survivor (first-call-wins, so this is safe on every path), and the
     // store ends with exactly one active statement.
-    const a = await appendMemory({ type: "pattern", scope: "colupd", status: "open", content: ALPHA });
-    const b = await appendMemory({ type: "pattern", scope: "colupd", status: "open", content: BETA });
+    const a = await appendMemory({
+      type: "pattern",
+      scope: "colupd",
+      status: "open",
+      content: ALPHA,
+    });
+    const b = await appendMemory({
+      type: "pattern",
+      scope: "colupd",
+      status: "open",
+      content: BETA,
+    });
     const loaded = await tools();
     const out = await loaded.memory_update.execute({
       type: "pattern",
@@ -292,11 +380,17 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
     const loaded = await tools();
     const [o1, o2] = await Promise.all([
       loaded.memory_update.execute({
-        type: "learning", scope: "raceupd", status: "open", query: A,
+        type: "learning",
+        scope: "raceupd",
+        status: "open",
+        query: A,
         content: "alpha lint step runs oxlint over packages cli",
       }),
       loaded.memory_update.execute({
-        type: "learning", scope: "raceupd", status: "open", query: A,
+        type: "learning",
+        scope: "raceupd",
+        status: "open",
+        query: A,
         content: "alpha lint step runs biome over packages cli",
       }),
     ]);
@@ -338,7 +432,11 @@ describe("memory_merge_review input integrity (#125 probe)", () => {
   test("loser and survivor being the same row is rejected (no self-supersede round-trip)", async () => {
     const A = await seed("beta deploy builds the docker registry image");
     const loaded = await tools();
-    const out = await loaded.memory_merge_review.execute({ loser: A, survivor: A, reason: "self pin" });
+    const out = await loaded.memory_merge_review.execute({
+      loser: A,
+      survivor: A,
+      reason: "self pin",
+    });
     expect(out).toContain("blocked");
     expect(isActive((await byId(A))!)).toBe(true);
   });
@@ -347,7 +445,11 @@ describe("memory_merge_review input integrity (#125 probe)", () => {
     const L = await seed("alpha lint step runs eslint over packages cli");
     const S = await seed("beta deploy builds the docker registry image");
     const loaded = await tools();
-    const out = await loaded.memory_merge_review.execute({ loser: L, survivor: S, reason: "audit pin" });
+    const out = await loaded.memory_merge_review.execute({
+      loser: L,
+      survivor: S,
+      reason: "audit pin",
+    });
     expect(out).toContain(`${S} is canonical`);
     const rec = (await readLines(join(evidenceDir(), `${dateStr()}.logfmt`)))
       .map((l) => parseLine(l))
@@ -360,8 +462,13 @@ describe("memory_merge_review input integrity (#125 probe)", () => {
 
 describe("memory_merge_review survivor revival", () => {
   test("a survivor that was itself superseded becomes recallable", async () => {
-    const stale = await seed("epsilon test runner is jest with coverage thresholds");
-    const revive = await seed("epsilon test runner is bun test", { tags: ["bun"], status: "settled" });
+    const stale = await seed(
+      "epsilon test runner is jest with coverage thresholds",
+    );
+    const revive = await seed("epsilon test runner is bun test", {
+      tags: ["bun"],
+      status: "settled",
+    });
     const other = await seed(GAMMA);
     // The state the bug produced: `revive` is hidden behind `other`.
     expect(
@@ -396,7 +503,14 @@ describe("memory_merge_review survivor revival", () => {
     const raw = (await readLines(join(memoryRoot(), `${dateStr()}.logfmt`)))
       .map((l) => parseLine(l))
       .find((f) => f?.ts === revive)!;
-    for (const key of ["superseded_by", "reason", "symbol", "from", "to", "entity"]) {
+    for (const key of [
+      "superseded_by",
+      "reason",
+      "symbol",
+      "from",
+      "to",
+      "entity",
+    ]) {
       expect(raw[key]).toBeUndefined();
     }
     expect(m.content).toBe("epsilon test runner is bun test");
@@ -414,7 +528,9 @@ describe("memory_merge_review survivor revival", () => {
   test("snapshots keep the <stamp>-<original> contract /undo depends on", async () => {
     const a = await seed(ALPHA);
     const b = await seed(GAMMA);
-    expect(await markSuperseded(a, { superseded_by: b, reason: "update" })).toBe(true);
+    expect(
+      await markSuperseded(a, { superseded_by: b, reason: "update" }),
+    ).toBe(true);
     expect(await clearSuperseded(b)).toBe(false);
     await update({ query: a, content: "alpha lint step runs oxlint instead" });
 

@@ -7,12 +7,18 @@ import { stampRow } from "../files/snapshots.ts";
 
 // Human viewer action only. Preserve identity, origin, and all non-quarantine
 // metadata; stampRow snapshots and atomically publishes under the store lock.
-export async function releaseQuarantine(ts: string): Promise<"released" | "not_found" | "not_quarantined"> {
+export async function releaseQuarantine(
+  ts: string,
+): Promise<"released" | "not_found" | "not_quarantined"> {
   for (const file of await memoryFiles()) {
     const result = await stampRow(file, ts, (fields) => {
-      const tags = typeof fields.tags === "string" ? fields.tags.split(",") : [];
+      const tags =
+        typeof fields.tags === "string" ? fields.tags.split(",") : [];
       if (!tags.includes(QUARANTINE_TAG)) return null;
-      const scanTags = new Set([QUARANTINE_TAG, ...quarantineReasons({ tags }).map((id) => `quarantine:${id}`)]);
+      const scanTags = new Set([
+        QUARANTINE_TAG,
+        ...quarantineReasons({ tags }).map((id) => `quarantine:${id}`),
+      ]);
       const kept = tags.filter((tag) => !scanTags.has(tag));
       if (kept.length) fields.tags = kept.join(",");
       else delete fields.tags;

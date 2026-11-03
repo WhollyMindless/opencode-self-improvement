@@ -5,16 +5,23 @@
 // write publishes a stale copy and silently destroys the other's rows, and the
 // truncate-then-write in between lets a reader observe a half file.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryRoot } from "../src/core/config/paths.ts";
-import { appendMemory } from "../src/store/files/append.ts"
-import { loadAll } from "../src/store/files/load.ts"
-import { prune } from "../src/store/files/prune.ts"
-import { snapshotFiles } from "../src/store/files/snapshots.ts"
+import { appendMemory } from "../src/store/files/append.ts";
+import { loadAll } from "../src/store/files/load.ts";
+import { prune } from "../src/store/files/prune.ts";
+import { snapshotFiles } from "../src/store/files/snapshots.ts";
 import { markSuperseded } from "../src/store/files/supersede.ts";
-import { parseLine } from "../src/core/logfmt/format.ts"
+import { parseLine } from "../src/core/logfmt/format.ts";
 import { readLines } from "../src/core/logfmt/read.ts";
 import { restoreSnapshot } from "../src/store/undo.ts";
 
@@ -60,10 +67,17 @@ describe("supersede racing appends", () => {
   test("no row is lost and every supersede lands", async () => {
     const seeded = await seed(40);
     const appends = Array.from({ length: 40 }, (_, i) =>
-      appendMemory({ type: "pattern", scope: "racer", content: `appended ${i}` }),
+      appendMemory({
+        type: "pattern",
+        scope: "racer",
+        content: `appended ${i}`,
+      }),
     );
     const supersedes = seeded.map((ts) =>
-      markSuperseded(ts, { superseded_by: "2026-01-02T00:00:00.000Z", reason: "drift" }),
+      markSuperseded(ts, {
+        superseded_by: "2026-01-02T00:00:00.000Z",
+        reason: "drift",
+      }),
     );
     const newTs = await Promise.all(appends);
     const marked = await Promise.all(supersedes);
@@ -71,7 +85,8 @@ describe("supersede racing appends", () => {
     const lines = await rawLines();
     expect(marked.filter(Boolean)).toHaveLength(40);
     expect(lines).toHaveLength(80);
-    for (const ts of newTs) expect(lines.some((l) => l.includes(`ts=${ts}`))).toBe(true);
+    for (const ts of newTs)
+      expect(lines.some((l) => l.includes(`ts=${ts}`))).toBe(true);
     const rows = await loadAll();
     expect(rows.filter((m) => m.superseded_by)).toHaveLength(40);
     expect(rows).toHaveLength(80);
@@ -86,25 +101,37 @@ describe("supersede racing appends", () => {
     let observedPartial = 0;
     let incompleteReads = 0;
     let reads = 0;
-    const expected = seeded.map((ts, i) => `${ts}|seed row ${i} ${"x".repeat(40)}`).sort();
+    const expected = seeded
+      .map((ts, i) => `${ts}|seed row ${i} ${"x".repeat(40)}`)
+      .sort();
     const reader = (async () => {
       for (let i = 0; i < 400; i++) {
         const lines = await rawLines();
         reads++;
-        const observed = lines.map((line) => {
-          const row = parseLine(line);
-          return `${row?.ts}|${row?.content}`;
-        }).sort();
-        if (JSON.stringify(observed) !== JSON.stringify(expected)) incompleteReads++;
+        const observed = lines
+          .map((line) => {
+            const row = parseLine(line);
+            return `${row?.ts}|${row?.content}`;
+          })
+          .sort();
+        if (JSON.stringify(observed) !== JSON.stringify(expected))
+          incompleteReads++;
         const malformed = lines.filter((l) => {
           const f = parseLine(l);
-          return !f || typeof f.ts !== "string" || typeof f.content !== "string";
+          return (
+            !f || typeof f.ts !== "string" || typeof f.content !== "string"
+          );
         });
         if (malformed.length) observedPartial++;
       }
     })();
     await Promise.all(
-      seeded.map((ts) => markSuperseded(ts, { superseded_by: "2026-01-02T00:00:00.000Z", reason: "drift" })),
+      seeded.map((ts) =>
+        markSuperseded(ts, {
+          superseded_by: "2026-01-02T00:00:00.000Z",
+          reason: "drift",
+        }),
+      ),
     );
     await reader;
     // A parseable prefix (or an empty file) is still data loss.
@@ -128,7 +155,8 @@ describe("prune racing appends", () => {
     expect(res.deleted).toHaveLength(30);
     const lines = await rawLines();
     expect(lines).toHaveLength(30);
-    for (const ts of newTs) expect(lines.some((l) => l.includes(`ts=${ts}`))).toBe(true);
+    for (const ts of newTs)
+      expect(lines.some((l) => l.includes(`ts=${ts}`))).toBe(true);
   }, 30_000);
 });
 
@@ -144,11 +172,14 @@ describe("restore racing appends", () => {
     const first = seeded[0] ?? "";
     const res = await Promise.all([
       restoreSnapshot(snap, memoryRoot(), "merge"),
-      ...appended.map(() => markSuperseded(first, { superseded_by: "s", reason: "drift" })),
+      ...appended.map(() =>
+        markSuperseded(first, { superseded_by: "s", reason: "drift" }),
+      ),
     ]);
     expect(res[0].restored).toBe(true);
     const lines = await rawLines();
-    for (const ts of appended) expect(lines.some((l) => l.includes(`ts=${ts}`))).toBe(true);
+    for (const ts of appended)
+      expect(lines.some((l) => l.includes(`ts=${ts}`))).toBe(true);
   }, 30_000);
 
   test("a force restore under contention leaves no row in neither place", async () => {
@@ -167,7 +198,8 @@ describe("restore racing appends", () => {
     const safety = res.safety ? readFileSync(res.safety, "utf8") : "";
     const original = readFileSync(snap, "utf8");
     const lost = [...seeded, ...appended].filter(
-      (ts) => !inStore.has(ts) && !safety.includes(ts) && !original.includes(ts),
+      (ts) =>
+        !inStore.has(ts) && !safety.includes(ts) && !original.includes(ts),
     );
     expect(lost).toEqual([]);
   }, 30_000);
@@ -177,17 +209,25 @@ describe("two processes sharing one store", () => {
   const writer = join(import.meta.dir, "helpers", "writer.ts");
 
   async function spawn(n: number, supersede: string[]) {
-    const p = Bun.spawn([process.execPath, writer, memoryRoot(), String(n), supersede.join(",")], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const p = Bun.spawn(
+      [process.execPath, writer, memoryRoot(), String(n), supersede.join(",")],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
     const code = await p.exited;
     return { code, err: await new Response(p.stderr).text() };
   }
 
   test("four writers: nothing is lost, every supersede lands, no lock is stranded", async () => {
     const seeded = await seed(20);
-    const chunks = [seeded.slice(0, 5), seeded.slice(5, 10), seeded.slice(10, 15), seeded.slice(15, 20)];
+    const chunks = [
+      seeded.slice(0, 5),
+      seeded.slice(5, 10),
+      seeded.slice(10, 15),
+      seeded.slice(15, 20),
+    ];
     const runs = await Promise.all(chunks.map((c) => spawn(25, c)));
     // Anything non-zero carries its stderr into the failure message; a warning
     // unrelated to row loss must not fail a test about row loss.
@@ -198,19 +238,25 @@ describe("two processes sharing one store", () => {
     expect(lines).toHaveLength(120);
     const tsValues = lines.map((l) => parseLine(l)?.ts as string);
     expect(new Set(tsValues).size).toBe(120); // no timestamp collisions across processes
-    expect(lines.filter((l) => l.includes("superseded_by=stress"))).toHaveLength(20);
-    expect(readdirSync(memoryRoot()).filter((f) => f.endsWith(".lock"))).toEqual([]);
+    expect(
+      lines.filter((l) => l.includes("superseded_by=stress")),
+    ).toHaveLength(20);
+    expect(
+      readdirSync(memoryRoot()).filter((f) => f.endsWith(".lock")),
+    ).toEqual([]);
   }, 30_000);
 
   test("a reader process always parses a complete file", async () => {
     await seed(200);
     const originals = new Set(await rawLines());
-    const completeChild = /^ts=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z type=learning scope=stress content="child row (\d+) (\d+)"$/;
+    const completeChild =
+      /^ts=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z type=learning scope=stress content="child row (\d+) (\d+)"$/;
     const runs = Promise.all([spawn(50, []), spawn(50, []), spawn(50, [])]);
     let partial = 0;
     for (let i = 0; i < 300; i++) {
       const lines = await rawLines();
-      if (lines.some((l) => !originals.has(l) && !completeChild.test(l))) partial++;
+      if (lines.some((l) => !originals.has(l) && !completeChild.test(l)))
+        partial++;
     }
     expect((await runs).filter((run) => run.code !== 0)).toEqual([]);
     expect(partial).toBe(0);
@@ -228,7 +274,9 @@ describe("two processes sharing one store", () => {
     }
     expect(byWriter.size).toBe(3);
     for (const rows of byWriter.values()) {
-      expect([...rows].sort((a, b) => a - b)).toEqual(Array.from({ length: 50 }, (_, i) => i));
+      expect([...rows].sort((a, b) => a - b)).toEqual(
+        Array.from({ length: 50 }, (_, i) => i),
+      );
     }
   }, 30_000);
 });

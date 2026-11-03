@@ -17,8 +17,12 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { HITS_FILENAME, memoryRoot } from "../core/config/paths.ts";
-import { bracketList, formatLine, parseLine } from "../core/logfmt/format.ts"
-import { appendLog, fileIdentity, writeAtomic } from "../core/logfmt/publish.ts"
+import { bracketList, formatLine, parseLine } from "../core/logfmt/format.ts";
+import {
+  appendLog,
+  fileIdentity,
+  writeAtomic,
+} from "../core/logfmt/publish.ts";
 import { readLines } from "../core/logfmt/read.ts";
 import type { UseSignals } from "../recall/relevant.ts";
 import { withStoreLock, LOCK_WRITE } from "../store/lock.ts";
@@ -67,7 +71,8 @@ const inFlight = new Set<string>();
 /** Clear completed-attempt cooldowns. Tests must await all writes first:
  * clearing reservations cannot cancel I/O or isolate a still-running writer. */
 export function resetHitThrottle(): void {
-  if (inFlight.size) throw new Error("await pending recordHits calls before resetHitThrottle");
+  if (inFlight.size)
+    throw new Error("await pending recordHits calls before resetHitThrottle");
   nextAttempt.clear();
 }
 
@@ -84,8 +89,14 @@ async function rotateIfNeeded(): Promise<void> {
   // Windows the rename can be refused by a reader's handle, and the retry is
   // only safe while nothing else moved this file.
   const since = await fileIdentity(hitsFile());
-  const lines = (await readFile(hitsFile(), "utf8")).split("\n").filter((l) => l.trim());
-  await writeAtomic(hitsFile(), lines.slice(Math.floor(lines.length / 2)).join("\n") + "\n", since);
+  const lines = (await readFile(hitsFile(), "utf8"))
+    .split("\n")
+    .filter((l) => l.trim());
+  await writeAtomic(
+    hitsFile(),
+    lines.slice(Math.floor(lines.length / 2)).join("\n") + "\n",
+    since,
+  );
 }
 
 /**
@@ -117,7 +128,9 @@ export async function recordHits(
     src: source,
     sid,
     mem: bracketList(ids),
-    ...(terms.length ? { terms: bracketList(terms.slice(0, MAX_LOGGED_TERMS)) } : {}),
+    ...(terms.length
+      ? { terms: bracketList(terms.slice(0, MAX_LOGGED_TERMS)) }
+      : {}),
   });
   inFlight.add(key);
   let cooldown = RETRY_BACKOFF_MS;
@@ -141,7 +154,8 @@ export async function recordHits(
     nextAttempt.set(key, now + cooldown);
     // Bound both successful and failed keys with the existing eviction cap.
     if (nextAttempt.size > 2000) {
-      for (const k of [...nextAttempt.keys()].slice(0, 1000)) nextAttempt.delete(k);
+      for (const k of [...nextAttempt.keys()].slice(0, 1000))
+        nextAttempt.delete(k);
     }
     inFlight.delete(key);
   }
@@ -216,7 +230,11 @@ export async function readReads(): Promise<ReadSet[]> {
 }
 
 /** Rows the ledger has NEVER seen used, plus the honest since-qualifier. */
-export function neverRetrieved(rows: Memory[], ledger: UseLedger, days = 30): Memory[] {
+export function neverRetrieved(
+  rows: Memory[],
+  ledger: UseLedger,
+  days = 30,
+): Memory[] {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
   return rows.filter((m) => {
     const u = ledger.byRow.get(m.ts);
@@ -225,7 +243,11 @@ export function neverRetrieved(rows: Memory[], ledger: UseLedger, days = 30): Me
 }
 
 /** Active rows used at least once inside the window. */
-export function usedRecently(rows: Memory[], ledger: UseLedger, days = 30): number {
+export function usedRecently(
+  rows: Memory[],
+  ledger: UseLedger,
+  days = 30,
+): number {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
   return rows.filter((m) => {
     const u = ledger.byRow.get(m.ts);
@@ -242,7 +264,10 @@ export function usedRecently(rows: Memory[], ledger: UseLedger, days = 30): numb
 const LEDGER_TTL_MS = 60_000;
 let ledgerCache: { at: number; ledger: UseLedger } | null = null;
 
-export async function useSignals(ttlMs = LEDGER_TTL_MS, now = Date.now()): Promise<UseSignals> {
+export async function useSignals(
+  ttlMs = LEDGER_TTL_MS,
+  now = Date.now(),
+): Promise<UseSignals> {
   if (!ledgerCache || now - ledgerCache.at > ttlMs) {
     ledgerCache = { at: now, ledger: await readLedger() };
   }

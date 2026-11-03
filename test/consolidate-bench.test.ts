@@ -8,7 +8,10 @@
 import { describe, expect, test } from "bun:test";
 import { INJECT_K, injectedChars, storeAt } from "../bench/recall-quality.ts";
 import { QUERIES } from "../bench/recall-dataset.ts";
-import { proposeConsolidations, type ReadSet } from "../src/consolidate/propose.ts";
+import {
+  proposeConsolidations,
+  type ReadSet,
+} from "../src/consolidate/propose.ts";
 import { scoreMemories } from "../src/recall/score.ts";
 import type { Memory } from "../src/store/model/memory.ts";
 
@@ -21,16 +24,24 @@ const SIZE = 200;
 function applyProposals(rows: Memory[], reads: ReadSet[]) {
   const report = proposeConsolidations(rows, new Map(), reads);
   const absorbed = new Set<Memory>(report.plans.flatMap((p) => p.losers));
-  const mergedBy = new Map<Memory, Memory>(report.plans.map((p) => [p.survivor, p.merged] as const));
+  const mergedBy = new Map<Memory, Memory>(
+    report.plans.map((p) => [p.survivor, p.merged] as const),
+  );
   // survivor content -> every content the merged row represents
   const represents = new Map<string, Set<string>>();
   for (const p of report.plans) {
-    const set = new Set<string>([p.survivor.content, ...p.losers.map((m) => m.content)]);
+    const set = new Set<string>([
+      p.survivor.content,
+      ...p.losers.map((m) => m.content),
+    ]);
     represents.set(p.survivor.content, set);
   }
-  const after: Memory[] = rows.filter((m) => !absorbed.has(m)).map((m) => mergedBy.get(m) ?? m);
+  const after: Memory[] = rows
+    .filter((m) => !absorbed.has(m))
+    .map((m) => mergedBy.get(m) ?? m);
   const clusterAccept = (found: Memory, want: string) =>
-    found.content === want || (represents.get(found.content)?.has(want) ?? false);
+    found.content === want ||
+    (represents.get(found.content)?.has(want) ?? false);
   return { rows: after, applied: report.plans.length, clusterAccept };
 }
 
@@ -54,7 +65,10 @@ function goldOf(id: string): string | undefined {
  * not that the same prose keeps the same row. Anything looser would be grading
  * the merge on vibes.
  */
-function recall(rows: Memory[], accept: (found: Memory, want: string) => boolean) {
+function recall(
+  rows: Memory[],
+  accept: (found: Memory, want: string) => boolean,
+) {
   let n = 0;
   let r1 = 0;
   let r3 = 0;
@@ -95,13 +109,21 @@ function consolidation() {
     const surfaced = scoreMemories(q, settled, INJECT_K);
     if (!surfaced.length) continue;
     reads.push({
-      terms: q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 8),
+      terms: q
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter(Boolean)
+        .slice(0, 8),
       rows: surfaced.map((m) => m.ts),
     });
   }
   const before = recall(settled, exact);
   const after = applyProposals(settled, reads);
-  shared = { before, after, afterRecall: recall(after.rows, after.clusterAccept) };
+  shared = {
+    before,
+    after,
+    afterRecall: recall(after.rows, after.clusterAccept),
+  };
   return shared;
 }
 

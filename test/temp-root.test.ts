@@ -14,13 +14,23 @@ describe("requireTempPath", () => {
     const root = mkdtempSync(join(tmpdir(), "osi-guard-"));
     try {
       // Observe exit(2) as a test failure, not an aborted suite with no verdict.
-      const helper = pathToFileURL(join(import.meta.dir, "helpers", "temp-root.ts")).href;
+      const helper = pathToFileURL(
+        join(import.meta.dir, "helpers", "temp-root.ts"),
+      ).href;
       const code = `import { requireTempPath } from ${JSON.stringify(helper)}; requireTempPath(${JSON.stringify(join(root, "memory"))}, "probe");`;
-      const child = Bun.spawnSync([process.execPath, "-e", code], { stdout: "pipe", stderr: "pipe" });
+      const child = Bun.spawnSync([process.execPath, "-e", code], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
       expect(child.exitCode).toBe(0);
       expect(child.stderr.toString()).toBe("");
     } finally {
-      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      rmSync(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 

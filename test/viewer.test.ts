@@ -42,7 +42,12 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
-function seed(type: string, scope: string, content: string, ts = new Date().toISOString()): string {
+function seed(
+  type: string,
+  scope: string,
+  content: string,
+  ts = new Date().toISOString(),
+): string {
   const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
   mkdirSync(dirname(file), { recursive: true });
   appendFileSync(file, formatLine({ ts, type, scope, content }) + "\n");
@@ -79,7 +84,10 @@ describe("viewer read + hermeticity", () => {
     );
     appendFileSync(join(snapshotDir(), "123-2026-01-01.logfmt"), "ts=snap\n");
     mkdirSync(join(memoryRoot(), "evidence"), { recursive: true });
-    appendFileSync(join(memoryRoot(), "evidence", "2026-01-01.logfmt"), "ev=gate_check\n");
+    appendFileSync(
+      join(memoryRoot(), "evidence", "2026-01-01.logfmt"),
+      "ev=gate_check\n",
+    );
 
     const files = await memoryFiles();
     for (const f of files) {
@@ -133,14 +141,27 @@ describe("edit — non-destructive", () => {
     expect(audit).toContain(`original_ts=${T1}`);
 
     // evidence line
-    const ev = readFileSync(join(memoryRoot(), "evidence", `${new Date().toISOString().split("T")[0]}.logfmt`), "utf8");
+    const ev = readFileSync(
+      join(
+        memoryRoot(),
+        "evidence",
+        `${new Date().toISOString().split("T")[0]}.logfmt`,
+      ),
+      "utf8",
+    );
     expect(ev).toContain("ev=viewer_edit");
   });
 
   test("reason missing -> rejected by viewer (Principle 3)", async () => {
     const T1 = seed("learning", "auth", "use bcrypt");
     await expect(
-      post("/api/edit", { ts: T1, type: "learning", scope: "auth", content: "use argon2", reason: "" }),
+      post("/api/edit", {
+        ts: T1,
+        type: "learning",
+        scope: "auth",
+        content: "use argon2",
+        reason: "",
+      }),
     ).rejects.toThrow(/reason/);
     const all = await loadAll();
     expect(all.find((m) => m.ts === T1)?.content).toBe("use bcrypt");
@@ -168,19 +189,33 @@ describe("edit — non-destructive", () => {
 
 describe("delete — non-destructive", () => {
   test("snapshot pre-state, remove, audit reason, nothing else changes", async () => {
-    const T1 = seed("pattern", "testing", "always run vitest before playwright");
-    const r = await post("/api/delete", { ts: T1, reason: "playwright now gates CI first" });
+    const T1 = seed(
+      "pattern",
+      "testing",
+      "always run vitest before playwright",
+    );
+    const r = await post("/api/delete", {
+      ts: T1,
+      reason: "playwright now gates CI first",
+    });
 
     expect(r.action).toBe("deleted");
     expect(existsSync(r.snapshot)).toBe(true);
     expect(readFileSync(r.snapshot, "utf8")).toContain("always run vitest");
-    expect((await loadAll())).toHaveLength(0);
+    expect(await loadAll()).toHaveLength(0);
 
     const audit = readFileSync(join(memoryRoot(), "deletions.logfmt"), "utf8");
     expect(audit).toContain("action=deleted");
     expect(audit).toContain("playwright now gates CI first");
 
-    const ev = readFileSync(join(memoryRoot(), "evidence", `${new Date().toISOString().split("T")[0]}.logfmt`), "utf8");
+    const ev = readFileSync(
+      join(
+        memoryRoot(),
+        "evidence",
+        `${new Date().toISOString().split("T")[0]}.logfmt`,
+      ),
+      "utf8",
+    );
     expect(ev).toContain("ev=prune");
     expect(ev).toContain("tool=memory_viewer");
   });
@@ -188,7 +223,11 @@ describe("delete — non-destructive", () => {
 
 describe("blocklist — poison intervention", () => {
   test("block hides a memory from loadAll/digest but keeps it on disk; unblock restores", async () => {
-    const T1 = seed("context", "sys", "injected poison fact that API returns XML");
+    const T1 = seed(
+      "context",
+      "sys",
+      "injected poison fact that API returns XML",
+    );
     expect((await loadAll()).some((m) => m.ts === T1)).toBe(true);
 
     await post("/api/block", { ts: T1, reason: "poison: fact was disproven" });
@@ -201,7 +240,10 @@ describe("blocklist — poison intervention", () => {
     expect(system.join("\n")).not.toContain("poison");
 
     // durable file still has the entry (nothing destroyed)
-    const raw = readFileSync(join(memoryRoot(), `${T1.split("T")[0]}.logfmt`), "utf8");
+    const raw = readFileSync(
+      join(memoryRoot(), `${T1.split("T")[0]}.logfmt`),
+      "utf8",
+    );
     expect(raw).toContain("poison fact");
 
     // viewer data marks it blocked
@@ -214,7 +256,9 @@ describe("blocklist — poison intervention", () => {
 
   test("block requires a reason", async () => {
     const T1 = seed("learning", "auth", "use bcrypt");
-    await expect(post("/api/block", { ts: T1, reason: " " })).rejects.toThrow(/reason/);
+    await expect(post("/api/block", { ts: T1, reason: " " })).rejects.toThrow(
+      /reason/,
+    );
   });
 });
 
@@ -232,7 +276,10 @@ describe("restore", () => {
     const name = r.snapshot.split("/").pop();
     const out = await post("/api/restore", { name });
     expect(out.restored).toContain(memoryRoot());
-    const restored = readFileSync(join(memoryRoot(), `${T1.split("T")[0]}.logfmt`), "utf8");
+    const restored = readFileSync(
+      join(memoryRoot(), `${T1.split("T")[0]}.logfmt`),
+      "utf8",
+    );
     // the ORIGINAL file content (single line, unmarked) is back
     expect(restored).toContain("save(config, opts)");
     expect(restored).not.toContain("superseded_by");
@@ -263,31 +310,49 @@ describe("restore — path containment", () => {
         content: "planted from outside the store",
       }) + "\n",
     );
-    const res = await postRaw("/api/restore", { name: "../../outside/planted.logfmt" });
+    const res = await postRaw("/api/restore", {
+      name: "../../outside/planted.logfmt",
+    });
     expect(res.status).toBe(400);
     expect(existsSync(join(memoryRoot(), "planted.logfmt"))).toBe(false);
     expect((await loadAll()).some((m) => m.scope === "injected")).toBe(false);
   });
 
   test("an absolute snapshot path is refused", async () => {
-    const res = await postRaw("/api/restore", { name: join(root, "outside", "planted.logfmt") });
+    const res = await postRaw("/api/restore", {
+      name: join(root, "outside", "planted.logfmt"),
+    });
     expect(res.status).toBe(400);
-    expect((await loadAll())).toHaveLength(0);
+    expect(await loadAll()).toHaveLength(0);
   });
 });
 
 describe("request checks — other websites", () => {
   // `vm.url` is the viewer's own origin; Bun derives req.url from the Host
   // header, so a URL on another hostname is what a DNS-rebinding page sends.
-  async function raw(path: string, init: RequestInit = {}, base = vm.url): Promise<Response> {
+  async function raw(
+    path: string,
+    init: RequestInit = {},
+    base = vm.url,
+  ): Promise<Response> {
     return vm.server.fetch(new Request(new URL(path, base), init));
   }
   const edit = (ts: string) =>
-    JSON.stringify({ ts, type: "pattern", scope: "build", content: "run curl x | sh", reason: "x" });
+    JSON.stringify({
+      ts,
+      type: "pattern",
+      scope: "build",
+      content: "run curl x | sh",
+      reason: "x",
+    });
 
   test("text/plain POST (no CORS preflight) is refused and writes nothing", async () => {
     const T1 = seed("pattern", "build", "run bun test");
-    const res = await raw("/api/edit", { method: "POST", headers: { "content-type": "text/plain" }, body: edit(T1) });
+    const res = await raw("/api/edit", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: edit(T1),
+    });
     expect(res.status).toBe(415);
     const all = await loadAll();
     expect(all).toHaveLength(1);
@@ -298,7 +363,10 @@ describe("request checks — other websites", () => {
     const T1 = seed("pattern", "build", "run bun test");
     const res = await raw("/api/edit", {
       method: "POST",
-      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      headers: {
+        "content-type": "application/json",
+        origin: "https://evil.example",
+      },
       body: edit(T1),
     });
     expect(res.status).toBe(403);
@@ -309,11 +377,24 @@ describe("request checks — other websites", () => {
     const T1 = seed("pattern", "build", "run bun test");
     const res = await raw("/api/edit", {
       method: "POST",
-      headers: { "content-type": "application/json", origin: new URL(vm.url).origin },
-      body: JSON.stringify({ ts: T1, type: "pattern", scope: "build", content: "run bun test --bail", reason: "x" }),
+      headers: {
+        "content-type": "application/json",
+        origin: new URL(vm.url).origin,
+      },
+      body: JSON.stringify({
+        ts: T1,
+        type: "pattern",
+        scope: "build",
+        content: "run bun test --bail",
+        reason: "x",
+      }),
     });
     expect(res.status).toBe(200);
-    expect((await loadAll()).some((m) => m.content === "run bun test --bail" && !m.superseded_by)).toBe(true);
+    expect(
+      (await loadAll()).some(
+        (m) => m.content === "run bun test --bail" && !m.superseded_by,
+      ),
+    ).toBe(true);
   });
 
   test("a foreign Host (DNS rebinding) cannot read the page or the store", async () => {
@@ -326,7 +407,9 @@ describe("request checks — other websites", () => {
 
   test("localhost is accepted as well as 127.0.0.1", async () => {
     const port = new URL(vm.url).port;
-    expect((await raw("/api/data", {}, `http://localhost:${port}/`)).status).toBe(200);
+    expect(
+      (await raw("/api/data", {}, `http://localhost:${port}/`)).status,
+    ).toBe(200);
   });
 
   // fetch() won't send a Host it can't parse, so write the request by hand.
@@ -334,7 +417,9 @@ describe("request checks — other websites", () => {
     const port = Number(new URL(vm.url).port);
     return new Promise((resolve, reject) => {
       const sock = connect(port, "127.0.0.1", () =>
-        sock.write(`GET /api/data HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`),
+        sock.write(
+          `GET /api/data HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`,
+        ),
       );
       let reply = "";
       sock.on("data", (d) => (reply += d));
@@ -359,7 +444,9 @@ describe("request checks — other websites", () => {
     // Over the real socket, exactly like the wire-level repro: Bun builds
     // req.url from the Host header, and the malformed value must hit the
     // guarded parse, not Bun's dev error page (stack + absolute paths).
-    const res = await fetch(new URL("/", vm.url), { headers: { host: "exa mple" } });
+    const res = await fetch(new URL("/", vm.url), {
+      headers: { host: "exa mple" },
+    });
     expect(res.status).toBe(400);
     const body = await res.text();
     expect(body).not.toContain("Internal Server Error");
@@ -370,10 +457,16 @@ describe("request checks — other websites", () => {
   test("every response carries nosniff and a restrictive CSP", async () => {
     const page = await vm.server.fetch(new Request(new URL("/", vm.url)));
     expect(page.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(page.headers.get("content-security-policy")).toContain("default-src 'none'");
-    const api = await vm.server.fetch(new Request(new URL("/api/data", vm.url)));
+    expect(page.headers.get("content-security-policy")).toContain(
+      "default-src 'none'",
+    );
+    const api = await vm.server.fetch(
+      new Request(new URL("/api/data", vm.url)),
+    );
     expect(api.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(api.headers.get("content-security-policy")).toContain("connect-src 'self'");
+    expect(api.headers.get("content-security-policy")).toContain(
+      "connect-src 'self'",
+    );
   });
 });
 
@@ -389,11 +482,17 @@ type Helpers = {
 };
 
 function loadHelpers(): { h: Helpers; src: string } {
-  const src = readFileSync(join(import.meta.dir, "../src/viewer/page.html"), "utf8");
+  const src = readFileSync(
+    join(import.meta.dir, "../src/viewer/page.html"),
+    "utf8",
+  );
   const m = src.match(/<script id="viewer-helpers">([\s\S]*?)<\/script>/);
   if (!m) throw new Error("viewer-helpers block not found in page.html");
   const scope: Record<string, unknown> = {};
-  new Function("exports", `${m[1]}; Object.assign(exports, { esc, badge, tsCell });`)(scope);
+  new Function(
+    "exports",
+    `${m[1]}; Object.assign(exports, { esc, badge, tsCell });`,
+  )(scope);
   return { h: scope as unknown as Helpers, src };
 }
 
@@ -410,7 +509,9 @@ describe("page.html escaping", () => {
   test("badge() escapes hostile text — no live markup survives", () => {
     const { h } = loadHelpers();
     const out = h.badge("type", X);
-    expect(out).toBe('<span class="badge type">&lt;img src=x onerror=&quot;alert(1)&quot;&gt;</span>');
+    expect(out).toBe(
+      '<span class="badge type">&lt;img src=x onerror=&quot;alert(1)&quot;&gt;</span>',
+    );
     expect(out).not.toContain("<img");
   });
 
@@ -421,8 +522,12 @@ describe("page.html escaping", () => {
 
   test("tsCell() escapes both the date and the time segment", () => {
     const { h } = loadHelpers();
-    expect(h.tsCell(X)).toBe("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;<br>");
-    expect(h.tsCell("2026-01-01T<img src=x onerror=1>Z")).toBe("2026-01-01<br>&lt;img src");
+    expect(h.tsCell(X)).toBe(
+      "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;<br>",
+    );
+    expect(h.tsCell("2026-01-01T<img src=x onerror=1>Z")).toBe(
+      "2026-01-01<br>&lt;img src",
+    );
     // A normal ISO ts renders unchanged apart from the <br> split.
     expect(h.tsCell("2026-10-22T18:30:00.000Z")).toBe("2026-10-22<br>18:30:00");
   });
@@ -435,6 +540,8 @@ describe("page.html escaping", () => {
     expect(src).toContain("${tsCell(m.ts)}");
     expect(src).toContain('badge("status-superseded", "superseded');
     // Helpers must be defined BEFORE the main script that calls them.
-    expect(src.indexOf('id="viewer-helpers"')).toBeLessThan(src.indexOf("<script>"));
+    expect(src.indexOf('id="viewer-helpers"')).toBeLessThan(
+      src.indexOf("<script>"),
+    );
   });
 });

@@ -5,7 +5,16 @@
 // has never seen, and the qualifier the surfaces must carry when the ledger
 // is too young to call anything "never retrieved".
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, openSync, closeSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  openSync,
+  closeSync,
+  readFileSync,
+  rmdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryRoot } from "../src/core/config/paths.ts";
@@ -22,11 +31,11 @@ import {
   useSignals,
   usedRecently,
 } from "../src/hits/ledger.ts";
-import { appendMemory } from "../src/store/files/append.ts"
+import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
-import { scoreMemories, words } from "../src/recall/score.ts"
+import { scoreMemories, words } from "../src/recall/score.ts";
 import { sharedTerms } from "../src/recall/shared-terms.ts";
-import { ledgerIsYoung } from "../src/status/metrics.ts"
+import { ledgerIsYoung } from "../src/status/metrics.ts";
 import { renderMemoryReport } from "../src/status/report.ts";
 import type { Memory } from "../src/store/model/memory.ts";
 import { LOCK_WRITE, lockFileFor, withStoreLock } from "../src/store/lock.ts";
@@ -48,11 +57,24 @@ afterEach(() => {
 
 const ledgerText = () => readFileSync(hitsFile(), "utf8");
 const row = (ts: string): Memory =>
-  ({ ts, type: "learning", scope: "s", content: `fact at ${ts}`, file: "x.logfmt", index: 0 }) as Memory;
+  ({
+    ts,
+    type: "learning",
+    scope: "s",
+    content: `fact at ${ts}`,
+    file: "x.logfmt",
+    index: 0,
+  }) as Memory;
 
 describe("the ledger line", () => {
   test("one exact line per source, with the rows credited and the terms they shared", async () => {
-    const hit = await recordHits("pull", "ses-1", [row("2026-01-01T00:00:00.000Z")], ["build"], Date.parse("2026-06-01T00:00:00Z"));
+    const hit = await recordHits(
+      "pull",
+      "ses-1",
+      [row("2026-01-01T00:00:00.000Z")],
+      ["build"],
+      Date.parse("2026-06-01T00:00:00Z"),
+    );
     expect(hit).toBe(true);
     const line = ledgerText().trim();
     expect(line).toInclude("ev=memory_used");
@@ -90,7 +112,8 @@ describe("the ledger line", () => {
       scope: "deploys",
       content: "staging deploys run make deploy-staging after the vpn is up",
     } as Memory;
-    const query = "how do we promote to staging after the vpn, plus zzzqqq private prompt phrase";
+    const query =
+      "how do we promote to staging after the vpn, plus zzzqqq private prompt phrase";
     const terms = sharedTerms(query, m);
     const vocab = new Set(words(`${m.scope} ${m.type} ${m.content}`));
     expect(terms.length).toBeGreaterThan(0);
@@ -111,15 +134,21 @@ describe("the throttle", () => {
     // No in-process holder: this forces the O_EXCL lock-file path.
     writeFileSync(lockFileFor(hitsFile()), "external-holder");
     LOCK_WRITE.timeoutMs = 40;
-    LOCK_WRITE.onEvent = (event) => { events.push(event); };
+    LOCK_WRITE.onEvent = (event) => {
+      events.push(event);
+    };
     try {
       expect(await recordHits("recall", "ses", rows, [], t0)).toBe(false);
       for (const delta of [1, 2, RETRY_BACKOFF_MS - 1]) {
-        expect(await recordHits("recall", "ses", rows, [], t0 + delta)).toBe(false);
+        expect(await recordHits("recall", "ses", rows, [], t0 + delta)).toBe(
+          false,
+        );
       }
       // Counting lock attempts avoids a machine-speed-dependent latency test.
       expect(events).toEqual(["timeout"]);
-      expect(await recordHits("recall", "ses", rows, [], t0 + RETRY_BACKOFF_MS)).toBe(false);
+      expect(
+        await recordHits("recall", "ses", rows, [], t0 + RETRY_BACKOFF_MS),
+      ).toBe(false);
       expect(events).toEqual(["timeout", "timeout"]);
       expect((await readLedger()).lines).toBe(0);
     } finally {
@@ -127,8 +156,18 @@ describe("the throttle", () => {
       LOCK_WRITE.onEvent = originalEvent;
       rmSync(lockFileFor(hitsFile()), { force: true });
     }
-    expect(await recordHits("recall", "ses", rows, [], t0 + 2 * RETRY_BACKOFF_MS - 1)).toBe(false);
-    expect(await recordHits("recall", "ses", rows, [], t0 + 2 * RETRY_BACKOFF_MS)).toBe(true);
+    expect(
+      await recordHits(
+        "recall",
+        "ses",
+        rows,
+        [],
+        t0 + 2 * RETRY_BACKOFF_MS - 1,
+      ),
+    ).toBe(false);
+    expect(
+      await recordHits("recall", "ses", rows, [], t0 + 2 * RETRY_BACKOFF_MS),
+    ).toBe(true);
     expect((await readLedger()).lines).toBe(1);
   }, 30_000);
 
@@ -136,7 +175,9 @@ describe("the throttle", () => {
     const rows = [row("2026-01-01T00:00:00.000Z")];
     const pending = recordHits("recall", "ses", rows);
     try {
-      expect(() => resetHitThrottle()).toThrow("await pending recordHits calls");
+      expect(() => resetHitThrottle()).toThrow(
+        "await pending recordHits calls",
+      );
       expect(await recordHits("recall", "ses", rows)).toBe(false);
     } finally {
       await pending;
@@ -155,18 +196,33 @@ describe("the throttle", () => {
     const events: string[] = [];
     let enter!: () => void;
     let release!: () => void;
-    const entered = new Promise<void>((resolve) => { enter = resolve; });
-    const released = new Promise<void>((resolve) => { release = resolve; });
-    const holder = withStoreLock(hitsFile(), async () => {
-      enter();
-      await released;
-    }, { onTimeout: "fail" });
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holder = withStoreLock(
+      hitsFile(),
+      async () => {
+        enter();
+        await released;
+      },
+      { onTimeout: "fail" },
+    );
     try {
-      await Promise.race([entered, holder.then(() => { throw new Error("holder never entered"); })]);
+      await Promise.race([
+        entered,
+        holder.then(() => {
+          throw new Error("holder never entered");
+        }),
+      ]);
       LOCK_WRITE.timeoutMs = 40;
       // Capture the refusal directly rather than leave fire-and-forget lock
       // evidence writing into a temporary store during fixture teardown.
-      LOCK_WRITE.onEvent = (event) => { events.push(event); };
+      LOCK_WRITE.onEvent = (event) => {
+        events.push(event);
+      };
       expect(await recordHits("recall", "ses", rows, [], t0)).toBe(false);
       expect(events).toEqual(["timeout"]);
       expect((await readLedger()).lines).toBe(0);
@@ -176,9 +232,15 @@ describe("the throttle", () => {
       release();
       await holder;
     }
-    expect(await recordHits("recall", "ses", rows, [], t0 + RETRY_BACKOFF_MS - 1)).toBe(false);
-    expect(await recordHits("recall", "ses", rows, [], t0 + RETRY_BACKOFF_MS)).toBe(true);
-    expect(await recordHits("recall", "ses", rows, [], t0 + RETRY_BACKOFF_MS)).toBe(false);
+    expect(
+      await recordHits("recall", "ses", rows, [], t0 + RETRY_BACKOFF_MS - 1),
+    ).toBe(false);
+    expect(
+      await recordHits("recall", "ses", rows, [], t0 + RETRY_BACKOFF_MS),
+    ).toBe(true);
+    expect(
+      await recordHits("recall", "ses", rows, [], t0 + RETRY_BACKOFF_MS),
+    ).toBe(false);
     expect((await readLedger()).lines).toBe(1);
   }, 30_000);
 
@@ -191,9 +253,15 @@ describe("the throttle", () => {
     mkdirSync(hitsFile());
     expect(await recordHits("pull", "ses", rows, [], t0)).toBe(false);
     rmdirSync(hitsFile());
-    expect(await recordHits("pull", "ses", rows, [], t0 + RETRY_BACKOFF_MS - 1)).toBe(false);
-    expect(await recordHits("pull", "ses", rows, [], t0 + RETRY_BACKOFF_MS)).toBe(true);
-    expect(await recordHits("pull", "ses", rows, [], t0 + RETRY_BACKOFF_MS)).toBe(false);
+    expect(
+      await recordHits("pull", "ses", rows, [], t0 + RETRY_BACKOFF_MS - 1),
+    ).toBe(false);
+    expect(
+      await recordHits("pull", "ses", rows, [], t0 + RETRY_BACKOFF_MS),
+    ).toBe(true);
+    expect(
+      await recordHits("pull", "ses", rows, [], t0 + RETRY_BACKOFF_MS),
+    ).toBe(false);
     expect((await readLedger()).byRow.get(memory.ts)?.count).toBe(1);
   });
 
@@ -204,13 +272,19 @@ describe("the throttle", () => {
     // Start every call before any async filesystem operation can finish.
     // Setting the cooldown after the await without an in-flight guard must
     // fail this assertion: file locking alone serializes duplicate appends.
-    const results = await Promise.all(Array.from({ length: 12 }, () =>
-      recordHits("inject", "ses", rows, [], t0),
-    ));
+    const results = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        recordHits("inject", "ses", rows, [], t0),
+      ),
+    );
     expect(results.filter(Boolean)).toHaveLength(1);
     expect((await readLedger()).byRow.get(memory.ts)?.count).toBe(1);
-    expect(await recordHits("inject", "ses", rows, [], t0 + THROTTLE_MS - 1)).toBe(false);
-    expect(await recordHits("inject", "ses", rows, [], t0 + THROTTLE_MS)).toBe(true);
+    expect(
+      await recordHits("inject", "ses", rows, [], t0 + THROTTLE_MS - 1),
+    ).toBe(false);
+    expect(await recordHits("inject", "ses", rows, [], t0 + THROTTLE_MS)).toBe(
+      true,
+    );
     expect((await readLedger()).byRow.get(memory.ts)?.count).toBe(2);
   });
 
@@ -218,8 +292,12 @@ describe("the throttle", () => {
     const t0 = Date.parse("2026-06-01T00:00:00Z");
     const rows = [row("2026-01-01T00:00:00.000Z")];
     expect(await recordHits("inject", "ses", rows, ["a"], t0)).toBe(true);
-    expect(await recordHits("inject", "ses", rows, ["a"], t0 + THROTTLE_MS - 1)).toBe(false);
-    expect(await recordHits("inject", "ses", rows, ["a"], t0 + THROTTLE_MS)).toBe(true);
+    expect(
+      await recordHits("inject", "ses", rows, ["a"], t0 + THROTTLE_MS - 1),
+    ).toBe(false);
+    expect(
+      await recordHits("inject", "ses", rows, ["a"], t0 + THROTTLE_MS),
+    ).toBe(true);
     expect(await readLedger()).toEqual(await readLedger()); // still parseable
     expect((await readLedger()).lines).toBe(2);
   });
@@ -230,7 +308,15 @@ describe("the throttle", () => {
     expect(await recordHits("inject", "ses", rows, [], t0)).toBe(true);
     expect(await recordHits("recall", "ses", rows, [], t0)).toBe(true); // other source
     expect(await recordHits("inject", "other", rows, [], t0)).toBe(true); // other session
-    expect(await recordHits("inject", "ses", [row("2026-01-02T00:00:00.000Z")], [], t0)).toBe(true); // other rows
+    expect(
+      await recordHits(
+        "inject",
+        "ses",
+        [row("2026-01-02T00:00:00.000Z")],
+        [],
+        t0,
+      ),
+    ).toBe(true); // other rows
     expect((await readLedger()).lines).toBe(4);
   });
 });
@@ -240,11 +326,17 @@ describe("the ring", () => {
     // ~2.4 MB of filler first lines, oldest on top; then one real hit.
     const filler = Array.from(
       { length: 40_000 },
-      (_, i) => `ev=memory_used ts=2026-01-01T00:00:${String(i % 60).padStart(2, "0")}.000Z filler=${i}`,
+      (_, i) =>
+        `ev=memory_used ts=2026-01-01T00:00:${String(i % 60).padStart(2, "0")}.000Z filler=${i}`,
     );
     writeFileSync(hitsFile(), filler.join("\n") + "\n");
     expect(filler.join("\n").length).toBeGreaterThan(2_000_000);
-    await recordHits("inject", "ses", [row("2026-01-01T00:00:00.000Z")], ["keep"]);
+    await recordHits(
+      "inject",
+      "ses",
+      [row("2026-01-01T00:00:00.000Z")],
+      ["keep"],
+    );
     const lines = ledgerText().trim().split("\n");
     expect(lines[lines.length - 1]).toInclude("keep");
     expect(lines.length).toBeLessThan(filler.length + 1);
@@ -256,7 +348,11 @@ describe("use signals and the honest window", () => {
   test("a re-ingested row cannot inherit the reinforcement of the row that held its words", async () => {
     // The ledger keys by row ts. Prune the row, write the same content again:
     // new ts, no credit — old hits belong to the retired identity.
-    await appendMemory({ type: "learning", scope: "rev", content: "the vault rotates on the first monday" });
+    await appendMemory({
+      type: "learning",
+      scope: "rev",
+      content: "the vault rotates on the first monday",
+    });
     const [original] = await loadAll();
     await recordHits("recall", "s", [original!], ["vault"]);
     const ledger = await readLedger();
@@ -276,7 +372,11 @@ describe("use signals and the honest window", () => {
     while (Date.now() === stampMs) {
       // spin
     }
-    await appendMemory({ type: "learning", scope: "rev", content: "the vault rotates on the first monday" });
+    await appendMemory({
+      type: "learning",
+      scope: "rev",
+      content: "the vault rotates on the first monday",
+    });
     const [fresh] = await loadAll();
     expect(fresh!.ts).not.toBe(original!.ts);
     const signals = await useSignals();
@@ -293,14 +393,28 @@ describe("use signals and the honest window", () => {
     await recordHits("recall", "s2", [stale], ["b"], now - 31 * 86_400_000);
     await recordHits("recall", "s3", [dead], ["c"], now - 400 * 86_400_000);
     const ledger = await readLedger();
-    const deadSet = neverRetrieved([fresh, stale, dead, never], ledger).map((m) => m.ts);
-    expect(deadSet).toEqual(["2026-01-02T00:00:00.000Z", "2026-01-03T00:00:00.000Z", "2026-01-04T00:00:00.000Z"]);
+    const deadSet = neverRetrieved([fresh, stale, dead, never], ledger).map(
+      (m) => m.ts,
+    );
+    expect(deadSet).toEqual([
+      "2026-01-02T00:00:00.000Z",
+      "2026-01-03T00:00:00.000Z",
+      "2026-01-04T00:00:00.000Z",
+    ]);
     expect(usedRecently([fresh, stale, dead, never], ledger)).toBe(1);
   });
 
   test("use recency breaks a score tie but never crosses a real score gap", async () => {
-    await appendMemory({ type: "learning", scope: "reports", content: "alpha bravo reporting rule one" });
-    await appendMemory({ type: "learning", scope: "reports", content: "alpha bravo reporting rule two" });
+    await appendMemory({
+      type: "learning",
+      scope: "reports",
+      content: "alpha bravo reporting rule one",
+    });
+    await appendMemory({
+      type: "learning",
+      scope: "reports",
+      content: "alpha bravo reporting rule two",
+    });
     const rows = await loadAll();
     const [a, b] = rows;
     // A true tie, decided by the ledger rather than by file order.
@@ -310,15 +424,25 @@ describe("use signals and the honest window", () => {
     const [top] = scoreMemories("alpha bravo reporting", rows, 2, use);
     expect(top!.ts).toBe(a!.ts);
     // With a rare-word advantage on b, reinforcement on a must not flip it.
-    await appendMemory({ type: "learning", scope: "reports", content: "alpha bravo reporting with molybdenum" });
+    await appendMemory({
+      type: "learning",
+      scope: "reports",
+      content: "alpha bravo reporting with molybdenum",
+    });
     const wide = await loadAll();
-    const winner = scoreMemories("alpha bravo reporting molybdenum", wide, 1, use);
+    const winner = scoreMemories(
+      "alpha bravo reporting molybdenum",
+      wide,
+      1,
+      use,
+    );
     expect(winner[0]!.content).toInclude("molybdenum");
   });
 });
 
 describe("the surfaces read the ledger honestly", () => {
-  const day = (msAgo: number) => new Date(Date.now() - msAgo * 86_400_000).toISOString();
+  const day = (msAgo: number) =>
+    new Date(Date.now() - msAgo * 86_400_000).toISOString();
 
   test("a young ledger qualifies the dead-weight line instead of inflating never", () => {
     const store = {
@@ -331,18 +455,37 @@ describe("the surfaces read the ledger honestly", () => {
       ledgerSince: day(2),
     };
     const report = renderMemoryReport({ status: null, store, blocked: [] });
-    expect(report).toInclude("retrieved 3 rows in the last 30d; never retrieved 7 (70%)");
+    expect(report).toInclude(
+      "retrieved 3 rows in the last 30d; never retrieved 7 (70%)",
+    );
     expect(report).toInclude("ledger only covers since");
     expect(ledgerIsYoung(store.ledgerSince)).toBe(true);
   });
 
   test("an empty ledger says so, and a covered window drops the qualifier", () => {
-    const base = { active: 4, superseded: 0, open: 0, scopes: 1, malformed: 0, neverRetrieved: 4 };
-    expect(renderMemoryReport({ status: null, store: { ...base, ledgerSince: null }, blocked: [] })).toInclude(
-      "ledger only covers since no lines yet",
+    const base = {
+      active: 4,
+      superseded: 0,
+      open: 0,
+      scopes: 1,
+      malformed: 0,
+      neverRetrieved: 4,
+    };
+    expect(
+      renderMemoryReport({
+        status: null,
+        store: { ...base, ledgerSince: null },
+        blocked: [],
+      }),
+    ).toInclude("ledger only covers since no lines yet");
+    const mature = renderMemoryReport({
+      status: null,
+      store: { ...base, ledgerSince: day(45) },
+      blocked: [],
+    });
+    expect(mature).toInclude(
+      "never retrieved 4 (100%) — reported, not acted on",
     );
-    const mature = renderMemoryReport({ status: null, store: { ...base, ledgerSince: day(45) }, blocked: [] });
-    expect(mature).toInclude("never retrieved 4 (100%) — reported, not acted on");
     expect(mature).not.toInclude("ledger only covers since");
     expect(ledgerIsYoung(day(45))).toBe(false);
   });
@@ -361,26 +504,37 @@ describe("the surfaces read the ledger honestly", () => {
 // and the ledger silently stays over the cap: a lost rotation, no signal.
 // Anchored, the retry lands once the handle closes. POSIX renames never fail
 // this way, hence the gate; the red leg is windows-latest CI.
-describe.skipIf(process.platform !== "win32")("ledger rotation under Windows reader contention (#106)", () => {
-  test("a rotation against a reader holding the ledger retries and lands, not silently fails", async () => {
-    const filler = Array.from(
-      { length: 40_000 },
-      (_, i) => `ev=memory_used ts=2026-01-01T00:00:${String(i % 60).padStart(2, "0")}.000Z filler=${i}`,
-    );
-    writeFileSync(hitsFile(), filler.join("\n") + "\n");
-    expect(filler.join("\n").length).toBeGreaterThan(2_000_000); // the rotation must actually trigger
-    const fd = openSync(hitsFile(), "r"); // blocks the destination's replacement, not appends
-    let released = false;
-    const release = () => {
-      if (!released) released = true, closeSync(fd);
-    };
-    setTimeout(release, 400);
-    // Red pre-fix: the refusal is swallowed and recordHits reports false while
-    // the ledger stays over the cap. Green anchored: retry, halve, land.
-    expect(await recordHits("inject", "ses-rot", [row("2026-01-01T00:00:00.000Z")], ["keep"])).toBe(true);
-    release();
-    const lines = ledgerText().trim().split("\n");
-    expect(lines.length).toBeLessThan(filler.length + 1); // the halving happened
-    expect(lines[lines.length - 1]).toInclude("keep"); // and the newest line rides the halved file
-  });
-});
+describe.skipIf(process.platform !== "win32")(
+  "ledger rotation under Windows reader contention (#106)",
+  () => {
+    test("a rotation against a reader holding the ledger retries and lands, not silently fails", async () => {
+      const filler = Array.from(
+        { length: 40_000 },
+        (_, i) =>
+          `ev=memory_used ts=2026-01-01T00:00:${String(i % 60).padStart(2, "0")}.000Z filler=${i}`,
+      );
+      writeFileSync(hitsFile(), filler.join("\n") + "\n");
+      expect(filler.join("\n").length).toBeGreaterThan(2_000_000); // the rotation must actually trigger
+      const fd = openSync(hitsFile(), "r"); // blocks the destination's replacement, not appends
+      let released = false;
+      const release = () => {
+        if (!released) (released = true), closeSync(fd);
+      };
+      setTimeout(release, 400);
+      // Red pre-fix: the refusal is swallowed and recordHits reports false while
+      // the ledger stays over the cap. Green anchored: retry, halve, land.
+      expect(
+        await recordHits(
+          "inject",
+          "ses-rot",
+          [row("2026-01-01T00:00:00.000Z")],
+          ["keep"],
+        ),
+      ).toBe(true);
+      release();
+      const lines = ledgerText().trim().split("\n");
+      expect(lines.length).toBeLessThan(filler.length + 1); // the halving happened
+      expect(lines[lines.length - 1]).toInclude("keep"); // and the newest line rides the halved file
+    });
+  },
+);

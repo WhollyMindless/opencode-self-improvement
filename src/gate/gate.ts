@@ -2,21 +2,34 @@
 // canonical-graph correctness, GATE-2 stale-ref scan + supersession, GATE-3
 // dedup, GATE-4 promotion/block. Every step emits an ordered evidence line.
 import { join } from "node:path";
-import { isQuarantined, quarantineReasons } from "../store/quarantine/quarantine.ts";
+import {
+  isQuarantined,
+  quarantineReasons,
+} from "../store/quarantine/quarantine.ts";
 import { canonicalFile, memoryRoot } from "../core/config/paths.ts";
-import { bracketList, parseLine } from "../core/logfmt/format.ts"
+import { bracketList, parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
-import { appendMemory } from "../store/files/append.ts"
-import { loadScope } from "../store/files/load.ts"
-import { snapshotFiles } from "../store/files/snapshots.ts"
-import { markManySupersededReport, type SupersedeFields } from "../store/files/supersede.ts"
+import { appendMemory } from "../store/files/append.ts";
+import { loadScope } from "../store/files/load.ts";
+import { snapshotFiles } from "../store/files/snapshots.ts";
+import {
+  markManySupersededReport,
+  type SupersedeFields,
+} from "../store/files/supersede.ts";
 import { MAX_CONTENT_CHARS, type Memory } from "../store/model/memory.ts";
-import { captureEvidenceContext, type EvidenceContext, chainId, contentHash, record, recordWriteBlocked } from "../evidence/record.ts";
+import {
+  captureEvidenceContext,
+  type EvidenceContext,
+  chainId,
+  contentHash,
+  record,
+  recordWriteBlocked,
+} from "../evidence/record.ts";
 import { getCurrent, noteAuthored } from "../core/state.ts";
 import { MAX_WRITE_EVIDENCE_REFS } from "../capture/triggers.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
 import { containsSecret, redactSecrets } from "../store/secrets.ts";
-import { UnresolvedWriterError } from "../store/files/append.ts"
+import { UnresolvedWriterError } from "../store/files/append.ts";
 import { readerFromSid, type Reader } from "../store/model/visibility.ts";
 import { writeTarget, type WriteTarget } from "../identity/repokey.ts";
 import {
@@ -58,7 +71,8 @@ export interface WriteCandidate {
 // collapse an edit whose ordering the caller changed deliberately, and the
 // conservative direction for a truth-claim is the one that writes more.
 export const sameStrList = (a?: string[], c?: string[]) =>
-  (a?.length ?? 0) === (c?.length ?? 0) && (a ?? []).every((x, i) => (c ?? [])[i] === x);
+  (a?.length ?? 0) === (c?.length ?? 0) &&
+  (a ?? []).every((x, i) => (c ?? [])[i] === x);
 
 // The sentence every success reply owes the reader when the gate promoted a
 // row but its write_promoted audit line failed to land (#155 review): the
@@ -148,10 +162,34 @@ const CONFLICT_OVERLAP_FLOOR = 0.3;
 // Planning-flavored content (frontier/thread/proposal language). Used only to
 // turn GATE-4's ambiguous block into a hint pointing at the open-thread home.
 const PLANNING_WORDS = new Set([
-  "plan", "plans", "planned", "planning", "frontier", "propos", "proposal",
-  "open", "goal", "goals", "decide", "decides", "decided", "deciding",
-  "reject", "rejects", "rejected", "thread", "should", "option", "options",
-  "candidate", "candidates", "next", "roadmap", "scale", "overhead", "bloat",
+  "plan",
+  "plans",
+  "planned",
+  "planning",
+  "frontier",
+  "propos",
+  "proposal",
+  "open",
+  "goal",
+  "goals",
+  "decide",
+  "decides",
+  "decided",
+  "deciding",
+  "reject",
+  "rejects",
+  "rejected",
+  "thread",
+  "should",
+  "option",
+  "options",
+  "candidate",
+  "candidates",
+  "next",
+  "roadmap",
+  "scale",
+  "overhead",
+  "bloat",
 ]);
 
 function looksPlanning(candidate: WriteCandidate): boolean {
@@ -199,7 +237,8 @@ function canonicalMatch(
     if (!aligns) {
       const entitySet = new Set(et);
       const asserted = rawTokens(content).filter(
-        (t) => !STOPWORDS.has(t.toLowerCase()) && !entitySet.has(t.toLowerCase()),
+        (t) =>
+          !STOPWORDS.has(t.toLowerCase()) && !entitySet.has(t.toLowerCase()),
       );
       conflictingValue = asserted[0];
     }
@@ -215,9 +254,18 @@ interface StaleRef {
   to: string;
 }
 
-async function staleRefFor(m: Memory, liveRoot: string, tree: LazyTree): Promise<StaleRef | null> {
+async function staleRefFor(
+  m: Memory,
+  liveRoot: string,
+  tree: LazyTree,
+): Promise<StaleRef | null> {
   for (const form of extractCallForms(m.content)) {
-    const live = await findLiveCall(form.name, form.fileHint, liveRoot, await tree());
+    const live = await findLiveCall(
+      form.name,
+      form.fileHint,
+      liveRoot,
+      await tree(),
+    );
     if (!live) continue;
     if (!sameArgs(form.argsText, live.argsText)) {
       return {
@@ -231,7 +279,10 @@ async function staleRefFor(m: Memory, liveRoot: string, tree: LazyTree): Promise
   return null;
 }
 
-function deltaTokens(candidate: WriteCandidate, drift: DriftInfo | null): string[] {
+function deltaTokens(
+  candidate: WriteCandidate,
+  drift: DriftInfo | null,
+): string[] {
   const set = new Set<string>();
   for (const form of extractCallForms(candidate.content)) {
     if (form.fileHint) set.add(form.fileHint);
@@ -249,23 +300,54 @@ export async function runWriteGate(
 ): Promise<GateOutcome> {
   const reader = ctx.reader ?? readerFromSid(ctx.sessionID);
   const writeAt = ctx.writeAt ?? writeTarget(ctx.sessionID ?? getCurrent().sid);
-  const evidenceContext = ctx.evidenceContext ?? captureEvidenceContext(ctx.sessionID);
+  const evidenceContext =
+    ctx.evidenceContext ?? captureEvidenceContext(ctx.sessionID);
   const chain = chainId();
   // Keep all gate audit lines with entry-time attribution, including refusals.
-  const rec = (ev: string, fields: Record<string, unknown> = {}, includeContext = true) =>
-    record(ev, fields, includeContext, ctx.sessionID, evidenceContext);
-  const recBlocked = (gate: number, reason: string, flags: string[], chain?: string) =>
-    recordWriteBlocked(gate, reason, flags, chain, ctx.sessionID, evidenceContext);
+  const rec = (
+    ev: string,
+    fields: Record<string, unknown> = {},
+    includeContext = true,
+  ) => record(ev, fields, includeContext, ctx.sessionID, evidenceContext);
+  const recBlocked = (
+    gate: number,
+    reason: string,
+    flags: string[],
+    chain?: string,
+  ) =>
+    recordWriteBlocked(
+      gate,
+      reason,
+      flags,
+      chain,
+      ctx.sessionID,
+      evidenceContext,
+    );
 
   // Size/type floor BEFORE any scanning: gate analysis regexes
   // over megabyte content backtrack super-linearly and freeze the service
   // event loop (100KB write = 6s, 2MB = never returned).
   if (typeof candidate.content !== "string") {
-    await recBlocked(4, "invalid_content", [`content_type=${typeof candidate.content}`], chain);
-    return { action: "blocked", reason: "invalid_content", chain, hint: "content must be a string." };
+    await recBlocked(
+      4,
+      "invalid_content",
+      [`content_type=${typeof candidate.content}`],
+      chain,
+    );
+    return {
+      action: "blocked",
+      reason: "invalid_content",
+      chain,
+      hint: "content must be a string.",
+    };
   }
   if (candidate.content.length > MAX_CONTENT_CHARS) {
-    await recBlocked(4, "content_too_long", [`len=${candidate.content.length}`, `max=${MAX_CONTENT_CHARS}`], chain);
+    await recBlocked(
+      4,
+      "content_too_long",
+      [`len=${candidate.content.length}`, `max=${MAX_CONTENT_CHARS}`],
+      chain,
+    );
     return {
       action: "blocked",
       reason: "content_too_long",
@@ -274,11 +356,13 @@ export async function runWriteGate(
     };
   }
 
-  const badMetadata: string[] = ([
-    ["type", candidate.type],
-    ["scope", candidate.scope],
-    ["issue", candidate.issue],
-  ] as const)
+  const badMetadata: string[] = (
+    [
+      ["type", candidate.type],
+      ["scope", candidate.scope],
+      ["issue", candidate.issue],
+    ] as const
+  )
     .filter(
       ([, value]) =>
         value !== undefined &&
@@ -288,19 +372,28 @@ export async function runWriteGate(
   if (
     candidate.tags !== undefined &&
     (!Array.isArray(candidate.tags) ||
-      candidate.tags.some((tag) => typeof tag !== "string" || flattenMemoryText(tag) !== tag))
+      candidate.tags.some(
+        (tag) => typeof tag !== "string" || flattenMemoryText(tag) !== tag,
+      ))
   ) {
     badMetadata.push("tags");
   }
   if (
     candidate.kw !== undefined &&
     (!Array.isArray(candidate.kw) ||
-      candidate.kw.some((k) => typeof k !== "string" || flattenMemoryText(k) !== k))
+      candidate.kw.some(
+        (k) => typeof k !== "string" || flattenMemoryText(k) !== k,
+      ))
   ) {
     badMetadata.push("kw");
   }
   if (badMetadata.length) {
-    await recBlocked(4, "invalid_metadata", [`fields=${badMetadata.join(",")}`], chain);
+    await recBlocked(
+      4,
+      "invalid_metadata",
+      [`fields=${badMetadata.join(",")}`],
+      chain,
+    );
     return {
       action: "blocked",
       reason: "invalid_metadata",
@@ -346,14 +439,13 @@ export async function runWriteGate(
     type: candidate.type,
     ch,
     quarantined: isQuarantined(candidate) || undefined,
-    quarantine_patterns: isQuarantined(candidate) ? bracketList(quarantineReasons(candidate)) : undefined,
+    quarantine_patterns: isQuarantined(candidate)
+      ? bracketList(quarantineReasons(candidate))
+      : undefined,
   });
 
   const scopeMems = candidate.scope
-    ? await loadScope(
-        candidate.scope,
-        reader,
-      )
+    ? await loadScope(candidate.scope, reader)
     : [];
   // One tree index per write, shared by gate1 and every gate2 stale scan.
   const tree = memoTree(ctx.liveRoot);
@@ -410,7 +502,8 @@ export async function runWriteGate(
   });
 
   let supersededTs: string | undefined;
-  const driftPlan: { s: StaleRef; target: string; fields: SupersedeFields }[] = [];
+  const driftPlan: { s: StaleRef; target: string; fields: SupersedeFields }[] =
+    [];
   for (const s of stale) {
     await rec("ref_stale", {
       gate: 2,
@@ -438,11 +531,20 @@ export async function runWriteGate(
     driftPlan.push({
       s,
       target,
-      fields: { superseded_by: target, reason: "drift", symbol: s.symbol, from: s.from, to: s.to },
+      fields: {
+        superseded_by: target,
+        reason: "drift",
+        symbol: s.symbol,
+        from: s.from,
+        to: s.to,
+      },
     });
   }
   if (driftPlan.length > 0) {
-    const { marked } = await markManySupersededReport(driftPlan.map((p) => ({ ts: p.s.memory.ts, fields: p.fields })), ctx.durable);
+    const { marked } = await markManySupersededReport(
+      driftPlan.map((p) => ({ ts: p.s.memory.ts, fields: p.fields })),
+      ctx.durable,
+    );
     if (marked.length > 0) {
       // Ledger BEFORE the audit lines: what is on disk now stays on disk no
       // matter what the record loop below does (round-3 probe 3).
@@ -483,7 +585,10 @@ export async function runWriteGate(
       if (m.ts === ctx.supersedesTs) continue;
       if (tokens(m.content).some((t) => valueSet.has(t))) continue;
       const from = rawTokens(m.content).find(
-        (t) => !STOPWORDS.has(t.toLowerCase()) && !entitySet.has(t.toLowerCase()) && !valueSet.has(t.toLowerCase()),
+        (t) =>
+          !STOPWORDS.has(t.toLowerCase()) &&
+          !entitySet.has(t.toLowerCase()) &&
+          !valueSet.has(t.toLowerCase()),
       );
       canonPlan.push({ ts: m.ts, from });
     }
@@ -492,7 +597,13 @@ export async function runWriteGate(
     const { marked: canonMarked } = await markManySupersededReport(
       canonPlan.map((p) => ({
         ts: p.ts,
-        fields: { superseded_by: target, reason: "canonical", entity: canon.entry.entity, from: p.from, to: canon.entry.value },
+        fields: {
+          superseded_by: target,
+          reason: "canonical",
+          entity: canon.entry.entity,
+          from: p.from,
+          to: canon.entry.value,
+        },
       })),
       ctx.durable,
     );
@@ -528,7 +639,8 @@ export async function runWriteGate(
   // (gate_start → gate1 → gate2 → dedup_*) stays intact for every verdict.
   const probe = await probeRejection(candidate.content);
   const rejection = probe.rejection;
-  const conflictProne = candidate.type === "decision" || candidate.type === "preference";
+  const conflictProne =
+    candidate.type === "decision" || candidate.type === "preference";
   const active = scopeMems.filter((m) => !m.superseded_by);
   // Exact duplicates are detected against the full scope (a drift-superseded
   // twin still collapses), but overlap/merge only considers live entries.
@@ -553,7 +665,9 @@ export async function runWriteGate(
   );
   // Same-type live rows that could compete with the incoming statement; the
   // row an update replaces is never a contender.
-  const live = active.filter((m) => m.type === candidate.type && m.ts !== ctx.supersedesTs);
+  const live = active.filter(
+    (m) => m.type === candidate.type && m.ts !== ctx.supersedesTs,
+  );
   const divergent = live.filter((m) => m.content !== candidate.content);
 
   let collapseMatch: Memory | undefined;
@@ -670,8 +784,10 @@ export async function runWriteGate(
   const planningObject = candidate.status === "open";
   const behaviorGrounded = ctx.hasGateCheck || ctx.hasEngagement === true;
   const ambiguous =
-    !ctx.trusted && !canon &&
-    (candidate.scope === "" || (!planningObject && g1.refs === 0 && !behaviorGrounded));
+    !ctx.trusted &&
+    !canon &&
+    (candidate.scope === "" ||
+      (!planningObject && g1.refs === 0 && !behaviorGrounded));
 
   let blockReason: string | undefined;
   let blockFlags: string[] = [];
@@ -683,15 +799,21 @@ export async function runWriteGate(
     blockFlags =
       rejection.kind === "exact"
         ? [`ch=${rejection.tombstone.ch}`, "exact"]
-        : [`ch=${rejection.tombstone.ch}`, `score=${rejection.score}`, "near_match"];
-    const when = rejection.tombstone.rejected_at.slice(0, 10) || "an earlier session";
+        : [
+            `ch=${rejection.tombstone.ch}`,
+            `score=${rejection.score}`,
+            "near_match",
+          ];
+    const when =
+      rejection.tombstone.rejected_at.slice(0, 10) || "an earlier session";
     // Scrubbed here as well as on the way in and on the way out of tombstones():
     // this string goes to the model, and the hint is built from a field a human
     // typed. If the row already came through clean this is a no-op — deleting it
     // changes nothing observable today, which is deliberate: the guarantee lives
     // on the read path (it covers every consumer, the viewer included), and this
     // is the seam where the value becomes a model-facing sentence.
-    const why = redactSecrets(rejection.tombstone.reason) || "no reason recorded";
+    const why =
+      redactSecrets(rejection.tombstone.reason) || "no reason recorded";
     const tch = rejection.tombstone.ch;
     // The escape-hatch tail is shared by BOTH kinds. An earlier draft put it
     // only on the near-match branch, which left the COMMON case — a byte-exact
@@ -706,7 +828,8 @@ export async function runWriteGate(
       (rejection.kind === "exact"
         ? `This exact content was rejected on ${when} (reason: ${why}; hash ${tch}). Nothing was stored. `
         : `Content ${rejection.score} similar to a value rejected on ${when} (reason: ${why}; ` +
-          `hash ${tch}) — the same statement reworded counts as the rejected value. Nothing was stored. `) + lift;
+          `hash ${tch}) — the same statement reworded counts as the rejected value. Nothing was stored. `) +
+      lift;
   } else if (g1.candidateStale) {
     blockReason = "drift_ref_stale_incoming";
     blockFlags = ["incoming_embeds_pre_drift_ref"];
@@ -725,7 +848,11 @@ export async function runWriteGate(
     ];
   } else if (overlapMatch) {
     blockReason = "superseded_overlap";
-    blockFlags = [`supersedes_check_${overlapMatch.ts}`, `score=${overlapScore}`, "review_gated"];
+    blockFlags = [
+      `supersedes_check_${overlapMatch.ts}`,
+      `score=${overlapScore}`,
+      "review_gated",
+    ];
     hint =
       `A live ${candidate.type} row ${overlapMatch.ts} in ${candidate.scope || "(no scope)"} competes ` +
       `with this write (overlap ${overlapScore}). Nothing was stored. To replace that row, use ` +
@@ -769,25 +896,37 @@ export async function runWriteGate(
   // The write is specifically promoted on engagement (no refs, no gate check,
   // not canonical, not an open object). Emitted so the precedent is auditable.
   const groundedByEngagement =
-    !ctx.trusted && !canon && !planningObject &&
-    g1.refs === 0 && !ctx.hasGateCheck &&
-    ctx.hasEngagement === true && candidate.scope !== "";
+    !ctx.trusted &&
+    !canon &&
+    !planningObject &&
+    g1.refs === 0 &&
+    !ctx.hasGateCheck &&
+    ctx.hasEngagement === true &&
+    candidate.scope !== "";
   if (groundedByEngagement) {
     await rec("gate_injected", { gate: 4, chain });
   }
 
-  const snapshot = await snapshotFiles([join(memoryRoot(), `${new Date().toISOString().split("T")[0]}.logfmt`)]);
+  const snapshot = await snapshotFiles([
+    join(memoryRoot(), `${new Date().toISOString().split("T")[0]}.logfmt`),
+  ]);
   // The write carries the CALLER's session, not whatever current says after
   // the gate's own awaits - capture's stamp must follow the captured session.
-  if (candidate.repo === undefined && !writeAt.ok) throw new UnresolvedWriterError(writeAt.sid);
+  if (candidate.repo === undefined && !writeAt.ok)
+    throw new UnresolvedWriterError(writeAt.sid);
   // A captured unscoped ambient writer deliberately publishes repo=global.
   // Leaving repo undefined would make appendMemory resolve ambient ownership
   // again after awaits. This changes the old unstamped shape: exports now keep
   // this row global on import instead of adopting the importing repository.
-  const owner = candidate.repo === undefined && writeAt.ok
-    ? { repo: writeAt.scope?.key ?? "global", repoPath: writeAt.scope?.path }
-    : {};
-  const ts = await appendMemory({ ...candidate, ...owner, sessionID: ctx.sessionID });
+  const owner =
+    candidate.repo === undefined && writeAt.ok
+      ? { repo: writeAt.scope?.key ?? "global", repoPath: writeAt.scope?.path }
+      : {};
+  const ts = await appendMemory({
+    ...candidate,
+    ...owner,
+    sessionID: ctx.sessionID,
+  });
   // #165: remember who made this row, so the writing session is not billed a
   // prompt-cache bust to be shown its own thought. Only promoted writes are
   // attributed — a blocked candidate created nothing.
@@ -809,20 +948,25 @@ export async function runWriteGate(
       ch,
       supersedes: supersededTs ?? "-",
       canonical: canon ? `canonical.logfmt:${canon.entry.ts}` : "-",
-      evidence_refs: bracketList(ctx.evidenceCalls.slice(-MAX_WRITE_EVIDENCE_REFS)),
+      evidence_refs: bracketList(
+        ctx.evidenceCalls.slice(-MAX_WRITE_EVIDENCE_REFS),
+      ),
       evidence_refs_count: ctx.evidenceCallsCount ?? ctx.evidenceCalls.length,
       snapshot: snapshot[0] ?? "-",
       trusted: ctx.trusted ? true : undefined,
       grounded_by: groundedByEngagement ? "engagement" : undefined,
       quarantined: isQuarantined(candidate) || undefined,
-      quarantine_patterns: isQuarantined(candidate) ? bracketList(quarantineReasons(candidate)) : undefined,
+      quarantine_patterns: isQuarantined(candidate)
+        ? bracketList(quarantineReasons(candidate))
+        : undefined,
       chain,
     });
   } catch (err) {
     // NOT `(err as Error).message`: a messageless Error (or a non-Error
     // rejection) would make the field FALSY, and callers test it for truth —
     // the lie this field exists to kill would return as a clean success.
-    evidenceError = err instanceof Error && err.message ? err.message : String(err);
+    evidenceError =
+      err instanceof Error && err.message ? err.message : String(err);
   }
   return { action: "promoted", ts, chain, evidenceError };
 }

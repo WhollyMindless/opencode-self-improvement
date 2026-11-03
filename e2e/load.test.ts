@@ -3,7 +3,14 @@
 // registered, from BOTH the source tree and the packed npm artifact installed
 // runtime-deps-only (exactly how consumers get it). A publish-blocking load
 // error fails here, not in users' sessions.
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { rmSync } from "node:fs";
 import {
   MEMORY_TOOLS,
@@ -28,7 +35,8 @@ beforeAll(async () => {
 });
 
 afterEach(() => {
-  for (const g of guests.splice(0)) rmSync(g.root, { recursive: true, force: true });
+  for (const g of guests.splice(0))
+    rmSync(g.root, { recursive: true, force: true });
 });
 
 afterAll(() => fake.stop());

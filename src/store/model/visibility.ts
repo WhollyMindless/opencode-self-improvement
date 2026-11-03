@@ -1,6 +1,11 @@
 // Repository visibility, shared by memory rows, restore lines, and evidence.
 import { createHash } from "node:crypto";
-import { normalizeDirPath, repoScopeFor, sessionScope, type RepoScope } from "../../identity/repokey.ts";
+import {
+  normalizeDirPath,
+  repoScopeFor,
+  sessionScope,
+  type RepoScope,
+} from "../../identity/repokey.ts";
 import { getCurrent } from "../../core/state.ts";
 import { parseLine } from "../../core/logfmt/format.ts";
 import { prune } from "../files/prune.ts";
@@ -68,13 +73,20 @@ export function readerFromSid(sid?: unknown): Reader {
 // real symlink/case-insensitive aliases, instead of trusting that key alone.
 // Remote-derived keys still share across clones with different paths. A stamp
 // without repoPath cannot be classified this way and keeps key-only matching.
-function matchesRepository(repo: string, repoPath: string | undefined, scope: RepoScope): boolean {
+function matchesRepository(
+  repo: string,
+  repoPath: string | undefined,
+  scope: RepoScope,
+): boolean {
   if (repoPath === scope.path) return true; // pre-hash and legacy owner access
   if (repoPath) {
     // The historical hash used realpath too: repoPath itself may name a
     // symlink/junction, a short Windows spelling, or contain dot segments.
     const canonical = normalizeDirPath(repoPath);
-    const legacyKey = createHash("sha1").update(canonical.toLowerCase()).digest("hex").slice(0, 12);
+    const legacyKey = createHash("sha1")
+      .update(canonical.toLowerCase())
+      .digest("hex")
+      .slice(0, 12);
     if (repo === legacyKey) return canonical === normalizeDirPath(scope.path);
   }
   return repo === scope.key;
@@ -86,7 +98,10 @@ function matchesRepository(repo: string, repoPath: string | undefined, scope: Re
 // processes with no scope, e.g. the viewer), or was written in the reader's
 // repo. Keeping it one predicate is what stops the filtering from drifting
 // between entry points.
-export function isVisibleTo(m: Pick<Memory, "repo" | "repoPath">, reader: Reader): boolean {
+export function isVisibleTo(
+  m: Pick<Memory, "repo" | "repoPath">,
+  reader: Reader,
+): boolean {
   if (reader.kind === "admin") return true;
   if (!m.repo || m.repo === "global") return true;
   if (reader.kind === "global-only") return false;
@@ -109,7 +124,8 @@ export function lineVisibleTo(line: string, reader: Reader): boolean {
   return isVisibleTo(
     {
       repo: typeof fields?.repo === "string" ? fields.repo : undefined,
-      repoPath: typeof fields?.repoPath === "string" ? fields.repoPath : undefined,
+      repoPath:
+        typeof fields?.repoPath === "string" ? fields.repoPath : undefined,
     },
     reader,
   );
@@ -136,7 +152,11 @@ export function evidenceVisibleTo(
     if (repo === "global") return true;
     if (reader.kind === "global-only") return false;
     const repoPath = fields.repoPath;
-    return matchesRepository(repo, typeof repoPath === "string" ? repoPath : undefined, reader.scope);
+    return matchesRepository(
+      repo,
+      typeof repoPath === "string" ? repoPath : undefined,
+      reader.scope,
+    );
   }
   const sid = fields.sid;
   if (typeof sid === "string" && sid !== "" && sid !== "?") {

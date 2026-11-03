@@ -4,11 +4,15 @@
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { evidenceDir } from "../core/config/paths.ts"
+import { evidenceDir } from "../core/config/paths.ts";
 import { dateStr } from "../core/time.ts";
-import { formatLine } from "../core/logfmt/format.ts"
+import { formatLine } from "../core/logfmt/format.ts";
 import { appendLog } from "../core/logfmt/publish.ts";
-import { repoScope, sessionScope, type RepoScope } from "../identity/repokey.ts";
+import {
+  repoScope,
+  sessionScope,
+  type RepoScope,
+} from "../identity/repokey.ts";
 import { getCurrent } from "../core/state.ts";
 import { redactSecrets } from "../store/secrets.ts";
 
@@ -27,7 +31,11 @@ export function evidenceFileFor(date?: string): string | null {
   if (!m) return null;
   const [y, mo, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
   const probe = new Date(Date.UTC(y, mo - 1, day));
-  if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== mo - 1 || probe.getUTCDate() !== day) {
+  if (
+    probe.getUTCFullYear() !== y ||
+    probe.getUTCMonth() !== mo - 1 ||
+    probe.getUTCDate() !== day
+  ) {
     return null;
   }
   const dir = resolve(evidenceDir());
@@ -36,7 +44,8 @@ export function evidenceFileFor(date?: string): string | null {
   if (existsSync(file)) {
     // A day file symlinked out of the store still has to land inside it.
     try {
-      if (realpathSync(file) !== join(realpathSync(dir), `${d}.logfmt`)) return null;
+      if (realpathSync(file) !== join(realpathSync(dir), `${d}.logfmt`))
+        return null;
     } catch {
       return null; // an unreadable link is not a file we will follow
     }
@@ -79,7 +88,8 @@ export function captureEvidenceContext(sessionID?: string): EvidenceContext {
   // Normal tool hooks setCurrent before execute; this snapshot never guesses
   // a missing operation call from a later hook. See #121 for identity context.
   const sid = sessionID ?? cur.sid;
-  const call = sessionID !== undefined && sessionID !== cur.sid ? undefined : cur.call;
+  const call =
+    sessionID !== undefined && sessionID !== cur.sid ? undefined : cur.call;
   // Read-side partitioning of the shared log (#131's rule, applied to
   // evidence; the re-review closed the last two gaps in it). A NAMED session
   // is stamped from its OWN resolved scope only — the module scope is never
@@ -94,7 +104,11 @@ export function captureEvidenceContext(sessionID?: string): EvidenceContext {
   // scope-less process) keep their historical global reading.
   const named = typeof sid === "string" && sid !== "" && sid !== "?";
   const scope = named ? sessionScope(sid) : repoScope();
-  return Object.freeze({ sid, call, scope: scope ? Object.freeze({ ...scope }) : null });
+  return Object.freeze({
+    sid,
+    call,
+    scope: scope ? Object.freeze({ ...scope }) : null,
+  });
 }
 
 export async function record(
@@ -111,7 +125,11 @@ export async function record(
     // A captured unresolved owner still needs a privacy label: without sid or
     // repo, evidenceVisibleTo treats a line as legacy/global. Suppress call
     // metadata as requested, but never turn an explicit private owner global.
-    ...(includeContext ? { sid, call } : context && !scope && sid && sid !== "?" ? { sid } : {}),
+    ...(includeContext
+      ? { sid, call }
+      : context && !scope && sid && sid !== "?"
+        ? { sid }
+        : {}),
     ...(scope ? { repo: scope.key, repoPath: scope.path } : {}),
     ...scrubFields(fields),
   });
@@ -150,7 +168,9 @@ export async function recordCaptureLag(
     "capture_lag",
     {
       session,
-      ...(lagMs !== null && Number.isFinite(lagMs) && lagMs >= 0 ? { lag: Math.round(lagMs) } : {}),
+      ...(lagMs !== null && Number.isFinite(lagMs) && lagMs >= 0
+        ? { lag: Math.round(lagMs) }
+        : {}),
       outcome,
       ...(model ? { model } : {}),
     },

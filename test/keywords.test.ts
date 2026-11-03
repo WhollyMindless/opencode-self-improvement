@@ -7,19 +7,29 @@
 // that split, so half of these tests pin the OTHER half: a keyword must never
 // reach the model's context, cost a character, or forge a line.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryRoot } from "../src/core/config/paths.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
-import { appendMemory } from "../src/store/files/append.ts"
-import { loadAll } from "../src/store/files/load.ts"
-import { MAX_KEYWORDS, MAX_KEYWORD_CHARS, normalizeKeywords } from "../src/store/model/memory.ts";
-import { formatMemory } from "../src/inject/format.ts"
-import { relevantKnowledge } from "../src/recall/relevant.ts"
+import { appendMemory } from "../src/store/files/append.ts";
+import { loadAll } from "../src/store/files/load.ts";
+import {
+  MAX_KEYWORDS,
+  MAX_KEYWORD_CHARS,
+  normalizeKeywords,
+} from "../src/store/model/memory.ts";
+import { formatMemory } from "../src/inject/format.ts";
+import { relevantKnowledge } from "../src/recall/relevant.ts";
 import { scoreMemories } from "../src/recall/score.ts";
 import { runWriteGate } from "../src/gate/gate.ts";
-import { exportMemories } from "../src/portable/export.ts"
+import { exportMemories } from "../src/portable/export.ts";
 import { importMemories } from "../src/portable/import.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
 import type { Memory } from "../src/store/model/memory.ts";
@@ -40,10 +50,19 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
-function seedAt(ts: string, type: string, scope: string, content: string, extra: Record<string, unknown> = {}): void {
+function seedAt(
+  ts: string,
+  type: string,
+  scope: string,
+  content: string,
+  extra: Record<string, unknown> = {},
+): void {
   const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
   mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, formatLine({ ts, type, scope, content, ...extra }) + "\n");
+  appendFileSync(
+    file,
+    formatLine({ ts, type, scope, content, ...extra }) + "\n",
+  );
 }
 
 // --- the store keeps them -------------------------------------------------------
@@ -57,7 +76,11 @@ describe("keywords in the store", () => {
       kw: ["ship to staging", "promote", "release checklist"],
     });
     const [row] = await loadAll();
-    expect(row?.kw).toEqual(["ship to staging", "promote", "release checklist"]);
+    expect(row?.kw).toEqual([
+      "ship to staging",
+      "promote",
+      "release checklist",
+    ]);
     expect(readFileSync(dayFile(), "utf8")).toContain("kw=");
   });
 
@@ -73,7 +96,9 @@ describe("keywords in the store", () => {
     ] as unknown as string[];
     const out = normalizeKeywords(messy)!;
     expect(out[0]).toBe("docker compose");
-    expect(out.filter((k) => k.startsWith("alias"))).toHaveLength(MAX_KEYWORDS - 1);
+    expect(out.filter((k) => k.startsWith("alias"))).toHaveLength(
+      MAX_KEYWORDS - 1,
+    );
     expect(out).toHaveLength(MAX_KEYWORDS);
     expect(out.every((k) => k.length <= MAX_KEYWORD_CHARS)).toBe(true);
     expect(normalizeKeywords([])).toBeUndefined();
@@ -84,7 +109,11 @@ describe("keywords in the store", () => {
   test("commas are the storage delimiter, not keyword content", async () => {
     // kw serialises as one comma-joined scalar, so an item carrying a comma
     // used to read back fragmented (["build, test"] -> ["build", " test"]).
-    expect(normalizeKeywords(["build, test", ",,", "solo,"])).toEqual(["build", "test", "solo"]);
+    expect(normalizeKeywords(["build, test", ",,", "solo,"])).toEqual([
+      "build",
+      "test",
+      "solo",
+    ]);
     await appendMemory({
       type: "pattern",
       scope: "deploys",
@@ -98,14 +127,25 @@ describe("keywords in the store", () => {
   test("a legacy row whose kw field was written fragmented reads back trimmed", async () => {
     // Rows written before the delimiter fix can already sit on disk holding
     // `kw=a, b`; the leading space must not survive into a scoring alias.
-    seedAt("2026-02-01T00:00:00.000Z", "learning", "deploys", "legacy row with fragmented keywords", { kw: "a, b" });
+    seedAt(
+      "2026-02-01T00:00:00.000Z",
+      "learning",
+      "deploys",
+      "legacy row with fragmented keywords",
+      { kw: "a, b" },
+    );
     const [row] = await loadAll();
     expect(row?.kw).toEqual(["a", "b"]);
   });
 
   test("the absolute floor rejects control characters and credential-shaped keywords", async () => {
     await expect(
-      appendMemory({ type: "learning", scope: "s", content: "row with a forged keyword line", kw: ["ok", "two\nlines"] }),
+      appendMemory({
+        type: "learning",
+        scope: "s",
+        content: "row with a forged keyword line",
+        kw: ["ok", "two\nlines"],
+      }),
     ).rejects.toThrow(/keywords must not contain control characters/);
     await expect(
       appendMemory({
@@ -120,7 +160,12 @@ describe("keywords in the store", () => {
 
   test("the gate rejects malformed keywords the same way it rejects malformed tags", async () => {
     const out = await runWriteGate(
-      { type: "learning", scope: "s", content: "a grounded fact about the build pipeline here", kw: "not-an-array" as unknown as string[] },
+      {
+        type: "learning",
+        scope: "s",
+        content: "a grounded fact about the build pipeline here",
+        kw: "not-an-array" as unknown as string[],
+      },
       { liveRoot: root, evidenceCalls: [], hasGateCheck: true, trusted: true },
     );
     expect(out.action).toBe("blocked");
@@ -129,9 +174,15 @@ describe("keywords in the store", () => {
   });
 
   test("keywords survive export -> import, and they never change the dedup verdict", async () => {
-    const content = "restore a dropped column with point-in-time recovery using wal-g";
+    const content =
+      "restore a dropped column with point-in-time recovery using wal-g";
     const first = await runWriteGate(
-      { type: "pattern", scope: "db", content, kw: ["undelete column", "pitr", "backup restore"] },
+      {
+        type: "pattern",
+        scope: "db",
+        content,
+        kw: ["undelete column", "pitr", "backup restore"],
+      },
       { liveRoot: root, evidenceCalls: [], hasGateCheck: true, trusted: true },
     );
     expect(first.action).toBe("promoted");
@@ -146,12 +197,27 @@ describe("keywords in the store", () => {
     await Bun.write(
       refile,
       [
-        JSON.stringify({ _export: "opencode-self-improvement", version: 1, exportedAt: new Date().toISOString(), count: 1 }),
-        JSON.stringify({ type: "pattern", scope: "db", content, kw: ["totally other alias"] }),
+        JSON.stringify({
+          _export: "opencode-self-improvement",
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          count: 1,
+        }),
+        JSON.stringify({
+          type: "pattern",
+          scope: "db",
+          content,
+          kw: ["totally other alias"],
+        }),
       ].join("\n") + "\n",
     );
     const tally = await importMemories(refile, (c) =>
-      runWriteGate(c, { liveRoot: root, evidenceCalls: [], hasGateCheck: true, trusted: true }),
+      runWriteGate(c, {
+        liveRoot: root,
+        evidenceCalls: [],
+        hasGateCheck: true,
+        trusted: true,
+      }),
     );
     expect(tally.collapsed).toBe(1);
     const rows = await loadAll();
@@ -164,7 +230,8 @@ describe("keywords in the store", () => {
 
 describe("keywords in retrieval", () => {
   // The bridge, isolated: same row, same query, only the index differs.
-  const CONTENT = "the ledger dashboard re-renders on every websocket frame unless selectors memoize";
+  const CONTENT =
+    "the ledger dashboard re-renders on every websocket frame unless selectors memoize";
   const QUERY = "why is my dashboard so slow with live updates";
 
   test("a row with no keywords abstains on the paraphrase; the same row with keywords answers", async () => {
@@ -193,13 +260,23 @@ describe("keywords in retrieval", () => {
       file: "",
       index: 0,
     };
-    const tagged: Memory = { ...bare, kw: ["slow screen", "dashboard lag", "live updates stutter"] };
+    const tagged: Memory = {
+      ...bare,
+      kw: ["slow screen", "dashboard lag", "live updates stutter"],
+    };
     expect(formatMemory(tagged)).toBe(formatMemory(bare));
 
     const block = await (async () => {
-      await Bun.write(join(memoryRoot(), "2026-04-02.logfmt"), formatLine({
-        ts: tagged.ts, type: tagged.type, scope: tagged.scope, content: tagged.content, kw: tagged.kw!.join(","),
-      }) + "\n");
+      await Bun.write(
+        join(memoryRoot(), "2026-04-02.logfmt"),
+        formatLine({
+          ts: tagged.ts,
+          type: tagged.type,
+          scope: tagged.scope,
+          content: tagged.content,
+          kw: tagged.kw!.join(","),
+        }) + "\n",
+      );
       return relevantKnowledge(QUERY, 3);
     })();
     expect(block).toContain("websocket frame");
@@ -208,7 +285,14 @@ describe("keywords in retrieval", () => {
 
   test("scoreMemories indexes keywords into the same haystack as the prose", () => {
     const rows: Memory[] = [
-      { ts: "2026-04-03T00:00:00.000Z", type: "learning", scope: "a", content: "alpha widget fact about the parser", file: "", index: 0 },
+      {
+        ts: "2026-04-03T00:00:00.000Z",
+        type: "learning",
+        scope: "a",
+        content: "alpha widget fact about the parser",
+        file: "",
+        index: 0,
+      },
       {
         ts: "2026-04-03T00:00:01.000Z",
         type: "learning",
@@ -220,7 +304,11 @@ describe("keywords in retrieval", () => {
       },
     ];
     // "parsing" is in no content — only the second row's index knows it.
-    const hits = scoreMemories("how does the lexing and parsing step work", rows, 3);
+    const hits = scoreMemories(
+      "how does the lexing and parsing step work",
+      rows,
+      3,
+    );
     expect(hits.map((m) => m.scope)).toEqual(["b"]);
   });
 
@@ -230,20 +318,30 @@ describe("keywords in retrieval", () => {
     // Ground the session: a ref-free settled row needs observed engagement,
     // exactly as for any other write (capture.test.ts / portable.test.ts).
     await loaded["tool.execute.after"]!(
-      { tool: "read", sessionID: "ses-kw", callID: "C1", args: { filePath: "src/search.ts" } },
+      {
+        tool: "read",
+        sessionID: "ses-kw",
+        callID: "C1",
+        args: { filePath: "src/search.ts" },
+      },
       { title: "read", output: "content", metadata: {} },
     );
     const out = await loaded.tool.memory_remember!.execute({
       type: "pattern",
       scope: "search",
-      content: "full-text search runs through meilisearch with a 5 second debounce",
+      content:
+        "full-text search runs through meilisearch with a 5 second debounce",
       kw: ["instant search", "typo tolerance", "search-as-you-type"],
     });
     expect(out).toContain("Remembered:");
 
-    const byKeyword = await loaded.tool.memory_recall!.execute({ query: "typo tolerance" });
+    const byKeyword = await loaded.tool.memory_recall!.execute({
+      query: "typo tolerance",
+    });
     expect(byKeyword).toContain("meilisearch");
-    const byProse = await loaded.tool.memory_recall!.execute({ query: "meilisearch debounce" });
+    const byProse = await loaded.tool.memory_recall!.execute({
+      query: "meilisearch debounce",
+    });
     expect(byProse).toContain("meilisearch");
     await loaded.cleanup();
   });
@@ -258,15 +356,29 @@ describe("recency tie-break", () => {
   function seedPair(openTs: string | null): void {
     // Identical vocabularies, so the IDF score is a true tie and only the
     // documented cascade can order them.
-    seedAt(OLD, "learning", "reports", "alpha bravo reporting rule one", openTs === OLD ? { status: "open" } : {});
-    seedAt(NEW, "learning", "reports", "alpha bravo reporting rule two", openTs === NEW ? { status: "open" } : {});
+    seedAt(
+      OLD,
+      "learning",
+      "reports",
+      "alpha bravo reporting rule one",
+      openTs === OLD ? { status: "open" } : {},
+    );
+    seedAt(
+      NEW,
+      "learning",
+      "reports",
+      "alpha bravo reporting rule two",
+      openTs === NEW ? { status: "open" } : {},
+    );
   }
 
   test("between two equally scored rows the newer one wins", async () => {
     seedPair(null);
     const top = scoreMemories("alpha bravo reporting", await loadAll(), 2);
     expect(top.map((m) => m.ts)).toEqual([NEW, OLD]);
-    expect(await relevantKnowledge("alpha bravo reporting", 2)).toContain("rule two");
+    expect(await relevantKnowledge("alpha bravo reporting", 2)).toContain(
+      "rule two",
+    );
   });
 
   test("an open thread still outranks a newer settled row — recency breaks ties AFTER the frontier", async () => {
@@ -276,9 +388,18 @@ describe("recency tie-break", () => {
   });
 
   test("a real score difference is never overridden by recency", async () => {
-    seedAt(OLD, "learning", "reports", "alpha bravo reporting rule with the rare word molybdenum");
+    seedAt(
+      OLD,
+      "learning",
+      "reports",
+      "alpha bravo reporting rule with the rare word molybdenum",
+    );
     seedAt(NEW, "learning", "reports", "alpha bravo reporting rule one");
-    const top = scoreMemories("alpha bravo reporting molybdenum", await loadAll(), 2);
+    const top = scoreMemories(
+      "alpha bravo reporting molybdenum",
+      await loadAll(),
+      2,
+    );
     expect(top[0]?.content).toContain("molybdenum");
   });
 
@@ -287,9 +408,22 @@ describe("recency tie-break", () => {
     // second-precision row used to outrank a millisecond row from the very
     // same instant. Recency compares instants, not glyphs: the tie falls
     // through to insertion order.
-    seedAt("2026-03-01T09:00:01.000Z", "learning", "reports", "alpha bravo reporting rule one");
-    seedAt("2026-03-01T09:00:01Z", "learning", "reports", "alpha bravo reporting rule two");
+    seedAt(
+      "2026-03-01T09:00:01.000Z",
+      "learning",
+      "reports",
+      "alpha bravo reporting rule one",
+    );
+    seedAt(
+      "2026-03-01T09:00:01Z",
+      "learning",
+      "reports",
+      "alpha bravo reporting rule two",
+    );
     const top = scoreMemories("alpha bravo reporting", await loadAll(), 2);
-    expect(top.map((m) => m.ts)).toEqual(["2026-03-01T09:00:01.000Z", "2026-03-01T09:00:01Z"]);
+    expect(top.map((m) => m.ts)).toEqual([
+      "2026-03-01T09:00:01.000Z",
+      "2026-03-01T09:00:01Z",
+    ]);
   });
 });

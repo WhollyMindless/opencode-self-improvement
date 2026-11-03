@@ -32,19 +32,23 @@ describe("checkablePathRefs — which refs are policed", () => {
   });
 
   test("dotted first segment reads as a hostname, not a directory", () => {
-    expect(checkablePathRefs("listed on opencode.ai/docs/index.ts and awesome.dev/x.ts")).toEqual([]);
+    expect(
+      checkablePathRefs(
+        "listed on opencode.ai/docs/index.ts and awesome.dev/x.ts",
+      ),
+    ).toEqual([]);
   });
 
   test("dedupes repeated refs", () => {
-    expect(checkablePathRefs("src/a.ts ... src/a.ts again")).toEqual(["src/a.ts"]);
+    expect(checkablePathRefs("src/a.ts ... src/a.ts again")).toEqual([
+      "src/a.ts",
+    ]);
   });
 
   test("the whole extension is kept: .tsx and .jsx are not cut to .ts and .js", () => {
-    expect(checkablePathRefs("see src/Button.tsx, src/App.jsx:12 and src/a.ts.")).toEqual([
-      "src/Button.tsx",
-      "src/App.jsx",
-      "src/a.ts",
-    ]);
+    expect(
+      checkablePathRefs("see src/Button.tsx, src/App.jsx:12 and src/a.ts."),
+    ).toEqual(["src/Button.tsx", "src/App.jsx", "src/a.ts"]);
   });
 
   test("other extensions that start with ts/js are not refs", () => {
@@ -69,7 +73,12 @@ describe("gate1 — existence check against liveRoot", () => {
   });
 
   afterEach(() => {
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    rmSync(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   const run = (content: string) =>
@@ -81,13 +90,17 @@ describe("gate1 — existence check against liveRoot", () => {
     expect(ok.missingPaths).toEqual([]);
     expect(ok.refs).toBeGreaterThan(0);
 
-    const ghost = await run("the viewer in src/ghost_pipeline_removed.ts uses redis");
+    const ghost = await run(
+      "the viewer in src/ghost_pipeline_removed.ts uses redis",
+    );
     expect(ghost.missingPaths).toEqual(["src/ghost_pipeline_removed.ts"]);
   });
 
   test("line-number refs and relative ./ refs resolve", async () => {
     await Bun.write(join(liveRoot, "src", "real.ts"), "export const x = 1;\n");
-    expect((await run("see src/real.ts:42 and ./src/real.ts")).missingPaths).toEqual([]);
+    expect(
+      (await run("see src/real.ts:42 and ./src/real.ts")).missingPaths,
+    ).toEqual([]);
   });
 
   test("no refs at all short-circuits with empty missingPaths", async () => {
@@ -121,7 +134,12 @@ describe("runWriteGate — ref_path_missing block", () => {
 
   afterEach(() => {
     delete process.env.OPENCODE_MEMORY_DIR;
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    rmSync(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   const ctx = (): GateContext => ({
@@ -137,7 +155,8 @@ describe("runWriteGate — ref_path_missing block", () => {
       {
         type: "learning",
         scope: "demo",
-        content: "The viewer server in src/ghost_pipeline_removed.ts runs on port 9999.",
+        content:
+          "The viewer server in src/ghost_pipeline_removed.ts runs on port 9999.",
       },
       ctx(),
     );
@@ -149,7 +168,11 @@ describe("runWriteGate — ref_path_missing block", () => {
   test("settled write citing a real repo path promotes", async () => {
     await Bun.write(join(liveRoot, "src", "real.ts"), "export const x = 1;\n");
     const outcome = await runWriteGate(
-      { type: "learning", scope: "demo", content: "The gate lives in src/real.ts and exports x." },
+      {
+        type: "learning",
+        scope: "demo",
+        content: "The gate lives in src/real.ts and exports x.",
+      },
       ctx(),
     );
     expect(outcome.action).toBe("promoted");
@@ -163,7 +186,8 @@ describe("runWriteGate — ref_path_missing block", () => {
       {
         type: "learning",
         scope: "demo",
-        content: "src/Button.tsx renders inside src/App.jsx; flags come from src/config.json.",
+        content:
+          "src/Button.tsx renders inside src/App.jsx; flags come from src/config.json.",
       },
       ctx(),
     );

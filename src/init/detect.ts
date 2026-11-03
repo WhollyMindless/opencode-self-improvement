@@ -23,10 +23,20 @@ export interface GraphStatus {
   mode: string;
 }
 
-const NOTABLE_KEYS = ["test", "e2e", "lint", "typecheck", "check", "build", "format"];
+const NOTABLE_KEYS = [
+  "test",
+  "e2e",
+  "lint",
+  "typecheck",
+  "check",
+  "build",
+  "format",
+];
 
 function isNotable(key: string): boolean {
-  return NOTABLE_KEYS.includes(key) || NOTABLE_KEYS.some((k) => key.startsWith(k));
+  return (
+    NOTABLE_KEYS.includes(key) || NOTABLE_KEYS.some((k) => key.startsWith(k))
+  );
 }
 
 function runSync(cmd: string[], cwd: string): { ok: boolean; out: string } {
@@ -60,7 +70,10 @@ async function readText(root: string, file: string): Promise<string | null> {
   }
 }
 
-async function detectPackageScripts(root: string, records: ScriptRecord[]): Promise<void> {
+async function detectPackageScripts(
+  root: string,
+  records: ScriptRecord[],
+): Promise<void> {
   const text = await readText(root, "package.json");
   if (!text) return;
   let pkg: Record<string, unknown>;
@@ -78,7 +91,10 @@ async function detectPackageScripts(root: string, records: ScriptRecord[]): Prom
   }
 }
 
-async function detectMakeTargets(root: string, records: ScriptRecord[]): Promise<void> {
+async function detectMakeTargets(
+  root: string,
+  records: ScriptRecord[],
+): Promise<void> {
   const targetRe = /^([A-Za-z0-9_-]+)\s*:/;
   const seen = new Set<string>();
   for (const file of ["Makefile", "Justfile"]) {
@@ -97,7 +113,10 @@ async function detectMakeTargets(root: string, records: ScriptRecord[]): Promise
   }
 }
 
-async function detectLangManifests(root: string, records: ScriptRecord[]): Promise<void> {
+async function detectLangManifests(
+  root: string,
+  records: ScriptRecord[],
+): Promise<void> {
   if (existsSync(join(root, "Cargo.toml"))) {
     records.push({ key: "test", cmd: "cargo test", source: "Cargo.toml" });
   }
@@ -115,14 +134,27 @@ export async function detectScripts(root: string): Promise<ScriptRecord[]> {
   return records.slice(0, 8);
 }
 
-async function cbmProject(bin: string, root: string): Promise<{ name: string } | null> {
+async function cbmProject(
+  bin: string,
+  root: string,
+): Promise<{ name: string } | null> {
   const r = await run(
-    [bin, "cli", "--quiet", "list_projects", "--format", "json", "--metadata-only"],
+    [
+      bin,
+      "cli",
+      "--quiet",
+      "list_projects",
+      "--format",
+      "json",
+      "--metadata-only",
+    ],
     root,
   );
   if (!r.ok || !r.out) return null;
   try {
-    const env = JSON.parse(r.out) as { projects?: { name: string; root_path: string }[] };
+    const env = JSON.parse(r.out) as {
+      projects?: { name: string; root_path: string }[];
+    };
     const hit = env.projects?.find((p) => p.root_path === root);
     return hit ? { name: hit.name } : null;
   } catch {
@@ -130,15 +162,33 @@ async function cbmProject(bin: string, root: string): Promise<{ name: string } |
   }
 }
 
-export async function ensureGraph(root: string, mode: string, force: boolean): Promise<GraphStatus> {
+export async function ensureGraph(
+  root: string,
+  mode: string,
+  force: boolean,
+): Promise<GraphStatus> {
   const bin = cbmBin() ?? "codebase-memory-mcp";
   const existing = await cbmProject(bin, root);
-  if (existing && !force) return { action: "indexed", name: existing.name, mode };
+  if (existing && !force)
+    return { action: "indexed", name: existing.name, mode };
   const r = await run(
-    [bin, "cli", "--quiet", "index_repository", "--repo-path", root, "--mode", mode],
+    [
+      bin,
+      "cli",
+      "--quiet",
+      "index_repository",
+      "--repo-path",
+      root,
+      "--mode",
+      mode,
+    ],
     root,
   );
   if (!r.ok) return { action: "unavailable", mode };
   const after = await cbmProject(bin, root);
-  return { action: after ? "indexed" : "index-failed", name: after?.name, mode };
+  return {
+    action: after ? "indexed" : "index-failed",
+    name: after?.name,
+    mode,
+  };
 }

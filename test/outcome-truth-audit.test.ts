@@ -15,21 +15,36 @@
 // Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR, no network, no
 // real home directory.
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { canonicalFile, evidenceDir } from "../src/core/config/paths.ts"
+import { canonicalFile, evidenceDir } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 import * as evidence from "../src/evidence/record.ts";
-import { appendMemory } from "../src/store/files/append.ts"
-import { loadAll } from "../src/store/files/load.ts"
+import { appendMemory } from "../src/store/files/append.ts";
+import { loadAll } from "../src/store/files/load.ts";
 import { isActive } from "../src/store/model/predicates.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
 import { EXPORT_HEADER, EXPORT_VERSION } from "../src/portable/export.ts";
-import { resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState } from "../src/core/state.ts";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { formatLine, parseLine, type Fields } from "../src/core/logfmt/format.ts";
+import {
+  formatLine,
+  parseLine,
+  type Fields,
+} from "../src/core/logfmt/format.ts";
 import { sleep } from "./helpers/logfmt.ts";
 
 let root: string;
@@ -59,7 +74,10 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
-async function plugin(dir: string, opts?: Record<string, unknown>): Promise<LoadedPlugin> {
+async function plugin(
+  dir: string,
+  opts?: Record<string, unknown>,
+): Promise<LoadedPlugin> {
   const p = await loadPlugin(dir, opts);
   plugins.push(p);
   return p;
@@ -134,7 +152,8 @@ describe("the collapse-completion keeps #154's rule", () => {
   test("when the survivor already carries the metadata, the fold still completes (control)", async () => {
     // The #155 convergence path must survive the guard: a retry whose rows
     // agree on standing, issue, tags and kw retires exactly as before.
-    const PROSE = "Session ledger snapshots ride the frozen epoch boundary unchanged";
+    const PROSE =
+      "Session ledger snapshots ride the frozen epoch boundary unchanged";
     const pa = await plugin(a);
     const A = await appendMemory({
       type: "pattern",
@@ -151,7 +170,13 @@ describe("the collapse-completion keeps #154's rule", () => {
       ...stampOf(a),
     });
     const out = await pa.tools.memory_update.execute(
-      { type: "pattern", scope: "revctl", query: A, content: PROSE, status: "open" },
+      {
+        type: "pattern",
+        scope: "revctl",
+        query: A,
+        content: PROSE,
+        status: "open",
+      },
       ctx("ses-foldctl"),
     );
     expect(out.content).toMatch(/retired in its favor/);
@@ -167,10 +192,13 @@ describe("a durable row with no audit line is never a clean success", () => {
   // missing was LISTENING to the flag on the other three writers.
   function unauditedSpy(): { restore: () => void } {
     const record = evidence.record;
-    const spy = spyOn(evidence, "record").mockImplementation(async (...args: Parameters<typeof record>) => {
-      if (args[0] === "write_promoted") throw new Error("simulated audit disk fault");
-      return record(...args);
-    });
+    const spy = spyOn(evidence, "record").mockImplementation(
+      async (...args: Parameters<typeof record>) => {
+        if (args[0] === "write_promoted")
+          throw new Error("simulated audit disk fault");
+        return record(...args);
+      },
+    );
     return { restore: () => spy.mockRestore() };
   }
 
@@ -180,7 +208,12 @@ describe("a durable row with no audit line is never a clean success", () => {
     let out: { content: string };
     try {
       out = await pa.tools.memory_remember.execute(
-        { type: "context", scope: "aud", content: "Imported vendor pricing sheet revision twelve", status: "open" },
+        {
+          type: "context",
+          scope: "aud",
+          content: "Imported vendor pricing sheet revision twelve",
+          status: "open",
+        },
         ctx("ses-ra"),
       );
     } finally {
@@ -195,7 +228,8 @@ describe("a durable row with no audit line is never a clean success", () => {
 
   test("memory_import counts rows that landed without their audit line", async () => {
     const pa = await plugin(a);
-    const future = (i: number) => new Date(Date.now() + 24 * 3600_000 + i).toISOString();
+    const future = (i: number) =>
+      new Date(Date.now() + 24 * 3600_000 + i).toISOString();
     writeFileSync(
       join(process.env.OPENCODE_MEMORY_DIR!, "audit-import.jsonl"),
       [
@@ -209,14 +243,16 @@ describe("a durable row with no audit line is never a clean success", () => {
           ts: future(1),
           type: "learning",
           scope: "audimp",
-          content: "Vendor contract renews each March with a ninety day notice window",
+          content:
+            "Vendor contract renews each March with a ninety day notice window",
           status: "open",
         }),
         JSON.stringify({
           ts: future(2),
           type: "learning",
           scope: "audimp",
-          content: "The warehouse escalates unsorted pallets after four failed reads",
+          content:
+            "The warehouse escalates unsorted pallets after four failed reads",
           status: "open",
         }),
       ].join("\n") + "\n",
@@ -224,12 +260,17 @@ describe("a durable row with no audit line is never a clean success", () => {
     const spy = unauditedSpy();
     let out: { content: string };
     try {
-      out = await pa.tools.memory_import.execute({ file: "audit-import.jsonl" }, ctx("ses-rb"));
+      out = await pa.tools.memory_import.execute(
+        { file: "audit-import.jsonl" },
+        ctx("ses-rb"),
+      );
     } finally {
       spy.restore();
     }
     expect(out.content).toContain("2 promoted");
-    expect(out.content).toMatch(/without (their |an )?write_promoted audit line/);
+    expect(out.content).toMatch(
+      /without (their |an )?write_promoted audit line/,
+    );
     expect(out.content).toContain("simulated audit disk fault");
     expect(await active()).toHaveLength(2);
   });
@@ -239,16 +280,25 @@ describe("a durable row with no audit line is never a clean success", () => {
     // SEPARATE record from the write_promoted line that failed — so without a
     // field pointing at the fault, the row's only trail omits that the trail
     // is incomplete.
-    const loaded = await plugin(a, { autoCapture: true, captureModel: "fake/model" });
+    const loaded = await plugin(a, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
     await loaded["tool.execute.after"](
-      { tool: "read", sessionID: "ses-rc", callID: "C1", args: { filePath: "x.ts" } },
+      {
+        tool: "read",
+        sessionID: "ses-rc",
+        callID: "C1",
+        args: { filePath: "x.ts" },
+      },
       { title: "read", output: "content", metadata: {} },
     );
     loaded.capture.generate.response = JSON.stringify([
       {
         type: "learning",
         scope: "capaudit",
-        content: "The nightly archive job runs at 02:30 UTC and keeps fourteen days of tarballs",
+        content:
+          "The nightly archive job runs at 02:30 UTC and keeps fourteen days of tarballs",
       },
     ]);
     const spy = unauditedSpy();
@@ -272,12 +322,20 @@ describe("a durable row with no audit line is never a clean success", () => {
           },
         ],
       });
-      await waitFor(() => evidenceLines().some((l) => l.ev === "auto_capture_compaction_promoted"));
+      await waitFor(() =>
+        evidenceLines().some(
+          (l) => l.ev === "auto_capture_compaction_promoted",
+        ),
+      );
     } finally {
       spy.restore();
     }
-    const line = evidenceLines().find((l) => l.ev === "auto_capture_compaction_promoted")!;
-    expect(String(line.audit_error ?? "")).toContain("simulated audit disk fault");
+    const line = evidenceLines().find(
+      (l) => l.ev === "auto_capture_compaction_promoted",
+    )!;
+    expect(String(line.audit_error ?? "")).toContain(
+      "simulated audit disk fault",
+    );
   });
 });
 
@@ -302,15 +360,32 @@ describe("the fold judges the REQUESTED state; the gate owns its durable steps (
       ...stampOf(a),
     });
     const prose = "Plan to prune aged queue entries every morning";
-    await appendMemory({ type: "context", scope: "planning", content: prose, status: "open", kw: ["old-alias"], ...stampOf(a) });
+    await appendMemory({
+      type: "context",
+      scope: "planning",
+      content: prose,
+      status: "open",
+      kw: ["old-alias"],
+      ...stampOf(a),
+    });
     const out = await pa.tools.memory_update.execute(
-      { type: "context", scope: "planning", query: old, content: prose, kw: ["new-alias"] },
+      {
+        type: "context",
+        scope: "planning",
+        query: old,
+        content: prose,
+        kw: ["new-alias"],
+      },
       ctx("ses-r3a"),
     );
     const rows = await loadAll();
     // Either fulfill the requested edit, or preserve the source and report the conflict.
-    const requestedLanded = rows.some((m) => isActive(m) && m.content === prose && m.kw?.includes("new-alias"));
-    expect(requestedLanded || isActive(rows.find((m) => m.ts === old)!)).toBe(true);
+    const requestedLanded = rows.some(
+      (m) => isActive(m) && m.content === prose && m.kw?.includes("new-alias"),
+    );
+    expect(requestedLanded || isActive(rows.find((m) => m.ts === old)!)).toBe(
+      true,
+    );
     void out;
   });
 
@@ -324,14 +399,29 @@ describe("the fold judges the REQUESTED state; the gate owns its durable steps (
       repo: "global",
     });
     const prose = "Plan to prune aged queue entries every morning";
-    await appendMemory({ type: "context", scope: "planning", content: prose, status: "open", ...stampOf(a) });
+    await appendMemory({
+      type: "context",
+      scope: "planning",
+      content: prose,
+      status: "open",
+      ...stampOf(a),
+    });
     const bdir = join(root, "repo-b");
     mkdirSync(bdir);
     const pb = await plugin(bdir);
-    const before = await pb.tools.memory_recall.execute({ scope: "planning" }, ctx("ses-r3b1"));
+    const before = await pb.tools.memory_recall.execute(
+      { scope: "planning" },
+      ctx("ses-r3b1"),
+    );
     expect(before.content).toContain("every evening");
-    await pa.tools.memory_update.execute({ type: "context", scope: "planning", query: old, content: prose }, ctx("ses-r3a"));
-    const after = await pb.tools.memory_recall.execute({ scope: "planning" }, ctx("ses-r3b2"));
+    await pa.tools.memory_update.execute(
+      { type: "context", scope: "planning", query: old, content: prose },
+      ctx("ses-r3a"),
+    );
+    const after = await pb.tools.memory_recall.execute(
+      { scope: "planning" },
+      ctx("ses-r3b2"),
+    );
     expect(after.content).toContain("Plan to prune");
   });
 
@@ -353,17 +443,32 @@ describe("the fold judges the REQUESTED state; the gate owns its durable steps (
     });
     writeFileSync(
       canonicalFile(),
-      formatLine({ ts: "2026-01-01T00:00:00.000Z", type: "canonical", scope: "planning", entity: "backend", value: "postgres", source: "fixture" }) + "\n",
+      formatLine({
+        ts: "2026-01-01T00:00:00.000Z",
+        type: "canonical",
+        scope: "planning",
+        entity: "backend",
+        value: "postgres",
+        source: "fixture",
+      }) + "\n",
     );
     const record = evidence.record;
-    const spy = spyOn(evidence, "record").mockImplementation(async (...args: Parameters<typeof record>) => {
-      if (args[0] === "superseded_by") throw new Error("EIO: injected neutralization audit failure");
-      return record(...args);
-    });
+    const spy = spyOn(evidence, "record").mockImplementation(
+      async (...args: Parameters<typeof record>) => {
+        if (args[0] === "superseded_by")
+          throw new Error("EIO: injected neutralization audit failure");
+        return record(...args);
+      },
+    );
     let out: { content: string };
     try {
       out = await pa.tools.memory_update.execute(
-        { type: "context", scope: "planning", query: old, content: "queue backend postgres" },
+        {
+          type: "context",
+          scope: "planning",
+          query: old,
+          content: "queue backend postgres",
+        },
         ctx("ses-r3c"),
       );
     } finally {

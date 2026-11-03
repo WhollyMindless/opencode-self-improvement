@@ -5,7 +5,15 @@
 import { describe, expect, test } from "bun:test";
 import type { Memory } from "../src/store/model/memory.ts";
 import type { UseSignal } from "../src/hits/ledger.ts";
-import { DEFAULT_JACCARD, MAX_MERGED_KW, clustersFor, proposeCluster, proposeConsolidations, readsFor, survivorFor } from "../src/consolidate/propose.ts"
+import {
+  DEFAULT_JACCARD,
+  MAX_MERGED_KW,
+  clustersFor,
+  proposeCluster,
+  proposeConsolidations,
+  readsFor,
+  survivorFor,
+} from "../src/consolidate/propose.ts";
 import { renderProposals } from "../src/consolidate/render.ts";
 
 let n = 0;
@@ -22,22 +30,35 @@ const mem = (over: Partial<Memory> & { content: string }): Memory => {
   };
 };
 
-const A = "the arm64 build box compiles the flimflam pipeline with bun build and no extra flags";
-const B = "the arm64 build box compiles the flimflam pipeline with bun build without extra flags at all";
-const C = "finance reconciles the zebra brasserie ledger nightly and mails a digest before opening";
+const A =
+  "the arm64 build box compiles the flimflam pipeline with bun build and no extra flags";
+const B =
+  "the arm64 build box compiles the flimflam pipeline with bun build without extra flags at all";
+const C =
+  "finance reconciles the zebra brasserie ledger nightly and mails a digest before opening";
 
 describe("consolidation clustering (#45)", () => {
   test("near-duplicate settled rows in one scope and type form one cluster", () => {
-    const rows = [mem({ content: A }), mem({ content: B }), mem({ content: C })];
+    const rows = [
+      mem({ content: A }),
+      mem({ content: B }),
+      mem({ content: C }),
+    ];
     const groups = clustersFor(rows);
     expect(groups.length).toBe(1);
     expect(groups[0]!.length).toBe(2);
   });
 
   test("clusters never cross scope or type", () => {
-    const rows = [mem({ content: A, scope: "build" }), mem({ content: B, scope: "deploy" })];
+    const rows = [
+      mem({ content: A, scope: "build" }),
+      mem({ content: B, scope: "deploy" }),
+    ];
     expect(clustersFor(rows)).toEqual([]);
-    const typed = [mem({ content: A, type: "learning" }), mem({ content: B, type: "pattern" })];
+    const typed = [
+      mem({ content: A, type: "learning" }),
+      mem({ content: B, type: "pattern" }),
+    ];
     expect(clustersFor(typed)).toEqual([]);
   });
 
@@ -56,8 +77,12 @@ describe("consolidation clustering (#45)", () => {
 
   test("the jaccard floor is configurable and defaults to the documented value", () => {
     expect(DEFAULT_JACCARD).toBe(0.55);
-    const loose = mem({ content: "bun test runs the suite from the repo root before pushing" });
-    const other = mem({ content: "bun test is the suite runner used in ci before deploys" });
+    const loose = mem({
+      content: "bun test runs the suite from the repo root before pushing",
+    });
+    const other = mem({
+      content: "bun test is the suite runner used in ci before deploys",
+    });
     expect(clustersFor([loose, other]).length).toBe(0);
     expect(clustersFor([loose, other], { jaccard: 0.25 }).length).toBe(1);
   });
@@ -68,7 +93,10 @@ describe("canonical row selection", () => {
     const older = mem({ content: A, ts: "2026-01-01T00:00:00.000Z" });
     const newer = mem({ content: B, ts: "2026-06-01T00:00:00.000Z" });
     const use = new Map<string, UseSignal>([
-      [older.ts, { count: 3, last: "2026-09-01T00:00:00.000Z", terms: ["bun"] }],
+      [
+        older.ts,
+        { count: 3, last: "2026-09-01T00:00:00.000Z", terms: ["bun"] },
+      ],
       [newer.ts, { count: 1, last: "2026-02-01T00:00:00.000Z", terms: [] }],
     ]);
     expect(survivorFor([older, newer], use).ts).toBe(older.ts);
@@ -93,8 +121,16 @@ describe("canonical row selection", () => {
   test("the merge is deterministic prose plus inherited aliases, never a rewrite", () => {
     // The newer row is canonical with an empty ledger, so the canonical content
     // must be that row's sentence byte-for-byte — no model rewrote anything.
-    const older = mem({ content: A, ts: "2026-01-01T00:00:00.000Z", kw: ["compile"] });
-    const newer = mem({ content: B, ts: "2026-06-01T00:00:00.000Z", kw: ["arm64 build"] });
+    const older = mem({
+      content: A,
+      ts: "2026-01-01T00:00:00.000Z",
+      kw: ["compile"],
+    });
+    const newer = mem({
+      content: B,
+      ts: "2026-06-01T00:00:00.000Z",
+      kw: ["arm64 build"],
+    });
     const plan = proposeCluster([older, newer], [older, newer], new Map(), []);
     expect(plan.survivor.ts).toBe(newer.ts);
     expect(plan.merged.content).toBe(B);
@@ -170,11 +206,9 @@ describe("proposal rendering", () => {
   test("every proposal ends with the exact memory_merge_review call that resolves it", () => {
     const a = mem({ content: A, ts: "2026-06-01T00:00:00.000Z" });
     const b = mem({ content: B, ts: "2026-01-01T00:00:00.000Z" });
-    const report = proposeConsolidations(
-      [a, b],
-      new Map(),
-      [{ terms: ["arm64", "build", "box"], rows: [a.ts] }],
-    );
+    const report = proposeConsolidations([a, b], new Map(), [
+      { terms: ["arm64", "build", "box"], rows: [a.ts] },
+    ]);
     const text = renderProposals(report);
     expect(text).toContain("nothing was written");
     expect(text).toContain(`memory_merge_review(loser="${b.ts}"`);

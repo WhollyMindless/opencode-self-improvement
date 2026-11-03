@@ -22,18 +22,20 @@ for (let i = 0; i < SRC_N; i++) {
 }
 const nm = join(repo, "node_modules", "pkg", "lib");
 mkdirSync(nm, { recursive: true });
-for (let i = 0; i < NM_N; i++) writeFileSync(join(nm, `d${i}.ts`), `export function decoy${i}() {}\n`);
+for (let i = 0; i < NM_N; i++)
+  writeFileSync(join(nm, `d${i}.ts`), `export function decoy${i}() {}\n`);
 
 process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
-const { runWriteGate } = await import( "../src/gate/gate.ts");
+const { runWriteGate } = await import("../src/gate/gate.ts");
 const { appendMemory } = await import("../src/store/files/append.ts");
 
 const SCOPE = "wbench";
 // Scope memories with embedded call forms: gate2 resolves every one of them.
 for (let i = 0; i < 20; i++) {
-  const content = i % 4 === 0
-    ? `Seeded note ${i}: widgets.widget${i}(a, b, c) returns the sum in src/mod${i % 20}/file${i}.ts`
-    : `Seeded note ${i}: plain prose without call forms`;
+  const content =
+    i % 4 === 0
+      ? `Seeded note ${i}: widgets.widget${i}(a, b, c) returns the sum in src/mod${i % 20}/file${i}.ts`
+      : `Seeded note ${i}: plain prose without call forms`;
   await appendMemory({ type: "learning", scope: SCOPE, content });
 }
 
@@ -54,12 +56,16 @@ async function oldScan(liveRoot: string): Promise<string[]> {
   const out = new Set<string>();
   for (const ext of SOURCE_EXTS) {
     try {
-      for await (const f of new Bun.Glob(`**/*.${ext}`).scan(liveRoot)) out.add(f);
+      for await (const f of new Bun.Glob(`**/*.${ext}`).scan(liveRoot))
+        out.add(f);
     } catch {}
   }
   return [...out].filter((f) => relRank(f) < Infinity);
 }
-async function oldFindLiveCall(name: string, liveRoot: string): Promise<string | null> {
+async function oldFindLiveCall(
+  name: string,
+  liveRoot: string,
+): Promise<string | null> {
   const files = (await oldScan(liveRoot)).sort();
   for (const rel of files) {
     let text: string;
@@ -81,17 +87,24 @@ function timed(label: string, ms: number) {
 // scope memories with forms) pays one full scan, serially.
 const scopeForms = 5; // seeded above: every 4th of 20 notes embeds a form
 for (const k of [1, 3, 5]) {
-  const forms = Array.from({ length: k }, (_, i) => `widgets.widget${i}(a, b, c)`).join(" and ");
+  const forms = Array.from(
+    { length: k },
+    (_, i) => `widgets.widget${i}(a, b, c)`,
+  ).join(" and ");
   const candidate = {
     type: "learning",
     scope: SCOPE,
     content: `Probe ${k} ${Date.now()}: ${forms} verified in src/mod0/file0.ts.`,
   };
   const t0 = performance.now();
-  await runWriteGate(candidate as never, { liveRoot: repo, evidenceCalls: [], hasGateCheck: true } as never);
+  await runWriteGate(
+    candidate as never,
+    { liveRoot: repo, evidenceCalls: [], hasGateCheck: true } as never,
+  );
   timed(`shipped — ${k} call form(s)`, performance.now() - t0);
 
   const t1 = performance.now();
-  for (let i = 0; i < k + scopeForms; i++) await oldFindLiveCall(`widget${i % SRC_N}`, repo);
+  for (let i = 0; i < k + scopeForms; i++)
+    await oldFindLiveCall(`widget${i % SRC_N}`, repo);
   timed(`old model — ${k + scopeForms} scans + reads`, performance.now() - t1);
 }

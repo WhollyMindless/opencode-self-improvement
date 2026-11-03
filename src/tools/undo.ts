@@ -10,7 +10,8 @@ import { basename } from "node:path";
 
 export const register: ToolRegister = (editor, deps) => {
   const { toolIds, bindSessionIdentity, direct } = deps;
-    editor.add(validated(UndoArgs, {
+  editor.add(
+    validated(UndoArgs, {
       name: "memory_undo",
       description:
         "List memory snapshots, or restore one (rollback). Only snapshots inside this store's snapshots directory are accepted: pass a bare name from the list or its full path. Non-standard files in snapshots/ are not listed or restorable. SAFE BY DEFAULT: restore refuses if the current file has rows added or edited since the snapshot, and audited human/tool deletions stay deleted. Re-run with merge=true to restore AND keep divergent rows, or force=true for an explicit exact rollback. Blocklisted rows remain inactive in every mode. Rows belonging to other repositories are never restored, rewound, or dropped in any mode — their lines survive verbatim, though a restore may place them later in the shared file. Global rows are visible to every repository, so they are in every repository's rollback scope.",
@@ -28,7 +29,12 @@ export const register: ToolRegister = (editor, deps) => {
           // do; the day file is shared (#153) and a wrong reader is a write
           // into another repository's history.
           await bindSessionIdentity(sid);
-          const res = await restoreSnapshot(args.snapshot, memoryRoot(), mode, readerFromSid(sid));
+          const res = await restoreSnapshot(
+            args.snapshot,
+            memoryRoot(),
+            mode,
+            readerFromSid(sid),
+          );
           if (!res.restored) {
             const parts = [...res.concurrentAdded, ...res.concurrentChanged];
             return {
@@ -43,21 +49,30 @@ export const register: ToolRegister = (editor, deps) => {
                   : "Rows belonging to other repositories survive in every mode."),
             };
           }
-          const kept = res.mode === "merge" && (res.concurrentAdded.length || res.concurrentChanged.length)
-            ? ` Kept ${res.concurrentAdded.length} added / ${res.concurrentChanged.length} changed row(s) written after the snapshot.`
+          const kept =
+            res.mode === "merge" &&
+            (res.concurrentAdded.length || res.concurrentChanged.length)
+              ? ` Kept ${res.concurrentAdded.length} added / ${res.concurrentChanged.length} changed row(s) written after the snapshot.`
+              : "";
+          const safety = res.safety
+            ? ` Pre-restore file snapshotted -> ${res.safety}.`
             : "";
-          const safety = res.safety ? ` Pre-restore file snapshotted -> ${res.safety}.` : "";
           const omitted = res.deletedOmitted.length
             ? ` Omitted ${res.deletedOmitted.length} deliberately deleted row(s); use force=true to recover them.`
             : "";
           const foreign = res.foreignPreserved
             ? ` Left ${res.foreignPreserved} row(s) belonging to other repositories untouched.`
             : "";
-          return { content: `Restored ${basename(res.target)} from ${res.mode} snapshot -> ${res.target}.${kept}${safety}${omitted}${foreign}` };
+          return {
+            content: `Restored ${basename(res.target)} from ${res.mode} snapshot -> ${res.target}.${kept}${safety}${omitted}${foreign}`,
+          };
         }
         const snaps = await listSnapshots();
         if (!snaps.length) return { content: "No snapshots" };
-        return { content: snaps.map((s) => `${s.name}  (${s.bytes} bytes)`).join("\n") };
+        return {
+          content: snaps.map((s) => `${s.name}  (${s.bytes} bytes)`).join("\n"),
+        };
       },
-    }));
+    }),
+  );
 };

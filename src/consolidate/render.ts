@@ -25,6 +25,8 @@ export function renderProposals(report: ProposalReport): string {
     `STORE  ${report.rowsBefore} rows → ${report.rowsAfter} if every proposal is resolved · ` +
       `injected ${report.injectedBefore}c → ${report.injectedAfter}c`,
   );
-  out.push("Resolving is supersede-not-delete: absorbed rows stay recoverable via memory_undo.");
+  out.push(
+    "Resolving is supersede-not-delete: absorbed rows stay recoverable via memory_undo.",
+  );
   return out.join("\n");
 }

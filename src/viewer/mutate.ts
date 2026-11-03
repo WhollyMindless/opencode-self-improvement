@@ -11,15 +11,19 @@ import { addBlock, removeBlock } from "../store/blocklist.ts";
 import { record, chainId, contentHash } from "../evidence/record.ts";
 import { removeTombstone, tombstone } from "../store/tombstones/tombstone.ts";
 import { redactSecrets } from "../store/secrets.ts";
-import { formatLine, parseLine } from "../core/logfmt/format.ts"
-import { appendLog, fileIdentity, writeAtomic } from "../core/logfmt/publish.ts"
+import { formatLine, parseLine } from "../core/logfmt/format.ts";
+import {
+  appendLog,
+  fileIdentity,
+  writeAtomic,
+} from "../core/logfmt/publish.ts";
 import { readLines } from "../core/logfmt/read.ts";
 import { withStoreLock, LOCK_WRITE } from "../store/lock.ts";
-import { appendMemory } from "../store/files/append.ts"
-import { loadAll } from "../store/files/load.ts"
-import { snapshotFiles } from "../store/files/snapshots.ts"
-import { markSuperseded } from "../store/files/supersede.ts"
-import { type Memory } from "../store/model/memory.ts"
+import { appendMemory } from "../store/files/append.ts";
+import { loadAll } from "../store/files/load.ts";
+import { snapshotFiles } from "../store/files/snapshots.ts";
+import { markSuperseded } from "../store/files/supersede.ts";
+import { type Memory } from "../store/model/memory.ts";
 import { releaseQuarantine } from "../store/quarantine/release.ts";
 import { assertViewerWriteAllowed } from "./rejections.ts";
 
@@ -97,12 +101,18 @@ export async function editMemory(input: EditInput): Promise<MutationResult> {
   });
   const retired: string[] = [];
   try {
-    await markSuperseded(input.ts, {
-      superseded_by: newTs,
-      reason: "human_edit",
-    }, retired);
+    await markSuperseded(
+      input.ts,
+      {
+        superseded_by: newTs,
+        reason: "human_edit",
+      },
+      retired,
+    );
   } catch (err) {
-    throw new Error(`viewer edit PARTIAL: replacement ${newTs} IS on disk; original ${input.ts} ${retired.includes(input.ts) ? "IS retired" : "was NOT retired by this edit"}. Stopped: ${String(err)}. Inspect the rows or use memory_undo before retrying.`);
+    throw new Error(
+      `viewer edit PARTIAL: replacement ${newTs} IS on disk; original ${input.ts} ${retired.includes(input.ts) ? "IS retired" : "was NOT retired by this edit"}. Stopped: ${String(err)}. Inspect the rows or use memory_undo before retrying.`,
+    );
   }
   await audit("edited", target, input.ts, newTs, input.reason);
   await record("viewer_edit", {
@@ -126,7 +136,9 @@ export async function editMemory(input: EditInput): Promise<MutationResult> {
 }
 
 // Non-destructive delete: snapshot the pre-state, remove the entry, audit.
-export async function deleteMemory(input: DeleteInput): Promise<MutationResult> {
+export async function deleteMemory(
+  input: DeleteInput,
+): Promise<MutationResult> {
   requireReason(input.reason);
   const chain = chainId();
   const target = await findMemory(input.ts);
@@ -143,9 +155,14 @@ export async function deleteMemory(input: DeleteInput): Promise<MutationResult> 
         const f = parseLine(l);
         return !(f && f.ts === input.ts);
       });
-      if (kept.length === lines.length) throw new Error(`memory line not found: ${input.ts}`);
+      if (kept.length === lines.length)
+        throw new Error(`memory line not found: ${input.ts}`);
       snapshot = await snapshotFiles([target.file]);
-      await writeAtomic(target.file, kept.join("\n") + (kept.length ? "\n" : ""), since);
+      await writeAtomic(
+        target.file,
+        kept.join("\n") + (kept.length ? "\n" : ""),
+        since,
+      );
     },
     LOCK_WRITE,
   );
@@ -199,18 +216,35 @@ async function audit(
   );
 }
 
-export async function releaseQuarantinedMemory(ts: string, reason: string): Promise<{ released: boolean; reason?: "not_found" | "not_quarantined"; auditError?: string }> {
+export async function releaseQuarantinedMemory(
+  ts: string,
+  reason: string,
+): Promise<{
+  released: boolean;
+  reason?: "not_found" | "not_quarantined";
+  auditError?: string;
+}> {
   // Layered with ReleaseQuarantineBody's trim/min check. Neither layer alone
   // is pinned by the route rejection test; direct callers still need this one.
   requireReason(reason);
   const outcome = await releaseQuarantine(ts);
-  const result = outcome === "released" ? { released: true } : { released: false, reason: outcome };
+  const result =
+    outcome === "released"
+      ? { released: true }
+      : { released: false, reason: outcome };
   try {
-    await record(result.released ? "quarantine_released" : "quarantine_release_noop", { mem: ts, reason, outcome, source: "viewer" }, false);
+    await record(
+      result.released ? "quarantine_released" : "quarantine_release_noop",
+      { mem: ts, reason, outcome, source: "viewer" },
+      false,
+    );
     return result;
   } catch {
     // Release is already durable; an audit failure must not pretend otherwise.
-    return { ...result, auditError: `${result.released ? "Release succeeded" : `No release applied (${outcome})`}, but its audit line could not be recorded.` };
+    return {
+      ...result,
+      auditError: `${result.released ? "Release succeeded" : `No release applied (${outcome})`}, but its audit line could not be recorded.`,
+    };
   }
 }
 
@@ -220,7 +254,10 @@ export async function releaseQuarantinedMemory(ts: string, reason: string): Prom
 // Order matters — the block is what the operator asked for and lands first; a
 // failure to tombstone leaves the row hidden (no data loss) rather than the
 // reverse (row visible, rejection half-applied).
-export async function blockMemory(input: { ts: string; reason: string }): Promise<string> {
+export async function blockMemory(input: {
+  ts: string;
+  reason: string;
+}): Promise<string> {
   requireReason(input.reason);
   const mem = await findMemory(input.ts);
   await addBlock(input.ts, input.reason);

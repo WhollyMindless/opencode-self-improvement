@@ -3,7 +3,16 @@
 // timeout either fails closed or proceeds; and a holder whose lock was taken
 // over never deletes the new one.
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendLog } from "../src/core/logfmt/publish.ts";
@@ -155,7 +164,10 @@ describe("withStoreLock", () => {
         await sleep(25);
       }
     });
-    const p = Bun.spawn([process.execPath, child, file], { stdout: "pipe", stderr: "pipe" });
+    const p = Bun.spawn([process.execPath, child, file], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     const code = await p.exited;
     const err = await new Response(p.stderr).text();
     await holding;
@@ -208,89 +220,118 @@ describe("deadline races", () => {
   });
 });
 
-describe.skipIf(process.platform !== "win32")("broken store directory (Windows ACL)", () => {
-  test("fails fast with the real error and never runs the writer", async () => {
-    // A directory we cannot create files in is NOT a contention case: the
-    // lock file is provably absent every probe, so the strike rule must
-    // surface the live EPERM in tens of ms — not decay into the budget
-    // timeout, whose "proceed" would run the write with no lock anywhere.
-    // Emit starts too: an outer timeout can kill the worker before a phase
-    // finishes. Log phase names/durations only, never usernames or temp paths.
-    const startPhase = (phase: string) => {
-      console.info(`[acl-fixture] ${JSON.stringify({ phase, event: "start" })}`);
-      const started = performance.now();
-      return (exitCode?: number) => console.info(`[acl-fixture] ${JSON.stringify({
-        phase, event: "end", elapsedMs: Math.round(performance.now() - started),
-        exitCode: exitCode ?? null,
-      })}`);
-    };
-    const measure = <T,>(phase: string, fn: () => T): T => {
-      const end = startPhase(phase);
-      let exitCode: number | undefined;
-      try {
-        const result = fn();
-        if (result && typeof result === "object" && "exitCode" in result && typeof result.exitCode === "number") {
-          exitCode = result.exitCode;
+describe.skipIf(process.platform !== "win32")(
+  "broken store directory (Windows ACL)",
+  () => {
+    test("fails fast with the real error and never runs the writer", async () => {
+      // A directory we cannot create files in is NOT a contention case: the
+      // lock file is provably absent every probe, so the strike rule must
+      // surface the live EPERM in tens of ms — not decay into the budget
+      // timeout, whose "proceed" would run the write with no lock anywhere.
+      // Emit starts too: an outer timeout can kill the worker before a phase
+      // finishes. Log phase names/durations only, never usernames or temp paths.
+      const startPhase = (phase: string) => {
+        console.info(
+          `[acl-fixture] ${JSON.stringify({ phase, event: "start" })}`,
+        );
+        const started = performance.now();
+        return (exitCode?: number) =>
+          console.info(
+            `[acl-fixture] ${JSON.stringify({
+              phase,
+              event: "end",
+              elapsedMs: Math.round(performance.now() - started),
+              exitCode: exitCode ?? null,
+            })}`,
+          );
+      };
+      const measure = <T>(phase: string, fn: () => T): T => {
+        const end = startPhase(phase);
+        let exitCode: number | undefined;
+        try {
+          const result = fn();
+          if (
+            result &&
+            typeof result === "object" &&
+            "exitCode" in result &&
+            typeof result.exitCode === "number"
+          ) {
+            exitCode = result.exitCode;
+          }
+          return result;
+        } finally {
+          end(exitCode);
         }
-        return result;
-      } finally { end(exitCode); }
-    };
-    const store = measure("setup", () => {
-      const dir = tmp();
-      const path = join(dir, "memory");
-      mkdirSync(path);
-      return path;
-    });
-    const file = join(store, "a.logfmt");
-    const me = measure("identity", () => Bun.spawnSync(["whoami"], { stdout: "pipe" })).stdout?.toString().trim() ?? "";
-    const icacls = (args: string[]) =>
-      Bun.spawnSync(["icacls", store, ...args], { stdout: "pipe", stderr: "pipe" });
-    const deny = measure("acl-deny", () => icacls(["/deny", `${me}:(WD)`]));
-    if (deny.exitCode !== 0) {
-      console.info('[acl-fixture] {"event":"not-exercised","reason":"acl-deny-failed"}');
-      return;
-    }
-    try {
-      let denied = false;
-      try {
-        measure("deny-probe", () => writeFileSync(join(store, "probe.txt"), "x"));
-      } catch {
-        denied = true;
-      }
-      if (!denied) {
-        console.info('[acl-fixture] {"event":"not-exercised","reason":"denial-not-effective"}');
+      };
+      const store = measure("setup", () => {
+        const dir = tmp();
+        const path = join(dir, "memory");
+        mkdirSync(path);
+        return path;
+      });
+      const file = join(store, "a.logfmt");
+      const me =
+        measure("identity", () => Bun.spawnSync(["whoami"], { stdout: "pipe" }))
+          .stdout?.toString()
+          .trim() ?? "";
+      const icacls = (args: string[]) =>
+        Bun.spawnSync(["icacls", store, ...args], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+      const deny = measure("acl-deny", () => icacls(["/deny", `${me}:(WD)`]));
+      if (deny.exitCode !== 0) {
+        console.info(
+          '[acl-fixture] {"event":"not-exercised","reason":"acl-deny-failed"}',
+        );
         return;
       }
-      let ran = false;
-      const endLock = startPhase("lock");
-      const t0 = Date.now();
-      let lockMs = 0;
-      let failed = false;
-      let message = "";
       try {
-        await withStoreLock(
-          file,
-          async () => {
-            ran = true;
-            await Bun.write(file, "x");
-          },
-          { timeoutMs: 5000 },
-        );
-      } catch (e) {
-        failed = true;
-        message = String((e as Error).message ?? e);
+        let denied = false;
+        try {
+          measure("deny-probe", () =>
+            writeFileSync(join(store, "probe.txt"), "x"),
+          );
+        } catch {
+          denied = true;
+        }
+        if (!denied) {
+          console.info(
+            '[acl-fixture] {"event":"not-exercised","reason":"denial-not-effective"}',
+          );
+          return;
+        }
+        let ran = false;
+        const endLock = startPhase("lock");
+        const t0 = Date.now();
+        let lockMs = 0;
+        let failed = false;
+        let message = "";
+        try {
+          await withStoreLock(
+            file,
+            async () => {
+              ran = true;
+              await Bun.write(file, "x");
+            },
+            { timeoutMs: 5000 },
+          );
+        } catch (e) {
+          failed = true;
+          message = String((e as Error).message ?? e);
+        } finally {
+          lockMs = Date.now() - t0;
+          endLock();
+        }
+        expect(ran).toBe(false);
+        expect(failed).toBe(true);
+        expect(lockMs).toBeLessThan(2000);
+        expect(message).toMatch(/EPERM|EACCES|permission/i);
       } finally {
-        lockMs = Date.now() - t0;
-        endLock();
+        measure("acl-restore", () => icacls(["/remove:d", me]));
       }
-      expect(ran).toBe(false);
-      expect(failed).toBe(true);
-      expect(lockMs).toBeLessThan(2000);
-      expect(message).toMatch(/EPERM|EACCES|permission/i);
-    } finally {
-      measure("acl-restore", () => icacls(["/remove:d", me]));
-    }
-    // The outer budget includes whoami and ACL setup/cleanup subprocesses on
-    // shared Windows runners. The lock itself must still fail within 2s above.
-  }, 30_000);
-});
+      // The outer budget includes whoami and ACL setup/cleanup subprocesses on
+      // shared Windows runners. The lock itself must still fail within 2s above.
+    }, 30_000);
+  },
+);

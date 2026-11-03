@@ -9,11 +9,16 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { appendMemory } from "../src/store/files/append.ts"
-import { loadAll } from "../src/store/files/load.ts"
-import { snapshotFiles } from "../src/store/files/snapshots.ts"
+import { appendMemory } from "../src/store/files/append.ts";
+import { loadAll } from "../src/store/files/load.ts";
+import { snapshotFiles } from "../src/store/files/snapshots.ts";
 import { markSuperseded } from "../src/store/files/supersede.ts";
-import { rememberSessionDir, resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  rememberSessionDir,
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState } from "../src/core/state.ts";
 
 let root: string;
@@ -42,7 +47,10 @@ afterEach(async () => {
   setRepoScope(null);
   delete process.env.OPENCODE_MEMORY_DIR;
   delete process.env.OPENCODE_COMMANDS_DIR;
-  if (dirname(resolve(root)) !== resolve(tmpdir()) || !basename(root).startsWith("osi-undo-")) {
+  if (
+    dirname(resolve(root)) !== resolve(tmpdir()) ||
+    !basename(root).startsWith("osi-undo-")
+  ) {
     throw new Error("Unexpected fixture cleanup path");
   }
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -77,8 +85,13 @@ describe("memory_undo respects row ownership (#153)", () => {
       { query: "B_PRIVATE_ROW_ADDED_AFTER_A_SNAPSHOT" },
       ctx("ses-a"),
     );
-    expect(hidden.content).not.toContain("B_PRIVATE_ROW_ADDED_AFTER_A_SNAPSHOT");
-    const listed = await pa.tools.memory_undo.execute({ list: true }, ctx("ses-a"));
+    expect(hidden.content).not.toContain(
+      "B_PRIVATE_ROW_ADDED_AFTER_A_SNAPSHOT",
+    );
+    const listed = await pa.tools.memory_undo.execute(
+      { list: true },
+      ctx("ses-a"),
+    );
     expect(listed.content).toContain(basename(snapshot!));
     const result = await pa.tools.memory_undo.execute(
       { snapshot: basename(snapshot!), force: true },
@@ -91,9 +104,14 @@ describe("memory_undo respects row ownership (#153)", () => {
   test("control: default undo refuses a rollback that would erase a later row", async () => {
     const pa = await plugin(a);
     const own = await seed(a, "A_SNAPSHOT_BASELINE");
-    const [snapshot] = await snapshotFiles([(await loadAll()).find((m) => m.ts === own)!.file]);
+    const [snapshot] = await snapshotFiles([
+      (await loadAll()).find((m) => m.ts === own)!.file,
+    ]);
     const foreign = await seed(b, "B_LATER_PRIVATE_ROW");
-    const result = await pa.tools.memory_undo.execute({ snapshot: basename(snapshot!) }, ctx("ses-a"));
+    const result = await pa.tools.memory_undo.execute(
+      { snapshot: basename(snapshot!) },
+      ctx("ses-a"),
+    );
     expect(result.content).toContain("Undo refused");
     expect((await loadAll()).some((m) => m.ts === foreign)).toBe(true);
   });
@@ -103,8 +121,16 @@ describe("memory_undo respects row ownership (#153)", () => {
     const own = await seed(a, "A_SNAPSHOT_BASELINE");
     const bNext = await seed(b, "B_SUCCESSOR_ROW");
     const bRow = await seed(b, "B_ROW_SUPERSEDED_AFTER_A_SNAPSHOT");
-    const [snapshot] = await snapshotFiles([(await loadAll()).find((m) => m.ts === own)!.file]);
-    await markSuperseded(bRow, { superseded_by: bNext, reason: "update", symbol: bRow, from: bRow, to: bNext });
+    const [snapshot] = await snapshotFiles([
+      (await loadAll()).find((m) => m.ts === own)!.file,
+    ]);
+    await markSuperseded(bRow, {
+      superseded_by: bNext,
+      reason: "update",
+      symbol: bRow,
+      from: bRow,
+      to: bNext,
+    });
     const result = await pa.tools.memory_undo.execute(
       { snapshot: basename(snapshot!), force: true },
       ctx("ses-a"),
@@ -113,13 +139,17 @@ describe("memory_undo respects row ownership (#153)", () => {
     // The live (post-snapshot) version of the FOREIGN row wins in every mode:
     // rewinding another repo's retirement is a write to rows A cannot recall,
     // forget, or merge.
-    expect((await loadAll()).find((m) => m.ts === bRow)?.superseded_by).toBe(bNext);
+    expect((await loadAll()).find((m) => m.ts === bRow)?.superseded_by).toBe(
+      bNext,
+    );
   });
 
   test("merge undo leaves foreign rows exactly where they are", async () => {
     const pa = await plugin(a);
     const own = await seed(a, "A_SNAPSHOT_BASELINE");
-    const [snapshot] = await snapshotFiles([(await loadAll()).find((m) => m.ts === own)!.file]);
+    const [snapshot] = await snapshotFiles([
+      (await loadAll()).find((m) => m.ts === own)!.file,
+    ]);
     const foreign = await seed(b, "B_PRIVATE_ROW_AFTER_A_SNAPSHOT");
     const later = await seed(a, "A_LATER_ROW_MERGE_MODE_KEEPS");
     const result = await pa.tools.memory_undo.execute(
@@ -142,9 +172,15 @@ describe("memory_undo respects row ownership (#153)", () => {
     // of rediscovering it.
     const pa = await plugin(a);
     const own = await seed(a, "A_SNAPSHOT_BASELINE");
-    const [snapshot] = await snapshotFiles([(await loadAll()).find((m) => m.ts === own)!.file]);
+    const [snapshot] = await snapshotFiles([
+      (await loadAll()).find((m) => m.ts === own)!.file,
+    ]);
     setRepoScope(null); // no module scope in play: the row lands GLOBAL unstamped
-    const shared = await appendMemory({ type: "context", scope: "s", content: "GLOBAL_ROW_AFTER_A_SNAPSHOT" });
+    const shared = await appendMemory({
+      type: "context",
+      scope: "s",
+      content: "GLOBAL_ROW_AFTER_A_SNAPSHOT",
+    });
     const result = await pa.tools.memory_undo.execute(
       { snapshot: basename(snapshot!), force: true },
       ctx("ses-a"),
@@ -157,7 +193,9 @@ describe("memory_undo respects row ownership (#153)", () => {
     const pa = await plugin(a);
     rememberSessionDir("ses-a", a);
     const own = await seed(a, "A_WILL_BE_UNDONE");
-    const [snapshot] = await snapshotFiles([(await loadAll()).find((m) => m.ts === own)!.file]);
+    const [snapshot] = await snapshotFiles([
+      (await loadAll()).find((m) => m.ts === own)!.file,
+    ]);
     await seed(a, "A_LATER_ROW_FORCE_DROPS");
     const result = await pa.tools.memory_undo.execute(
       { snapshot: basename(snapshot!), force: true },
@@ -166,6 +204,8 @@ describe("memory_undo respects row ownership (#153)", () => {
     expect(result.content).toContain("Restored");
     const all = await loadAll();
     expect(all.some((m) => m.ts === own)).toBe(true);
-    expect(all.some((m) => m.content === "A_LATER_ROW_FORCE_DROPS")).toBe(false);
+    expect(all.some((m) => m.content === "A_LATER_ROW_FORCE_DROPS")).toBe(
+      false,
+    );
   });
 });

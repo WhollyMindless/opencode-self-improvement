@@ -1,16 +1,20 @@
 // append — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { memoryRoot } from "../../core/config/paths.ts"
+import { memoryRoot } from "../../core/config/paths.ts";
 import { dateStr } from "../../core/time.ts";
 import { writeTarget } from "../../identity/repokey.ts";
 import { getCurrent } from "../../core/state.ts";
-import { formatLine, parseLine } from "../../core/logfmt/format.ts"
+import { formatLine, parseLine } from "../../core/logfmt/format.ts";
 import { fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts";
 import { withStoreLock, LOCK_WRITE } from "../lock.ts";
 import { containsSecret, redactSecrets } from "../secrets.ts";
 import { flattenMemoryText } from "../sanitize.ts";
-import { MAX_CONTENT_CHARS, type MemoryStatus, normalizeKeywords } from "../model/memory.ts";
+import {
+  MAX_CONTENT_CHARS,
+  type MemoryStatus,
+  normalizeKeywords,
+} from "../model/memory.ts";
 
 export interface AppendMemoryInput {
   type: string;
@@ -74,9 +78,12 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   // Absolute floor: every write SHOULD arrive through the gate,
   // which rejects invalid input politely; viewer writes do not, so enforce the
   // same storage rules here before anything reaches disk.
-  if (typeof input.content !== "string") throw new Error("memory content must be a string");
+  if (typeof input.content !== "string")
+    throw new Error("memory content must be a string");
   if (input.content.length > MAX_CONTENT_CHARS) {
-    throw new Error(`memory content exceeds ${MAX_CONTENT_CHARS} chars (${input.content.length})`);
+    throw new Error(
+      `memory content exceeds ${MAX_CONTENT_CHARS} chars (${input.content.length})`,
+    );
   }
   for (const [field, value] of [
     ["type", input.type],
@@ -92,7 +99,9 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   }
   // Keywords are indexed, never rendered, but they still live on the row's
   // single line, so the same control-character floor applies.
-  if (input.kw?.some((k) => typeof k !== "string" || flattenMemoryText(k) !== k)) {
+  if (
+    input.kw?.some((k) => typeof k !== "string" || flattenMemoryText(k) !== k)
+  ) {
     throw new Error("memory keywords must not contain control characters");
   }
   const credentialMetadata = [
@@ -142,35 +151,46 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   // Locked end to end: seeding ts from a scan another process can race yields
   // two rows with the same identity, and an append that lands inside someone
   // else's whole-file rewrite is simply not there afterwards.
-  return withStoreLock(file, async () => {
-    const since = await fileIdentity(file);
-    let prior = "";
-    try { prior = await readFile(file, "utf8"); }
-    catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
-    const taken = existingTs(prior);
-    let ts = new Date().toISOString();
-    let guard = 0;
-    while (taken.has(ts) && guard++ < 1000) {
-      ts = new Date(new Date(ts).getTime() + 1).toISOString();
-    }
-    const kw = normalizeKeywords(input.kw);
-    const line = formatLine({
-      ts,
-      type: input.type,
-      scope: input.scope,
-      content,
-      issue: input.issue,
-      tags: input.tags?.length ? input.tags.join(",") : undefined,
-      kw: kw?.join(","),
-      status: input.status,
-      repo,
-      repoPath,
-    });
-    // A lock excludes writers, not readers: an O_APPEND read can end mid-row.
-    // Publish the complete day file using the read already needed for IDs.
-    // This costs a whole-file write and can refuse on Windows reader handles;
-    // the old destination remains intact if publication fails (#198).
-    await writeAtomic(file, prior + (prior && !prior.endsWith("\n") ? "\n" : "") + line + "\n", since);
-    return ts;
-  }, LOCK_WRITE);
+  return withStoreLock(
+    file,
+    async () => {
+      const since = await fileIdentity(file);
+      let prior = "";
+      try {
+        prior = await readFile(file, "utf8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+      const taken = existingTs(prior);
+      let ts = new Date().toISOString();
+      let guard = 0;
+      while (taken.has(ts) && guard++ < 1000) {
+        ts = new Date(new Date(ts).getTime() + 1).toISOString();
+      }
+      const kw = normalizeKeywords(input.kw);
+      const line = formatLine({
+        ts,
+        type: input.type,
+        scope: input.scope,
+        content,
+        issue: input.issue,
+        tags: input.tags?.length ? input.tags.join(",") : undefined,
+        kw: kw?.join(","),
+        status: input.status,
+        repo,
+        repoPath,
+      });
+      // A lock excludes writers, not readers: an O_APPEND read can end mid-row.
+      // Publish the complete day file using the read already needed for IDs.
+      // This costs a whole-file write and can refuse on Windows reader handles;
+      // the old destination remains intact if publication fails (#198).
+      await writeAtomic(
+        file,
+        prior + (prior && !prior.endsWith("\n") ? "\n" : "") + line + "\n",
+        since,
+      );
+      return ts;
+    },
+    LOCK_WRITE,
+  );
 }

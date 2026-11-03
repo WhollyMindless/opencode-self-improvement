@@ -10,9 +10,13 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { appendMemory } from "../src/store/files/append.ts"
+import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
-import { resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState } from "../src/core/state.ts";
 import * as evidence from "../src/evidence/record.ts";
 
@@ -39,7 +43,10 @@ afterEach(async () => {
   setRepoScope(null);
   delete process.env.OPENCODE_MEMORY_DIR;
   delete process.env.OPENCODE_COMMANDS_DIR;
-  if (dirname(resolve(root)) !== resolve(tmpdir()) || !basename(root).startsWith("osi-uppart-")) {
+  if (
+    dirname(resolve(root)) !== resolve(tmpdir()) ||
+    !basename(root).startsWith("osi-uppart-")
+  ) {
     throw new Error("Unexpected fixture cleanup path");
   }
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -66,12 +73,18 @@ const ctx = (sessionID: string) => ({ sessionID, id: "uppart-proof" });
 describe("memory_update reports post-append failures truthfully (#155)", () => {
   test("a post-append audit failure must not make update claim that nothing was written", async () => {
     const pa = await plugin(a);
-    const original = await seed(a, "Plan to prune aged queue entries every evening");
+    const original = await seed(
+      a,
+      "Plan to prune aged queue entries every evening",
+    );
     const record = evidence.record;
-    const spy = spyOn(evidence, "record").mockImplementation(async (...args: Parameters<typeof record>) => {
-      if (args[0] === "write_promoted") throw new Error("ENOSPC: injected evidence append failure");
-      return record(...args);
-    });
+    const spy = spyOn(evidence, "record").mockImplementation(
+      async (...args: Parameters<typeof record>) => {
+        if (args[0] === "write_promoted")
+          throw new Error("ENOSPC: injected evidence append failure");
+        return record(...args);
+      },
+    );
     let result: { content: string };
     try {
       result = await pa.tools.memory_update.execute(
@@ -114,14 +127,27 @@ describe("memory_update reports post-append failures truthfully (#155)", () => {
 
   test("control: a genuine pre-mutation failure still writes nothing and says so", async () => {
     const pa = await plugin(a);
-    const original = await seed(a, "Watermark the nightly export with the HEAD sha");
+    const original = await seed(
+      a,
+      "Watermark the nightly export with the HEAD sha",
+    );
     const result = await pa.tools.memory_update.execute(
-      { type: "context", scope: "planning", query: "no-such-row-ts", content: "anything else entirely", status: "open" },
+      {
+        type: "context",
+        scope: "planning",
+        query: "no-such-row-ts",
+        content: "anything else entirely",
+        status: "open",
+      },
       ctx("ses-a"),
     );
     expect(result.content).toContain("Nothing was written");
-    expect((await loadAll()).some((m) => m.content === "anything else entirely")).toBe(false);
+    expect(
+      (await loadAll()).some((m) => m.content === "anything else entirely"),
+    ).toBe(false);
     // The untouched original is still the single active row.
-    expect((await loadAll()).find((m) => m.ts === original)?.superseded_by).toBeUndefined();
+    expect(
+      (await loadAll()).find((m) => m.ts === original)?.superseded_by,
+    ).toBeUndefined();
   });
 });

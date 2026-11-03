@@ -28,12 +28,20 @@ import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { deletionsFile, snapshotDir } from "../core/config/paths.ts";
 import { isWithin } from "./containment.ts";
-import { parseLine } from "../core/logfmt/format.ts"
-import { ensureDir, fileIdentity, writeAtomic } from "../core/logfmt/publish.ts"
+import { parseLine } from "../core/logfmt/format.ts";
+import {
+  ensureDir,
+  fileIdentity,
+  writeAtomic,
+} from "../core/logfmt/publish.ts";
 import { readLines } from "../core/logfmt/read.ts";
 import { withStoreLock, LOCK_RESTORE } from "./lock.ts";
-import { snapshotFiles } from "./files/snapshots.ts"
-import { ADMIN_READER, lineVisibleTo, type Reader } from "./model/visibility.ts";
+import { snapshotFiles } from "./files/snapshots.ts";
+import {
+  ADMIN_READER,
+  lineVisibleTo,
+  type Reader,
+} from "./model/visibility.ts";
 
 const SNAPSHOT_NAME = /^(\d+)-(\d{4}-\d{2}-\d{2}\.logfmt)$/;
 
@@ -126,7 +134,9 @@ async function resolveSnapshot(
     throw new Error(`invalid snapshot name: ${name}`);
   }
   if (!isAbsolute(snapshot) && snapshot !== name) {
-    throw new Error("snapshot must be a bare name from memory_undo list or a full path");
+    throw new Error(
+      "snapshot must be a bare name from memory_undo list or a full path",
+    );
   }
 
   const rootResolved = resolve(memoryRootDir);
@@ -175,7 +185,8 @@ async function auditedDeletions(): Promise<Set<string>> {
   const deleted = new Set<string>();
   for (const line of await readLines(deletionsFile())) {
     const fields = parseLine(line);
-    if (fields?.action !== "deleted" || typeof fields.original_ts !== "string") continue;
+    if (fields?.action !== "deleted" || typeof fields.original_ts !== "string")
+      continue;
     deleted.add(fields.original_ts);
   }
   return deleted;
@@ -195,23 +206,31 @@ export async function restoreSnapshot(
   const rootReal = await realpath(resolve(memoryRootDir));
   const realTarget = resolve(rootReal, snap.original);
   if (!isWithin(rootReal, realTarget)) {
-    throw new Error(`snapshot target escapes the memory root: ${snap.original}`);
+    throw new Error(
+      `snapshot target escapes the memory root: ${snap.original}`,
+    );
   }
   let targetInfo: Awaited<ReturnType<typeof lstat>> | undefined;
   try {
     targetInfo = await lstat(realTarget);
   } catch (err) {
-    if (!(err instanceof Error && "code" in err && err.code === "ENOENT")) throw err;
+    if (!(err instanceof Error && "code" in err && err.code === "ENOENT"))
+      throw err;
   }
   if (targetInfo) {
     if (targetInfo.isSymbolicLink()) {
-      throw new Error(`snapshot target must not be a symbolic link: ${snap.original}`);
+      throw new Error(
+        `snapshot target must not be a symbolic link: ${snap.original}`,
+      );
     }
     const targetReal = await realpath(realTarget);
     if (relative(realTarget, targetReal) !== "") {
-      throw new Error(`snapshot target must not be a symbolic link: ${snap.original}`);
+      throw new Error(
+        `snapshot target must not be a symbolic link: ${snap.original}`,
+      );
     }
-    if (!targetInfo.isFile()) throw new Error(`snapshot target is not a file: ${snap.original}`);
+    if (!targetInfo.isFile())
+      throw new Error(`snapshot target is not a file: ${snap.original}`);
   }
   // Checks above ran on real paths; lock and write through the same lexical
   // path every other writer uses, so the in-process lock queue is shared.
@@ -238,7 +257,8 @@ export async function restoreSnapshot(
       const curLines = rows(current);
       // Deliberate deletions are read inside the lock too, so a forget that
       // finished just before this restore is honoured.
-      const audited = mode !== "force" ? await auditedDeletions() : new Set<string>();
+      const audited =
+        mode !== "force" ? await auditedDeletions() : new Set<string>();
       // Ownership before anything else (#153): rows a foreign repo owns are
       // excluded from the snapshot side in EVERY mode (never revived, never
       // rewound), excluded from the deletion audit and the divergence
@@ -249,7 +269,8 @@ export async function restoreSnapshot(
       // has no business parsing every line three times.
       const curOwn: string[] = [];
       const curForeign: string[] = [];
-      for (const l of curLines) (lineVisibleTo(l, reader) ? curOwn : curForeign).push(l);
+      for (const l of curLines)
+        (lineVisibleTo(l, reader) ? curOwn : curForeign).push(l);
       const live = new Set(curOwn.map(rowKey));
       const deletedOmitted: string[] = [];
       const snapLines = snapOwn.filter((line) => {
@@ -286,7 +307,10 @@ export async function restoreSnapshot(
         }
       }
 
-      if (mode === "check" && (concurrentAdded.length || concurrentChanged.length)) {
+      if (
+        mode === "check" &&
+        (concurrentAdded.length || concurrentChanged.length)
+      ) {
         return {
           target,
           restored: false,
@@ -302,7 +326,8 @@ export async function restoreSnapshot(
       // snapshotted HERE — inside the lock, which is what makes rows a
       // concurrent session appended moments earlier part of the copy. A caller
       // that snapshots before this call races the very write it means to save.
-      const safety = mode === "force" ? (await snapshotFiles([target]))[0] : undefined;
+      const safety =
+        mode === "force" ? (await snapshotFiles([target]))[0] : undefined;
 
       let out = snapLines;
       if (mode === "merge") {
@@ -311,9 +336,9 @@ export async function restoreSnapshot(
         // rows the snapshot never saw. Merge is a deliberate superset: rows the
         // snapshotter wrote after the snapshot are NOT dropped here; choose FORCE
         // for that.
-        out = snapLines.map((l) => curByKey.get(rowKey(l)) ?? l).concat(
-          curOwn.filter((l) => !snapByKey.has(rowKey(l))),
-        );
+        out = snapLines
+          .map((l) => curByKey.get(rowKey(l)) ?? l)
+          .concat(curOwn.filter((l) => !snapByKey.has(rowKey(l))));
       }
       // FORCE's "exact rollback" is exact FOR THE CALLER'S REPOSITORY, not
       // beyond it: foreign live lines rejoin the file verbatim in every mode,

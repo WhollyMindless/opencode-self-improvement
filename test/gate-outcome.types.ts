@@ -8,8 +8,17 @@ declare function acceptString(value: string): void;
 // Never called: positive assignments and expected errors are checked by tsc.
 export function gateOutcomeTypeChecks(outcome: GateOutcome): void {
   acceptOutcome({ action: "promoted", ts: "row-id", chain: "write-chain" });
-  acceptOutcome({ action: "blocked", reason: "ambiguous_memory", chain: "write-chain" });
-  acceptOutcome({ action: "blocked", reason: "invalid_content", chain: "write-chain", hint: "Supply text." });
+  acceptOutcome({
+    action: "blocked",
+    reason: "ambiguous_memory",
+    chain: "write-chain",
+  });
+  acceptOutcome({
+    action: "blocked",
+    reason: "invalid_content",
+    chain: "write-chain",
+    hint: "Supply text.",
+  });
   acceptOutcome({ action: "collapsed", chain: "write-chain" });
 
   // @ts-expect-error A promoted write must identify the persisted row.

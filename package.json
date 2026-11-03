@@ -70,7 +70,9 @@
     "bench:write": "bun bench/write-latency.ts",
     "sweep:test": "bun scripts/test-sweep.ts",
     "memory-view": "bun run src/viewer/server.ts",
-    "lint": "biome lint"
+    "format": "biome format --write",
+    "format:check": "biome format",
+    "lint": "biome lint && bun run format:check"
   },
   "dependencies": {
     "zod": "4.6.7"

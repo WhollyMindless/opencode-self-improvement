@@ -1,7 +1,7 @@
 // metrics — split from src/status.ts (#168 domain restructure). Declaration bodies are unchanged.
 import { join } from "node:path";
 import { evidenceDir } from "../core/config/paths.ts";
-import { parseLine } from "../core/logfmt/format.ts"
+import { parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
 
 /**
@@ -9,7 +9,10 @@ import { readLines } from "../core/logfmt/read.ts";
  * line is younger than the window, or there is no ledger at all. Every "never
  * retrieved" surface must carry this qualifier when it returns true.
  */
-export function ledgerIsYoung(ledgerSince: string | null | undefined, now = Date.now()): boolean {
+export function ledgerIsYoung(
+  ledgerSince: string | null | undefined,
+  now = Date.now(),
+): boolean {
   if (!ledgerSince) return true;
   return ledgerSince > new Date(now - 30 * 86_400_000).toISOString();
 }
@@ -18,12 +21,19 @@ export function ledgerIsYoung(ledgerSince: string | null | undefined, now = Date
 export function percentile(values: number[], q: number): number | null {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);
-  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1));
+  const idx = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil(q * sorted.length) - 1),
+  );
   return sorted[idx];
 }
 
 /** Rows created per day across `days`, counting only days the store saw activity. */
-export function rowsPerDay(rows: { ts: string }[], days = 30, now = Date.now()): number | null {
+export function rowsPerDay(
+  rows: { ts: string }[],
+  days = 30,
+  now = Date.now(),
+): number | null {
   if (!rows.length) return null;
   const cutoff = new Date(now - days * 86_400_000).toISOString().slice(0, 10);
   const inWindow = rows.filter((m) => m.ts.slice(0, 10) >= cutoff);
@@ -38,7 +48,11 @@ export function rowsPerDay(rows: { ts: string }[], days = 30, now = Date.now()):
  * no timestamped message) are counted in `n` only through their outcome, never
  * as a zero lag.
  */
-export function captureLag(lines: string[], days = 30, now = Date.now()): { p50: number; p95: number; n: number } {
+export function captureLag(
+  lines: string[],
+  days = 30,
+  now = Date.now(),
+): { p50: number; p95: number; n: number } {
   const cutoff = new Date(now - days * 86_400_000).toISOString();
   const lags: number[] = [];
   for (const line of lines) {
@@ -58,7 +72,9 @@ export async function captureLagLines(days = 30): Promise<string[]> {
   const dir = evidenceDir();
   const out: string[] = [];
   for (let d = 0; d < days; d++) {
-    const day = new Date(Date.now() - d * 86_400_000).toISOString().split("T")[0]!;
+    const day = new Date(Date.now() - d * 86_400_000)
+      .toISOString()
+      .split("T")[0]!;
     out.push(...(await readLines(join(dir, `${day}.logfmt`))));
   }
   return out;

@@ -1,6 +1,5 @@
 // transcript — split from src/capture.ts (#168 domain restructure). Declaration bodies are unchanged.
 
-
 // Render an array of session-context messages of unknown shape into
 // "role: text" lines. Defensive by construction (the API shape varies and is
 // not ours to trust): non-arrays and junk entries are skipped; role comes
@@ -17,9 +16,15 @@ export function flattenTranscript(msgs: unknown): string {
       if (!msg || typeof msg !== "object") continue;
       const m = msg as Record<string, unknown>;
       const info =
-        m.info && typeof m.info === "object" ? (m.info as Record<string, unknown>) : undefined;
+        m.info && typeof m.info === "object"
+          ? (m.info as Record<string, unknown>)
+          : undefined;
       const role =
-        typeof info?.role === "string" ? info.role : typeof m.role === "string" ? m.role : "";
+        typeof info?.role === "string"
+          ? info.role
+          : typeof m.role === "string"
+            ? m.role
+            : "";
       let text = "";
       let hadPrivatePart = false;
       if (Array.isArray(m.parts)) {
@@ -27,7 +32,8 @@ export function flattenTranscript(msgs: unknown): string {
           .map((p) => {
             if (!p || typeof p !== "object") return undefined;
             const part = p as Record<string, unknown>;
-            const partType = typeof part.type === "string" ? part.type.toLowerCase() : "";
+            const partType =
+              typeof part.type === "string" ? part.type.toLowerCase() : "";
             if (partType === "reasoning" || partType === "thinking") {
               hadPrivatePart = true;
               return undefined;

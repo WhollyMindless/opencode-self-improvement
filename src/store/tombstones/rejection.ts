@@ -2,7 +2,16 @@
 import { join } from "node:path";
 import { contentHash } from "../../evidence/record.ts";
 import { memoryRoot } from "../../core/config/paths.ts";
-import { NEAR_FLOOR, NEAR_MIN_SHARED, type Tombstone, differsIn, sketchOf, tombstone, tombstones, valueSigOf } from "./tombstone.ts";
+import {
+  NEAR_FLOOR,
+  NEAR_MIN_SHARED,
+  type Tombstone,
+  differsIn,
+  sketchOf,
+  tombstone,
+  tombstones,
+  valueSigOf,
+} from "./tombstone.ts";
 
 const REJECTED_FILENAME = "rejected.logfmt";
 
@@ -70,21 +79,28 @@ export async function probeRejection(content: string): Promise<RejectionProbe> {
     if (shared < NEAR_MIN_SHARED || score < NEAR_FLOOR) continue;
     const differs = differsIn(values, { num: t.num ?? [], pol: t.pol ?? [] });
     if (differs) {
-      if (!vetoed || score > vetoed.score) vetoed = { tombstone: t, score, shared, differs };
+      if (!vetoed || score > vetoed.score)
+        vetoed = { tombstone: t, score, shared, differs };
       continue;
     }
-    if (!best || score > best.score) best = { kind: "near", tombstone: t, score, shared };
+    if (!best || score > best.score)
+      best = { kind: "near", tombstone: t, score, shared };
   }
   if (best) return { rejection: best };
   return vetoed ? { vetoed } : {};
 }
 
 /** The verdict without the veto telemetry — see {@link probeRejection}. */
-export async function findRejection(content: string): Promise<Rejection | undefined> {
+export async function findRejection(
+  content: string,
+): Promise<Rejection | undefined> {
   return (await probeRejection(content)).rejection;
 }
 
-function jaccardShared(a: string[], b: string[]): { score: number; shared: number } {
+function jaccardShared(
+  a: string[],
+  b: string[],
+): { score: number; shared: number } {
   const setB = new Set(b);
   let shared = 0;
   for (const h of a) if (setB.has(h)) shared++;

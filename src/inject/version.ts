@@ -4,9 +4,9 @@
 // session context hook's system parts. Contextual pull appends relevant memory
 // to grep/glob/read results. Evidence is never injected.
 import { createHash } from "node:crypto";
-import { loadAll } from "../store/files/load.ts"
-import { type Memory } from "../store/model/memory.ts"
-import { isInjectable } from "../store/model/predicates.ts"
+import { loadAll } from "../store/files/load.ts";
+import { type Memory } from "../store/model/memory.ts";
+import { isInjectable } from "../store/model/predicates.ts";
 import { readerFromSid, visibleTo } from "../store/model/visibility.ts";
 import { cmpTs } from "../core/cmp-ts.ts";
 import { formatMemory } from "./format.ts";
@@ -16,9 +16,14 @@ import { formatMemory } from "./format.ts";
 // changes and supersession all invalidate an epoch, while evidence, hidden
 // rows and non-rendered metadata do not. This is only a linear hash over rows
 // loadAll() already had to read and parse for the request.
-export async function storeVersion(rows?: Memory[], sid?: string): Promise<string> {
+export async function storeVersion(
+  rows?: Memory[],
+  sid?: string,
+): Promise<string> {
   // Repo-scoped: model-facing reads see the caller's repo + global rows.
-  const mems = (rows ?? visibleTo(await loadAll(), readerFromSid(sid))).filter(isInjectable);
+  const mems = (rows ?? visibleTo(await loadAll(), readerFromSid(sid))).filter(
+    isInjectable,
+  );
   if (!mems.length) return "0:";
   let max = "";
   const hash = createHash("sha256");

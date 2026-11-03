@@ -16,7 +16,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { repoScopeFor, resetSessionScopes, resolveRepo, sessionScope, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  repoScopeFor,
+  resetSessionScopes,
+  resolveRepo,
+  sessionScope,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { loadPlugin } from "./harness.ts";
 import moveRecording from "./fixtures/host-session-move.json";
 import { dayFile, sleep } from "./helpers/logfmt.ts";
@@ -65,7 +71,9 @@ describe("serve-host replay: recorded 2.2.2 session move (#176)", () => {
     mkdirSync(to);
     const recorded = moveRecording.events[0];
     expect(recorded.type).toBe("session.moved");
-    expect(recorded.location.directory).not.toBe(recorded.data.location.directory);
+    expect(recorded.location.directory).not.toBe(
+      recorded.data.location.directory,
+    );
     const sid = recorded.data.sessionID;
     const loaded = await loadPlugin(from);
     try {
@@ -80,11 +88,18 @@ describe("serve-host replay: recorded 2.2.2 session move (#176)", () => {
       loaded.capture.events.push({
         ...recorded,
         location: { ...recorded.location, directory: from },
-        data: { ...recorded.data, location: { ...recorded.data.location, directory: to } },
+        data: {
+          ...recorded.data,
+          location: { ...recorded.data.location, directory: to },
+        },
       });
       await waitFor(() => sessionScope(sid)?.path === to);
       expect(loaded.capture.session.getCalls.length).toBe(lookups);
-      const out = await writeOne(loaded, sid, "recorded workspace move destination fact");
+      const out = await writeOne(
+        loaded,
+        sid,
+        "recorded workspace move destination fact",
+      );
       expect(out.content).toContain("Remembered");
       const raw = readFileSync(dayFile(), "utf8");
       expect(raw).toContain(`repo=${keyOf(to)}`);
@@ -98,10 +113,19 @@ describe("serve-host replay: recorded 2.2.2 session move (#176)", () => {
 
 // Recorded serve-mode context messages: no `location` on any row.
 const locationlessMessages = [
-  { id: "msg_user0001", time: { created: 1792879840340 }, text: "hello", type: "user" },
+  {
+    id: "msg_user0001",
+    time: { created: 1792879840340 },
+    text: "hello",
+    type: "user",
+  },
   {
     id: "msg_assistant0001",
-    time: { created: 1792879840363, streamed: 1792879840378, completed: 1792879840378 },
+    time: {
+      created: 1792879840363,
+      streamed: 1792879840378,
+      completed: 1792879840378,
+    },
     type: "assistant",
     agent: "build",
     model: { id: "scripted", providerID: "fake" },
@@ -110,8 +134,16 @@ const locationlessMessages = [
   },
 ];
 
-async function writeOne(loaded: Awaited<ReturnType<typeof loadPlugin>>, sid: string, content: string) {
-  await loaded["tool.execute.before"]({ sessionID: sid, callID: "c1", tool: "memory_remember" });
+async function writeOne(
+  loaded: Awaited<ReturnType<typeof loadPlugin>>,
+  sid: string,
+  content: string,
+) {
+  await loaded["tool.execute.before"]({
+    sessionID: sid,
+    callID: "c1",
+    tool: "memory_remember",
+  });
   return loaded.tools["memory_remember"].execute(
     { type: "context", scope: "serve-replay", status: "open", content },
     {},
@@ -128,12 +160,19 @@ describe("serve-host replay: execution.started carries no location", () => {
     const loaded = await loadPlugin(serveRoot); // module scope = service launch dir
     try {
       loaded.capture.context.messages = locationlessMessages; // legacy fallback finds nothing
-      loaded.capture.session.row = { id: "ses_rec0rded", location: { directory: sessionRepo } };
+      loaded.capture.session.row = {
+        id: "ses_rec0rded",
+        location: { directory: sessionRepo },
+      };
 
       loaded.capture.events.push(executionStarted("ses_rec0rded"));
       await waitFor(() => repoScopeFor("ses_rec0rded")?.path === sessionRepo);
 
-      const out = await writeOne(loaded, "ses_rec0rded", `replayed serve fact ${Date.now()}`);
+      const out = await writeOne(
+        loaded,
+        "ses_rec0rded",
+        `replayed serve fact ${Date.now()}`,
+      );
       expect(out.content).toContain("Remembered");
       const raw = readFileSync(dayFile(), "utf8");
       expect(raw).toContain(`repo=${keyOf(sessionRepo)}`);
@@ -154,7 +193,10 @@ describe("serve-host replay: execution.started carries no location", () => {
     const loaded = await loadPlugin(serveRoot);
     try {
       loaded.capture.context.messages = locationlessMessages;
-      loaded.capture.session.row = { id: "ses_once", location: { directory: sessionRepo } };
+      loaded.capture.session.row = {
+        id: "ses_once",
+        location: { directory: sessionRepo },
+      };
 
       loaded.capture.events.push(executionStarted("ses_once"));
       await waitFor(() => repoScopeFor("ses_once")?.path === sessionRepo);
@@ -162,7 +204,9 @@ describe("serve-host replay: execution.started carries no location", () => {
       loaded.capture.events.push(executionStarted("ses_once"));
       loaded.capture.events.push(executionStarted("ses_once"));
       await sleep(30);
-      expect(loaded.capture.session.getCalls.filter((s) => s === "ses_once").length).toBe(1);
+      expect(
+        loaded.capture.session.getCalls.filter((s) => s === "ses_once").length,
+      ).toBe(1);
     } finally {
       await loaded.cleanup();
     }
@@ -179,7 +223,11 @@ describe("serve-host replay: execution.started carries no location", () => {
 
       loaded.capture.events.push(executionStarted("ses_orphan"));
       await sleep(30);
-      const out = await writeOne(loaded, "ses_orphan", `degraded fallback fact ${Date.now()}`);
+      const out = await writeOne(
+        loaded,
+        "ses_orphan",
+        `degraded fallback fact ${Date.now()}`,
+      );
       expect(out.content).toContain("Remembered");
       // Degraded behavior pinned: with no session identity anywhere, the write
       // lands in the MODULE scope (the documented fallback), not unscoped.
@@ -198,7 +246,10 @@ describe("serve-host replay: execution.started carries no location", () => {
 
     const loaded = await loadPlugin(serveRoot);
     try {
-      loaded.capture.session.row = { id: "ses_direct", location: { directory: sessionRepo } };
+      loaded.capture.session.row = {
+        id: "ses_direct",
+        location: { directory: sessionRepo },
+      };
       // Standalone-mode shape (recorded): session.created with location.
       loaded.capture.events.push({
         id: "evt_rec0rded0000",
