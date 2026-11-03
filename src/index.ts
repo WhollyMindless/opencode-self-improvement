@@ -18,15 +18,15 @@ import { resolveMemoryTarget } from "./store/files/target.ts"
 import { type Memory } from "./store/model/memory.ts"
 import { isActive, isInjectable } from "./store/model/predicates.ts"
 import { evidenceVisibleTo, isVisibleTo } from "./store/model/visibility.ts";
-import { auditCaveat, runWriteGate, sameStrList, type WriteCandidate } from "./gate/gate.ts";
+import { auditCaveat, sameStrList, type WriteCandidate } from "./gate/gate.ts";
 import { withStoreLock } from "./store/lock.ts";
-import { isQuarantined, quarantineCandidate, quarantineReasons } from "./store/quarantine/quarantine.ts";
+import { isQuarantined, quarantineReasons } from "./store/quarantine/quarantine.ts";
 import { pruneMemory } from "./store/prune.ts";
 import { findStaleOpen } from "./portable/decay.ts"
 import { exportMemories } from "./portable/export.ts"
 import { importMemories } from "./portable/import.ts";
 import { listSnapshots, restoreSnapshot } from "./store/undo.ts";
-import { evidenceFileFor, record, recordCaptureLag } from "./evidence/record.ts";
+import { evidenceFileFor, record } from "./evidence/record.ts";
 import { proposeConsolidations } from "./consolidate/propose.ts"
 import { renderProposals } from "./consolidate/render.ts";
 import { readReads } from "./hits/ledger.ts";
@@ -35,6 +35,8 @@ import { formatMemory } from "./inject/format.ts"
 import { contextualPull } from "./inject/pull.ts"
 import { pullQuery } from "./recall/relevant.ts"
 import { sharedTerms } from "./recall/shared-terms.ts";
+import { configureAutoCapture, CAPTURE_EVENT_TYPES } from "./capture/runtime.ts";
+export { resetCaptureCooldowns, TURN_END_EVENTS, CAPTURE_EVENT_TYPES, captureTriggerFor } from "./capture/runtime.ts";
 import { createInjectionEpochs } from "./inject/epochs.ts";
 import { createSessionContext } from "./identity/session-context.ts";
 import { registerMemoryTools } from "./tools/registry.ts";
@@ -58,15 +60,10 @@ import { setCurrent } from "./core/state.ts";
 import { resolveRepo, setRepoScope, rememberSessionDir, bindSessionProvisional, writeTarget } from "./identity/repokey.ts";
 import { parseLine } from "./core/logfmt/format.ts"
 import { readLines } from "./core/logfmt/read.ts";
-import { parseCandidates, parseModelRef } from "./capture/candidates.ts"
-import { lagSince } from "./capture/lag.ts"
-import { buildCapturePrompt } from "./capture/prompt.ts"
-import { flattenTranscript } from "./capture/transcript.ts";
-import { redactSecrets } from "./store/secrets.ts";
+import { parseModelRef } from "./capture/candidates.ts"
 import { flattenMemoryText } from "./store/sanitize.ts";
 import { bunFloorWarning } from "./core/runtime.ts";
 import {
-  captureSessionID,
   sessionIdentityEvent,
   sessionUsageEvent,
 } from "./identity/host-events.ts";
@@ -152,70 +149,9 @@ function resultMeta(result: unknown): Record<string, unknown> {
 
 const PLUGIN_ID = "opencode-self-improvement";
 
-// Tag on store rows captured by the COMPACTION trigger (issue #41). Rows keep
-// the shared "auto-capture" provenance tag (src/inject.ts renders it) and add
-// this one so decay/status can tell which trigger wrote them — the same
-// distinction the auto_capture_compaction_* evidence lines carry.
-const CAPTURE_COMPACT_TAG = "auto_capture_compaction";
-
 // The setup-time Bun-floor warning fires once per process (setup can run for
 // more than one location).
 let bunFloorChecked = false;
-
-// Auto-capture cooldown, shared by EVERY setup() registration (#108): setup
-// runs for more than one location, and per-closure cooldown maps made those
-// registrations strangers - one compaction could pay for two model calls on
-// one transcript. Same module-level shape as `turns` in src/lock.ts; the key
-// names the trigger, so measuring one trigger is still not confounded by the
-// other having fired moments ago.
-const lastCaptureRun = new Map<string, number>();
-
-const CAPTURE_COOLDOWN_MS = 5 * 60_000;
-
-/** True if this trigger may fire for this session now; records the fire. */
-function captureCooldownPasses(trigger: "idle" | "compaction", sid: string, now: number): boolean {
-  const key = `${trigger}:${sid}`;
-  if (now - (lastCaptureRun.get(key) ?? 0) < CAPTURE_COOLDOWN_MS) return false;
-  // Sessions churn and a long-lived server must not grow one entry per
-  // session forever; oldest-inserted go first (the ledger throttle's rule).
-  if (lastCaptureRun.size > 2000) {
-    for (const k of [...lastCaptureRun.keys()].slice(0, 1000)) lastCaptureRun.delete(k);
-  }
-  lastCaptureRun.set(key, now);
-  return true;
-}
-
-/** Clear the cooldown windows (tests; also what a process restart does). */
-export function resetCaptureCooldowns(): void {
-  lastCaptureRun.clear();
-}
-
-// ---- capture trigger vocabulary (#136) -------------------------------------
-// Single source of truth for capture subscriptions. Both turn-end events were
-// observed on the desktop service (test/fixtures/host-events.jsonl).
-// test/event-fidelity.test.ts requires every trigger to appear in both that
-// recording and the installed @opencode/schema manifest: a declared event
-// alone is insufficient evidence that the host emits it (#78, #136).
-// Identity triggers have a separate observed check in that test, combining
-// this recording with the 2.2.2 move extract in host-session-move.json (#176).
-export const TURN_END_EVENTS = ["session.execution.succeeded", "session.execution.interrupted"] as const;
-
-/** Every event type the capture subscription reacts to (fidelity-tested). */
-export const CAPTURE_EVENT_TYPES: readonly string[] = [...TURN_END_EVENTS];
-
-// `session.idle`, `session.status`, and `session.execution.failed` are declared
-// but absent from that recording, so they deliberately do not trigger capture.
-// Adding a trigger requires a recording; status would also need idle filtering.
-
-/**
- * True when a host event means "this session just went quiet". The internal
- * trigger name stays "idle" (cooldown keys, `auto_capture_*` evidence lines and
- * the historical idle-vs-compaction bench all use it).
- */
-export function captureTriggerFor(event: unknown): boolean {
-  const type = (event as { type?: unknown } | null)?.type;
-  return typeof type === "string" && (TURN_END_EVENTS as readonly string[]).includes(type);
-}
 
 // The real setup implementation, written against the loose local PluginCtx
 // (the only members of the V2 context this plugin actually touches).
@@ -483,181 +419,9 @@ const impl = {
     // so decay/status — and bench/capture-trigger-compare.ts — can measure
     // which trigger earns its tokens. Every failure is swallowed: capture must
     // never be able to break a session.
-    let captureCleanup: Cleanup | undefined;
-    if (ctx.options?.autoCapture === true) {
-      const captureModel =
-        typeof ctx.options.captureModel === "string" ? ctx.options.captureModel : "";
-      const captureMax = Number(ctx.options.captureMax) || 3;
-      const captureOnCompact = ctx.options?.captureOnCompact !== false;
-      const modelRef = parseModelRef(captureModel);
-      if (!modelRef) {
-        // Invalid/missing model: skip registering the whole subscription
-        // rather than guess (and warn once, at setup).
-        console.warn(
-          `[opencode-self-improvement] autoCapture is on but captureModel ${JSON.stringify(captureModel)} is invalid (expected "provider/id"); auto-capture disabled.`,
-        );
-      } else if (!ctx.event?.subscribe || !ctx.generate?.text || !ctx.session?.context) {
-        console.warn(
-          "[opencode-self-improvement] autoCapture is on but this OpenCode context lacks event.subscribe/generate.text/session.context; auto-capture disabled.",
-        );
-      } else {
-        const controller = new AbortController();
-        const eventApi = ctx.event;
-        const generateApi = ctx.generate;
-        // Arrow wrapper: keep the receiver bound. The harness fakes are closures,
-        // but a real client method that reads `this` would break if detached —
-        // and the fail-closed catch below would hide it. Optional call: the
-        // setup guard proves it exists, but property narrowing does not survive
-        // into the closure, and undefined degrades safely (empty transcript).
-        const contextFn = (input: { sessionID: string }) => ctx.session?.context?.(input);
-
-        // ONE capture pass, shared by both triggers. `seeded` is a transcript
-        // already in hand — the compaction hook carries the PRE-compaction
-        // messages, which is the whole point (Compaction Cliff: one round
-        // retains 53% of exact-wording rules); when it is absent (older host
-        // shapes) or too thin, the session context is read instead, the same
-        // source the idle trigger mines.
-        async function captureSession(
-          sid: string,
-          seeded: string,
-          trigger: "idle" | "compaction",
-          seededMsgs?: unknown,
-        ): Promise<void> {
-          // Bind the capturing session for the synchronous stretches of this
-          // path - but NOT as a promise: the awaits below let another session
-          // move current, so the gate context and the persisted rows thread
-          // `sid` explicitly instead of reading it back from the global (#116).
-          setCurrent({ sessionID: sid });
-          // The capture's dedup reads and the rows it writes partition by the
-          // CAPTURED session's repository — an unbound sid would otherwise
-          // read global-only and mine duplicates into the store (#127; in
-          // production the prompt hook already bound it firmly, so this is a
-          // no-op there). SYNC only: a lookup call here would break the
-          // zero-token promise of the capture tests.
-          bindSessionProvisional(sid, instanceDir);
-          const captureGate = gateContext(sid);
-          // #152: an instance with no workspace cannot say which repository the
-          // mined rows belong to, and rows with no owner are exactly what the
-          // store refuses. Skip BEFORE the model call — no tokens spent on a
-          // capture that cannot be stored — and leave the reason in evidence.
-          if (!writeTarget(sid).ok) {
-            await record("auto_capture_refused", { session: sid, trigger }, true, sid, captureGate.evidenceContext);
-            return;
-          }
-          let transcript = seeded;
-          let msgs = seededMsgs;
-          if (transcript.length < 200) {
-            msgs = await contextFn({ sessionID: sid });
-            transcript = flattenTranscript(msgs);
-          }
-          if (transcript.length < 200) return; // too thin to mine reliably
-          // #44: how stale is a capture? Distance from the newest message of
-          // the mined transcript to this instant - measured on whatever the
-          // trigger actually mined (the hook payload for compaction, the
-          // session context for idle), so both triggers' lag is comparable.
-          const lagMs = lagSince(msgs);
-          const out = await generateApi.text({
-            model: modelRef,
-            // Redact the COMPLETE transcript, THEN apply the character budget
-            // (#132). Cropping first can start the window INSIDE a credential:
-            // a PEM body whose BEGIN marker fell off, or a token whose prefix
-            // fell off, matches no pattern — buildCapturePrompt's own scrub
-            // (kept, defense in depth) cannot recognize a fragment.
-            prompt: buildCapturePrompt(redactSecrets(transcript).slice(-8000), captureMax),
-          });
-          const text = typeof out === "string" ? out : out?.text ?? "";
-          const candidates = parseCandidates(text, captureMax);
-          for (const c of candidates) {
-            const durable: string[] = [];
-            let outcome: Awaited<ReturnType<typeof runWriteGate>>;
-            try {
-              outcome = await runWriteGate(
-                quarantineCandidate({
-                  ...c,
-                  tags:
-                    trigger === "compaction"
-                      ? ["auto-capture", CAPTURE_COMPACT_TAG]
-                      : ["auto-capture"],
-                }),
-                { ...captureGate, durable },
-              );
-            } catch (err) {
-              // A refused write must not disappear into the hook's fail-soft
-              // wrapper. Preserve any earlier gate retirements in the receipt.
-              await record(durable.length ? "auto_capture_partial" : "auto_capture_refused", {
-                session: sid, trigger, type: c.type, scope: redactSecrets(c.scope),
-                reason: String(err), retired: durable.join(",") || undefined,
-              }, false, sid, captureGate.evidenceContext);
-              continue;
-            }
-            await record(
-              trigger === "compaction"
-                ? `auto_capture_compaction_${outcome.action}`
-                : `auto_capture_${outcome.action}`,
-              // A blocked credential-shaped scope must not reach the evidence log either.
-              // The promoted line also carries the audit fault when the
-              // write_promoted line fell (#155 review — capture has no
-              // reply to caveat, so this line is the trail's only note).
-              {
-                session: sid,
-                trigger,
-                type: c.type,
-                scope: redactSecrets(c.scope),
-                reason: outcome.reason ?? "",
-                audit_error: outcome.evidenceError,
-              },
-              false,
-              sid,
-              captureGate.evidenceContext,
-            );
-          }
-          await recordCaptureLag(sid, lagMs, candidates.length ? "candidates" : "empty", captureGate.evidenceContext);
-        }
-
-        void (async () => {
-          try {
-            for await (const raw of eventApi.subscribe({ signal: controller.signal })) {
-              if (!captureTriggerFor(raw)) continue;
-              const sid = captureSessionID(raw);
-              if (sid === undefined) continue;
-              setCurrent({ sessionID: sid });
-              const now = Date.now();
-              if (!captureCooldownPasses("idle", sid, now)) continue; // 5-min cooldown, shared across setups
-              try {
-                await captureSession(sid, "", "idle");
-              } catch {
-                // fail-closed: a broken capture attempt is invisible to the session
-              }
-            }
-          } catch {
-            // the subscription itself ended (abort or host error); nothing to do
-          }
-        })();
-        captureCleanup = () => controller.abort();
-
-        // The compaction trigger needs no extra subscription: the session
-        // compaction hook (registered above) calls through this seam. The
-        // cooldown names the trigger, so measuring a compaction capture is
-        // not confounded by an idle fire moments before - and lives at
-        // module level, so a second setup() cannot double-pay one
-        // compaction (#108).
-        if (captureOnCompact) {
-          onCompactCapture = (sid, messages) => {
-            if (controller.signal.aborted) return;
-            const now = Date.now();
-            if (!captureCooldownPasses("compaction", sid, now)) return; // 5-min cooldown
-            void guarded("session.compaction (auto-capture)", () =>
-              captureSession(sid, flattenTranscript(messages), "compaction", messages),
-            );
-          };
-        }
-      }
-    } else if (ctx.options?.captureOnCompact === true) {
-      // autoCapture is the master switch (zero-token default preserved).
-      console.warn(
-        "[opencode-self-improvement] captureOnCompact is on but autoCapture is off; compaction capture stays disabled (autoCapture is the master switch).",
-      );
-    }
+    const capture = configureAutoCapture(ctx, { instanceDir, gateContext, guarded });
+    onCompactCapture = capture.onCompactCapture;
+    const captureCleanup = capture.cleanup;
     // ---- startup heartbeat (#138) ------------------------------------------
     // Every other evidence line is written BY something that already worked,
     // so "capture is off", "capture is misconfigured" and "capture is armed and
