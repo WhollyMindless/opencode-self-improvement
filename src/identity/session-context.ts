@@ -116,21 +116,29 @@ export function createSessionContext(
   // so this path is a legacy-shape best-effort; the session-row fallback
   // below is what actually resolves serve-host sessions.
   // One-shot: never overwrites an event-bound entry.
-  const bindingSids = new Set<string>();
+  const messageBindings = new Map<string, Promise<void>>();
   async function bindSessionFromMessages(
     sid: string | undefined,
   ): Promise<void> {
-    if (!sid || sid === "?" || sessionDirFirm(sid) || bindingSids.has(sid))
-      return;
-    bindingSids.add(sid);
+    if (!sid || sid === "?" || sessionDirFirm(sid)) return;
+    const pending = messageBindings.get(sid);
+    if (pending) return pending;
+    // Publish the promise before invoking the host: concurrent callers must
+    // await this identity source rather than fall through to a provisional one.
+    const binding = Promise.resolve().then(async () => {
+      try {
+        const msgs = await ctx.session?.context?.({ sessionID: sid });
+        const dir = sessionDirectoryFromMessages(msgs);
+        if (dir !== undefined) rememberSessionDir(sid, dir);
+      } catch {
+        // no context access or host error: the event stream still binds later
+      }
+    });
+    messageBindings.set(sid, binding);
     try {
-      const msgs = await ctx.session?.context?.({ sessionID: sid });
-      const dir = sessionDirectoryFromMessages(msgs);
-      if (dir !== undefined) rememberSessionDir(sid, dir);
-    } catch {
-      // no context access or host error: the event stream still binds later
+      await binding;
     } finally {
-      bindingSids.delete(sid);
+      messageBindings.delete(sid);
     }
   }
 
@@ -145,17 +153,30 @@ export function createSessionContext(
   const apiBindOrder = new SessionLru(SESSION_CAP, (evicted) =>
     apiBindTried.delete(evicted),
   );
+  const apiBindings = new Map<string, Promise<void>>();
   async function bindSessionFromApi(sid: string | undefined): Promise<void> {
-    if (!sid || sid === "?" || sessionDirFirm(sid) || apiBindTried.has(sid))
-      return;
+    if (!sid || sid === "?" || sessionDirFirm(sid)) return;
+    // An event may already be fetching this row. Join it before consulting
+    // the completed-attempt cache, which also records attempts still in flight.
+    const pending = apiBindings.get(sid);
+    if (pending) return pending;
+    if (apiBindTried.has(sid)) return;
     apiBindTried.add(sid);
     apiBindOrder.touch(sid);
+    const binding = Promise.resolve().then(async () => {
+      try {
+        const got = await ctx.session?.get?.({ sessionID: sid });
+        const dir = sessionDirectoryFromRow(got);
+        if (dir !== undefined) rememberSessionDir(sid, dir);
+      } catch {
+        // no session.get on this host (or unknown session): stay unbound
+      }
+    });
+    apiBindings.set(sid, binding);
     try {
-      const got = await ctx.session?.get?.({ sessionID: sid });
-      const dir = sessionDirectoryFromRow(got);
-      if (dir !== undefined) rememberSessionDir(sid, dir);
-    } catch {
-      // no session.get on this host (or unknown session): stay unbound
+      await binding;
+    } finally {
+      apiBindings.delete(sid);
     }
   }
 
