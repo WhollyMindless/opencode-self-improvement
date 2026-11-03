@@ -9,12 +9,12 @@ a seeded store of 50 memories, a simulated session of
 (digest + frontier + relevance block) — the bytes a request actually sends,
 because prompt caching is a property of those bytes and not of the block alone.
 
-| Policy                                                                    | Recomputes | Cache busts | Injected chars (20 turns) | Avg/turn | Worst section |
-| ------------------------------------------------------------------------- | ---------: | ----------: | ------------------------: | -------: | ------------: |
-| A — recompute per prompt, uncapped (naive)                                |         20 |          19 |                     60996 |   3049.8 |          3404 |
-| B — block frozen on store fingerprint, digest rebuilt per turn (pre-#162) |          4 |           3 |                     55478 |   2773.9 |          2867 |
-| C — section frozen on rendered bytes (pre-#165)                           |          4 |           3 |                     55258 |   2762.9 |          2856 |
-| D — C + riding bytes: the session's own additions are free (shipped)      |          1 |           0 |                     53500 |   2675.0 |          2675 |
+| Policy | Recomputes | Cache busts | Injected chars (20 turns) | Avg/turn | Worst section |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A — recompute per prompt, uncapped (naive) | 20 | 19 | 60996 | 3049.8 | 3404 |
+| B — block frozen on store fingerprint, digest rebuilt per turn (pre-#162) | 4 | 3 | 55478 | 2773.9 | 2867 |
+| C — section frozen on rendered bytes (pre-#165) | 4 | 3 | 55258 | 2762.9 | 2856 |
+| D — C + riding bytes: the session's own additions are free (shipped) | 1 | 0 | 53500 | 2675.0 | 2675 |
 
 A "cache bust" is a turn whose memory-section bytes differ from the turn
 before: each one re-bills the whole conversation as fresh input.

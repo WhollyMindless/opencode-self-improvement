@@ -34,51 +34,51 @@ is never entered; a POSIX sweeper must not be filed against it as a catalog gap.
 ## Score
 
 **36/42 = 85.7%** canonical (43 mutants, 1 excluded equivalent, 0 load-errors). Full status table:
-| status     | runs | mutant                             | class | invariant                                                      | killed by                                                                                    |
-| ---------- | ---- | ---------------------------------- | ----- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| killed     | 1/1  | `lock-noexcl-mutex`                | D2    | lock file is created with O_EXCL: the mutex is cross-process   | concurrency.test.ts, lock.test.ts, scenarios-consistency.test.ts                             |
-| killed     | 1/1  | `lock-no-stale-steal`              | guard | a lock abandoned by a dead process is taken over after age     | concurrency.test.ts, lock.test.ts, scenarios-consistency.test.ts                             |
-| survived   | 0/1  | `lock-restore-failopen`            | D2    | restore fails CLOSED on a busy store, because force drops rows | —                                                                                            |
-| killed     | 1/1  | `publish-rename-to-truncate`       | D2    | whole-file publishes hand over by rename: readers (no lock)    | logfmt.test.ts                                                                               |
-| killed     | 1/1  | `append-truncate-regression`       | D2    | appends are one O_APPEND write, never a replacing write        | boundaries.test.ts, capture-compaction.test.ts, capture.test.ts, compaction.test.ts, concu…  |
-| killed     | 1/1  | `append-nolock`                    | D2    | appends hold the store lock: none lands inside an RMW window   | concurrency.test.ts, scenarios-consistency.test.ts, supersede-batch.test.ts                  |
-| survived   | 1/3  | `supersede-rmw-nolock`             | D2    | supersede is a locked read-modify-write (stampRow)             | —                                                                                            |
-| killed     | 3/3  | `prune-nolock`                     | D2    | prune filters and republishes under the store lock             | concurrency.test.ts, scenarios-consistency.test.ts                                           |
-| killed     | 1/1  | `prune-repofloor-off`              | guard | forget never deletes another repo's row for the same scope     | repo-scope.test.ts                                                                           |
-| killed     | 1/1  | `blocklist-poison-filter-off`      | guard | blocked (poisoned) rows are filtered from every read path      | concurrency.test.ts, epoch.test.ts, negative-eval.test.ts, undo.test.ts, viewer.test.ts      |
-| killed     | 1/1  | `malformed-ts-guard-and`           | guard | a non-ISO ts is malformed: skipped, never an addressable row   | boundaries.test.ts                                                                           |
-| killed     | 1/1  | `redact-chokepoint-off`            | guard | secrets are redacted at the single write choke point           | concurrency.test.ts, viewer.test.ts, write-caps.test.ts                                      |
-| killed     | 1/1  | `metadata-secret-guard-off`        | guard | credential-shaped metadata is refused, not stored              | keywords.test.ts, write-caps.test.ts                                                         |
-| survived   | 0/1  | `snapshot-overwrite`               | D4    | claimSnapshot bumps names with O_EXCL: a snapshot is never     | —                                                                                            |
-| killed     | 1/1  | `visible-global-off`               | guard | repo visibility: explicitly-global rows stay visible everyw... | repo-scope.test.ts                                                                           |
-| killed     | 1/1  | `undo-force-safety-removed`        | D4    | force-restore snapshots what it drops, inside the lock:        | concurrency.test.ts, scenarios-consistency.test.ts, scenarios-scripted.test.ts, undo.test.ts |
-| killed     | 1/1  | `undo-force-safety-after-publish`  | D4    | the safety copy is taken BEFORE the publish that drops rows    | concurrency.test.ts, scenarios-consistency.test.ts, scenarios-scripted.test.ts, undo.test.ts |
-| killed     | 1/1  | `undo-check-mutates`               | D1    | check mode never writes: a diverged store is refused, untou... | scenarios-consistency.test.ts, undo.test.ts                                                  |
-| killed     | 1/1  | `undo-escapes-root-branch`         | D3    | containment: the requested snapshot path stays in snapshots/   | undo.test.ts                                                                                 |
-| killed     | 1/1  | `budget-overlong-breaks-scan`      | pure  | capToBudget skips over-long lines and keeps scanning the rest  | epoch.test.ts                                                                                |
-| killed     | 1/1  | `budget-dangling-header`           | pure  | a block trimmed down to headers is dropped, never injected     | epoch.test.ts                                                                                |
-| equivalent | -    | `budget-header-fit-boundary`       | pure  | a header exactly the size of the budget still counts as fit... | —                                                                                            |
-| killed     | 1/1  | `repokey-colon-form`               | pure  | every transport form of one remote hashes to one repo key      | repo-scope.test.ts                                                                           |
-| survived   | 0/1  | `viewer-snapshot-grammar-off`      | D3    | restore names are pinned to the snapshot grammar at the wire   | —                                                                                            |
-| killed     | 1/1  | `viewer-host-guard-off`            | guard | the loopback viewer rejects foreign Host headers (DNS rebin... | viewer.test.ts                                                                               |
-| killed     | 1/1  | `viewer-content-type-off`          | guard | writes must be application/json (cross-site form refusal)      | concurrency.test.ts, viewer.test.ts                                                          |
-| killed     | 1/1  | `lock-noop`                        | D2    | whole-file rewrites are serialized per store file              | concurrency.test.ts, lock.test.ts, scenarios-consistency.test.ts, supersede-batch.test.ts    |
-| killed     | 1/1  | `lock-release-blind`               | D2    | a holder never deletes a lock another process took over        | lock.test.ts                                                                                 |
-| survived   | 0/1  | `lock-default-fail`                | D1    | an ordinary write proceeds rather than losing the write        | —                                                                                            |
-| killed     | 1/1  | `lock-default-fail-queued`         | D1    | a queued ordinary write proceeds rather than losing the write  | lock.test.ts                                                                                 |
-| killed     | 1/1  | `restore-merge-drops`              | D4    | merge restores the snapshot AND keeps concurrently written ... | concurrency.test.ts, scenarios-consistency.test.ts, undo.test.ts                             |
-| survived   | 0/1  | `restore-escapes-root`             | D3    | a restore cannot write outside the memory root                 | —                                                                                            |
-| killed     | 1/1  | `row-ts-any`                       | guard | a row whose ts is not an ISO instant is not addressable        | boundaries.test.ts                                                                           |
-| killed     | 1/1  | `repo-floor-off`                   | guard | another repo's rows never surface or get deleted here          | negative-eval.test.ts, repo-scope-session.test.ts, repo-scope.test.ts                        |
-| killed     | 1/1  | `content-cap-off`                  | guard | nothing oversized is persisted (append floor)                  | write-caps.test.ts                                                                           |
-| killed     | 1/1  | `gate-blocks-ignored`              | D1    | a write rejected by a gate never reaches the store             | frontier.test.ts, gated-injection.test.ts, negative-eval.test.ts, path-refs.test.ts, scena…  |
-| killed     | 1/1  | `gate-dupes-promoted`              | D1    | a near-duplicate is collapsed, not stored twice                | capture-compaction.test.ts, capture.test.ts, gated-injection.test.ts, init.test.ts, keywor…  |
-| killed     | 1/1  | `gate-content-cap-off`             | guard | oversized content is blocked with a reason, not stored         | write-caps.test.ts                                                                           |
-| killed     | 1/1  | `inject-one-token-shared`          | pure  | free-text prompts need two shared concepts to inject           | consolidate-bench.test.ts, inject.test.ts, keywords.test.ts, negative-eval.test.ts           |
-| killed     | 1/1  | `inject-frontier-uncapped`         | pure  | only the newest open threads are surfaced                      | concurrency.test.ts, frontier.test.ts                                                        |
-| killed     | 1/1  | `viewer-origin-guard-off`          | guard | cross-origin writes to the viewer are refused                  | viewer.test.ts                                                                               |
-| killed     | 1/1  | `import-frontier-any-version`      | guard | a newer export header does not grant the frontier exemption    | portable.test.ts                                                                             |
-| killed     | 1/1  | `import-open-status-unconditional` | guard | status:open is honored only under its guards (export header... | injection-framing.test.ts, portable.test.ts                                                  |
+| status | runs | mutant | class | invariant | killed by |
+| --- | --- | --- | --- | --- | --- |
+| killed | 1/1 | `lock-noexcl-mutex` | D2 | lock file is created with O_EXCL: the mutex is cross-process | concurrency.test.ts, lock.test.ts, scenarios-consistency.test.ts |
+| killed | 1/1 | `lock-no-stale-steal` | guard | a lock abandoned by a dead process is taken over after age | concurrency.test.ts, lock.test.ts, scenarios-consistency.test.ts |
+| survived | 0/1 | `lock-restore-failopen` | D2 | restore fails CLOSED on a busy store, because force drops rows | — |
+| killed | 1/1 | `publish-rename-to-truncate` | D2 | whole-file publishes hand over by rename: readers (no lock) | logfmt.test.ts |
+| killed | 1/1 | `append-truncate-regression` | D2 | appends are one O_APPEND write, never a replacing write | boundaries.test.ts, capture-compaction.test.ts, capture.test.ts, compaction.test.ts, concu… |
+| killed | 1/1 | `append-nolock` | D2 | appends hold the store lock: none lands inside an RMW window | concurrency.test.ts, scenarios-consistency.test.ts, supersede-batch.test.ts |
+| survived | 1/3 | `supersede-rmw-nolock` | D2 | supersede is a locked read-modify-write (stampRow) | — |
+| killed | 3/3 | `prune-nolock` | D2 | prune filters and republishes under the store lock | concurrency.test.ts, scenarios-consistency.test.ts |
+| killed | 1/1 | `prune-repofloor-off` | guard | forget never deletes another repo's row for the same scope | repo-scope.test.ts |
+| killed | 1/1 | `blocklist-poison-filter-off` | guard | blocked (poisoned) rows are filtered from every read path | concurrency.test.ts, epoch.test.ts, negative-eval.test.ts, undo.test.ts, viewer.test.ts |
+| killed | 1/1 | `malformed-ts-guard-and` | guard | a non-ISO ts is malformed: skipped, never an addressable row | boundaries.test.ts |
+| killed | 1/1 | `redact-chokepoint-off` | guard | secrets are redacted at the single write choke point | concurrency.test.ts, viewer.test.ts, write-caps.test.ts |
+| killed | 1/1 | `metadata-secret-guard-off` | guard | credential-shaped metadata is refused, not stored | keywords.test.ts, write-caps.test.ts |
+| survived | 0/1 | `snapshot-overwrite` | D4 | claimSnapshot bumps names with O_EXCL: a snapshot is never | — |
+| killed | 1/1 | `visible-global-off` | guard | repo visibility: explicitly-global rows stay visible everyw... | repo-scope.test.ts |
+| killed | 1/1 | `undo-force-safety-removed` | D4 | force-restore snapshots what it drops, inside the lock: | concurrency.test.ts, scenarios-consistency.test.ts, scenarios-scripted.test.ts, undo.test.ts |
+| killed | 1/1 | `undo-force-safety-after-publish` | D4 | the safety copy is taken BEFORE the publish that drops rows | concurrency.test.ts, scenarios-consistency.test.ts, scenarios-scripted.test.ts, undo.test.ts |
+| killed | 1/1 | `undo-check-mutates` | D1 | check mode never writes: a diverged store is refused, untou... | scenarios-consistency.test.ts, undo.test.ts |
+| killed | 1/1 | `undo-escapes-root-branch` | D3 | containment: the requested snapshot path stays in snapshots/ | undo.test.ts |
+| killed | 1/1 | `budget-overlong-breaks-scan` | pure | capToBudget skips over-long lines and keeps scanning the rest | epoch.test.ts |
+| killed | 1/1 | `budget-dangling-header` | pure | a block trimmed down to headers is dropped, never injected | epoch.test.ts |
+| equivalent | - | `budget-header-fit-boundary` | pure | a header exactly the size of the budget still counts as fit... | — |
+| killed | 1/1 | `repokey-colon-form` | pure | every transport form of one remote hashes to one repo key | repo-scope.test.ts |
+| survived | 0/1 | `viewer-snapshot-grammar-off` | D3 | restore names are pinned to the snapshot grammar at the wire | — |
+| killed | 1/1 | `viewer-host-guard-off` | guard | the loopback viewer rejects foreign Host headers (DNS rebin... | viewer.test.ts |
+| killed | 1/1 | `viewer-content-type-off` | guard | writes must be application/json (cross-site form refusal) | concurrency.test.ts, viewer.test.ts |
+| killed | 1/1 | `lock-noop` | D2 | whole-file rewrites are serialized per store file | concurrency.test.ts, lock.test.ts, scenarios-consistency.test.ts, supersede-batch.test.ts |
+| killed | 1/1 | `lock-release-blind` | D2 | a holder never deletes a lock another process took over | lock.test.ts |
+| survived | 0/1 | `lock-default-fail` | D1 | an ordinary write proceeds rather than losing the write | — |
+| killed | 1/1 | `lock-default-fail-queued` | D1 | a queued ordinary write proceeds rather than losing the write | lock.test.ts |
+| killed | 1/1 | `restore-merge-drops` | D4 | merge restores the snapshot AND keeps concurrently written ... | concurrency.test.ts, scenarios-consistency.test.ts, undo.test.ts |
+| survived | 0/1 | `restore-escapes-root` | D3 | a restore cannot write outside the memory root | — |
+| killed | 1/1 | `row-ts-any` | guard | a row whose ts is not an ISO instant is not addressable | boundaries.test.ts |
+| killed | 1/1 | `repo-floor-off` | guard | another repo's rows never surface or get deleted here | negative-eval.test.ts, repo-scope-session.test.ts, repo-scope.test.ts |
+| killed | 1/1 | `content-cap-off` | guard | nothing oversized is persisted (append floor) | write-caps.test.ts |
+| killed | 1/1 | `gate-blocks-ignored` | D1 | a write rejected by a gate never reaches the store | frontier.test.ts, gated-injection.test.ts, negative-eval.test.ts, path-refs.test.ts, scena… |
+| killed | 1/1 | `gate-dupes-promoted` | D1 | a near-duplicate is collapsed, not stored twice | capture-compaction.test.ts, capture.test.ts, gated-injection.test.ts, init.test.ts, keywor… |
+| killed | 1/1 | `gate-content-cap-off` | guard | oversized content is blocked with a reason, not stored | write-caps.test.ts |
+| killed | 1/1 | `inject-one-token-shared` | pure | free-text prompts need two shared concepts to inject | consolidate-bench.test.ts, inject.test.ts, keywords.test.ts, negative-eval.test.ts |
+| killed | 1/1 | `inject-frontier-uncapped` | pure | only the newest open threads are surfaced | concurrency.test.ts, frontier.test.ts |
+| killed | 1/1 | `viewer-origin-guard-off` | guard | cross-origin writes to the viewer are refused | viewer.test.ts |
+| killed | 1/1 | `import-frontier-any-version` | guard | a newer export header does not grant the frontier exemption | portable.test.ts |
+| killed | 1/1 | `import-open-status-unconditional` | guard | status:open is honored only under its guards (export header... | injection-framing.test.ts, portable.test.ts |
 
 Run annotations: `prune-nolock` was killed only by timing-sensitive tests and confirmed 3/3;
 `supersede-rmw-nolock` was an unstable kill (1/3) - timing luck, not credited, and it lands on the unpinned
@@ -88,6 +88,7 @@ list below under #68's D2 rule.
 
 Six invariants the suite does not currently defend. None is a live bug found; each is a promise the tests
 would not notice being broken - the cheap pins are named per mutant:
+
 1. **`lock-restore-failopen` [D2]** (flipped from killed 3/3 on 0.13.0) - `LOCK_RESTORE.onTimeout` moved from
    "fail" to "proceed" means a force-restore runs UNLOCKED on a busy store and nothing notices. The killer
    files (`concurrency`, `scenarios-consistency`) did not change between the two swept trees; the only file
@@ -117,6 +118,7 @@ would not notice being broken - the cheap pins are named per mutant:
 ## What changed since the `7c4a22d` (0.13.0) run
 
 The score moved 38/42 → 36/42, and the reason matters more than the number:
+
 - **Gained: `publish-rename-to-truncate` survived → killed 1/1** by `logfmt.test.ts`. That row was 0.13.0's
   headline finding - "the deterministic stall-a-publisher pin does not exist yet" - and it does now: #89
   shipped the publish rework with its four property pins (`a72a82b`). The loop closed exactly as #70

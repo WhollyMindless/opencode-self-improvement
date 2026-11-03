@@ -1,8 +1,8 @@
 ---
-
-## description: Initialize the code graph and build/test memories for this repo
-
+description: Initialize the code graph and build/test memories for this repo
+---
 Initialize this repository for durable memory and graph-backed work.
+
 1. Ensure the codebase-memory graph is indexed for this repository.
 2. Re-derive build/lint/test/typecheck commands and write them as pattern
    memories (scope = this repo name).
