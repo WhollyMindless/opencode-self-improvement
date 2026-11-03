@@ -13,12 +13,11 @@
 //      portable.test.ts frontier-policy tests cover the import side).
 // Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts"
-import { dateStr } from "../src/core/time.ts";
-import { formatLine, parseLine, type Fields } from "../src/core/logfmt/format.ts";
+import { memoryRoot } from "../src/core/config/paths.ts"
+import { formatLine, } from "../src/core/logfmt/format.ts";
 import { loadAll } from "../src/store/files/load.ts"
 import { isActive } from "../src/store/model/predicates.ts";
 import { resetState } from "../src/core/state.ts";
@@ -29,6 +28,7 @@ import { systemDigest } from "../src/inject/digest.ts"
 import { contextualPull } from "../src/inject/pull.ts"
 import { relevantKnowledge } from "../src/recall/relevant.ts";
 import { loadPlugin } from "./harness.ts";
+import { readEvidenceLog as evidence, sleep } from "./helpers/logfmt.ts";
 
 let root: string;
 let liveRoot: string;
@@ -80,17 +80,6 @@ function seed(type: string, scope: string, content: string, extra: SeedOpts = {}
   return ts;
 }
 
-function evidence(): Fields[] {
-  const file = join(evidenceDir(), `${dateStr()}.logfmt`);
-  if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => parseLine(l))
-    .filter((f): f is Fields => f !== null);
-}
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
   const start = Date.now();
   while (!cond()) {

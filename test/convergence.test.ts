@@ -6,18 +6,16 @@
 // data: nothing raw leaks into chat.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts"
+import { evidenceDir, } from "../src/core/config/paths.ts"
 import { dateStr } from "../src/core/time.ts";
-import { formatLine, parseLine, type Fields } from "../src/core/logfmt/format.ts";
+import { formatLine, } from "../src/core/logfmt/format.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { systemDigest } from "../src/inject/digest.ts";
 import {
@@ -32,6 +30,7 @@ import {
 import { resetState, setCurrent } from "../src/core/state.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
 import { loadPlugin } from "./harness.ts";
+import { readEvidenceLog as evidence, ev, field } from "./helpers/logfmt.ts";
 
 let root: string;
 let liveRoot: string;
@@ -51,24 +50,6 @@ afterEach(() => {
   delete process.env.OPENCODE_COMMANDS_DIR;
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
-
-function evidence(): Fields[] {
-  const file = join(evidenceDir(), `${dateStr()}.logfmt`);
-  if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => parseLine(l))
-    .filter((f): f is Fields => f !== null);
-}
-
-function ev(lines: Fields[], name: string): Fields[] {
-  return lines.filter((l) => l.ev === name);
-}
-
-function field(line: Fields | undefined, key: string): string {
-  return line ? String(line[key] ?? "") : "";
-}
 
 async function engage(sid: string, callID: string, tool: string): Promise<void> {
   setCurrent({ sessionID: sid, callID, tool });

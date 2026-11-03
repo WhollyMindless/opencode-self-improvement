@@ -17,6 +17,7 @@ import { loadAll } from "../src/store/files/load.ts"
 import { markManySuperseded, markSuperseded } from "../src/store/files/supersede.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
+import { dayFile } from "./helpers/logfmt.ts";
 
 let root: string;
 beforeEach(() => {
@@ -31,8 +32,6 @@ afterEach(() => {
 });
 
 const memDir = () => process.env.OPENCODE_MEMORY_DIR!;
-const dayName = (offsetDays = 0) => `${new Date(Date.now() - offsetDays * 86_400_000).toISOString().split("T")[0]}.logfmt`;
-const dayFile = (offsetDays = 0) => join(memDir(), dayName(offsetDays));
 const snaps = () => (existsSync(join(memDir(), "snapshots")) ? readdirSync(join(memDir(), "snapshots")) : []);
 const batch = (ts: string[], by = "batch") => ts.map((t) => ({ ts: t, fields: { superseded_by: by, reason: "drift" } }));
 

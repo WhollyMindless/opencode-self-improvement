@@ -30,6 +30,7 @@ import { resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/r
 import { resetState } from "../src/core/state.ts";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
 import { formatLine, parseLine, type Fields } from "../src/core/logfmt/format.ts";
+import { sleep } from "./helpers/logfmt.ts";
 
 let root: string;
 let a: string;
@@ -69,7 +70,6 @@ function stampOf(dir: string): { repo: string; repoPath: string } {
 }
 const ctx = (sessionID: string) => ({ sessionID, id: "outcome" });
 const active = () => loadAll().then((ms) => ms.filter((m) => !m.superseded_by));
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(cond: () => boolean, timeoutMs = 4000): Promise<void> {
   const start = Date.now();
   while (!cond()) {
