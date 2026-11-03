@@ -2,17 +2,17 @@
 
 49 queries over 24 session facts (committed dataset), 150 equal distractors per store, shipped matcher, k=3. Cliff simulation: idle world mines AFTER a compaction that retained 13/24 facts (53% per arXiv:2608.22752); compaction world mines the full transcript AT the hook. Capture model: scripted faithful extractor (prompt containment asserted by control 6).
 
-| world | trigger | captured rows | R@3 | gold missing (lost to cliff) | rank miss | model calls |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| off | none (control) | 0 | 0% (0/49) | 49 | 0 | 0 |
-| compaction | session.compaction | 0 | 0% (0/49) | 49 | 0 | 0 |
-| idle | session.idle | 13 | 24% (12/49) | 22 | 15 | 1 |
+| world      | trigger            | captured rows |         R@3 | gold missing (lost to cliff) | rank miss | model calls |
+| ---------- | ------------------ | ------------: | ----------: | ---------------------------: | --------: | ----------: |
+| off        | none (control)     |             0 |   0% (0/49) |                           49 |         0 |           0 |
+| compaction | session.compaction |             0 |   0% (0/49) |                           49 |         0 |           0 |
+| idle       | session.idle       |            13 | 24% (12/49) |                           22 |        15 |           1 |
 
-| query class | off R@3 | compaction R@3 | idle R@3 |
-| --- | ---: | ---: | ---: |
-| lexical | 0% (0/20) | 0% (0/20) | 55% (11/20) |
-| near | 0% (0/10) | 0% (0/10) | 10% (1/10) |
-| strict | 0% (0/19) | 0% (0/19) | 0% (0/19) |
+| query class |   off R@3 | compaction R@3 |    idle R@3 |
+| ----------- | --------: | -------------: | ----------: |
+| lexical     | 0% (0/20) |      0% (0/20) | 55% (11/20) |
+| near        | 0% (0/10) |      0% (0/10) |  10% (1/10) |
+| strict      | 0% (0/19) |      0% (0/19) |   0% (0/19) |
 
 ## Controls
 

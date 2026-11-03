@@ -39,17 +39,28 @@
 //   bun bench/recall-quality.ts
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { formatMemory } from "../src/inject/format.ts"
+import { formatMemory } from "../src/inject/format.ts";
 import { scoreMemories, words } from "../src/recall/score.ts";
 import type { Memory } from "../src/store/model/memory.ts";
-import { buildStore, KEYWORDS, keywordsFor, MEMORIES, QUERIES } from "./recall-dataset.ts";
+import {
+  buildStore,
+  KEYWORDS,
+  keywordsFor,
+  MEMORIES,
+  QUERIES,
+} from "./recall-dataset.ts";
 
 /** Production injection window: the block shows at most this many rows. */
 export const INJECT_K = 3;
 
 export type Rank = (query: string, mems: Memory[]) => Memory[];
 
-function asMemory(type: string, scope: string, content: string, kw?: string[]): Memory {
+function asMemory(
+  type: string,
+  scope: string,
+  content: string,
+  kw?: string[],
+): Memory {
   return {
     ts: "2026-01-01T00:00:00.000Z",
     type,
@@ -77,7 +88,8 @@ export const naive: Rank = (query, mems) => {
     .map((s) => s.m);
 };
 
-export const prod: Rank = (query, mems) => scoreMemories(query, mems, mems.length);
+export const prod: Rank = (query, mems) =>
+  scoreMemories(query, mems, mems.length);
 
 export const BM25_K1 = 1.2;
 export const BM25_B = 0.75;
@@ -87,7 +99,8 @@ export function bm25Rank(query: string, mems: Memory[]): Memory[] {
   const N = docs.length || 1;
   const avgdl = docs.reduce((a, d) => a + d.length, 0) / N;
   const df = new Map<string, number>();
-  for (const d of docs) for (const t of new Set(d)) df.set(t, (df.get(t) ?? 0) + 1);
+  for (const d of docs)
+    for (const t of new Set(d)) df.set(t, (df.get(t) ?? 0) + 1);
   const q = [...new Set(words(query))];
   const scored = mems.map((m, i) => {
     const tf = new Map<string, number>();
@@ -99,11 +112,17 @@ export function bm25Rank(query: string, mems: Memory[]): Memory[] {
       if (!f) continue;
       const dft = df.get(t) ?? 0;
       const idf = Math.log(1 + (N - dft + 0.5) / (dft + 0.5));
-      s += idf * ((f * (BM25_K1 + 1)) / (f + BM25_K1 * (1 - BM25_B + BM25_B * (dl / avgdl))));
+      s +=
+        idf *
+        ((f * (BM25_K1 + 1)) /
+          (f + BM25_K1 * (1 - BM25_B + BM25_B * (dl / avgdl))));
     }
     return { m, s };
   });
-  return scored.sort((a, b) => b.s - a.s).filter((x) => x.s > 0).map((x) => x.m);
+  return scored
+    .sort((a, b) => b.s - a.s)
+    .filter((x) => x.s > 0)
+    .map((x) => x.m);
 }
 
 // --- negative controls --------------------------------------------------------
@@ -126,7 +145,9 @@ export const CONTROL_ARMS: Record<string, Rank> = {
 
 // Stopwords ONLY for LABELING the class; every scorer runs as it ships.
 const STOP = new Set(
-  "a an and are at be but by can did do does for from had has have how i in into is it its me my no not of on or our so than that the their them then there these they this to us was we were what when where which who why will with you your run runs getting want needs right back yet also just still ever".split(" "),
+  "a an and are at be but by can did do does for from had has have how i in into is it its me my no not of on or our so than that the their them then there these they this to us was we were what when where which who why will with you your run runs getting want needs right back yet also just still ever".split(
+    " ",
+  ),
 );
 
 const goldById = new Map(MEMORIES.map((m) => [m.id, m]));
@@ -160,7 +181,10 @@ export type StoreIndex = "none" | "kw" | "shuffled";
 const SHUFFLE_OFFSET = 7;
 const KW_IDS = Object.keys(KEYWORDS);
 
-function indexedKeywordsFor(id: string, mode: StoreIndex): string[] | undefined {
+function indexedKeywordsFor(
+  id: string,
+  mode: StoreIndex,
+): string[] | undefined {
   if (mode === "none") return undefined;
   if (mode === "kw") return keywordsFor(id);
   const base = id.split("#")[0]!;
@@ -179,7 +203,10 @@ export function storeAt(size: number, index: StoreIndex = "none"): StoreRows {
   const store = buildStore(size);
   const row = (m: (typeof store)[number]) =>
     asMemory(m.type, m.scope, m.content, indexedKeywordsFor(m.id, index));
-  return { rows: store.map(row), gold: new Map(store.map((m) => [m.id, row(m)])) };
+  return {
+    rows: store.map(row),
+    gold: new Map(store.map((m) => [m.id, row(m)])),
+  };
 }
 
 /**
@@ -188,7 +215,9 @@ export function storeAt(size: number, index: StoreIndex = "none"): StoreRows {
  * the newline between them. An empty ranking (abstention) costs nothing.
  */
 export function injectedChars(rank: Memory[]): number {
-  return rank.slice(0, INJECT_K).reduce((a, m) => a + formatMemory(m).length + 1, 0);
+  return rank
+    .slice(0, INJECT_K)
+    .reduce((a, m) => a + formatMemory(m).length + 1, 0);
 }
 
 export interface ClassScore {
@@ -208,14 +237,24 @@ export interface ArmScore {
   byClass: Record<QClass, ClassScore>;
 }
 
-const emptyClass = (): ClassScore => ({ n: 0, r1: 0, r3: 0, silent: 0, injectedChars: 0 });
+const emptyClass = (): ClassScore => ({
+  n: 0,
+  r1: 0,
+  r3: 0,
+  silent: 0,
+  injectedChars: 0,
+});
 
 /**
  * Score ONE arm over every query whose gold is in the store. Used by the
  * published control table and pinned by test/negative-eval.test.ts, so the
  * "can this metric fail?" question is an assertion, not a comment.
  */
-export function scoreArm(size: number, rank: Rank, index: StoreIndex = "none"): ArmScore {
+export function scoreArm(
+  size: number,
+  rank: Rank,
+  index: StoreIndex = "none",
+): ArmScore {
   const { rows, gold } = storeAt(size, index);
   const score: ArmScore = {
     n: 0,
@@ -223,7 +262,11 @@ export function scoreArm(size: number, rank: Rank, index: StoreIndex = "none"): 
     r3: 0,
     silent: 0,
     injectedChars: 0,
-    byClass: { lexical: emptyClass(), near: emptyClass(), strict: emptyClass() },
+    byClass: {
+      lexical: emptyClass(),
+      near: emptyClass(),
+      strict: emptyClass(),
+    },
   };
   for (const { q, gold: goldId } of QUERIES) {
     const goldMem = gold.get(goldId);
@@ -287,10 +330,25 @@ export function evaluate(size: number) {
     if (!goldMem) continue; // gold not in this store
     const cls = measureClass(q, gold);
     const r = byClass.get(cls) ?? {
-      cls, n: 0, naiveR3: 0, prodR1: 0, prodR3: 0, bm25R1: 0, bm25R3: 0,
-      prodRecovers: 0, bm25Recovers: 0, allMiss: 0, silent: 0,
-      kwR1: 0, kwR3: 0, kwRecovers: 0, kwSilent: 0,
-      charsProd: 0, charsKw: 0, charsNaive: 0, charsBm25: 0,
+      cls,
+      n: 0,
+      naiveR3: 0,
+      prodR1: 0,
+      prodR3: 0,
+      bm25R1: 0,
+      bm25R3: 0,
+      prodRecovers: 0,
+      bm25Recovers: 0,
+      allMiss: 0,
+      silent: 0,
+      kwR1: 0,
+      kwR3: 0,
+      kwRecovers: 0,
+      kwSilent: 0,
+      charsProd: 0,
+      charsKw: 0,
+      charsNaive: 0,
+      charsBm25: 0,
     };
     const nv = naive(q, mems);
     const p = prod(q, mems);
@@ -327,10 +385,13 @@ export function evaluate(size: number) {
 }
 
 function r2list(m: Map<QClass, Row>): Row[] {
-  return (["lexical", "near", "strict"] as QClass[]).map((c) => m.get(c)!).filter(Boolean);
+  return (["lexical", "near", "strict"] as QClass[])
+    .map((c) => m.get(c)!)
+    .filter(Boolean);
 }
 
-const pct = (hit: number, n: number) => (n ? `${Math.round((hit / n) * 100)}%` : "-");
+const pct = (hit: number, n: number) =>
+  n ? `${Math.round((hit / n) * 100)}%` : "-";
 const per1k = (hits: number, chars: number) =>
   chars > 0 ? (hits / (chars / 1000)).toFixed(2) : "—";
 
@@ -338,7 +399,9 @@ const SIZES = [50, 200, 500];
 
 function report(): string {
   const lines: string[] = [];
-  lines.push("# Recall quality: shipped matcher vs alternatives (zero dependencies, zero models)");
+  lines.push(
+    "# Recall quality: shipped matcher vs alternatives (zero dependencies, zero models)",
+  );
   lines.push("");
   lines.push(
     `Dataset: ${MEMORIES.length} gold memories, ${QUERIES.length} queries; classes assigned by ` +
@@ -356,13 +419,35 @@ function report(): string {
     const { rows, noiseNaive, noiseProd, noiseKw } = evaluate(size);
     lines.push(`## Store size ${size}`);
     lines.push("");
-    lines.push("| Query class | n | naive R@3 | prod R@1 | prod R@3 | BM25 R@1 | BM25 R@3 | prod recovers | BM25 recovers | all miss | prod abstains |");
-    lines.push("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
-    const tot = { n: 0, nv: 0, p1: 0, p3: 0, b1: 0, b3: 0, pr: 0, rec: 0, miss: 0, sil: 0 };
+    lines.push(
+      "| Query class | n | naive R@3 | prod R@1 | prod R@3 | BM25 R@1 | BM25 R@3 | prod recovers | BM25 recovers | all miss | prod abstains |",
+    );
+    lines.push(
+      "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    );
+    const tot = {
+      n: 0,
+      nv: 0,
+      p1: 0,
+      p3: 0,
+      b1: 0,
+      b3: 0,
+      pr: 0,
+      rec: 0,
+      miss: 0,
+      sil: 0,
+    };
     for (const r of rows) {
-      tot.n += r.n; tot.nv += r.naiveR3; tot.p1 += r.prodR1; tot.p3 += r.prodR3;
-      tot.b1 += r.bm25R1; tot.b3 += r.bm25R3; tot.pr += r.prodRecovers; tot.rec += r.bm25Recovers;
-      tot.miss += r.allMiss; tot.sil += r.silent;
+      tot.n += r.n;
+      tot.nv += r.naiveR3;
+      tot.p1 += r.prodR1;
+      tot.p3 += r.prodR3;
+      tot.b1 += r.bm25R1;
+      tot.b3 += r.bm25R3;
+      tot.pr += r.prodRecovers;
+      tot.rec += r.bm25Recovers;
+      tot.miss += r.allMiss;
+      tot.sil += r.silent;
       lines.push(
         `| ${r.cls} | ${r.n} | ${pct(r.naiveR3, r.n)} | ${pct(r.prodR1, r.n)} | ${pct(r.prodR3, r.n)} | ` +
           `${pct(r.bm25R1, r.n)} | ${pct(r.bm25R3, r.n)} | ${r.prodRecovers} | ${r.bm25Recovers} | ${r.allMiss} | ${r.silent} |`,
@@ -379,14 +464,26 @@ function report(): string {
     );
     lines.push("");
 
-    lines.push("Vocabulary bridge — same matcher, `kw` aliases indexed (the strict wall is what it attacks):");
+    lines.push(
+      "Vocabulary bridge — same matcher, `kw` aliases indexed (the strict wall is what it attacks):",
+    );
     lines.push("");
-    lines.push("| Query class | n | prod R@1 | prod+kw R@1 | prod R@3 | prod+kw R@3 | kw recovers | prod abstains | prod+kw abstains |");
-    lines.push("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+    lines.push(
+      "| Query class | n | prod R@1 | prod+kw R@1 | prod R@3 | prod+kw R@3 | kw recovers | prod abstains | prod+kw abstains |",
+    );
+    lines.push(
+      "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    );
     const kt = { n: 0, p1: 0, k1: 0, p3: 0, k3: 0, rec: 0, sil: 0, silKw: 0 };
     for (const r of rows) {
-      kt.n += r.n; kt.p1 += r.prodR1; kt.k1 += r.kwR1; kt.p3 += r.prodR3; kt.k3 += r.kwR3;
-      kt.rec += r.kwRecovers; kt.sil += r.silent; kt.silKw += r.kwSilent;
+      kt.n += r.n;
+      kt.p1 += r.prodR1;
+      kt.k1 += r.kwR1;
+      kt.p3 += r.prodR3;
+      kt.k3 += r.kwR3;
+      kt.rec += r.kwRecovers;
+      kt.sil += r.silent;
+      kt.silKw += r.kwSilent;
       lines.push(
         `| ${r.cls} | ${r.n} | ${pct(r.prodR1, r.n)} | ${pct(r.kwR1, r.n)} | ${pct(r.prodR3, r.n)} | ` +
           `${pct(r.kwR3, r.n)} | ${r.kwRecovers} | ${r.silent} | ${r.kwSilent} |`,
@@ -398,7 +495,9 @@ function report(): string {
     );
     lines.push("");
 
-    lines.push("Efficiency — R@3 hits per 1k injected characters (window k=3; abstention = a miss that costs nothing):");
+    lines.push(
+      "Efficiency — R@3 hits per 1k injected characters (window k=3; abstention = a miss that costs nothing):",
+    );
     lines.push("");
     lines.push(
       "> How to read this: a matcher that abstains spends no characters, so its ratio flatters it — prod's " +
@@ -408,12 +507,31 @@ function report(): string {
         "because the bytes it does spend land on rows that answer.",
     );
     lines.push("");
-    lines.push("| Query class | n | chars prod | chars prod+kw | naive /1k | prod /1k | prod+kw /1k | BM25 /1k |");
+    lines.push(
+      "| Query class | n | chars prod | chars prod+kw | naive /1k | prod /1k | prod+kw /1k | BM25 /1k |",
+    );
     lines.push("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
-    const et = { n: 0, cp: 0, ck: 0, cn: 0, cb: 0, p3: 0, k3: 0, nv3: 0, b3: 0 };
+    const et = {
+      n: 0,
+      cp: 0,
+      ck: 0,
+      cn: 0,
+      cb: 0,
+      p3: 0,
+      k3: 0,
+      nv3: 0,
+      b3: 0,
+    };
     for (const r of rows) {
-      et.n += r.n; et.cp += r.charsProd; et.ck += r.charsKw; et.cn += r.charsNaive; et.cb += r.charsBm25;
-      et.p3 += r.prodR3; et.k3 += r.kwR3; et.nv3 += r.naiveR3; et.b3 += r.bm25R3;
+      et.n += r.n;
+      et.cp += r.charsProd;
+      et.ck += r.charsKw;
+      et.cn += r.charsNaive;
+      et.cb += r.charsBm25;
+      et.p3 += r.prodR3;
+      et.k3 += r.kwR3;
+      et.nv3 += r.naiveR3;
+      et.b3 += r.bm25R3;
       lines.push(
         `| ${r.cls} | ${r.n} | ${r.charsProd} | ${r.charsKw} | ${per1k(r.naiveR3, r.charsNaive)} | ` +
           `${per1k(r.prodR3, r.charsProd)} | ${per1k(r.kwR3, r.charsKw)} | ${per1k(r.bm25R3, r.charsBm25)} |`,
@@ -433,7 +551,12 @@ function report(): string {
       ["prod (shipped)", prod, "none", false],
       ["prod + authored kw", prod, "kw", false],
       ["naive (previous)", naive, "none", false],
-      ["prod + shuffled kw (control: same tokens, wrong meanings)", prod, "shuffled", true],
+      [
+        "prod + shuffled kw (control: same tokens, wrong meanings)",
+        prod,
+        "shuffled",
+        true,
+      ],
       ["constant (control)", constantArm, "none", true],
       ["anti-naive (control)", antiNaive, "none", true],
     ];

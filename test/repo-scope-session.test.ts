@@ -8,12 +8,24 @@
 // process cwd nor an unstamped "global" row (#152) — until a session event
 // binds the identity.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rememberSessionDir, repoScopeFor, resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
-import { appendMemory } from "../src/store/files/append.ts"
-import { loadAll } from "../src/store/files/load.ts"
+import {
+  rememberSessionDir,
+  repoScopeFor,
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
+import { appendMemory } from "../src/store/files/append.ts";
+import { loadAll } from "../src/store/files/load.ts";
 import { isVisibleHere } from "../src/store/model/visibility.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
 import { loadPlugin } from "./harness.ts";
@@ -41,7 +53,11 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
-const dayFile = () => join(process.env.OPENCODE_MEMORY_DIR!, `${new Date().toISOString().split("T")[0]}.logfmt`);
+const dayFile = () =>
+  join(
+    process.env.OPENCODE_MEMORY_DIR!,
+    `${new Date().toISOString().split("T")[0]}.logfmt`,
+  );
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
   const start = Date.now();
@@ -82,21 +98,20 @@ describe("repoScopeFor precedence", () => {
   // dangling process) - that is AV load, not a hang, and the family is a
   // known pre-existing flake. One wider timeout for the one heavy test;
   // every other test in this file keeps the default.
-  test(
-    "the session map is bounded; the oldest entry falls back",
-    () => {
-      const dirs: string[] = [];
-      for (let i = 0; i < 70; i++) {
-        const d = join(root, `r${i}`);
-        mkdirSync(d, { recursive: true });
-        dirs.push(d);
-        rememberSessionDir(`s${i}`, d);
-      }
-      expect(repoScopeFor("s0")).toBe(MODULE_SCOPE); // evicted
-      expect(repoScopeFor("s69")).toEqual({ key: keyOf(dirs[69]), path: dirs[69] });
-    },
-    20_000,
-  );
+  test("the session map is bounded; the oldest entry falls back", () => {
+    const dirs: string[] = [];
+    for (let i = 0; i < 70; i++) {
+      const d = join(root, `r${i}`);
+      mkdirSync(d, { recursive: true });
+      dirs.push(d);
+      rememberSessionDir(`s${i}`, d);
+    }
+    expect(repoScopeFor("s0")).toBe(MODULE_SCOPE); // evicted
+    expect(repoScopeFor("s69")).toEqual({
+      key: keyOf(dirs[69]),
+      path: dirs[69],
+    });
+  }, 20_000);
 });
 
 describe("stamping follows the writing session", () => {
@@ -105,7 +120,11 @@ describe("stamping follows the writing session", () => {
     mkdirSync(a, { recursive: true });
     rememberSessionDir("s1", a);
     setCurrent({ sessionID: "s1", callID: "c1", tool: "memory_remember" });
-    await appendMemory({ type: "learning", scope: "s", content: "written by session one in repo A" });
+    await appendMemory({
+      type: "learning",
+      scope: "s",
+      content: "written by session one in repo A",
+    });
     const raw = readFileSync(dayFile(), "utf8");
     expect(raw).toContain(`repo=${keyOf(a)}`);
     expect(raw).toContain(`repoPath=${a}`);
@@ -120,7 +139,11 @@ describe("stamping follows the writing session", () => {
     rememberSessionDir("sA", a);
     rememberSessionDir("sB", b);
     setCurrent({ sessionID: "sA", callID: "c1", tool: "memory_remember" });
-    await appendMemory({ type: "learning", scope: "s", content: "alpha session fact here" });
+    await appendMemory({
+      type: "learning",
+      scope: "s",
+      content: "alpha session fact here",
+    });
 
     setCurrent({ sessionID: "sA", callID: "c2", tool: "memory_recall" });
     expect((await loadAll()).filter(isVisibleHere).length).toBe(1);
@@ -137,13 +160,26 @@ describe("server-start window: setup with no location", () => {
       // repository for it. Stamping nothing used to mean "global" — a private
       // fact published to every project that ever opens this store (#152). An
       // ownerless write is refused now, so the day file stays untouched.
-      await loaded["tool.execute.before"]({ sessionID: "sW", callID: "c1", tool: "read" });
+      await loaded["tool.execute.before"]({
+        sessionID: "sW",
+        callID: "c1",
+        tool: "read",
+      });
       await loaded["tool.execute.after"](
-        { sessionID: "sW", callID: "c1", tool: "read", args: { filePath: "x.ts" } },
+        {
+          sessionID: "sW",
+          callID: "c1",
+          tool: "read",
+          args: { filePath: "x.ts" },
+        },
         { output: "content", metadata: {} },
       );
       const early = await loaded.tools["memory_remember"].execute(
-        { type: "learning", scope: "win", content: `window fact ${Date.now()} about early writes` },
+        {
+          type: "learning",
+          scope: "win",
+          content: `window fact ${Date.now()} about early writes`,
+        },
         {},
       );
       expect(early.content).toContain("Write refused");
@@ -159,13 +195,26 @@ describe("server-start window: setup with no location", () => {
       });
       await waitFor(() => repoScopeFor("sX") !== null);
 
-      await loaded["tool.execute.before"]({ sessionID: "sX", callID: "c2", tool: "read" });
+      await loaded["tool.execute.before"]({
+        sessionID: "sX",
+        callID: "c2",
+        tool: "read",
+      });
       await loaded["tool.execute.after"](
-        { sessionID: "sX", callID: "c2", tool: "read", args: { filePath: "y.ts" } },
+        {
+          sessionID: "sX",
+          callID: "c2",
+          tool: "read",
+          args: { filePath: "y.ts" },
+        },
         { output: "content", metadata: {} },
       );
       const out = await loaded.tools["memory_remember"].execute(
-        { type: "learning", scope: "win", content: `bound fact ${Date.now()} about session-scoped writes` },
+        {
+          type: "learning",
+          scope: "win",
+          content: `bound fact ${Date.now()} about session-scoped writes`,
+        },
         {},
       );
       expect(out.content).toContain("Remembered");
@@ -186,15 +235,32 @@ describe("first-turn event-race backstop", () => {
     const loaded = await loadPlugin(moduleDir);
     try {
       loaded.capture.context.messages = [
-        { info: { role: "user" }, location: { directory: sessionWs }, parts: [{ text: "hi" }] },
+        {
+          info: { role: "user" },
+          location: { directory: sessionWs },
+          parts: [{ text: "hi" }],
+        },
       ];
-      await loaded["tool.execute.before"]({ sessionID: "sL", callID: "c1", tool: "read" });
+      await loaded["tool.execute.before"]({
+        sessionID: "sL",
+        callID: "c1",
+        tool: "read",
+      });
       await loaded["tool.execute.after"](
-        { sessionID: "sL", callID: "c1", tool: "read", args: { filePath: "x.ts" } },
+        {
+          sessionID: "sL",
+          callID: "c1",
+          tool: "read",
+          args: { filePath: "x.ts" },
+        },
         { output: "content", metadata: {} },
       );
       const out = await loaded.tools["memory_remember"].execute(
-        { type: "learning", scope: "lazy", content: `lazy bind fact ${Date.now()} from message location` },
+        {
+          type: "learning",
+          scope: "lazy",
+          content: `lazy bind fact ${Date.now()} from message location`,
+        },
         {},
       );
       expect(out.content).toContain("Remembered");

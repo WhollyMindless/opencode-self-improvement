@@ -65,7 +65,10 @@ async function seedPrivate(dir: string, marker: string): Promise<void> {
 const injected = (parts: Array<{ type: string; text: string }>): string =>
   parts.map((p) => p.text).join("\n");
 
-type ContextEvent = { sessionID: string; system: Array<{ type: string; text: string }> };
+type ContextEvent = {
+  sessionID: string;
+  system: Array<{ type: string; text: string }>;
+};
 
 test("a concurrent session dispatching mid-read cannot move this session's injection scope", async () => {
   plugin = await loadPlugin(a);
@@ -80,7 +83,11 @@ test("a concurrent session dispatching mid-read cannot move this session's injec
   // before the await (#127).
   const eventA: ContextEvent = { sessionID: "ses-a", system: [] };
   const pendingA = plugin.sessionHooks.context(eventA);
-  await plugin.toolHooks["execute.before"]({ sessionID: "ses-b", callID: "b1", tool: "read" });
+  await plugin.toolHooks["execute.before"]({
+    sessionID: "ses-b",
+    callID: "b1",
+    tool: "read",
+  });
   await pendingA;
   const intoA = injected(eventA.system);
   expect(intoA).toContain("A_PRIVATE_FRONTIER");
@@ -89,7 +96,11 @@ test("a concurrent session dispatching mid-read cannot move this session's injec
   // Both directions: the same interleaving against B's flow.
   const eventB: ContextEvent = { sessionID: "ses-b", system: [] };
   const pendingB = plugin.sessionHooks.context(eventB);
-  await plugin.toolHooks["execute.before"]({ sessionID: "ses-a", callID: "a1", tool: "read" });
+  await plugin.toolHooks["execute.before"]({
+    sessionID: "ses-a",
+    callID: "a1",
+    tool: "read",
+  });
   await pendingB;
   const intoB = injected(eventB.system);
   expect(intoB).toContain("B_PRIVATE_FRONTIER");

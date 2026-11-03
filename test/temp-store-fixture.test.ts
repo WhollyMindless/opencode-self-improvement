@@ -1,27 +1,46 @@
 // Exercise fixture hooks in separate real Bun test runs. A failure or unsafe
 // root must not leave the next test pointed at a user's store (#226).
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { withTempStore } from "./harness.ts";
 
 let root: string;
-beforeEach(() => { root = mkdtempSync(join(realpathSync(tmpdir()), "osi-fixture-parent-")); });
+beforeEach(() => {
+  root = mkdtempSync(join(realpathSync(tmpdir()), "osi-fixture-parent-"));
+});
 afterEach(() => {
   const report = join(root, "report.json");
   if (existsSync(report)) {
-    const { roots } = JSON.parse(readFileSync(report, "utf8")) as { roots: string[] };
+    const { roots } = JSON.parse(readFileSync(report, "utf8")) as {
+      roots: string[];
+    };
     for (const childRoot of roots) {
       // Only clean the precisely named, temporary roots this child reported.
-      if (!childRoot.startsWith(`${realpathSync(tmpdir())}${sep}`) || !basename(childRoot).startsWith("osi-fixture-child-")) {
+      if (
+        !childRoot.startsWith(`${realpathSync(tmpdir())}${sep}`) ||
+        !basename(childRoot).startsWith("osi-fixture-child-")
+      ) {
         throw new Error("unsafe child fixture cleanup path");
       }
       try {
         if (lstatSync(childRoot).isSymbolicLink()) unlinkSync(childRoot);
         else rmSync(childRoot, { recursive: true, force: true });
-      } catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
     }
   }
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -30,9 +49,15 @@ afterEach(() => {
 function runFixture(mode: string, environment = "existing") {
   const file = join(root, "fixture.test.ts");
   const harness = pathToFileURL(join(import.meta.dir, "harness.ts")).href;
-  const state = pathToFileURL(join(import.meta.dir, "..", "src/core/state.ts")).href;
-  const append = pathToFileURL(join(import.meta.dir, "..", "src/store/files/append.ts")).href;
-  writeFileSync(file, `
+  const state = pathToFileURL(
+    join(import.meta.dir, "..", "src/core/state.ts"),
+  ).href;
+  const append = pathToFileURL(
+    join(import.meta.dir, "..", "src/store/files/append.ts"),
+  ).href;
+  writeFileSync(
+    file,
+    `
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -93,14 +118,17 @@ describe("resources finish before outer fixture cleanup", () => {
     expect(existsSync(store.memoryDir)).toBe(false);
   });
 });
-`);
+`,
+  );
   const env: Record<string, string | undefined> = { ...process.env };
   if (environment === "absent") {
     delete env.OPENCODE_MEMORY_DIR;
     delete env.OPENCODE_COMMANDS_DIR;
   } else {
-    env.OPENCODE_MEMORY_DIR = environment === "empty" ? "" : join(root, "original-memory");
-    env.OPENCODE_COMMANDS_DIR = environment === "empty" ? "" : join(root, "original-commands");
+    env.OPENCODE_MEMORY_DIR =
+      environment === "empty" ? "" : join(root, "original-memory");
+    env.OPENCODE_COMMANDS_DIR =
+      environment === "empty" ? "" : join(root, "original-commands");
   }
   env.OSI_FIXTURE_MODE = mode;
   env.OSI_FIXTURE_REPORT = join(root, "report.json");
@@ -114,26 +142,38 @@ describe("resources finish before outer fixture cleanup", () => {
     writeFileSync(join(target, "sentinel"), "keep me");
   }
   const child = Bun.spawnSync([process.execPath, "test", file], {
-    cwd: join(import.meta.dir, ".."), env, stdout: "pipe", stderr: "pipe",
+    cwd: join(import.meta.dir, ".."),
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  const report = JSON.parse(readFileSync(join(root, "report.json"), "utf8")) as {
-    roots: string[]; restored: boolean; inactive: boolean; resourceCleanup: number; cleaned: boolean;
+  const report = JSON.parse(
+    readFileSync(join(root, "report.json"), "utf8"),
+  ) as {
+    roots: string[];
+    restored: boolean;
+    inactive: boolean;
+    resourceCleanup: number;
+    cleaned: boolean;
   };
   return { child, report };
 }
 
-test.each(["existing", "absent", "empty"])("fresh paths, cleanup and exact environment restoration (%s)", (environment) => {
-  const { child, report } = runFixture("normal", environment);
-  expect(child.stderr.toString()).not.toContain("(fail)");
-  expect(child.exitCode).toBe(0);
-  expect(report.cleaned).toBe(true);
-  expect(report.restored).toBe(true);
-  expect(report.inactive).toBe(true);
-  expect(report.resourceCleanup).toBe(2);
-  expect(report.roots).toHaveLength(2);
-  expect(new Set(report.roots).size).toBe(2);
-  expect(existsSync(join(root, "original-memory"))).toBe(false);
-});
+test.each(["existing", "absent", "empty"])(
+  "fresh paths, cleanup and exact environment restoration (%s)",
+  (environment) => {
+    const { child, report } = runFixture("normal", environment);
+    expect(child.stderr.toString()).not.toContain("(fail)");
+    expect(child.exitCode).toBe(0);
+    expect(report.cleaned).toBe(true);
+    expect(report.restored).toBe(true);
+    expect(report.inactive).toBe(true);
+    expect(report.resourceCleanup).toBe(2);
+    expect(report.roots).toHaveLength(2);
+    expect(new Set(report.roots).size).toBe(2);
+    expect(existsSync(join(root, "original-memory"))).toBe(false);
+  },
+);
 
 test("a failing test still cleans its store and restores its environment", () => {
   const { child, report } = runFixture("failure");
@@ -149,11 +189,21 @@ test("cleanup refuses a redirected root and preserves the external target", () =
   const { child, report } = runFixture("redirect");
   expect(child.exitCode).toBe(1);
   expect(child.stderr.toString()).toContain("refusing cleanup");
-  expect(readFileSync(join(root, "untouched", "sentinel"), "utf8")).toBe("keep me");
+  expect(readFileSync(join(root, "untouched", "sentinel"), "utf8")).toBe(
+    "keep me",
+  );
   expect(report.restored).toBe(true);
   expect(report.inactive).toBe(true);
 });
 
-test.each(["", "..", "../escape", "nested/path", "nested\\path", "C:\\outside", "/outside"])("rejects unsafe prefix %j before registering hooks", (prefix) => {
+test.each([
+  "",
+  "..",
+  "../escape",
+  "nested/path",
+  "nested\\path",
+  "C:\\outside",
+  "/outside",
+])("rejects unsafe prefix %j before registering hooks", (prefix) => {
   expect(() => withTempStore({ prefix })).toThrow("prefix");
 });

@@ -19,8 +19,8 @@ import { tmpdir } from "node:os";
 import { basename, join, sep } from "node:path";
 import { addBlock, blocklistFile } from "../src/store/blocklist.ts";
 import { memoryRoot, snapshotDir } from "../src/core/config/paths.ts";
-import { loadAll } from "../src/store/files/load.ts"
-import { prune } from "../src/store/files/prune.ts"
+import { loadAll } from "../src/store/files/load.ts";
+import { prune } from "../src/store/files/prune.ts";
 import { snapshotFiles } from "../src/store/files/snapshots.ts";
 import { listSnapshots, restoreSnapshot } from "../src/store/undo.ts";
 import { loadPlugin } from "./harness.ts";
@@ -104,7 +104,11 @@ describe("restoreSnapshot modes", () => {
 
     const merged = await restoreSnapshot(snap, memoryRoot(), "merge");
     expect(merged.restored).toBe(true);
-    expect(lines()).toEqual([row(1), row(2, ' superseded_by="x" reason="drift"'), row(3)]);
+    expect(lines()).toEqual([
+      row(1),
+      row(2, ' superseded_by="x" reason="drift"'),
+      row(3),
+    ]);
   });
 
   test("force snapshots what it drops: rows newer than the snapshot land in the safety copy", async () => {
@@ -119,7 +123,8 @@ describe("restoreSnapshot modes", () => {
     expect(res.concurrentAdded).toEqual(["2026-01-01T00:00:03.000Z"]);
     // ...and it is not simply gone: the pre-restore file is snapshotted, from
     // under the lock, so it holds the row this call dropped.
-    if (!res.safety) throw new Error("force restore returned no safety snapshot");
+    if (!res.safety)
+      throw new Error("force restore returned no safety snapshot");
     expect(res.safety).not.toBe(snap);
     expect(readFileSync(res.safety, "utf8")).toContain("row 3");
   });
@@ -130,7 +135,9 @@ describe("restoreSnapshot modes", () => {
     seed([row(1), row(2), row(3)]);
 
     expect((await restoreSnapshot(snap, memoryRoot())).safety).toBeUndefined();
-    expect((await restoreSnapshot(snap, memoryRoot(), "merge")).safety).toBeUndefined();
+    expect(
+      (await restoreSnapshot(snap, memoryRoot(), "merge")).safety,
+    ).toBeUndefined();
     expect(lines().length).toBe(3);
   });
 
@@ -144,9 +151,9 @@ describe("restoreSnapshot modes", () => {
   });
 
   test("missing snapshot still throws", async () => {
-    await expect(restoreSnapshot(`123-${DAY}.logfmt`, memoryRoot())).rejects.toThrow(
-      "snapshot not found",
-    );
+    await expect(
+      restoreSnapshot(`123-${DAY}.logfmt`, memoryRoot()),
+    ).rejects.toThrow("snapshot not found");
   });
 
   test("an unaudited removal can still be restored from a normal snapshot", async () => {
@@ -166,7 +173,10 @@ describe("restoreSnapshot modes", () => {
     const forgottenSnapshot = forgotten.snapshot[0];
     if (!forgottenSnapshot) throw new Error("expected a pre-forget snapshot");
 
-    const res = await restoreSnapshot(basename(forgottenSnapshot), memoryRoot());
+    const res = await restoreSnapshot(
+      basename(forgottenSnapshot),
+      memoryRoot(),
+    );
     expect(res.restored).toBe(true);
     expect(res.deletedOmitted).toEqual(["2026-01-01T00:00:01.000Z"]);
     expect(lines()).toEqual([]);
@@ -178,11 +188,19 @@ describe("restoreSnapshot modes", () => {
     const forgottenSnapshot = forgotten.snapshot[0];
     if (!forgottenSnapshot) throw new Error("expected a pre-forget snapshot");
 
-    const merged = await restoreSnapshot(basename(forgottenSnapshot), memoryRoot(), "merge");
+    const merged = await restoreSnapshot(
+      basename(forgottenSnapshot),
+      memoryRoot(),
+      "merge",
+    );
     expect(merged.deletedOmitted).toEqual(["2026-01-01T00:00:01.000Z"]);
     expect(lines()).toEqual([]);
 
-    const forced = await restoreSnapshot(basename(forgottenSnapshot), memoryRoot(), "force");
+    const forced = await restoreSnapshot(
+      basename(forgottenSnapshot),
+      memoryRoot(),
+      "force",
+    );
     expect(forced.deletedOmitted).toEqual([]);
     expect(lines()).toEqual([row(1)]);
   });
@@ -210,7 +228,9 @@ describe("snapshot containment", () => {
       writeFileSync(join(snapshotDir(), name), `${row(1)}\n`);
     }
 
-    expect((await listSnapshots()).map((snapshot) => snapshot.name)).toEqual([leapDay]);
+    expect((await listSnapshots()).map((snapshot) => snapshot.name)).toEqual([
+      leapDay,
+    ]);
     for (const name of [impossible, nonLeapDay]) {
       await expect(restoreSnapshot(name, memoryRoot())).rejects.toThrow(
         `invalid snapshot name: ${name}`,
@@ -229,9 +249,9 @@ describe("snapshot containment", () => {
     writeFileSync(join(outside, name), `${row(1)}\n`);
     const traversing = `${snapshotDir()}${sep}..${sep}..${sep}outside${sep}${name}`;
 
-    await expect(restoreSnapshot(traversing, memoryRoot(), "force")).rejects.toThrow(
-      "outside the snapshots directory",
-    );
+    await expect(
+      restoreSnapshot(traversing, memoryRoot(), "force"),
+    ).rejects.toThrow("outside the snapshots directory");
     expect(existsSync(store())).toBe(false);
   });
 
@@ -244,14 +264,17 @@ describe("snapshot containment", () => {
     try {
       symlinkSync(outside, join(snapshotDir(), name));
     } catch (err) {
-      if (!(err instanceof Error && "code" in err && err.code === "EPERM")) throw err;
+      if (!(err instanceof Error && "code" in err && err.code === "EPERM"))
+        throw err;
       // Windows requires Developer Mode/admin for file symlinks. Directory
       // junctions need no elevation and exercise the same realpath escape.
       rmSync(snapshotDir(), { recursive: true });
       symlinkSync(join(root, "outside"), snapshotDir(), "junction");
     }
 
-    await expect(restoreSnapshot(name, memoryRoot(), "force")).rejects.toThrow(/snapshots directory/);
+    await expect(restoreSnapshot(name, memoryRoot(), "force")).rejects.toThrow(
+      /snapshots directory/,
+    );
     expect(existsSync(store())).toBe(false);
   });
 
@@ -264,9 +287,9 @@ describe("snapshot containment", () => {
       const crafted = join(snapshotDir(), `123-${reserved}`);
       writeFileSync(crafted, `${row(1)}\n`);
 
-      await expect(restoreSnapshot(crafted, memoryRoot(), "force")).rejects.toThrow(
-        "invalid snapshot name",
-      );
+      await expect(
+        restoreSnapshot(crafted, memoryRoot(), "force"),
+      ).rejects.toThrow("invalid snapshot name");
       expect(readFileSync(target, "utf8")).toBe(original);
     }
   });
@@ -278,7 +301,8 @@ describe("snapshot containment", () => {
     try {
       const exportTool = p.tools.memory_export;
       const undoTool = p.tools.memory_undo;
-      if (!exportTool || !undoTool) throw new Error("memory tools were not registered");
+      if (!exportTool || !undoTool)
+        throw new Error("memory tools were not registered");
       const exported = join(root, "blocklist.logfmt");
       await exportTool.execute({ file: exported });
 
@@ -309,7 +333,10 @@ describe("memory_undo tool guidance", () => {
     expect(refused.content).toContain("force=true");
     expect(lines().length).toBe(3);
 
-    const kept = await p.tools.memory_undo!.execute({ snapshot: snap, merge: true });
+    const kept = await p.tools.memory_undo!.execute({
+      snapshot: snap,
+      merge: true,
+    });
     expect(kept.content).toContain("Restored");
     expect(kept.content).toContain("Kept 1 added");
     expect(lines().length).toBe(3);

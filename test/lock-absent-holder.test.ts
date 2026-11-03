@@ -21,28 +21,39 @@ const real = { open: realFs.open, unlink: realFs.unlink, stat: realFs.stat };
 // uninstalled, so these two pass-through wrappers ARE the suite's fs for every
 // file that runs after this one; unscripted paths hit the real functions, but
 // this is permanent ambient state by design.
-const scriptedOpen = new Map<string, (path: string, flags: string) => Promise<unknown>>();
+const scriptedOpen = new Map<
+  string,
+  (path: string, flags: string) => Promise<unknown>
+>();
 const scriptedStat = new Map<string, () => Promise<unknown>>();
 
 mock.module("node:fs/promises", () => ({
   ...realFs,
-  open: (path: string | URL | number, flags?: string | number, mode?: number) => {
+  open: (
+    path: string | URL | number,
+    flags?: string | number,
+    mode?: number,
+  ) => {
     if (typeof path === "string") {
       const fn = scriptedOpen.get(path);
       if (fn) return fn(path, String(flags ?? ""));
     }
-    return (real.open as (p: unknown, f?: unknown, m?: unknown) => Promise<unknown>)(path, flags, mode);
+    return (
+      real.open as (p: unknown, f?: unknown, m?: unknown) => Promise<unknown>
+    )(path, flags, mode);
   },
   stat: (path: string | URL, ...rest: unknown[]) => {
     if (typeof path === "string") {
       const fn = scriptedStat.get(path);
       if (fn) return fn();
     }
-    return (real.stat as (p: string | URL, ...r: unknown[]) => Promise<unknown>)(path, ...rest);
+    return (
+      real.stat as (p: string | URL, ...r: unknown[]) => Promise<unknown>
+    )(path, ...rest);
   },
 }));
 
-const { holdFileLock, lockFileFor } = await import( "../src/store/lock.ts");
+const { holdFileLock, lockFileFor } = await import("../src/store/lock.ts");
 
 const BUDGET = 1000;
 
@@ -66,7 +77,9 @@ function stepClock(times: number[]): () => number {
 
 const errno = (code: string, op: string) =>
   Object.assign(
-    new Error(`${code}: ${code === "EPERM" ? "operation not permitted" : "permission denied"}, ${op}`),
+    new Error(
+      `${code}: ${code === "EPERM" ? "operation not permitted" : "permission denied"}, ${op}`,
+    ),
     { code },
   );
 

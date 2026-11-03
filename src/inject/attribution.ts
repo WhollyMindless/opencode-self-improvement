@@ -52,7 +52,17 @@ const BIN_RE =
 
 // Small words that carry no lookup signal; a command "save" is credited only
 // when nothing the agent read earlier mentioned a distinctive term.
-const STOP = new Set(["run", "the", "and", "for", "with", "to", "all", "test", "tests"]);
+const STOP = new Set([
+  "run",
+  "the",
+  "and",
+  "for",
+  "with",
+  "to",
+  "all",
+  "test",
+  "tests",
+]);
 
 function norm(s: string | undefined): string {
   return (s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -75,7 +85,8 @@ export function deriveMemoryRefs(mems: Memory[]): MemoryRefs {
   const paths = new Set<string>();
   const commands = new Set<string>();
   for (const m of mems) {
-    for (const p of extractPathRefs(m.content)) paths.add(p.replace(/:\d+$/, ""));
+    for (const p of extractPathRefs(m.content))
+      paths.add(p.replace(/:\d+$/, ""));
     for (const c of extractCommandRefs(m.content)) commands.add(c);
   }
   return { paths: [...paths], commands: [...commands] };
@@ -88,14 +99,24 @@ export function deriveMemoryRefs(mems: Memory[]): MemoryRefs {
 function pathHit(arg: string, path: string): boolean {
   if (!arg || !path) return false;
   const base = path.split("/").pop() || path;
-  return arg === path || arg.endsWith("/" + base) || path.endsWith("/" + arg) || arg.includes(path);
+  return (
+    arg === path ||
+    arg.endsWith("/" + base) ||
+    path.endsWith("/" + arg) ||
+    arg.includes(path)
+  );
 }
 
 function distinctiveTokens(command: string): string[] {
-  return command.split(/[^a-z0-9_.-]+/).filter((t) => t.length > 2 && !STOP.has(t) && !BIN_RE.test(t));
+  return command
+    .split(/[^a-z0-9_.-]+/)
+    .filter((t) => t.length > 2 && !STOP.has(t) && !BIN_RE.test(t));
 }
 
-export function attributeSession(calls: CallLike[], refs: MemoryRefs): Attribution {
+export function attributeSession(
+  calls: CallLike[],
+  refs: MemoryRefs,
+): Attribution {
   const readCalls = calls.filter((c) => READ_TOOLS.has(c.tool));
   const bashCalls = calls.filter((c) => BASH_TOOLS.has(c.tool));
 
@@ -136,7 +157,9 @@ export function attributeSession(calls: CallLike[], refs: MemoryRefs): Attributi
   const pathsSkipped = pathsCited - pathsReRead;
 
   // ---- New work: file lookups no memory covered ----
-  const readsNotCovered = readArgs.filter((ra) => !refs.paths.some((p) => pathHit(ra, norm(p)))).length;
+  const readsNotCovered = readArgs.filter(
+    (ra) => !refs.paths.some((p) => pathHit(ra, norm(p))),
+  ).length;
 
   return {
     commandSaves,

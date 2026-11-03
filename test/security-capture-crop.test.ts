@@ -61,10 +61,20 @@ async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
   }
 }
 
-async function capturePromptFor(sid: string, messages: unknown): Promise<string> {
-  plugin = await loadPlugin(root, { autoCapture: true, captureModel: "fake/model" });
+async function capturePromptFor(
+  sid: string,
+  messages: unknown,
+): Promise<string> {
+  plugin = await loadPlugin(root, {
+    autoCapture: true,
+    captureModel: "fake/model",
+  });
   plugin.capture.generate.response = "[]";
-  await plugin.sessionHooks.compaction?.({ sessionID: sid, system: [], messages });
+  await plugin.sessionHooks.compaction?.({
+    sessionID: sid,
+    system: [],
+    messages,
+  });
   await waitFor(() => plugin!.capture.generate.calls.length === 1);
   return plugin.capture.generate.calls[0]!.prompt;
 }

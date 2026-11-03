@@ -1,19 +1,28 @@
 // Per-setup injection epochs. Host event parsing and identity binding stay in
 // index.ts; this module owns frozen bytes, refresh decisions, and their status.
-import { loadAll, malformedCount } from "../store/files/load.ts"
-import { type Memory } from "../store/model/memory.ts"
-import { isInjectable } from "../store/model/predicates.ts"
+import { loadAll, malformedCount } from "../store/files/load.ts";
+import { type Memory } from "../store/model/memory.ts";
+import { isInjectable } from "../store/model/predicates.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 import { SESSION_CAP, SessionLru } from "../core/lru.ts";
 import { record } from "../evidence/record.ts";
-import { capToBudget, injectedRows } from "./budget.ts"
-import { systemDigest } from "./digest.ts"
-import { storeVersion } from "./version.ts"
+import { capToBudget, injectedRows } from "./budget.ts";
+import { systemDigest } from "./digest.ts";
+import { storeVersion } from "./version.ts";
 import { selectRelevant } from "../recall/relevant.ts";
-import { attributeSession, deriveMemoryRefs, type MemoryRefs } from "./attribution.ts";
+import {
+  attributeSession,
+  deriveMemoryRefs,
+  type MemoryRefs,
+} from "./attribution.ts";
 import { readLedger, useSignals } from "../hits/ledger.ts";
 import { summarizeStore } from "../status/store-summary.ts";
-import { emptyStats, type Measured, type SessionStats, type StatusPayload } from "../status/payload.ts"
+import {
+  emptyStats,
+  type Measured,
+  type SessionStats,
+  type StatusPayload,
+} from "../status/payload.ts";
 import { writeStatus } from "../status/write.ts";
 import { callsFor } from "../capture/triggers.ts";
 import { authoredFor } from "../core/state.ts";
@@ -135,7 +144,9 @@ export function createInjectionEpochs({
   // session's repo into this one's system prompt.
   const injectableRows = async (sid?: string): Promise<Memory[]> => {
     const reader = readerFromSid(sid);
-    return (await loadAll()).filter((m) => isInjectable(m) && isVisibleTo(m, reader));
+    return (await loadAll()).filter(
+      (m) => isInjectable(m) && isVisibleTo(m, reader),
+    );
   };
   // Render the COMPLETE memory section for one request: the standing digest,
   // the open-thread frontier and the convergence line (all from systemDigest),
@@ -147,14 +158,22 @@ export function createInjectionEpochs({
     sid: string | undefined,
     mems: Memory[],
     promptOverride?: string,
-  ): Promise<{ parts: string[]; block: string; prefix: string; rode: Memory[]; refs: MemoryRefs }> => {
+  ): Promise<{
+    parts: string[];
+    block: string;
+    prefix: string;
+    rode: Memory[];
+    refs: MemoryRefs;
+  }> => {
     const parts: string[] = [];
     await systemDigest(
       { sessionID: sid },
       { system: parts },
       { rows: mems, frontierBudget: openBudget },
     );
-    const prompt = promptOverride ?? (sid === undefined ? "" : latestPrompt.get(sid) ?? "");
+    const prompt =
+      promptOverride ??
+      (sid === undefined ? "" : (latestPrompt.get(sid) ?? ""));
     // Widen the candidate pool, then cap: the budget decides what rides.
     const sel = await selectRelevant(prompt, 5, mems, await useSignals());
     const block = sel.block ? capToBudget(sel.block, budget) : "";
@@ -194,7 +213,9 @@ export function createInjectionEpochs({
     // viewer edit, an import, a moved convergence line.
     if (cached) {
       const mine = authoredFor(sid);
-      const extra = mems.filter((m) => mine.has(m.ts) && !cached.ownRows.has(m.ts));
+      const extra = mems.filter(
+        (m) => mine.has(m.ts) && !cached.ownRows.has(m.ts),
+      );
       if (extra.length) {
         const back = await buildMemorySection(
           sid,
@@ -214,13 +235,17 @@ export function createInjectionEpochs({
     // rows that were already offered under the frozen epoch.
     await noteHits(sid, built.rode, prompt);
     const at = new Date().toISOString();
-    const reason: "first" | "store_changed" = cached ? "store_changed" : "first";
+    const reason: "first" | "store_changed" = cached
+      ? "store_changed"
+      : "first";
     epoch.set(sid, {
       version,
       parts: built.parts,
       block: built.block,
       prefix: built.prefix,
-      ownRows: new Set(mems.filter((m) => authoredFor(sid).has(m.ts)).map((m) => m.ts)),
+      ownRows: new Set(
+        mems.filter((m) => authoredFor(sid).has(m.ts)).map((m) => m.ts),
+      ),
       prompt,
       at,
       reason,
@@ -252,7 +277,10 @@ export function createInjectionEpochs({
 
   // Push each part in the original order. Accounting follows delivery so a
   // throwing host callback leaves request accounting unchanged.
-  const deliver = async (sid: string | undefined, push: (text: string) => void): Promise<void> => {
+  const deliver = async (
+    sid: string | undefined,
+    push: (text: string) => void,
+  ): Promise<void> => {
     const mems = await injectableRows(sid);
     if (typeof sid === "string") await refreshEpoch(sid, mems);
     // Deliver the FROZEN memory section. Every byte pushed onto the system

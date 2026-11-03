@@ -1,7 +1,7 @@
 // relevant — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
-import { loadAll } from "../store/files/load.ts"
-import { type Memory } from "../store/model/memory.ts"
-import { isInjectable } from "../store/model/predicates.ts"
+import { loadAll } from "../store/files/load.ts";
+import { type Memory } from "../store/model/memory.ts";
+import { isInjectable } from "../store/model/predicates.ts";
 import { readerFromSid, visibleTo } from "../store/model/visibility.ts";
 import { FRAME } from "../inject/budget.ts";
 import { formatMemory } from "../inject/format.ts";
@@ -58,7 +58,9 @@ export async function selectRelevant(
   if (!text) return { block: "", selected: [] };
   // Repo-scoped: model-facing reads see the caller's repo + global rows
   // (their session when one was threaded, #127).
-  const mems = (rows ?? visibleTo(await loadAll(), readerFromSid(sid))).filter(isInjectable);
+  const mems = (rows ?? visibleTo(await loadAll(), readerFromSid(sid))).filter(
+    isInjectable,
+  );
   const top = scoreMemories(text, mems, limit, use);
   if (!top.length) return { block: "", selected: [] };
   return {
@@ -67,6 +69,10 @@ export async function selectRelevant(
   };
 }
 
-export async function relevantKnowledge(message: string, limit = 3, rows?: Memory[]): Promise<string> {
+export async function relevantKnowledge(
+  message: string,
+  limit = 3,
+  rows?: Memory[],
+): Promise<string> {
   return (await selectRelevant(message, limit, rows)).block;
 }

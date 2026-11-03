@@ -13,12 +13,17 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { appendMemory } from "../src/store/files/append.ts"
+import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
-import { rememberSessionDir, resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  rememberSessionDir,
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState } from "../src/core/state.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
-import { evidenceDir, exportsDir } from "../src/core/config/paths.ts"
+import { evidenceDir, exportsDir } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 import { parseLine, type Fields } from "../src/core/logfmt/format.ts";
 
@@ -65,7 +70,10 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
-async function load(directory: string | null, options?: Record<string, unknown>) {
+async function load(
+  directory: string | null,
+  options?: Record<string, unknown>,
+) {
   const p = await loadPlugin(directory, options);
   plugins.push(p);
   return p;
@@ -96,9 +104,15 @@ async function evidenceAsync(): Promise<Fields[]> {
 test("an unresolved named session never writes into the LAST setup's repository", async () => {
   const pa = await load(null);
   const pb = await load(b);
-  const res = await pa.tools.memory_remember.execute(CANDIDATE, ctx("ses-unresolved-a"));
+  const res = await pa.tools.memory_remember.execute(
+    CANDIDATE,
+    ctx("ses-unresolved-a"),
+  );
   const row = (await loadAll()).find((m) => m.content === CANDIDATE.content);
-  const seen = await pb.tools.memory_recall.execute({ query: CANDIDATE.content }, ctx("ses-b"));
+  const seen = await pb.tools.memory_recall.execute(
+    { query: CANDIDATE.content },
+    ctx("ses-b"),
+  );
 
   expect(row).toBeUndefined(); // nothing was stamped into B...
   expect(seen.content).not.toContain(CANDIDATE.content); // ...and B recalls nothing
@@ -111,12 +125,20 @@ test("an unresolved named session never writes into the LAST setup's repository"
 // cross-project publish either.
 test("an unresolved named session cannot publish a global memory", async () => {
   const pa = await load(null);
-  const res = await pa.tools.memory_remember.execute(CANDIDATE, ctx("ses-unresolved-a"));
+  const res = await pa.tools.memory_remember.execute(
+    CANDIDATE,
+    ctx("ses-unresolved-a"),
+  );
   expect(res.content).not.toContain("Remembered");
-  expect((await loadAll()).some((m) => m.content === CANDIDATE.content)).toBe(false);
+  expect((await loadAll()).some((m) => m.content === CANDIDATE.content)).toBe(
+    false,
+  );
 
   const pb = await load(b);
-  const seen = await pb.tools.memory_recall.execute({ query: CANDIDATE.content }, ctx("ses-b"));
+  const seen = await pb.tools.memory_recall.execute(
+    { query: CANDIDATE.content },
+    ctx("ses-b"),
+  );
   expect(seen.content).not.toContain(CANDIDATE.content);
 });
 
@@ -144,12 +166,19 @@ test("an unresolved named session cannot re-stamp a row into another repository"
     ctx("ses-unresolved-a"),
   );
   expect(res.content.toLowerCase()).toContain("refus");
-  expect((await loadAll()).some((m) => m.content === CANDIDATE.content)).toBe(false);
+  expect((await loadAll()).some((m) => m.content === CANDIDATE.content)).toBe(
+    false,
+  );
   const still = (await loadAll()).find((m) => m.ts === target);
   expect(still?.superseded_by).toBeUndefined(); // the global row is untouched
-  expect((await pb.tools.memory_recall.execute({ query: CANDIDATE.content }, ctx("ses-b"))).content).not.toContain(
-    CANDIDATE.content,
-  );
+  expect(
+    (
+      await pb.tools.memory_recall.execute(
+        { query: CANDIDATE.content },
+        ctx("ses-b"),
+      )
+    ).content,
+  ).not.toContain(CANDIDATE.content);
 });
 
 // memory_import re-stamps every row it reads with the importing session's repo
@@ -177,10 +206,16 @@ test("memory_import refuses an unresolved named session before writing anything"
       }),
     ].join("\n"),
   );
-  const res = await pa.tools.memory_import.execute({ file: "in-152.jsonl" }, ctx("ses-unresolved-a"));
+  const res = await pa.tools.memory_import.execute(
+    { file: "in-152.jsonl" },
+    ctx("ses-unresolved-a"),
+  );
   expect(res.content.toLowerCase()).toContain("refus");
   expect((await loadAll()).length).toBe(0); // fail closed BEFORE the loop, not mid-file
-  const seen = await pb.tools.memory_recall.execute({ query: "UNRESOLVED_IMPORT_ROW_ONE" }, ctx("ses-b"));
+  const seen = await pb.tools.memory_recall.execute(
+    { query: "UNRESOLVED_IMPORT_ROW_ONE" },
+    ctx("ses-b"),
+  );
   expect(seen.content).not.toContain("UNRESOLVED_IMPORT_ROW_ONE");
 });
 
@@ -191,12 +226,22 @@ test("auto-capture stores nothing for a session whose repository is unresolved",
   const p = await load(null, { autoCapture: true, captureModel: "fake/model" });
   p.capture.context.messages = [{ role: "user", content: "x".repeat(300) }];
   p.capture.generate.response = JSON.stringify([
-    { type: "learning", scope: "build", status: "open", content: "UNRESOLVED_CAPTURE_ROW" },
+    {
+      type: "learning",
+      scope: "build",
+      status: "open",
+      content: "UNRESOLVED_CAPTURE_ROW",
+    },
   ]);
   const isRefusal = (l: Fields) =>
-    l.ev === "auto_capture_refused" && l.sid === "ses-unresolved" &&
-    l.session === "ses-unresolved" && l.trigger === "idle";
-  p.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-unresolved" } });
+    l.ev === "auto_capture_refused" &&
+    l.sid === "ses-unresolved" &&
+    l.session === "ses-unresolved" &&
+    l.trigger === "idle";
+  p.capture.events.push({
+    type: "session.execution.succeeded",
+    data: { sessionID: "ses-unresolved" },
+  });
   const lines = await (async () => {
     let ev: Fields[] = [];
     for (let i = 0; i < 200; i++) {
@@ -209,9 +254,15 @@ test("auto-capture stores nothing for a session whose repository is unresolved",
     return ev;
   })();
   expect(await rowsWith("UNRESOLVED_CAPTURE_ROW")).toHaveLength(0);
-  expect(lines, "expected a complete refusal record for ses-unresolved").toContainEqual(
+  expect(
+    lines,
+    "expected a complete refusal record for ses-unresolved",
+  ).toContainEqual(
     expect.objectContaining({
-      ev: "auto_capture_refused", sid: "ses-unresolved", session: "ses-unresolved", trigger: "idle",
+      ev: "auto_capture_refused",
+      sid: "ses-unresolved",
+      session: "ses-unresolved",
+      trigger: "idle",
     }),
   );
   expect(p.capture.generate.calls).toHaveLength(0);
@@ -230,12 +281,22 @@ test("control: a bound caller still stores private memory only for its own repo"
   expect(res.content).toContain("Remembered");
   const row = (await loadAll()).find((m) => m.content === CANDIDATE.content);
   expect(row?.repo).toBe(resolveRepo(a).key);
-  expect((await pa.tools.memory_recall.execute({ query: CANDIDATE.content }, ctx("ses-a"))).content).toContain(
-    CANDIDATE.content,
-  );
-  expect((await pb.tools.memory_recall.execute({ query: CANDIDATE.content }, ctx("ses-b"))).content).not.toContain(
-    CANDIDATE.content,
-  );
+  expect(
+    (
+      await pa.tools.memory_recall.execute(
+        { query: CANDIDATE.content },
+        ctx("ses-a"),
+      )
+    ).content,
+  ).toContain(CANDIDATE.content);
+  expect(
+    (
+      await pb.tools.memory_recall.execute(
+        { query: CANDIDATE.content },
+        ctx("ses-b"),
+      )
+    ).content,
+  ).not.toContain(CANDIDATE.content);
 });
 
 // A plugin instance that DOES know its workspace keeps resolving an unknown
@@ -243,7 +304,10 @@ test("control: a bound caller still stores private memory only for its own repo"
 // project per instance is the ordinary shape and must stay frictionless.
 test("a session-unknown call into a workspace-bound instance still writes there", async () => {
   const pa = await load(a);
-  const res = await pa.tools.memory_remember.execute(CANDIDATE, ctx("ses-never-seen"));
+  const res = await pa.tools.memory_remember.execute(
+    CANDIDATE,
+    ctx("ses-never-seen"),
+  );
   expect(res.content).toContain("Remembered");
   const row = (await loadAll()).find((m) => m.content === CANDIDATE.content);
   expect(row?.repo).toBe(resolveRepo(a).key);
@@ -252,14 +316,22 @@ test("a session-unknown call into a workspace-bound instance still writes there"
 // The two deliberate escapes stay exactly as documented.
 test("explicit global:true from an unresolved session is still a global row", async () => {
   const pa = await load(null);
-  const res = await pa.tools.memory_remember.execute({ ...CANDIDATE, global: true }, ctx("ses-unresolved-a"));
+  const res = await pa.tools.memory_remember.execute(
+    { ...CANDIDATE, global: true },
+    ctx("ses-unresolved-a"),
+  );
   expect(res.content).toContain("Remembered");
   const row = (await loadAll()).find((m) => m.content === CANDIDATE.content);
   expect(row?.repo).toBe("global");
   const pb = await load(b);
-  expect((await pb.tools.memory_recall.execute({ query: CANDIDATE.content }, ctx("ses-b"))).content).toContain(
-    CANDIDATE.content,
-  );
+  expect(
+    (
+      await pb.tools.memory_recall.execute(
+        { query: CANDIDATE.content },
+        ctx("ses-b"),
+      )
+    ).content,
+  ).toContain(CANDIDATE.content);
 });
 
 // The sessionless admin path (viewer process, scripts, restore): no named
@@ -275,10 +347,15 @@ test("a sessionless writer keeps stamping the module scope", async () => {
 // The refusal is the only thing a model sees, so it has to carry the fix.
 test("the refusal names the reason and the two ways out", async () => {
   const pa = await load(null);
-  const res = await pa.tools.memory_remember.execute(CANDIDATE, ctx("ses-unresolved-a"));
+  const res = await pa.tools.memory_remember.execute(
+    CANDIDATE,
+    ctx("ses-unresolved-a"),
+  );
   expect(res.content).toContain("repository");
   expect(res.content).toContain("global:true");
-  expect((await evidenceAsync()).some((l) => l.ev === "write_refused" && l.sid === "ses-unresolved-a")).toBe(
-    true,
-  );
+  expect(
+    (await evidenceAsync()).some(
+      (l) => l.ev === "write_refused" && l.sid === "ses-unresolved-a",
+    ),
+  ).toBe(true);
 });

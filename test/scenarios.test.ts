@@ -13,15 +13,27 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { evidenceDir, memoryRoot, snapshotDir } from "../src/core/config/paths.ts"
+import {
+  evidenceDir,
+  memoryRoot,
+  snapshotDir,
+} from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
-import { formatLine, parseLine, type Fields } from "../src/core/logfmt/format.ts";
+import {
+  formatLine,
+  parseLine,
+  type Fields,
+} from "../src/core/logfmt/format.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { runWriteGate, type GateContext } from "../src/gate/gate.ts";
 import { pruneMemory } from "../src/store/prune.ts";
-import { systemDigest } from "../src/inject/digest.ts"
+import { systemDigest } from "../src/inject/digest.ts";
 import { contextualPull } from "../src/inject/pull.ts";
-import { afterTool, evidenceCalls, hasGateCheck } from "../src/capture/triggers.ts";
+import {
+  afterTool,
+  evidenceCalls,
+  hasGateCheck,
+} from "../src/capture/triggers.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
 import { rememberSessionDir } from "../src/identity/repokey.ts";
 
@@ -42,7 +54,12 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
-function seed(type: string, scope: string, content: string, ts = new Date().toISOString()): string {
+function seed(
+  type: string,
+  scope: string,
+  content: string,
+  ts = new Date().toISOString(),
+): string {
   const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
   mkdirSync(dirname(file), { recursive: true });
   appendFileSync(file, formatLine({ ts, type, scope, content }) + "\n");
@@ -51,7 +68,10 @@ function seed(type: string, scope: string, content: string, ts = new Date().toIS
 
 function writeCanonical(fields: Record<string, string>): void {
   mkdirSync(memoryRoot(), { recursive: true });
-  appendFileSync(join(memoryRoot(), "canonical.logfmt"), formatLine(fields) + "\n");
+  appendFileSync(
+    join(memoryRoot(), "canonical.logfmt"),
+    formatLine(fields) + "\n",
+  );
 }
 
 function evidence(): Fields[] {
@@ -123,7 +143,8 @@ function loadAllSync(): string {
   const glob = new Bun.Glob("*.logfmt").scanSync(memoryRoot());
   let text = "";
   for (const f of glob) {
-    if (["canonical.logfmt", "deletions.logfmt", "deleted.logfmt"].includes(f)) continue;
+    if (["canonical.logfmt", "deletions.logfmt", "deleted.logfmt"].includes(f))
+      continue;
     text += readFileSync(join(memoryRoot(), f), "utf8");
   }
   return text;
@@ -138,17 +159,36 @@ describe("S1 — signature-update-turn (anchor contract)", () => {
     const T1 = seed("pattern", "ctl", "use table_manager.save(opts)");
     const sid = "s1";
 
-    await call(sid, "C1", "bash", { command: "npx vitest run" }, "FAIL: save expects 2 args", {
-      exitCode: 1,
-    });
+    await call(
+      sid,
+      "C1",
+      "bash",
+      { command: "npx vitest run" },
+      "FAIL: save expects 2 args",
+      {
+        exitCode: 1,
+      },
+    );
     await call(sid, "C2", "grep", { pattern: "save" }, "3 matches found");
-    await call(sid, "C3", "read", { filePath: "table_manager.ts" }, "export function save…");
+    await call(
+      sid,
+      "C3",
+      "read",
+      { filePath: "table_manager.ts" },
+      "export function save…",
+    );
     await call(sid, "C4", "edit", { filePath: "table_manager.ts" }, "edit ok");
-    await call(sid, "C5", "bash", { command: "npx vitest run" }, "PASS", { exitCode: 0 });
+    await call(sid, "C5", "bash", { command: "npx vitest run" }, "PASS", {
+      exitCode: 0,
+    });
 
     setCurrent({ sessionID: sid, callID: "C6", tool: "memory_remember" });
     const outcome = await runWriteGate(
-      { type: "pattern", scope: "ctl", content: "use table_manager.save(config, opts)" },
+      {
+        type: "pattern",
+        scope: "ctl",
+        content: "use table_manager.save(config, opts)",
+      },
       ctx(sid),
     );
     expect(outcome.action).toBe("promoted");
@@ -240,7 +280,9 @@ describe("S2 — blank/ambiguous-memory (capture yes, promote no)", () => {
     const blocked = ev(lines, "write_blocked")[0];
     expect(field(blocked, "gate")).toBe("4");
     expect(field(blocked, "reason")).toBe("ambiguous_memory");
-    expect(field(blocked, "flags")).toBe("[empty_scope,no_embedded_refs,no_evidence_refs]");
+    expect(field(blocked, "flags")).toBe(
+      "[empty_scope,no_embedded_refs,no_evidence_refs]",
+    );
 
     expect((await loadAll()).length).toBe(0);
   });
@@ -254,13 +296,22 @@ describe("S3 — duplicate-write-attempt (Principle 2)", () => {
 
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
     const outcome = await runWriteGate(
-      { type: "learning", scope: "auth", content: "use bcrypt for password hashing" },
+      {
+        type: "learning",
+        scope: "auth",
+        content: "use bcrypt for password hashing",
+      },
       ctx(sid),
     );
     expect(outcome.action).toBe("collapsed");
 
     const lines = evidence();
-    assertOrder(lines, ["gate_start", "graph_current", "ref_stale_scan", "dedup_collapse"]);
+    assertOrder(lines, [
+      "gate_start",
+      "graph_current",
+      "ref_stale_scan",
+      "dedup_collapse",
+    ]);
     const dc = ev(lines, "dedup_collapse")[0];
     expect(field(dc, "match")).toBe(T1);
     expect(field(dc, "action")).toBe("canonical_existing");
@@ -280,7 +331,11 @@ describe("S4 — superseded-memory, decision-fed, no registry (review-gated)", (
 
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
     const outcome = await runWriteGate(
-      { type: "decision", scope: "backend", content: "use Fastify for API routing" },
+      {
+        type: "decision",
+        scope: "backend",
+        content: "use Fastify for API routing",
+      },
       ctx(sid),
     );
     expect(outcome.action).toBe("blocked");
@@ -326,7 +381,11 @@ describe("S4b — canonical registry supersession", () => {
     const sid = "s4b-i";
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
     const outcome = await runWriteGate(
-      { type: "decision", scope: "backend", content: "use Fastify for API routing" },
+      {
+        type: "decision",
+        scope: "backend",
+        content: "use Fastify for API routing",
+      },
       ctx(sid),
     );
     expect(outcome.action).toBe("promoted");
@@ -368,7 +427,11 @@ describe("S4b — canonical registry supersession", () => {
     const sid = "s4b-ii";
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
     const outcome = await runWriteGate(
-      { type: "decision", scope: "backend", content: "use Express for API routing" },
+      {
+        type: "decision",
+        scope: "backend",
+        content: "use Express for API routing",
+      },
       ctx(sid),
     );
     expect(outcome.action).toBe("blocked");
@@ -381,7 +444,9 @@ describe("S4b — canonical registry supersession", () => {
     expect(field(sb, "reason")).toBe("canonical");
     const blocked = ev(lines, "write_blocked")[0];
     expect(field(blocked, "reason")).toBe("conflicts_with_canonical");
-    expect(field(blocked, "flags")).toBe("[canonical=Fastify,incoming=Express]");
+    expect(field(blocked, "flags")).toBe(
+      "[canonical=Fastify,incoming=Express]",
+    );
     expect(ev(lines, "write_promoted").length).toBe(0);
     const durable = await loadAll();
     expect(durable.find((m) => m.ts === M1)?.superseded_by).toBeTruthy();
@@ -402,7 +467,11 @@ describe("S4b — canonical registry supersession", () => {
     const sid = "s4b-iii";
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
     const outcome = await runWriteGate(
-      { type: "decision", scope: "backend", content: "use Fastify for API routing" },
+      {
+        type: "decision",
+        scope: "backend",
+        content: "use Fastify for API routing",
+      },
       ctx(sid),
     );
     expect(outcome.action).toBe("collapsed");
@@ -415,14 +484,19 @@ describe("S4b — canonical registry supersession", () => {
 
 describe("S4c — distinct decisions/preferences coexist (conflict floor)", () => {
   test("a topically distinct second preference in the same scope stores clean", async () => {
-    seed("preference", "workflow", "prefer small focused pull requests that ship one reviewable change each");
+    seed(
+      "preference",
+      "workflow",
+      "prefer small focused pull requests that ship one reviewable change each",
+    );
     const sid = "s4c";
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
     const outcome = await runWriteGate(
       {
         type: "preference",
         scope: "workflow",
-        content: "always rebase feature branches onto main before opening a pull request for review",
+        content:
+          "always rebase feature branches onto main before opening a pull request for review",
       },
       { ...ctx(sid), hasGateCheck: true },
     );
@@ -435,7 +509,11 @@ describe("S4c — distinct decisions/preferences coexist (conflict floor)", () =
   });
 
   test("a rival preference over the floor stays review-gated, with an actionable hint", async () => {
-    const M1 = seed("preference", "style", "preference use tabs for indentation in all ts files");
+    const M1 = seed(
+      "preference",
+      "style",
+      "preference use tabs for indentation in all ts files",
+    );
     const sid = "s4c-rival";
     const before = durableFileContents();
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
@@ -537,7 +615,10 @@ describe("S4e — conflict-floor calibration and rival selection (PR #125 review
 
   async function runPreference(sid: string, scope: string, content: string) {
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
-    return runWriteGate({ type: "preference", scope, content }, { ...ctx(sid), hasGateCheck: true });
+    return runWriteGate(
+      { type: "preference", scope, content },
+      { ...ctx(sid), hasGateCheck: true },
+    );
   }
 
   test("0.25-overlap second preference stores clean (production false-block claim)", async () => {
@@ -575,16 +656,30 @@ describe("S4e — conflict-floor calibration and rival selection (PR #125 review
   // "cite divergent[0]" nor "cite newest" (the pre-PR defects) is reachable.
   // These scopes pin all three orderings at once. Scores vs incoming:
   // HIGH 0.85, MID 0.44, LOW 0.09 (below the floor, never a rival).
-  const MR_IN = "preference use prettier for formatting every javascript document in the docs tree";
-  const MR_HIGH = "preference use prettier for formatting every typescript document in the docs tree";
-  const MR_MID = "preference use prettier for formatting every yaml document plus json files";
-  const MR_LOW = "preference rotate signing keys every ninety days via vault with audit logging";
+  const MR_IN =
+    "preference use prettier for formatting every javascript document in the docs tree";
+  const MR_HIGH =
+    "preference use prettier for formatting every typescript document in the docs tree";
+  const MR_MID =
+    "preference use prettier for formatting every yaml document plus json files";
+  const MR_LOW =
+    "preference rotate signing keys every ninety days via vault with audit logging";
 
   test("cites the best rival, not the first over the floor", async () => {
     // Scan order MID(0.44) -> HIGH(0.85): a first-over-floor implementation
     // would cite MID.
-    const MID = seed("preference", "selbest", MR_MID, "2026-03-01T00:00:01.000Z");
-    const HIGH = seed("preference", "selbest", MR_HIGH, "2026-03-01T00:00:02.000Z");
+    const MID = seed(
+      "preference",
+      "selbest",
+      MR_MID,
+      "2026-03-01T00:00:01.000Z",
+    );
+    const HIGH = seed(
+      "preference",
+      "selbest",
+      MR_HIGH,
+      "2026-03-01T00:00:02.000Z",
+    );
     seed("preference", "selbest", MR_LOW, "2026-03-01T00:00:03.000Z");
     const outcome = await runPreference("s4e-best", "selbest", MR_IN);
     expect(outcome.action).toBe("blocked");
@@ -601,9 +696,19 @@ describe("S4e — conflict-floor calibration and rival selection (PR #125 review
   test("cites the best rival, not the newest row; merge_proposal canonical is still 'newest' (documented quirk)", async () => {
     // Scan order HIGH(0.85) -> LOW -> MID(0.44): newest row is MID, so a
     // "cite newest" implementation (the pre-PR flag bug) cites MID here.
-    const HIGH = seed("preference", "selnewest", MR_HIGH, "2026-03-01T00:00:01.000Z");
+    const HIGH = seed(
+      "preference",
+      "selnewest",
+      MR_HIGH,
+      "2026-03-01T00:00:01.000Z",
+    );
     seed("preference", "selnewest", MR_LOW, "2026-03-01T00:00:02.000Z");
-    const MID = seed("preference", "selnewest", MR_MID, "2026-03-01T00:00:03.000Z");
+    const MID = seed(
+      "preference",
+      "selnewest",
+      MR_MID,
+      "2026-03-01T00:00:03.000Z",
+    );
     const outcome = await runPreference("s4e-newest", "selnewest", MR_IN);
     expect(outcome.action).toBe("blocked");
     const lines = evidence();
@@ -623,8 +728,18 @@ describe("S4e — conflict-floor calibration and rival selection (PR #125 review
   test("supersedesTs excludes ONLY the target — another live rival still blocks the update", async () => {
     // Guards the exclusion from growing into an update-wide gate-3 skip or an
     // "exclude everything similar to the target" rule.
-    const T = seed("preference", "selexport", MR_LOW, "2026-03-01T00:00:01.000Z");
-    const R2 = seed("preference", "selexport", MR_HIGH, "2026-03-01T00:00:02.000Z");
+    const T = seed(
+      "preference",
+      "selexport",
+      MR_LOW,
+      "2026-03-01T00:00:01.000Z",
+    );
+    const R2 = seed(
+      "preference",
+      "selexport",
+      MR_HIGH,
+      "2026-03-01T00:00:02.000Z",
+    );
     setCurrent({ sessionID: "s4e-excl", callID: "C1", tool: "memory_update" });
     const outcome = await runWriteGate(
       { type: "preference", scope: "selexport", content: MR_IN },
@@ -641,10 +756,18 @@ describe("S4e — conflict-floor calibration and rival selection (PR #125 review
 
   test("0.90-overlap learning rewording is review-gated (OVERLAP_FLOOR inclusive)", async () => {
     // 9/10, exactly 0.9 in IEEE doubles: pins `>=` for the non-conflict floor.
-    const M1 = seed("learning", "rephrase", "the release train cuts tags from main every tuesday");
+    const M1 = seed(
+      "learning",
+      "rephrase",
+      "the release train cuts tags from main every tuesday",
+    );
     setCurrent({ sessionID: "s4e-90", callID: "C1", tool: "memory_remember" });
     const outcome = await runWriteGate(
-      { type: "learning", scope: "rephrase", content: "the release train cuts tags from main every tuesday morning" },
+      {
+        type: "learning",
+        scope: "rephrase",
+        content: "the release train cuts tags from main every tuesday morning",
+      },
       { ...ctx("s4e-90"), hasGateCheck: true },
     );
     expect(outcome.action).toBe("blocked");
@@ -656,13 +779,18 @@ describe("S4e — conflict-floor calibration and rival selection (PR #125 review
 
   test("0.87-overlap learning rewording stores clean (just under the rephrase floor)", async () => {
     // 13/15 = 0.8667: kills OVERLAP_FLOOR drift below ~0.87.
-    seed("learning", "rephrase87", "the deploy checklist drains connections stops workers flips dns verifies health endpoints staging status");
+    seed(
+      "learning",
+      "rephrase87",
+      "the deploy checklist drains connections stops workers flips dns verifies health endpoints staging status",
+    );
     setCurrent({ sessionID: "s4e-87", callID: "C1", tool: "memory_remember" });
     const outcome = await runWriteGate(
       {
         type: "learning",
         scope: "rephrase87",
-        content: "the deploy checklist drains connections stops workers flips dns verifies health endpoints staging traffic",
+        content:
+          "the deploy checklist drains connections stops workers flips dns verifies health endpoints staging traffic",
       },
       { ...ctx("s4e-87"), hasGateCheck: true },
     );
@@ -681,7 +809,11 @@ describe("S-edge — incoming-stale write (poisoning guard)", () => {
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_remember" });
 
     const outcome = await runWriteGate(
-      { type: "pattern", scope: "ctl", content: "use table_manager.save(opts)" },
+      {
+        type: "pattern",
+        scope: "ctl",
+        content: "use table_manager.save(opts)",
+      },
       ctx(sid),
     );
     expect(outcome.action).toBe("blocked");
@@ -704,7 +836,9 @@ describe("S-edge — incoming-stale write (poisoning guard)", () => {
     expect(field(sb, "target")).toBe("<-");
     expect(field(sb, "reason")).toBe("drift");
     expect(ev(lines, "write_promoted").length).toBe(0);
-    expect(field(ev(lines, "write_blocked")[0], "reason")).toBe("drift_ref_stale_incoming");
+    expect(field(ev(lines, "write_blocked")[0], "reason")).toBe(
+      "drift_ref_stale_incoming",
+    );
     const durable = await loadAll();
     expect(durable.find((m) => m.ts === M1)?.superseded_by).toBeTruthy();
     expect(durable.length).toBe(1);
@@ -713,11 +847,22 @@ describe("S-edge — incoming-stale write (poisoning guard)", () => {
 
 describe("S5 — prune-a-bad-memory (Principle 3)", () => {
   test("deletes with reason, snapshots for rollback, audits, never repo-touching", async () => {
-    const T1 = seed("pattern", "testing", "always run vitest before playwright");
-    const before = readFileSync(join(memoryRoot(), `${T1.split("T")[0]}.logfmt`), "utf8");
+    const T1 = seed(
+      "pattern",
+      "testing",
+      "always run vitest before playwright",
+    );
+    const before = readFileSync(
+      join(memoryRoot(), `${T1.split("T")[0]}.logfmt`),
+      "utf8",
+    );
     mkdirSync(snapshotDir(), { recursive: true });
 
-    const res = await pruneMemory("testing", "pattern", "playwright now gates CI first");
+    const res = await pruneMemory(
+      "testing",
+      "pattern",
+      "playwright now gates CI first",
+    );
     expect(res.deleted.length).toBe(1);
 
     const lines = evidence();
@@ -741,7 +886,11 @@ describe("S5 — prune-a-bad-memory (Principle 3)", () => {
     seed("pattern", "testing", "always run vitest before playwright");
     mkdirSync(snapshotDir(), { recursive: true });
 
-    const res = await pruneMemory("nothing-matches-this", "pattern", "cleanup sweep");
+    const res = await pruneMemory(
+      "nothing-matches-this",
+      "pattern",
+      "cleanup sweep",
+    );
     expect(res.deleted.length).toBe(0);
     // Contract: snapshots are taken per REWRITTEN file, not per file that
     // exists — a no-op forget must not mint an undo point for nothing.
@@ -754,16 +903,32 @@ describe("S5 — prune-a-bad-memory (Principle 3)", () => {
 describe("S6 — FAIL→PASS gate → learning (T4)", () => {
   test("t4_learning with the real call chain and the edit as fix_ref", async () => {
     const sid = "s6";
-    await call(sid, "C1", "bash", { command: "npx vitest run" }, "FAIL: save expects 2 args", {
-      exitCode: 1,
-    });
+    await call(
+      sid,
+      "C1",
+      "bash",
+      { command: "npx vitest run" },
+      "FAIL: save expects 2 args",
+      {
+        exitCode: 1,
+      },
+    );
     await call(sid, "C2", "grep", { pattern: "save" }, "3 matches found");
     await call(sid, "C3", "read", { filePath: "x.ts" }, "content");
     await call(sid, "C4", "edit", { filePath: "x.ts" }, "edit ok");
-    await call(sid, "C5", "bash", { command: "npx vitest run" }, "PASS", { exitCode: 0 });
+    await call(sid, "C5", "bash", { command: "npx vitest run" }, "PASS", {
+      exitCode: 0,
+    });
 
     const lines = evidence();
-    assertOrder(lines, ["gate_check", "tool_result", "tool_result", "tool_result", "gate_check", "t4_learning"]);
+    assertOrder(lines, [
+      "gate_check",
+      "tool_result",
+      "tool_result",
+      "tool_result",
+      "gate_check",
+      "t4_learning",
+    ]);
     const t4 = ev(lines, "t4_learning")[0];
     expect(field(t4, "gate_couple")).toBe("true");
     expect(field(t4, "evidence_chain")).toBe("[C1,C2,C3,C4,C5]");
@@ -785,7 +950,9 @@ describe("I3 — evidence never injected", () => {
     const digest = system.join("\n");
     expect(digest).not.toContain("evidence");
     expect(digest).not.toContain("logfmt");
-    expect(digest.split("\n").filter((l) => l.trim()).length).toBeLessThanOrEqual(3);
+    expect(
+      digest.split("\n").filter((l) => l.trim()).length,
+    ).toBeLessThanOrEqual(3);
 
     const output = { output: "grep results" };
     await contextualPull(

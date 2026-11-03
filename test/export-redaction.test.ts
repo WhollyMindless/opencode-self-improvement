@@ -4,13 +4,23 @@
 // the JSONL the credential. Redaction here happens on the value being
 // serialised, never on the row: export stays a read path.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryRoot } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
-import { exportMemories, EXPORT_HEADER, EXPORT_VERSION } from "../src/portable/export.ts";
+import {
+  exportMemories,
+  EXPORT_HEADER,
+  EXPORT_VERSION,
+} from "../src/portable/export.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { resetState } from "../src/core/state.ts";
 import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
@@ -52,11 +62,16 @@ describe("memory_export redacts stored credentials (#74 slice 1)", () => {
     const res = await exportMemories({ file: "redact-content.jsonl" });
     const text = readFileSync(res.path, "utf8");
     expect(text).not.toContain(SK_TOKEN);
-    expect(text).toContain('"content":"deploy note [redacted] kept for rotation"');
+    expect(text).toContain(
+      '"content":"deploy note [redacted] kept for rotation"',
+    );
   });
 
   test("issue holding an sk- token exports [redacted], never the token", async () => {
-    seedLegacy({ content: "clean content", issue: `token in free text ${SK_TOKEN}` });
+    seedLegacy({
+      content: "clean content",
+      issue: `token in free text ${SK_TOKEN}`,
+    });
     const res = await exportMemories({ file: "redact-issue.jsonl" });
     const text = readFileSync(res.path, "utf8");
     expect(text).not.toContain(SK_TOKEN);
@@ -91,7 +106,10 @@ describe("memory_export redacts stored credentials (#74 slice 1)", () => {
 
   test("the header line and count are unchanged", async () => {
     seedLegacy({ content: "first row" });
-    seedLegacy({ content: `second row ${SK_TOKEN}`, ts: "2026-01-01T00:00:01.000Z" });
+    seedLegacy({
+      content: `second row ${SK_TOKEN}`,
+      ts: "2026-01-01T00:00:01.000Z",
+    });
     const res = await exportMemories({ file: "header.jsonl" });
     expect(res.count).toBe(2);
     const header = JSON.parse(readFileSync(res.path, "utf8").split("\n")[0]);

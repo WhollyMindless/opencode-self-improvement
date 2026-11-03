@@ -4,8 +4,13 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { hitsFile, readLedger, resetHitThrottle, resetLedgerCache } from "../src/hits/ledger.ts";
-import { parseLine } from "../src/core/logfmt/format.ts"
+import {
+  hitsFile,
+  readLedger,
+  resetHitThrottle,
+  resetLedgerCache,
+} from "../src/hits/ledger.ts";
+import { parseLine } from "../src/core/logfmt/format.ts";
 import { readLines } from "../src/core/logfmt/read.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
@@ -52,7 +57,10 @@ afterEach(async () => {
     if (savedEnv[key] === undefined) delete process.env[key];
     else process.env[key] = savedEnv[key];
   }
-  if (dirname(resolve(root)) !== resolve(tmpdir()) || !basename(root).startsWith("osi-injection-accounting-")) {
+  if (
+    dirname(resolve(root)) !== resolve(tmpdir()) ||
+    !basename(root).startsWith("osi-injection-accounting-")
+  ) {
     throw new Error("Unexpected fixture cleanup target");
   }
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -71,7 +79,10 @@ const prompt = (p: LoadedPlugin, sid: string, text = "azuki calibration") =>
   p.sessionHooks.prompt({ sessionID: sid, prompt: { text } });
 
 async function context(p: LoadedPlugin, sid: string): Promise<string[]> {
-  const event = { sessionID: sid, system: [] as { type: string; text: string }[] };
+  const event = {
+    sessionID: sid,
+    system: [] as { type: string; text: string }[],
+  };
   await p.sessionHooks.context(event);
   return event.system.map((part) => part.text);
 }
@@ -79,45 +90,63 @@ async function context(p: LoadedPlugin, sid: string): Promise<string[]> {
 async function counters(p: LoadedPlugin, sid: string) {
   // The status file flushes at epoch/usage updates, not every context hook.
   // memory_status reads the live counters used by the user-facing report.
-  const { content } = await p.tools.memory_status.execute({}, { sessionID: sid, id: "status" });
-  const match = content.match(/session\s+(\d+) request\(s\)[^\n]*\babstained (\d+)\b/);
-  if (!match) throw new Error(`No session counters in memory_status: ${content}`);
+  const { content } = await p.tools.memory_status.execute(
+    {},
+    { sessionID: sid, id: "status" },
+  );
+  const match = content.match(
+    /session\s+(\d+) request\(s\)[^\n]*\babstained (\d+)\b/,
+  );
+  if (!match)
+    throw new Error(`No session counters in memory_status: ${content}`);
   return { requests: Number(match[1]), abstained: Number(match[2]) };
 }
 
-test.each([220, 1200])("injection credits only budget-surviving rows and their shared terms (budget %i)", async (budget) => {
-  process.env.OPENCODE_MEMORY_INJECT_BUDGET = String(budget);
-  const shortText = "azuki calibration keeps widgets aligned";
-  const longText = `azuki calibration excludednote ${"x".repeat(400)}`;
-  const short = await seed(shortText);
-  const long = await seed(longText);
-  await seed("koto deployment uses the release runner");
-  const p = await plugin();
-  const sid = "ses-accounting-budget";
-  const query = "azuki calibration excludednote privatequery";
+test.each([220, 1200])(
+  "injection credits only budget-surviving rows and their shared terms (budget %i)",
+  async (budget) => {
+    process.env.OPENCODE_MEMORY_INJECT_BUDGET = String(budget);
+    const shortText = "azuki calibration keeps widgets aligned";
+    const longText = `azuki calibration excludednote ${"x".repeat(400)}`;
+    const short = await seed(shortText);
+    const long = await seed(longText);
+    await seed("koto deployment uses the release runner");
+    const p = await plugin();
+    const sid = "ses-accounting-budget";
+    const query = "azuki calibration excludednote privatequery";
 
-  await prompt(p, sid, query);
-  const system = await context(p, sid);
-  const block = system.find((part) => part.startsWith("## Relevant durable memory"));
-  expect(block).toBeDefined();
-  expect(block).toContain(shortText);
-  expect(block?.length).toBeLessThanOrEqual(budget);
-  // The wider-budget case proves the long row is eligible; only the budget
-  // keeps it out of the narrow case, not a relevance mismatch.
-  if (budget === 220) expect(block).not.toContain(longText);
-  else expect(block).toContain(longText);
-  expect(block).not.toContain("koto deployment");
+    await prompt(p, sid, query);
+    const system = await context(p, sid);
+    const block = system.find((part) =>
+      part.startsWith("## Relevant durable memory"),
+    );
+    expect(block).toBeDefined();
+    expect(block).toContain(shortText);
+    expect(block?.length).toBeLessThanOrEqual(budget);
+    // The wider-budget case proves the long row is eligible; only the budget
+    // keeps it out of the narrow case, not a relevance mismatch.
+    if (budget === 220) expect(block).not.toContain(longText);
+    else expect(block).toContain(longText);
+    expect(block).not.toContain("koto deployment");
 
-  const ledger = await readLedger();
-  const expectedRows = budget === 220 ? [short] : [short, long];
-  expect([...ledger.byRow.keys()].sort()).toEqual(expectedRows.sort());
-  for (const row of expectedRows) expect(ledger.byRow.get(row)?.count).toBe(1);
-  const entries = (await readLines(hitsFile())).map(parseLine);
-  expect(entries).toHaveLength(1);
-  expect(entries[0]).toMatchObject({ ev: "memory_used", src: "inject", sid });
-  expect(entries[0]?.terms).toBe(budget === 220 ? "[azuki,calibration]" : "[azuki,calibration,excludednote]");
-  expect((await readLines(hitsFile())).join("\n")).not.toContain("privatequery");
-});
+    const ledger = await readLedger();
+    const expectedRows = budget === 220 ? [short] : [short, long];
+    expect([...ledger.byRow.keys()].sort()).toEqual(expectedRows.sort());
+    for (const row of expectedRows)
+      expect(ledger.byRow.get(row)?.count).toBe(1);
+    const entries = (await readLines(hitsFile())).map(parseLine);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ ev: "memory_used", src: "inject", sid });
+    expect(entries[0]?.terms).toBe(
+      budget === 220
+        ? "[azuki,calibration]"
+        : "[azuki,calibration,excludednote]",
+    );
+    expect((await readLines(hitsFile())).join("\n")).not.toContain(
+      "privatequery",
+    );
+  },
+);
 
 test("a discarded self-authored rebuild adds no credit; an adopted rebuild does", async () => {
   const original = await seed("azuki calibration keeps widgets aligned");
@@ -165,7 +194,9 @@ test("context without an epoch does not count as abstention, before a prompt or 
   await seed("azuki calibration keeps widgets aligned");
   const p = await plugin();
   const sid = "ses-accounting-no-epoch";
-  expect((await context(p, sid)).join("\n")).not.toContain("## Relevant durable memory");
+  expect((await context(p, sid)).join("\n")).not.toContain(
+    "## Relevant durable memory",
+  );
   expect(await readStatus(sid)).toBeNull();
 
   // Creating the first epoch makes earlier request counters observable.
@@ -175,7 +206,9 @@ test("context without an epoch does not count as abstention, before a prompt or 
   expect(await counters(p, sid)).toEqual({ requests: 2, abstained: 0 });
 
   await p.sessionHooks.compaction({ sessionID: sid, system: [] });
-  expect((await context(p, sid)).join("\n")).not.toContain("## Relevant durable memory");
+  expect((await context(p, sid)).join("\n")).not.toContain(
+    "## Relevant durable memory",
+  );
   await prompt(p, sid);
   expect(await counters(p, sid)).toEqual({ requests: 3, abstained: 0 });
 });
@@ -183,18 +216,23 @@ test("context without an epoch does not count as abstention, before a prompt or 
 test.each([
   { cause: "no vocabulary match", budget: 1200, query: "koto deployment" },
   { cause: "budget excludes every row", budget: 1, query: "azuki calibration" },
-])("an empty established epoch counts one abstention per request: $cause", async ({ budget, query }) => {
-  process.env.OPENCODE_MEMORY_INJECT_BUDGET = String(budget);
-  await seed("azuki calibration keeps widgets aligned");
-  const p = await plugin();
-  const sid = "ses-accounting-empty";
-  await prompt(p, sid, query);
-  expect((await readStatus(sid))?.block).toBe("");
-  expect(await counters(p, sid)).toEqual({ requests: 0, abstained: 0 });
+])(
+  "an empty established epoch counts one abstention per request: $cause",
+  async ({ budget, query }) => {
+    process.env.OPENCODE_MEMORY_INJECT_BUDGET = String(budget);
+    await seed("azuki calibration keeps widgets aligned");
+    const p = await plugin();
+    const sid = "ses-accounting-empty";
+    await prompt(p, sid, query);
+    expect((await readStatus(sid))?.block).toBe("");
+    expect(await counters(p, sid)).toEqual({ requests: 0, abstained: 0 });
 
-  for (const requests of [1, 2]) {
-    expect((await context(p, sid)).join("\n")).not.toContain("## Relevant durable memory");
-    expect(await counters(p, sid)).toEqual({ requests, abstained: requests });
-  }
-  expect((await readLedger()).lines).toBe(0);
-});
+    for (const requests of [1, 2]) {
+      expect((await context(p, sid)).join("\n")).not.toContain(
+        "## Relevant durable memory",
+      );
+      expect(await counters(p, sid)).toEqual({ requests, abstained: requests });
+    }
+    expect((await readLedger()).lines).toBe(0);
+  },
+);

@@ -9,31 +9,47 @@ import { extractCallForms } from "../src/gate/resolver.ts";
 describe("extractCallForms — prose and file-reference guards", () => {
   test("file reference followed by parenthetical prose is not a call", () => {
     expect(
-      extractCallForms("version bumped in package.json(committed by @semantic-release/git with [skip ci])"),
+      extractCallForms(
+        "version bumped in package.json(committed by @semantic-release/git with [skip ci])",
+      ),
     ).toEqual([]);
-    expect(extractCallForms("add a plugin entry to opencode.json(c) for loading")).toEqual([]);
-    expect(extractCallForms("config.logfmt(see exports) lives outside repos")).toEqual([]);
+    expect(
+      extractCallForms("add a plugin entry to opencode.json(c) for loading"),
+    ).toEqual([]);
+    expect(
+      extractCallForms("config.logfmt(see exports) lives outside repos"),
+    ).toEqual([]);
   });
 
   test("dotted name followed by multi-word prose parens is not a call", () => {
     expect(
-      extractCallForms("never detach ctx.session.context (main-agent review fix) from its receiver"),
+      extractCallForms(
+        "never detach ctx.session.context (main-agent review fix) from its receiver",
+      ),
     ).toEqual([]);
     expect(
-      extractCallForms("the fakes are closures but real.session.context (client may bind this) differs"),
+      extractCallForms(
+        "the fakes are closures but real.session.context (client may bind this) differs",
+      ),
     ).toEqual([]);
   });
 
   test("genuine code call forms still extract", () => {
-    let forms = extractCallForms("harness.runInit({ force: true }) re-indexes the graph");
+    let forms = extractCallForms(
+      "harness.runInit({ force: true }) re-indexes the graph",
+    );
     expect(forms.length).toBe(1);
     expect(forms[0].name).toBe("runInit");
 
-    forms = extractCallForms("call ctx.session.context({ sessionID: sid }) first");
+    forms = extractCallForms(
+      "call ctx.session.context({ sessionID: sid }) first",
+    );
     expect(forms.length).toBe(1);
     expect(forms[0].symbol).toBe("ctx.session.context");
 
-    forms = extractCallForms("BABYLON.MeshBuilder.CreateBox(name, options, scene)");
+    forms = extractCallForms(
+      "BABYLON.MeshBuilder.CreateBox(name, options, scene)",
+    );
     expect(forms.length).toBe(1);
 
     forms = extractCallForms("single identifier arg: state.foo(sessionID)");

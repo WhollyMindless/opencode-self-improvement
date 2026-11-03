@@ -14,17 +14,42 @@
 // session whose location is never booted, plugin falls back to a stale module
 // scope — is reproduced red-on-pre-fix at the plugin boundary in
 // test/repo-scope-serve-host.test.ts, which replays the recorded payloads.
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { REPO, type Fake, startFake, resolveOpencode } from "./support/harness.ts";
+import {
+  REPO,
+  type Fake,
+  startFake,
+  resolveOpencode,
+} from "./support/harness.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function spawnGit(args: string[], cwd: string) {
-  const p = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-  if (p.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${p.stderr?.toString()}`);
+  const p = Bun.spawnSync(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (p.exitCode !== 0)
+    throw new Error(`git ${args.join(" ")} failed: ${p.stderr?.toString()}`);
   return p.stdout?.toString().trim() ?? "";
 }
 
@@ -83,7 +108,10 @@ function makeServeGuest(fake: Fake, pluginPath: string): ServeGuest {
           fake: {
             npm: "@ai-sdk/openai-compatible",
             name: "Fake",
-            options: { baseURL: `http://127.0.0.1:${fake.port}/v1`, apiKey: "fake-key" },
+            options: {
+              baseURL: `http://127.0.0.1:${fake.port}/v1`,
+              apiKey: "fake-key",
+            },
             models: { scripted: { name: "Scripted" } },
           },
         },
@@ -96,7 +124,10 @@ function makeServeGuest(fake: Fake, pluginPath: string): ServeGuest {
   );
 
   spawnGit(["init", "-q"], proj);
-  spawnGit(["remote", "add", "origin", "git@github.com:osi-fake/stamp-origin.git"], proj);
+  spawnGit(
+    ["remote", "add", "origin", "git@github.com:osi-fake/stamp-origin.git"],
+    proj,
+  );
 
   const env: Record<string, string> = {
     HOME: serveRoot,
@@ -123,14 +154,19 @@ function makeServeGuest(fake: Fake, pluginPath: string): ServeGuest {
   const base = `http://127.0.0.1:${port}`;
   const pwFile = join(cfg, "opencode", "service.json");
   let password = "";
-  const authHeader = () => ({ authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}` });
-
-  const child = Bun.spawn([resolveOpencode(), "serve", "--service", "--port", String(port)], {
-    cwd: serveRoot,
-    env,
-    stdout: "ignore",
-    stderr: "ignore",
+  const authHeader = () => ({
+    authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`,
   });
+
+  const child = Bun.spawn(
+    [resolveOpencode(), "serve", "--service", "--port", String(port)],
+    {
+      cwd: serveRoot,
+      env,
+      stdout: "ignore",
+      stderr: "ignore",
+    },
+  );
 
   return {
     root,
@@ -142,8 +178,11 @@ function makeServeGuest(fake: Fake, pluginPath: string): ServeGuest {
       for (let i = 0; i < 150; i++) {
         if (existsSync(pwFile)) {
           try {
-            password = JSON.parse(readFileSync(pwFile, "utf8")).password as string;
-            const r = await fetch(`${base}/api/session?limit=1`, { headers: authHeader() });
+            password = JSON.parse(readFileSync(pwFile, "utf8"))
+              .password as string;
+            const r = await fetch(`${base}/api/session?limit=1`, {
+              headers: authHeader(),
+            });
             if (r.status === 200) return;
           } catch {}
         }
@@ -154,7 +193,11 @@ function makeServeGuest(fake: Fake, pluginPath: string): ServeGuest {
     req: (path, init = {}) =>
       fetch(base + path, {
         ...init,
-        headers: { "content-type": "application/json", ...authHeader(), ...(init.headers ?? {}) },
+        headers: {
+          "content-type": "application/json",
+          ...authHeader(),
+          ...(init.headers ?? {}),
+        },
       }),
   };
 }
@@ -163,15 +206,24 @@ function storeRows(memoryDir: string): string[] {
   if (!existsSync(memoryDir)) return [];
   return readdirSync(memoryDir)
     .filter((f) => /^\d{4}-\d{2}-\d{2}\.logfmt$/.test(f))
-    .flatMap((f) => readFileSync(join(memoryDir, f), "utf8").trim().split("\n").filter(Boolean));
+    .flatMap((f) =>
+      readFileSync(join(memoryDir, f), "utf8")
+        .trim()
+        .split("\n")
+        .filter(Boolean),
+    );
 }
 
-async function waitForRows(memoryDir: string, timeoutMs = 30_000): Promise<string[]> {
+async function waitForRows(
+  memoryDir: string,
+  timeoutMs = 30_000,
+): Promise<string[]> {
   const start = Date.now();
   for (;;) {
     const rows = storeRows(memoryDir);
     if (rows.length) return rows;
-    if (Date.now() - start > timeoutMs) throw new Error(`no store rows appeared in ${timeoutMs}ms`);
+    if (Date.now() - start > timeoutMs)
+      throw new Error(`no store rows appeared in ${timeoutMs}ms`);
     await sleep(200);
   }
 }
@@ -192,7 +244,15 @@ afterEach(async () => {
 afterAll(() => fake.stop());
 
 function call(id: string, tool: string, args: Record<string, unknown>) {
-  return { tool_calls: [{ id, type: "function", function: { name: tool, arguments: JSON.stringify(args) } }] };
+  return {
+    tool_calls: [
+      {
+        id,
+        type: "function",
+        function: { name: tool, arguments: JSON.stringify(args) },
+      },
+    ],
+  };
 }
 
 describe("Feature: repo identity stamped under the service host", () => {
@@ -211,23 +271,22 @@ describe("Feature: repo identity stamped under the service host", () => {
     // boot — the #90 production signature — is replayed at the plugin
     // boundary in test/repo-scope-serve-host.test.ts with recorded payloads.)
     const created = await (
-      await g.req("/api/session", { method: "POST", body: JSON.stringify({ location: { directory: g.projDir } }) })
+      await g.req("/api/session", {
+        method: "POST",
+        body: JSON.stringify({ location: { directory: g.projDir } }),
+      })
     ).json();
     const sid: string = created.data.id;
     expect(created.data.location?.directory).toBeString();
 
     fake.setSteps({
       "STAMP::serve": [
-        call(
-          "s1",
-          "memory_remember",
-          {
-            type: "context",
-            scope: "stamp-probe",
-            status: "open",
-            content: "serve-mode stamp probe row for repo identity verification",
-          },
-        ),
+        call("s1", "memory_remember", {
+          type: "context",
+          scope: "stamp-probe",
+          status: "open",
+          content: "serve-mode stamp probe row for repo identity verification",
+        }),
         { content: "STAMP-DONE" },
       ],
     });
@@ -242,7 +301,8 @@ describe("Feature: repo identity stamped under the service host", () => {
     // Then the row lands stamped with the SESSION's repo identity…
     const rows = await waitForRows(g.memoryDir);
     const expectPath = spawnGit(["rev-parse", "--show-toplevel"], g.projDir);
-    const row = rows.find((r) => r.includes("serve-mode stamp probe row")) ?? "";
+    const row =
+      rows.find((r) => r.includes("serve-mode stamp probe row")) ?? "";
     expect(row).toContain(`repo=${originKey(ORIGIN)}`);
     expect(row).toContain(`repoPath=${expectPath}`);
 

@@ -7,7 +7,15 @@
 // resolved path, and pre-hash rows keep matching through repoPath.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -23,7 +31,11 @@ import { relevantKnowledge } from "../src/recall/relevant.ts";
 
 const gitToplevel = (dir: string): string | null => {
   try {
-    const p = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { cwd: dir, stdout: "pipe", stderr: "ignore" });
+    const p = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
+      cwd: dir,
+      stdout: "pipe",
+      stderr: "ignore",
+    });
     const out = p.stdout?.toString().trim();
     return p.exitCode === 0 && out ? out : null;
   } catch {
@@ -31,7 +43,8 @@ const gitToplevel = (dir: string): string | null => {
   }
 };
 
-const sha1 = (s: string) => createHash("sha1").update(s).digest("hex").slice(0, 12);
+const sha1 = (s: string) =>
+  createHash("sha1").update(s).digest("hex").slice(0, 12);
 
 // Independent ground truth for the volume under test (#109): write a lowercase
 // file and ask whether the UPPERCASE spelling names an existing file. A
@@ -69,14 +82,19 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
-const dayFile = () => join(memDir, `${new Date().toISOString().split("T")[0]}.logfmt`);
+const dayFile = () =>
+  join(memDir, `${new Date().toISOString().split("T")[0]}.logfmt`);
 
 describe("non-git repo keys are bare tokens (#92)", () => {
   test("a session dir containing a space stamps repo= as an unquoted hash, repoPath stays raw", async () => {
     const projDir = mkdtempSync(join(tmpdir(), "osi-repokey Default Project "));
     try {
       setRepoScope(resolveRepo(projDir));
-      await appendMemory({ type: "learning", scope: "s", content: "the build runs from a folder with a space" });
+      await appendMemory({
+        type: "learning",
+        scope: "s",
+        content: "the build runs from a folder with a space",
+      });
       const raw = readFileSync(dayFile(), "utf8");
       // The acceptance claim: repo= is always a bare [a-z0-9]+ token...
       expect(raw).toMatch(/repo=[a-z0-9]+( |$)/m);
@@ -91,7 +109,12 @@ describe("non-git repo keys are bare tokens (#92)", () => {
         expect(scope.key).not.toBe(projDir);
       }
     } finally {
-      rmSync(projDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      rmSync(projDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 
@@ -100,12 +123,18 @@ describe("non-git repo keys are bare tokens (#92)", () => {
     try {
       const base = resolveRepo(dir).key;
       expect(base).toBe(resolveRepo(join(dir, ".")).key); // spelling via "."
-      expect(base).toBe(resolveRepo(`${dir}${process.platform === "win32" ? "\\" : "/"}`).key); // trailing sep
+      expect(base).toBe(
+        resolveRepo(`${dir}${process.platform === "win32" ? "\\" : "/"}`).key,
+      ); // trailing sep
       // Symlink/junction alias (junctions need no privileges on Windows):
       const link = join(root, "alias-link");
       let linked = false;
       try {
-        symlinkSync(dir, link, process.platform === "win32" ? "junction" : "dir");
+        symlinkSync(
+          dir,
+          link,
+          process.platform === "win32" ? "junction" : "dir",
+        );
         linked = true;
       } catch {
         // filesystem refused the link (unprivileged Linux in a container) - spelling
@@ -132,12 +161,22 @@ describe("non-git repo keys are bare tokens (#92)", () => {
     const projDir = mkdtempSync(join(tmpdir(), "osi-repokey legacy-"));
     const scope = { key: sha1(normalizeDirPath(projDir)), path: projDir };
     // Forge a legacy row exactly as the pre-hash code wrote it: repo= raw path.
-    await appendMemory({ type: "learning", scope: "s", content: "legacy note about the old pipeline", repo: projDir, repoPath: projDir });
+    await appendMemory({
+      type: "learning",
+      scope: "s",
+      content: "legacy note about the old pipeline",
+      repo: projDir,
+      repoPath: projDir,
+    });
     setRepoScope(scope);
     const hits = await relevantKnowledge("old pipeline note", 5);
     expect(hits).toContain("legacy note about the old pipeline");
     // And new writes under the hashed scope land beside it, token-stamped.
-    await appendMemory({ type: "learning", scope: "s", content: "new note about the same pipeline" });
+    await appendMemory({
+      type: "learning",
+      scope: "s",
+      content: "new note about the same pipeline",
+    });
     const raw = readFileSync(dayFile(), "utf8");
     expect(raw).toContain(`repo=${scope.key}`);
   });
@@ -148,7 +187,9 @@ describe("non-git repo keys are bare tokens (#92)", () => {
     expect(n).not.toMatch(/\\/);
     expect(n.endsWith("/")).toBe(false); // this fixture is a child directory, never a filesystem root
     if (volumeFoldsCase(dir)) expect(n).toBe(n.toLowerCase());
-    expect(normalizeDirPath(n + (process.platform === "win32" ? "\\" : "/"))).toBe(n);
+    expect(
+      normalizeDirPath(n + (process.platform === "win32" ? "\\" : "/")),
+    ).toBe(n);
   });
 });
 
@@ -158,9 +199,16 @@ describe("case folding follows the volume, not the platform (#109)", () => {
     try {
       expect(isCaseInsensitivePath(dir)).toBe(volumeFoldsCase(dir));
       // A missing path is decided from the nearest existing component.
-      expect(isCaseInsensitivePath(join(dir, "gone", "deeper"))).toBe(volumeFoldsCase(dir));
+      expect(isCaseInsensitivePath(join(dir, "gone", "deeper"))).toBe(
+        volumeFoldsCase(dir),
+      );
     } finally {
-      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      rmSync(dir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 
@@ -173,7 +221,12 @@ describe("case folding follows the volume, not the platform (#109)", () => {
       if (volumeFoldsCase(base)) expect(n).toBe(n.toLowerCase());
       else expect(n).toContain("MixedCase");
     } finally {
-      rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      rmSync(base, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 
@@ -195,14 +248,20 @@ describe("case folding follows the volume, not the platform (#109)", () => {
       if (caseSensitive) expect(lo).not.toBe(hi);
       else expect(lo).toBe(hi);
     } finally {
-      rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      rmSync(base, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 
   test("a path with nothing existing falls back to the platform rule", () => {
     const gone = "/Osi109NoSuchVolume/DefinitelyMissing";
     expect(isCaseInsensitivePath(gone)).toBe(null);
-    const folded = process.platform === "win32" || process.platform === "darwin";
+    const folded =
+      process.platform === "win32" || process.platform === "darwin";
     expect(normalizeDirPath(gone)).toBe(folded ? gone.toLowerCase() : gone);
   });
 
@@ -213,7 +272,9 @@ describe("case folding follows the volume, not the platform (#109)", () => {
     try {
       // Exactly what the pre-fix normalizer stamped for this path on ANY
       // platform: the lowercased spelling as the hash input.
-      const oldKey = sha1(projDir.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase());
+      const oldKey = sha1(
+        projDir.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase(),
+      );
       await appendMemory({
         type: "learning",
         scope: "s",
@@ -225,7 +286,12 @@ describe("case folding follows the volume, not the platform (#109)", () => {
       const hits = await relevantKnowledge("old fold platform stamp", 5);
       expect(hits).toContain("note stamped under the old platform fold");
     } finally {
-      rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      rmSync(base, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 });
@@ -237,39 +303,64 @@ describe("case folding follows the volume, not the platform (#109)", () => {
 const aliasTestParent = process.platform === "win32" ? tmpdir() : "/tmp";
 const aliasOracle = mkdtempSync(join(aliasTestParent, "osi250-oracle-"));
 let aliasVolumeFolds: boolean;
-try { aliasVolumeFolds = volumeFoldsCase(aliasOracle); }
-finally { rmSync(aliasOracle, { recursive: true, force: true }); }
+try {
+  aliasVolumeFolds = volumeFoldsCase(aliasOracle);
+} finally {
+  rmSync(aliasOracle, { recursive: true, force: true });
+}
 
-describe.skipIf(aliasVolumeFolds)("case-variant symlinks do not authorize folding (#250 F1)", () => {
-  test.each(["", "123"])("keeps sibling memories private with an uncased suffix '%s'", async (suffix) => {
-    const base = join(aliasTestParent, `osi250-${randomUUID()}`);
-    mkdirSync(base);
-    const upper = join(base, "Foo");
-    const lower = join(base, "foo");
-    const alias = join(base, "FoO");
-    mkdirSync(upper);
-    mkdirSync(lower);
-    try {
-      symlinkSync(upper, alias, process.platform === "win32" ? "junction" : "dir");
-      if (suffix) {
-        mkdirSync(join(upper, suffix));
-        mkdirSync(join(lower, suffix));
-      }
-      const owner = resolveRepo(join(upper, suffix));
-      const other = resolveRepo(join(lower, suffix));
-      expect(isCaseInsensitivePath(join(upper, suffix))).toBe(false);
-      expect(owner.key).not.toBe(other.key);
-      // An actual alias still resolves to its target: rejection of the false
-      // case probe must not break canonicalization of the input path itself.
-      expect(resolveRepo(join(alias, suffix)).key).toBe(owner.key);
-      const content = "the private widget pipeline requires an isolated staging queue";
-      await appendMemory({ type: "learning", scope: "s", content, repo: owner.key, repoPath: owner.path });
-      setRepoScope(owner);
-      expect(await relevantKnowledge(content, 5)).toContain(content);
-      setRepoScope(other);
-      expect(await relevantKnowledge(content, 5)).not.toContain(content);
-    } finally {
-      rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
-    }
-  });
-});
+describe.skipIf(aliasVolumeFolds)(
+  "case-variant symlinks do not authorize folding (#250 F1)",
+  () => {
+    test.each(["", "123"])(
+      "keeps sibling memories private with an uncased suffix '%s'",
+      async (suffix) => {
+        const base = join(aliasTestParent, `osi250-${randomUUID()}`);
+        mkdirSync(base);
+        const upper = join(base, "Foo");
+        const lower = join(base, "foo");
+        const alias = join(base, "FoO");
+        mkdirSync(upper);
+        mkdirSync(lower);
+        try {
+          symlinkSync(
+            upper,
+            alias,
+            process.platform === "win32" ? "junction" : "dir",
+          );
+          if (suffix) {
+            mkdirSync(join(upper, suffix));
+            mkdirSync(join(lower, suffix));
+          }
+          const owner = resolveRepo(join(upper, suffix));
+          const other = resolveRepo(join(lower, suffix));
+          expect(isCaseInsensitivePath(join(upper, suffix))).toBe(false);
+          expect(owner.key).not.toBe(other.key);
+          // An actual alias still resolves to its target: rejection of the false
+          // case probe must not break canonicalization of the input path itself.
+          expect(resolveRepo(join(alias, suffix)).key).toBe(owner.key);
+          const content =
+            "the private widget pipeline requires an isolated staging queue";
+          await appendMemory({
+            type: "learning",
+            scope: "s",
+            content,
+            repo: owner.key,
+            repoPath: owner.path,
+          });
+          setRepoScope(owner);
+          expect(await relevantKnowledge(content, 5)).toContain(content);
+          setRepoScope(other);
+          expect(await relevantKnowledge(content, 5)).not.toContain(content);
+        } finally {
+          rmSync(base, {
+            recursive: true,
+            force: true,
+            maxRetries: 5,
+            retryDelay: 20,
+          });
+        }
+      },
+    );
+  },
+);

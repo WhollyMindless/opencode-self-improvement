@@ -28,8 +28,8 @@
 //   4. The most recently used member is never a loser (#42's rule, inherited).
 import type { Memory } from "../store/model/memory.ts";
 import type { UseSignal } from "../hits/ledger.ts";
-import { cmpTs } from "../core/cmp-ts.ts"
-import { formatMemory } from "../inject/format.ts"
+import { cmpTs } from "../core/cmp-ts.ts";
+import { formatMemory } from "../inject/format.ts";
 import { scoreMemories, words } from "../recall/score.ts";
 
 /** Default jaccard floor for "these two rows are the same statement". */
@@ -54,7 +54,10 @@ export interface ClusterOptions {
 }
 
 function tokens(text: string): string[] {
-  return text.toLowerCase().split(/[^a-z0-9_.]+/).filter(Boolean);
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9_.]+/)
+    .filter(Boolean);
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {
@@ -73,7 +76,10 @@ function jaccard(a: Set<string>, b: Set<string>): number {
  * material to compress, and collapsing it would destroy the frontier the panel
  * is showing the user.
  */
-export function clustersFor(rows: Memory[], opts: ClusterOptions = {}): Memory[][] {
+export function clustersFor(
+  rows: Memory[],
+  opts: ClusterOptions = {},
+): Memory[][] {
   const min = opts.jaccard ?? DEFAULT_JACCARD;
   const minMembers = opts.minMembers ?? 2;
   const maxMembers = opts.maxMembers ?? 6;
@@ -123,7 +129,10 @@ export function clustersFor(rows: Memory[], opts: ClusterOptions = {}): Memory[]
  * recency in the ledger — a row that retrieval has actually been landing on is
  * the one worth keeping, and this is #42's rule applied to merges.
  */
-export function survivorFor(cluster: Memory[], use?: Map<string, UseSignal>): Memory {
+export function survivorFor(
+  cluster: Memory[],
+  use?: Map<string, UseSignal>,
+): Memory {
   return [...cluster].sort((a, b) => {
     const la = use?.get(a.ts)?.last ?? "";
     const lb = use?.get(b.ts)?.last ?? "";
@@ -153,7 +162,9 @@ export interface MergePlan {
 
 /** Distinctive vocabulary of the absorbed rows: what the survivor does not say. */
 function inheritedKw(cluster: Memory[], survivor: Memory): string[] {
-  const have = new Set(words(`${survivor.content} ${(survivor.kw ?? []).join(" ")}`));
+  const have = new Set(
+    words(`${survivor.content} ${(survivor.kw ?? []).join(" ")}`),
+  );
   const out = [...(survivor.kw ?? [])];
   for (const m of cluster) {
     if (m.ts === survivor.ts) continue;
@@ -172,10 +183,13 @@ function buildMerged(cluster: Memory[], survivor: Memory): Memory {
   return {
     ...survivor,
     kw: kw.length ? kw : undefined,
-    tags: [...new Set(["consolidated", ...(survivor.tags ?? []), ...cluster.flatMap((m) => m.tags ?? [])])].slice(
-      0,
-      12,
-    ),
+    tags: [
+      ...new Set([
+        "consolidated",
+        ...(survivor.tags ?? []),
+        ...cluster.flatMap((m) => m.tags ?? []),
+      ]),
+    ].slice(0, 12),
   };
 }
 
@@ -188,15 +202,24 @@ function buildMerged(cluster: Memory[], survivor: Memory): Memory {
 // (correctly — it is the row id in the store), but nothing here may assume two
 // rows cannot share one timestamp: the eval store does exactly that, and a
 // ts-keyed filter would silently absorb an entire cluster into its survivor.
-function replayReads(rows: Memory[], cluster: Memory[], replacement: Memory | null, reads: ReadSet[]): number {
+function replayReads(
+  rows: Memory[],
+  cluster: Memory[],
+  replacement: Memory | null,
+  reads: ReadSet[],
+): number {
   const inCluster = new Set(cluster);
-  const store = replacement ? [...rows.filter((m) => !inCluster.has(m)), replacement] : rows;
+  const store = replacement
+    ? [...rows.filter((m) => !inCluster.has(m)), replacement]
+    : rows;
   let hits = 0;
   for (const r of reads) {
     const query = r.terms.join(" ");
     if (!query.trim()) continue;
     const top = scoreMemories(query, store, 3);
-    const landed = top.some((m) => (replacement ? m === replacement : inCluster.has(m)));
+    const landed = top.some((m) =>
+      replacement ? m === replacement : inCluster.has(m),
+    );
     if (landed) hits++;
   }
   return hits;
@@ -205,7 +228,9 @@ function replayReads(rows: Memory[], cluster: Memory[], replacement: Memory | nu
 /** Reads the ledger says this cluster served (any member credited). */
 export function readsFor(cluster: Memory[], allReads: ReadSet[]): ReadSet[] {
   const ids = new Set(cluster.map((m) => m.ts));
-  return allReads.filter((r) => r.rows.some((id) => ids.has(id)) && r.terms.length > 0);
+  return allReads.filter(
+    (r) => r.rows.some((id) => ids.has(id)) && r.terms.length > 0,
+  );
 }
 
 /**
@@ -235,12 +260,16 @@ export function proposeCluster(
   const bytesAfter = formatMemory(merged).length;
 
   const reasons: string[] = [];
-  if (!reads.length) reasons.push("unmeasured: the ledger has no read for any member of this cluster");
+  if (!reads.length)
+    reasons.push(
+      "unmeasured: the ledger has no read for any member of this cluster",
+    );
   else if (readsAfter < bestMemberBefore)
     reasons.push(
       `reads would drop: merged row catches ${readsAfter} of ${reads.length}, the best member alone caught ${bestMemberBefore}`,
     );
-  if (bytesAfter > bytesBefore) reasons.push("merged row is larger than the rows it absorbs");
+  if (bytesAfter > bytesBefore)
+    reasons.push("merged row is larger than the rows it absorbs");
 
   return {
     id: `cl-${cluster
@@ -286,7 +315,8 @@ export function proposeConsolidations(
     .map((c) => proposeCluster(rows, c, use, reads))
     .filter((p) => p.accepted);
   const absorbed = new Set<Memory>(plans.flatMap((p) => p.losers));
-  const injected = (list: Memory[]) => list.reduce((n, m) => n + formatMemory(m).length, 0);
+  const injected = (list: Memory[]) =>
+    list.reduce((n, m) => n + formatMemory(m).length, 0);
   return {
     plans,
     rowsBefore: rows.length,

@@ -6,10 +6,10 @@ import { memoryRoot } from "../core/config/paths.ts";
 import { record } from "../evidence/record.ts";
 import { auditCaveat, runWriteGate, sameStrList } from "../gate/gate.ts";
 import { withStoreLock } from "../store/lock.ts";
-import { loadAll } from "../store/files/load.ts"
-import { markSuperseded } from "../store/files/supersede.ts"
-import { resolveMemoryTarget } from "../store/files/target.ts"
-import { isActive } from "../store/model/predicates.ts"
+import { loadAll } from "../store/files/load.ts";
+import { markSuperseded } from "../store/files/supersede.ts";
+import { resolveMemoryTarget } from "../store/files/target.ts";
+import { isActive } from "../store/model/predicates.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 import type { Memory } from "../store/model/memory.ts";
 import { UpdateArgs, validated } from "./schema.ts";
@@ -17,8 +17,16 @@ import { redactSecrets } from "../store/secrets.ts";
 import { join } from "node:path";
 
 export const register: ToolRegister = (editor, deps) => {
-  const { toolIds, bindSessionIdentity, ownerlessWriter, refuseOwnerlessWrite, gateContext, direct } = deps;
-    editor.add(validated(UpdateArgs, {
+  const {
+    toolIds,
+    bindSessionIdentity,
+    ownerlessWriter,
+    refuseOwnerlessWrite,
+    gateContext,
+    direct,
+  } = deps;
+  editor.add(
+    validated(UpdateArgs, {
       name: "memory_update",
       description:
         "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing. A prose edit carries over everything the call does not name — tags, issue, keywords, status, and the row's repository. Naming a row that was already updated to exactly this content (metadata included) reports the duplicate; if its live successor holds the prose and only the metadata you name differs, the successor is updated. A failure after the write is reported as PARTIAL: the replacement is durable and memory_undo merge/force restores the old row.",
@@ -56,7 +64,11 @@ export const register: ToolRegister = (editor, deps) => {
             join(memoryRoot(), "update-order"),
             async () => {
               const prior = (await loadAll()).filter(
-                (m) => m.scope === args.scope && m.type === args.type && isActive(m) && isVisibleTo(m, reader),
+                (m) =>
+                  m.scope === args.scope &&
+                  m.type === args.type &&
+                  isActive(m) &&
+                  isVisibleTo(m, reader),
               );
               // Resolve the row BEFORE the gate: an update that cannot identify its
               // target must write nothing, rather than silently superseding whichever
@@ -77,29 +89,50 @@ export const register: ToolRegister = (editor, deps) => {
                 let chainHead: Memory | undefined;
                 if (args.query) {
                   const rows = (await loadAll()).filter(
-                    (m) => m.scope === args.scope && m.type === args.type && isVisibleTo(m, reader),
+                    (m) =>
+                      m.scope === args.scope &&
+                      m.type === args.type &&
+                      isVisibleTo(m, reader),
                   );
                   const stale = resolveMemoryTarget(rows, args.query);
-                  if (stale.status === "ok" && stale.target && !isActive(stale.target)) {
+                  if (
+                    stale.status === "ok" &&
+                    stale.target &&
+                    !isActive(stale.target)
+                  ) {
                     let latest = stale.target;
                     const walked = new Set<string>([latest.ts]);
                     while (latest.superseded_by) {
-                      const next = rows.find((m) => m.ts === latest.superseded_by);
+                      const next = rows.find(
+                        (m) => m.ts === latest.superseded_by,
+                      );
                       if (!next || walked.has(next.ts)) break;
                       walked.add(next.ts);
                       latest = next;
                     }
-                    if (isActive(latest) && latest.content.trim() === redactSecrets(args.content).trim()) {
+                    if (
+                      isActive(latest) &&
+                      latest.content.trim() ===
+                        redactSecrets(args.content).trim()
+                    ) {
                       const restated =
-                        (args.kw === undefined || sameStrList(args.kw, latest.kw)) &&
-                        (args.status === undefined || args.status === (latest.status ?? "settled"));
+                        (args.kw === undefined ||
+                          sameStrList(args.kw, latest.kw)) &&
+                        (args.status === undefined ||
+                          args.status === (latest.status ?? "settled"));
                       if (restated) {
                         // Every other verdict is auditable; this one must
                         // be too — the message tells the model to consult
                         // memory_evidence.
                         await record(
                           "dedup_collapse",
-                          { op: "update", named: stale.target.ts, match: latest.ts, action: "exact_successor", incoming_ignored: true },
+                          {
+                            op: "update",
+                            named: stale.target.ts,
+                            match: latest.ts,
+                            action: "exact_successor",
+                            incoming_ignored: true,
+                          },
                           true,
                           sid,
                         );
@@ -114,7 +147,9 @@ export const register: ToolRegister = (editor, deps) => {
                   }
                 }
                 if (!chainHead) {
-                  const where = args.query ? ` matches ${JSON.stringify(args.query)}` : "";
+                  const where = args.query
+                    ? ` matches ${JSON.stringify(args.query)}`
+                    : "";
                   return {
                     content: `memory_update blocked: no active ${args.type} row in ${args.scope}${where}. Nothing was written.`,
                   };
@@ -150,7 +185,7 @@ export const register: ToolRegister = (editor, deps) => {
                 kw: args.kw ?? target.kw,
                 tags: target.tags,
                 issue: target.issue,
-                status: (args.status ?? target.status) ?? "settled",
+                status: args.status ?? target.status ?? "settled",
                 repo: target.repo ?? "global",
               };
               const outcome = await runWriteGate(
@@ -165,7 +200,12 @@ export const register: ToolRegister = (editor, deps) => {
                   repo: requested.repo,
                   repoPath: target.repo ? target.repoPath : undefined,
                 },
-                { ...updateGate, reader, supersedesTs: target.ts, durable: gateDurable },
+                {
+                  ...updateGate,
+                  reader,
+                  supersedesTs: target.ts,
+                  durable: gateDurable,
+                },
               );
               if (outcome.action === "promoted" && outcome.ts && target) {
                 mutated = true;
@@ -206,12 +246,18 @@ export const register: ToolRegister = (editor, deps) => {
                   );
                 }
                 if (outcome.evidenceError !== undefined) {
-                  return partial(`its write_promoted audit line was not recorded (${outcome.evidenceError})`);
+                  return partial(
+                    `its write_promoted audit line was not recorded (${outcome.evidenceError})`,
+                  );
                 }
-                return { content: `Updated ${args.type} in ${args.scope} (superseded ${retired})` };
+                return {
+                  content: `Updated ${args.type} in ${args.scope} (superseded ${retired})`,
+                };
               }
               if (outcome.action === "promoted")
-                return { content: `Remembered: ${args.type} in ${args.scope}${auditCaveat(outcome)}` };
+                return {
+                  content: `Remembered: ${args.type} in ${args.scope}${auditCaveat(outcome)}`,
+                };
               if (outcome.action === "collapsed") {
                 // Completion (#155 convergence): when a retry collapses
                 // because an ACTIVE row already holds exactly this content
@@ -236,7 +282,10 @@ export const register: ToolRegister = (editor, deps) => {
                   // #175: the gate can observe a session move after this call captured
                   // its reader. Recheck before trusting or describing the survivor.
                   const survivor = (await loadAll()).find(
-                    (m) => m.ts === survivorTs && !m.superseded_by && isVisibleTo(m, reader),
+                    (m) =>
+                      m.ts === survivorTs &&
+                      !m.superseded_by &&
+                      isVisibleTo(m, reader),
                   );
                   if (survivor) {
                     // #175: private rows are visible by key OR path. Equal keys alone
@@ -245,7 +294,8 @@ export const register: ToolRegister = (editor, deps) => {
                     // Match raw paths like isVisibleTo; filesystem aliases need not
                     // grant the same readers access. This restricts automatic folds;
                     // explicit merge_review authorizes both seats under #131 instead.
-                    const samePathVisibility = requested.repo === "global" ||
+                    const samePathVisibility =
+                      requested.repo === "global" ||
                       (target.repoPath ?? "") === (survivor.repoPath ?? "");
                     // The predicate is the REQUESTED state vs the survivor
                     // (round 3): content equality is already proven by the
@@ -264,13 +314,17 @@ export const register: ToolRegister = (editor, deps) => {
                       requested.repo === (survivor.repo ?? "global") &&
                       samePathVisibility
                     ) {
-                      const done = await markSuperseded(target.ts, {
-                        superseded_by: survivorTs,
-                        reason: "update",
-                        symbol: target.ts,
-                        from: target.ts,
-                        to: survivorTs,
-                      }, gateDurable);
+                      const done = await markSuperseded(
+                        target.ts,
+                        {
+                          superseded_by: survivorTs,
+                          reason: "update",
+                          symbol: target.ts,
+                          from: target.ts,
+                          to: survivorTs,
+                        },
+                        gateDurable,
+                      );
                       if (done) {
                         return {
                           content:
@@ -281,16 +335,27 @@ export const register: ToolRegister = (editor, deps) => {
                     } else {
                       const differs: string[] = [];
                       if (requested.status !== (survivor.status ?? "settled"))
-                        differs.push(`status ${requested.status} vs ${survivor.status ?? "settled"}`);
+                        differs.push(
+                          `status ${requested.status} vs ${survivor.status ?? "settled"}`,
+                        );
                       if (requested.issue !== survivor.issue)
-                        differs.push(`issue ${requested.issue ?? "-"} vs ${survivor.issue ?? "-"}`);
+                        differs.push(
+                          `issue ${requested.issue ?? "-"} vs ${survivor.issue ?? "-"}`,
+                        );
                       if (!sameStrList(requested.kw, survivor.kw))
-                        differs.push(`kw [${(requested.kw ?? []).join(", ") || "-"}] vs [${(survivor.kw ?? []).join(", ") || "-"}]`);
+                        differs.push(
+                          `kw [${(requested.kw ?? []).join(", ") || "-"}] vs [${(survivor.kw ?? []).join(", ") || "-"}]`,
+                        );
                       if (!sameStrList(requested.tags, survivor.tags))
-                        differs.push(`tags [${(requested.tags ?? []).join(", ") || "-"}] vs [${(survivor.tags ?? []).join(", ") || "-"}]`);
+                        differs.push(
+                          `tags [${(requested.tags ?? []).join(", ") || "-"}] vs [${(survivor.tags ?? []).join(", ") || "-"}]`,
+                        );
                       if (requested.repo !== (survivor.repo ?? "global"))
-                        differs.push(`visibility ${requested.repo} vs ${survivor.repo ?? "global"}`);
-                      if (!samePathVisibility) differs.push("repository path visibility differs");
+                        differs.push(
+                          `visibility ${requested.repo} vs ${survivor.repo ?? "global"}`,
+                        );
+                      if (!samePathVisibility)
+                        differs.push("repository path visibility differs");
                       return {
                         content:
                           `Duplicate: ${args.type}/${args.scope} stands active as ${survivorTs}, but ${target.ts} ` +
@@ -302,14 +367,23 @@ export const register: ToolRegister = (editor, deps) => {
                     }
                   }
                 }
-                return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
+                return {
+                  content: `Duplicate ignored: ${args.type}/${args.scope}`,
+                };
               }
-              return { content: `Write blocked at GATE (${outcome.reason}). ${outcome.hint ?? ""}`.trimEnd() };
+              return {
+                content:
+                  `Write blocked at GATE (${outcome.reason}). ${outcome.hint ?? ""}`.trimEnd(),
+              };
             },
             {
               onTimeout: "fail",
               onEvent: (event, waitedMs) => {
-                void record("store_lock", { event, waited_ms: waitedMs, op: "update" });
+                void record("store_lock", {
+                  event,
+                  waited_ms: waitedMs,
+                  op: "update",
+                });
               },
             },
           );
@@ -324,7 +398,8 @@ export const register: ToolRegister = (editor, deps) => {
           // (round 3): the gate may have RETIRED OTHER rows at GATE-2
           // before the fault that got here — those tombstones are on disk,
           // and naming them beats the "Nothing was written" premise.
-          const msg = err instanceof Error && err.message ? err.message : String(err);
+          const msg =
+            err instanceof Error && err.message ? err.message : String(err);
           return {
             content: mutated
               ? `memory_update PARTIAL: a step after the durable write failed: ${msg}. ` +
@@ -338,5 +413,6 @@ export const register: ToolRegister = (editor, deps) => {
           };
         }
       },
-    }));
+    }),
+  );
 };

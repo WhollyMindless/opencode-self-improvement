@@ -77,12 +77,7 @@
       "source": "src/injection-epochs.ts",
       "test": "test/status.test.ts",
       "pattern": "injections count at the decision",
-      "changes": [
-        [
-          "st.cumChars += knowledge.length;",
-          "st.cumChars += 1;"
-        ]
-      ],
+      "changes": [["st.cumChars += knowledge.length;", "st.cumChars += 1;"]],
       "baselineExit": 0,
       "candidateExit": 1,
       "baselinePass": 1,
@@ -110,10 +105,7 @@
       "test": "test/command.test.ts",
       "pattern": "missing.*source",
       "changes": [
-        [
-          "} catch {\n    return null;",
-          "} catch (err) {\n    throw err;"
-        ]
+        ["} catch {\n    return null;", "} catch (err) {\n    throw err;"]
       ],
       "baselineExit": 0,
       "candidateExit": 1,
@@ -125,12 +117,7 @@
       "source": "src/repokey.ts",
       "test": "test/repokey-path.test.ts",
       "pattern": "normalizeDirPath returns",
-      "changes": [
-        [
-          "return r || \"/\";",
-          "return (r || \"\") + \"/\";"
-        ]
-      ],
+      "changes": [["return r || \"/\";", "return (r || \"\") + \"/\";"]],
       "baselineExit": 0,
       "candidateExit": 1,
       "baselinePass": 1,

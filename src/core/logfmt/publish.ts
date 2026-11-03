@@ -24,7 +24,14 @@ export async function appendLog(file: string, line: string): Promise<void> {
   // Appending is safe against other appenders only. Callers writing a file that
   // is ALSO rewritten whole (a daily memory file, the blocklist) hold the store
   // lock around this — see lock.ts.
-  const handle = await open(file, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0), 0o600);
+  const handle = await open(
+    file,
+    constants.O_WRONLY |
+      constants.O_APPEND |
+      constants.O_CREAT |
+      (constants.O_NOFOLLOW ?? 0),
+    0o600,
+  );
   try {
     if (!IS_WINDOWS) await handle.chmod((await handle.stat()).mode & 0o600);
     await handle.appendFile(next);
@@ -59,7 +66,11 @@ export async function fileIdentity(file: string): Promise<string> {
 // Without it, publishing behaves exactly as it always has: one rename.
 let tmpSeq = 0;
 
-export async function writeAtomic(file: string, content: string, since?: string): Promise<void> {
+export async function writeAtomic(
+  file: string,
+  content: string,
+  since?: string,
+): Promise<void> {
   await ensureDir(dirname(file));
   // Unique PER CALL, not per process: shared store writers now fail closed on
   // lock timeout, but direct/legacy callers can still overlap. A pid-stable
@@ -94,7 +105,11 @@ export async function writeAtomic(file: string, content: string, since?: string)
 // reader handle, a mismatch means the write's premise is gone and it fails
 // with the original error, as the no-retry path always did. Hence also: no
 // `since`, no retry.
-async function handoverRename(tmp: string, file: string, since?: string): Promise<void> {
+async function handoverRename(
+  tmp: string,
+  file: string,
+  since?: string,
+): Promise<void> {
   try {
     await rename(tmp, file);
     return;
@@ -105,7 +120,9 @@ async function handoverRename(tmp: string, file: string, since?: string): Promis
     for (;;) {
       const now = Date.now();
       if (now >= deadline) throw err;
-      await new Promise((r) => setTimeout(r, Math.min(backoff, deadline - now)));
+      await new Promise((r) =>
+        setTimeout(r, Math.min(backoff, deadline - now)),
+      );
       backoff = Math.min(backoff * 2, 50);
       if ((await fileIdentity(file)) !== since) throw err; // destination moved; our copy is stale
       try {

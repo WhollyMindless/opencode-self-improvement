@@ -9,9 +9,13 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { appendMemory } from "../src/store/files/append.ts"
+import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
-import { resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState } from "../src/core/state.ts";
 
 let root: string;
@@ -37,7 +41,10 @@ afterEach(async () => {
   setRepoScope(null);
   delete process.env.OPENCODE_MEMORY_DIR;
   delete process.env.OPENCODE_COMMANDS_DIR;
-  if (dirname(resolve(root)) !== resolve(tmpdir()) || !basename(root).startsWith("osi-upmeta-")) {
+  if (
+    dirname(resolve(root)) !== resolve(tmpdir()) ||
+    !basename(root).startsWith("osi-upmeta-")
+  ) {
     throw new Error("Unexpected fixture cleanup path");
   }
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -76,7 +83,9 @@ describe("memory_update preserves omitted metadata (#154)", () => {
       ctx("ses-a"),
     );
     expect(result.content).toContain("Updated");
-    const replacement = (await loadAll()).find((m) => m.content.includes("every morning"))!;
+    const replacement = (await loadAll()).find((m) =>
+      m.content.includes("every morning"),
+    )!;
     expect(replacement.tags ?? []).toContain("import");
     expect(replacement.issue).toBe("import-provenance-marker");
     expect(replacement.kw ?? []).toContain("queue retention");
@@ -106,7 +115,9 @@ describe("memory_update preserves omitted metadata (#154)", () => {
       ctx("ses-a"),
     );
     expect(result.content).toContain("Updated");
-    const replacement = (await loadAll()).find((m) => m.content.includes("certbot timer"))!;
+    const replacement = (await loadAll()).find((m) =>
+      m.content.includes("certbot timer"),
+    )!;
     expect(replacement.kw ?? []).toContain("certbot");
     expect(replacement.kw ?? []).not.toContain("old alias");
   });

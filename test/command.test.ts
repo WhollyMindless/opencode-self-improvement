@@ -1,7 +1,14 @@
 // Command self-install: the plugin mirrors /repo-init into opencode's commands
 // dir on load — no terminal copy step. Idempotent (never overwrites edits).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin } from "./harness.ts";

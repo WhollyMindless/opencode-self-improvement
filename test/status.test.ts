@@ -3,19 +3,47 @@
 // the /memory TUI panel reads the same files). Also /memory-report command
 // install parity.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts"
+import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
 import { appendMemory } from "../src/store/files/append.ts";
-import { cacheHealth, cacheRate, estTok, fmtCount } from "../src/status/format.ts"
-import { type StatusPayload } from "../src/status/payload.ts"
-import { attributionLines, contextLines, renderMemoryReport, windowLines } from "../src/status/report.ts"
-import { blockedRecent, readStatus, sessionStatusFile, statusDir, statusFile, writeStatus } from "../src/status/write.ts";
-import { bindSessionProvisional, resolveRepo, resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  cacheHealth,
+  cacheRate,
+  estTok,
+  fmtCount,
+} from "../src/status/format.ts";
+import { type StatusPayload } from "../src/status/payload.ts";
+import {
+  attributionLines,
+  contextLines,
+  renderMemoryReport,
+  windowLines,
+} from "../src/status/report.ts";
+import {
+  blockedRecent,
+  readStatus,
+  sessionStatusFile,
+  statusDir,
+  statusFile,
+  writeStatus,
+} from "../src/status/write.ts";
+import {
+  bindSessionProvisional,
+  resolveRepo,
+  resetSessionScopes,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { addBlock } from "../src/store/blocklist.ts";
 import { createInjectionEpochs } from "../src/inject/epochs.ts";
 import { hitsFile } from "../src/hits/ledger.ts";
@@ -44,7 +72,8 @@ const payload = (over: Partial<StatusPayload> = {}): StatusPayload => ({
   sessionID: "ses_x",
   reason: "first",
   recomputes: 1,
-  block: "## Relevant durable memory\n- [2026-10-20] pattern/build: run bun test",
+  block:
+    "## Relevant durable memory\n- [2026-10-20] pattern/build: run bun test",
   blockChars: 70,
   budget: 1200,
   store: { active: 3, superseded: 1, open: 1, scopes: 2, malformed: 0 },
@@ -54,9 +83,17 @@ const payload = (over: Partial<StatusPayload> = {}): StatusPayload => ({
     cumChars: 11400,
     epochRequests: 11,
     invalidations: 1,
-    lastInvalidation: { at: "2026-10-20T11:47:00.000Z", reason: "store_changed" },
+    lastInvalidation: {
+      at: "2026-10-20T11:47:00.000Z",
+      reason: "store_changed",
+    },
   },
-  measured: { at: "2026-10-20T11:58:00.000Z", input: 300, read: 41200, write: 1400 },
+  measured: {
+    at: "2026-10-20T11:58:00.000Z",
+    input: 300,
+    read: 41200,
+    write: 1400,
+  },
   ...over,
 });
 
@@ -100,7 +137,9 @@ describe("status files", () => {
       await writeStatus(payload({ sessionID: `ses_${i}` }));
       await Bun.sleep(2); // distinct mtimes so the prune order is deterministic
     }
-    const files = (await readdir(statusDir())).filter((n) => n.endsWith(".json"));
+    const files = (await readdir(statusDir())).filter((n) =>
+      n.endsWith(".json"),
+    );
     expect(files.length).toBe(32);
     expect(await readStatus("ses_34")).not.toBeNull(); // newest survives
     expect(await readStatus("ses_0")).toBeNull(); // oldest pruned
@@ -121,8 +160,16 @@ describe("blockedRecent", () => {
   });
 
   test("includes yesterday and caps at limit", async () => {
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().split("T")[0]!;
-    seedEvidence(yesterday, [{ ts: `${yesterday}T09:00:00.000Z`, sid: "s1", reason: "superseded_overlap" }]);
+    const yesterday = new Date(Date.now() - 86_400_000)
+      .toISOString()
+      .split("T")[0]!;
+    seedEvidence(yesterday, [
+      {
+        ts: `${yesterday}T09:00:00.000Z`,
+        sid: "s1",
+        reason: "superseded_overlap",
+      },
+    ]);
     seedEvidence(dateStr(), [
       { ts: "2026-10-20T10:00:00.000Z", sid: "s1", reason: "a" },
       { ts: "2026-10-20T10:01:00.000Z", sid: "s1", reason: "b" },
@@ -160,42 +207,78 @@ describe("cache math", () => {
           stats: {
             ...payload().stats!,
             invalidations: 2,
-            lastInvalidation: { at: "2026-10-20T12:30:00.000Z", reason: "store_changed" },
+            lastInvalidation: {
+              at: "2026-10-20T12:30:00.000Z",
+              reason: "store_changed",
+            },
           },
         }),
       ),
     ).toBe("recent"); // invalidation after the last measurement outranks a 96% rate
-    const noInv = { ...payload().stats!, invalidations: 0, lastInvalidation: null };
-    expect(cacheHealth(payload({ stats: noInv, measured: { at: "x", input: 400, read: 600, write: 100 } }))).toBe(
-      "amber",
-    ); // 55%
-    expect(cacheHealth(payload({ stats: noInv, measured: { at: "x", input: 24000, read: 100, write: 0 } }))).toBe(
-      "red",
-    ); // 0%
+    const noInv = {
+      ...payload().stats!,
+      invalidations: 0,
+      lastInvalidation: null,
+    };
+    expect(
+      cacheHealth(
+        payload({
+          stats: noInv,
+          measured: { at: "x", input: 400, read: 600, write: 100 },
+        }),
+      ),
+    ).toBe("amber"); // 55%
+    expect(
+      cacheHealth(
+        payload({
+          stats: noInv,
+          measured: { at: "x", input: 24000, read: 100, write: 0 },
+        }),
+      ),
+    ).toBe("red"); // 0%
   });
 
   test("cacheHealth unknown: nothing measured, no invalidation", () => {
     expect(
-      cacheHealth(payload({ stats: { ...payload().stats!, invalidations: 0, lastInvalidation: null }, measured: null })),
+      cacheHealth(
+        payload({
+          stats: {
+            ...payload().stats!,
+            invalidations: 0,
+            lastInvalidation: null,
+          },
+          measured: null,
+        }),
+      ),
     ).toBe("unknown");
   });
 });
 
 describe("renderMemoryReport", () => {
   test("no epoch: says so plainly", () => {
-    const text = renderMemoryReport({ status: null, store: payload().store, blocked: [] });
+    const text = renderMemoryReport({
+      status: null,
+      store: payload().store,
+      blocked: [],
+    });
     expect(text).toContain("no epoch yet");
     expect(text).toContain("MEMORY STATUS");
   });
 
   test("epoch: CONTEXT + CACHE receipts + verbatim block", () => {
-    const text = renderMemoryReport({ status: payload(), store: payload().store, blocked: [] });
+    const text = renderMemoryReport({
+      status: payload(),
+      store: payload().store,
+      blocked: [],
+    });
     expect(text).toContain("run bun test");
     expect(text).toContain("INJECTED BLOCK (verbatim)");
     expect(text).toContain("CONTEXT");
     expect(text).toContain("70c ≈ 18 tok · 6% of 1200c budget");
     expect(text).toContain("rode 11 request(s)");
-    expect(text).toContain("14 request(s) · 11.4kc ≈ 2850 tok rode · abstained 3");
+    expect(text).toContain(
+      "14 request(s) · 11.4kc ≈ 2850 tok rode · abstained 3",
+    );
     expect(text).toContain("CACHE");
     expect(text).toContain("cache busts    1 this session");
     expect(text).toContain("1 block builds since server start (all sessions)");
@@ -204,7 +287,11 @@ describe("renderMemoryReport", () => {
   });
 
   test("abstention is explained, not shown as empty silence", () => {
-    const text = renderMemoryReport({ status: payload({ block: "", blockChars: 0 }), store: payload().store, blocked: [] });
+    const text = renderMemoryReport({
+      status: payload({ block: "", blockChars: 0 }),
+      store: payload().store,
+      blocked: [],
+    });
     expect(text).toContain("abstained");
   });
 
@@ -216,13 +303,21 @@ describe("renderMemoryReport", () => {
     });
     expect(text).toContain("memory section 1400c ≈ 350 tok riding the prompt");
     // A status file written before the distinction existed prints no phantom line.
-    expect(renderMemoryReport({ status: payload(), store: payload().store, blocked: [] })).not.toContain(
-      "memory section",
-    );
+    expect(
+      renderMemoryReport({
+        status: payload(),
+        store: payload().store,
+        blocked: [],
+      }),
+    ).not.toContain("memory section");
   });
 
   test("no measurement yet says so, never 0%", () => {
-    const text = renderMemoryReport({ status: payload({ measured: null }), store: payload().store, blocked: [] });
+    const text = renderMemoryReport({
+      status: payload({ measured: null }),
+      store: payload().store,
+      blocked: [],
+    });
     expect(text).toContain("provider reports no cache usage yet");
     expect(text).toContain("structural proof");
     expect(text).not.toContain("served from cache (0%)");
@@ -232,7 +327,11 @@ describe("renderMemoryReport", () => {
     const bare = payload();
     delete (bare as Partial<StatusPayload>).stats;
     delete (bare as Partial<StatusPayload>).measured;
-    const text = renderMemoryReport({ status: bare, store: bare.store, blocked: [] });
+    const text = renderMemoryReport({
+      status: bare,
+      store: bare.store,
+      blocked: [],
+    });
     expect(text).toContain("0 request(s)");
     expect(text).toContain("provider reports no cache usage yet");
   });
@@ -241,7 +340,13 @@ describe("renderMemoryReport", () => {
     const text = renderMemoryReport({
       status: null,
       store: payload().store,
-      blocked: [{ ts: "2026-10-20T10:02:00.000Z", sid: "s2", reason: "ref_path_missing" }],
+      blocked: [
+        {
+          ts: "2026-10-20T10:02:00.000Z",
+          sid: "s2",
+          reason: "ref_path_missing",
+        },
+      ],
     });
     expect(text).toContain("ref_path_missing");
   });
@@ -263,16 +368,26 @@ describe("renderMemoryReport", () => {
       blocked: [],
     });
     expect(text).toContain("CONTEXT WINDOW — is memory bloating your context?");
-    expect(text).toContain("MEMORY ATTRIBUTION — answered from memory vs re-reading files");
+    expect(text).toContain(
+      "MEMORY ATTRIBUTION — answered from memory vs re-reading files",
+    );
     // measured vs inferred labels are explicit
     expect(text).toContain("2 lookup(s) avoided [measured]");
     expect(text).toContain("re-read 1 [measured] · not opened 4 [inferred]");
-    expect(text).toContain("7/9 file lookups had no memory coverage [measured]");
+    expect(text).toContain(
+      "7/9 file lookups had no memory coverage [measured]",
+    );
   });
 
   test("null attribution says not computed, never fabricates a number", () => {
-    const text = renderMemoryReport({ status: payload({ attribution: null }), store: payload().store, blocked: [] });
-    expect(text).toContain("not computed — no memory was injected this session");
+    const text = renderMemoryReport({
+      status: payload({ attribution: null }),
+      store: payload().store,
+      blocked: [],
+    });
+    expect(text).toContain(
+      "not computed — no memory was injected this session",
+    );
   });
 });
 
@@ -296,7 +411,9 @@ describe("windowLines / attributionLines", () => {
   test("zero busts is called out as the good case", () => {
     const noBust = payload();
     noBust.stats = { ...noBust.stats!, invalidations: 0 };
-    expect(windowLines(noBust).join("\n")).toContain("memory never invalidated your cache prefix");
+    expect(windowLines(noBust).join("\n")).toContain(
+      "memory never invalidated your cache prefix",
+    );
   });
 
   test("attributionLines with no refs explains there is nothing to attribute", () => {
@@ -317,19 +434,32 @@ describe("windowLines / attributionLines", () => {
   });
 });
 
-function seedEvidence(day: string, rows: { ts: string; sid: string; reason: string; noise?: boolean }[]) {
+function seedEvidence(
+  day: string,
+  rows: { ts: string; sid: string; reason: string; noise?: boolean }[],
+) {
   mkdirSync(evidenceDir(), { recursive: true });
   const lines = rows.map((r) =>
     formatLine(
       r.noise
         ? { ev: "write_promoted", ts: r.ts, sid: r.sid }
-        : { ev: "write_blocked", ts: r.ts, sid: r.sid, gate: 4, reason: r.reason, chain: "c" },
+        : {
+            ev: "write_blocked",
+            ts: r.ts,
+            sid: r.sid,
+            gate: 4,
+            reason: r.reason,
+            chain: "c",
+          },
     ),
   );
   writeFileSync(join(evidenceDir(), `${day}.logfmt`), lines.join("\n") + "\n");
 }
 
-async function poll<T>(fn: () => Promise<T | null>, tries = 100): Promise<T | null> {
+async function poll<T>(
+  fn: () => Promise<T | null>,
+  tries = 100,
+): Promise<T | null> {
   for (let i = 0; i < tries; i++) {
     const v = await fn();
     if (v) return v;
@@ -340,36 +470,88 @@ async function poll<T>(fn: () => Promise<T | null>, tries = 100): Promise<T | nu
 
 describe("memory_status tool + epoch wiring", () => {
   test("chat and epoch summaries retain the same mixed-repository totals (#168)", async () => {
-    const repoA = join(root, "repo-a"), repoB = join(root, "repo-b");
-    mkdirSync(repoA); mkdirSync(repoB);
-    const ids = ["2026-01-01T00:00:00.000Z", "2026-01-01T00:00:01.000Z", "2026-01-01T00:00:02.000Z", "2026-01-01T00:00:03.000Z"];
+    const repoA = join(root, "repo-a"),
+      repoB = join(root, "repo-b");
+    mkdirSync(repoA);
+    mkdirSync(repoB);
+    const ids = [
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:01.000Z",
+      "2026-01-01T00:00:02.000Z",
+      "2026-01-01T00:00:03.000Z",
+    ];
     const rows = [
-      { ts: ids[0], scope: "build", status: "open", repo: resolveRepo(repoA).key },
-      { ts: ids[1], scope: "deploy", status: "settled", repo: resolveRepo(repoB).key },
-      { ts: ids[2], scope: "retired", superseded_by: ids[0], repo: resolveRepo(repoA).key },
+      {
+        ts: ids[0],
+        scope: "build",
+        status: "open",
+        repo: resolveRepo(repoA).key,
+      },
+      {
+        ts: ids[1],
+        scope: "deploy",
+        status: "settled",
+        repo: resolveRepo(repoB).key,
+      },
+      {
+        ts: ids[2],
+        scope: "retired",
+        superseded_by: ids[0],
+        repo: resolveRepo(repoA).key,
+      },
       { ts: ids[3], scope: "blocked", repo: resolveRepo(repoB).key },
     ];
-    writeFileSync(join(memoryRoot(), `${dateStr()}.logfmt`), rows.map((r) =>
-      formatLine({ type: "learning", content: "remember the build command", ...r }),
-    ).join("\n") + "\n");
+    writeFileSync(
+      join(memoryRoot(), `${dateStr()}.logfmt`),
+      rows
+        .map((r) =>
+          formatLine({
+            type: "learning",
+            content: "remember the build command",
+            ...r,
+          }),
+        )
+        .join("\n") + "\n",
+    );
     await addBlock(ids[3], "fixture block");
     const usedAt = new Date().toISOString();
-    writeFileSync(hitsFile(), formatLine({ ev: "memory_used", ts: usedAt, src: "recall", sid: "summary", mem: `[${ids[0]}]` }) + "\n");
+    writeFileSync(
+      hitsFile(),
+      formatLine({
+        ev: "memory_used",
+        ts: usedAt,
+        src: "recall",
+        sid: "summary",
+        mem: `[${ids[0]}]`,
+      }) + "\n",
+    );
     const p = await loadPlugin(repoA);
     try {
       bindSessionProvisional("summary", repoA);
       const epochs = createInjectionEpochs({
-        budget: 1200, frontierBudget: 3600, measuredTurns: new Map(),
+        budget: 1200,
+        frontierBudget: 3600,
+        measuredTurns: new Map(),
         noteHits: async () => {}, // keep the fixture's recorded-use history fixed
       });
       await epochs.prompt("summary", "build command");
       const status = await epochs.buildPayload("summary");
       expect(status?.store).toEqual({
-        active: 2, superseded: 1, open: 1, scopes: 2, malformed: 0,
-        neverRetrieved: 1, ledgerSince: usedAt,
+        active: 2,
+        superseded: 1,
+        open: 1,
+        scopes: 2,
+        malformed: 0,
+        neverRetrieved: 1,
+        ledgerSince: usedAt,
       });
-      const report = await p.tools.memory_status.execute({}, { sessionID: "summary" });
-      expect(report.content).toContain("2 active · 1 superseded · 1 open · 2 scopes");
+      const report = await p.tools.memory_status.execute(
+        {},
+        { sessionID: "summary" },
+      );
+      expect(report.content).toContain(
+        "2 active · 1 superseded · 1 open · 2 scopes",
+      );
       expect(report.content).toContain("never retrieved 1 (50%)");
     } finally {
       await p.cleanup();
@@ -389,7 +571,10 @@ describe("memory_status tool + epoch wiring", () => {
       status: "settled",
     });
     // Drive the real prompt hook: this is what recomputes the frozen epoch.
-    await p.sessionHooks["prompt"]!({ sessionID: "ses_status", prompt: { text: "how do I run bun test" } });
+    await p.sessionHooks["prompt"]!({
+      sessionID: "ses_status",
+      prompt: { text: "how do I run bun test" },
+    });
 
     // per-session hand-off exists with the injected block
     const s = await readStatus("ses_status");
@@ -399,7 +584,10 @@ describe("memory_status tool + epoch wiring", () => {
 
     // second prompt with unchanged store: NO recompute (cache-safe epoch)
     const before = (await readStatus())!.recomputes;
-    await p.sessionHooks["prompt"]!({ sessionID: "ses_status", prompt: { text: "and again" } });
+    await p.sessionHooks["prompt"]!({
+      sessionID: "ses_status",
+      prompt: { text: "and again" },
+    });
     expect((await readStatus())!.recomputes).toBe(before);
   });
 
@@ -411,19 +599,36 @@ describe("memory_status tool + epoch wiring", () => {
       content: "run bun test from the repo root to execute the suite",
       status: "settled",
     });
-    await p.sessionHooks["prompt"]!({ sessionID: "ses_m", prompt: { text: "how do I run bun test" } });
+    await p.sessionHooks["prompt"]!({
+      sessionID: "ses_m",
+      prompt: { text: "how do I run bun test" },
+    });
     // Two provider requests through the injection decision.
     const delivered = [{ system: [] as string[] }, { system: [] as string[] }];
     for (const output of delivered) {
-      await p["experimental.chat.system.transform"]({ sessionID: "ses_m" }, output);
+      await p["experimental.chat.system.transform"](
+        { sessionID: "ses_m" },
+        output,
+      );
     }
     const knowledge = delivered.map((output, request) => {
-      const block = output.system.find((part) => part.startsWith("## Relevant durable memory"));
-      if (block === undefined) throw new Error(`provider request ${request + 1} did not receive its durable memory block`);
+      const block = output.system.find((part) =>
+        part.startsWith("## Relevant durable memory"),
+      );
+      if (block === undefined)
+        throw new Error(
+          `provider request ${request + 1} did not receive its durable memory block`,
+        );
       return block;
     });
-    for (const block of knowledge) expect(block).toContain("run bun test from the repo root to execute the suite");
-    const expectedChars = knowledge.reduce((sum, block) => sum + block.length, 0);
+    for (const block of knowledge)
+      expect(block).toContain(
+        "run bun test from the repo root to execute the suite",
+      );
+    const expectedChars = knowledge.reduce(
+      (sum, block) => sum + block.length,
+      0,
+    );
     // Measured usage arrives on the event bus (measured listener is default-on).
     p.capture.events.push({
       type: "message.updated",
@@ -432,20 +637,33 @@ describe("memory_status tool + epoch wiring", () => {
           id: "msg_1",
           role: "assistant",
           sessionID: "ses_m",
-          tokens: { input: 300, output: 50, reasoning: 0, cache: { read: 41200, write: 1400 } },
+          tokens: {
+            input: 300,
+            output: 50,
+            reasoning: 0,
+            cache: { read: 41200, write: 1400 },
+          },
         },
       },
     });
-    const s = await poll(() => readStatus("ses_m").then((r) => (r?.measured ? r : null)));
+    const s = await poll(() =>
+      readStatus("ses_m").then((r) => (r?.measured ? r : null)),
+    );
     expect(s?.measured?.read).toBe(41200);
     expect(s?.stats?.requests).toBe(2);
     expect(s?.stats?.cumChars).toBe(expectedChars);
     expect(s?.stats?.epochRequests).toBe(2);
 
     // The tool (in-process truth) renders the same receipts for this session.
-    await p["tool.execute.before"]({ sessionID: "ses_m", callID: "C1", tool: "memory_status" });
+    await p["tool.execute.before"]({
+      sessionID: "ses_m",
+      callID: "C1",
+      tool: "memory_status",
+    });
     const rep = await p.tools.memory_status!.execute({});
-    expect(rep.content).toContain("41.2k/42.9k prompt tok served from cache (96%)");
+    expect(rep.content).toContain(
+      "41.2k/42.9k prompt tok served from cache (96%)",
+    );
     expect(rep.content).toContain("2 request(s)");
 
     p.capture.events.close();
@@ -462,7 +680,10 @@ describe("memory_status tool + epoch wiring", () => {
     });
     const promptHook = p.sessionHooks.prompt;
     if (!promptHook) throw new Error("prompt hook not registered");
-    await promptHook({ sessionID: "ses_data", prompt: { text: "how do I run bun test" } });
+    await promptHook({
+      sessionID: "ses_data",
+      prompt: { text: "how do I run bun test" },
+    });
     p.capture.events.push({
       type: "message.updated",
       data: {
@@ -470,13 +691,22 @@ describe("memory_status tool + epoch wiring", () => {
           id: "msg_data",
           role: "assistant",
           sessionID: "ses_data",
-          tokens: { input: 250, output: 40, reasoning: 0, cache: { read: 9000, write: 750 } },
+          tokens: {
+            input: 250,
+            output: 40,
+            reasoning: 0,
+            cache: { read: 9000, write: 750 },
+          },
         },
       },
     });
 
-    const s = await poll(() => readStatus("ses_data").then((r) => (r?.measured ? r : null)));
-    expect(s?.measured).toEqual(expect.objectContaining({ input: 250, read: 9000, write: 750 }));
+    const s = await poll(() =>
+      readStatus("ses_data").then((r) => (r?.measured ? r : null)),
+    );
+    expect(s?.measured).toEqual(
+      expect.objectContaining({ input: 250, read: 9000, write: 750 }),
+    );
     await p.cleanup();
   });
 
@@ -488,14 +718,30 @@ describe("memory_status tool + epoch wiring", () => {
       content: "run bun test from the repo root to execute the suite",
       status: "settled",
     });
-    await p.sessionHooks.prompt!({ sessionID: "ses_usage", prompt: { text: "how do I run bun test" } });
+    await p.sessionHooks.prompt!({
+      sessionID: "ses_usage",
+      prompt: { text: "how do I run bun test" },
+    });
     // Real v2.0.26 shape: usage on session.usage.updated, no message.updated.
     p.capture.events.push({
       type: "session.usage.updated",
-      data: { sessionID: "ses_usage", cost: 0, tokens: { input: 5, output: 15, reasoning: 0, cache: { read: 8507, write: 0 } } },
+      data: {
+        sessionID: "ses_usage",
+        cost: 0,
+        tokens: {
+          input: 5,
+          output: 15,
+          reasoning: 0,
+          cache: { read: 8507, write: 0 },
+        },
+      },
     });
-    const s = await poll(() => readStatus("ses_usage").then((r) => (r?.measured ? r : null)));
-    expect(s?.measured).toEqual(expect.objectContaining({ input: 5, read: 8507, write: 0 }));
+    const s = await poll(() =>
+      readStatus("ses_usage").then((r) => (r?.measured ? r : null)),
+    );
+    expect(s?.measured).toEqual(
+      expect.objectContaining({ input: 5, read: 8507, write: 0 }),
+    );
     await p.cleanup();
   });
 
@@ -507,7 +753,10 @@ describe("memory_status tool + epoch wiring", () => {
       content: "run bun test from the repo root to execute the suite",
       status: "settled",
     });
-    await p.sessionHooks["prompt"]!({ sessionID: "ses_u", prompt: { text: "how do I run bun test" } });
+    await p.sessionHooks["prompt"]!({
+      sessionID: "ses_u",
+      prompt: { text: "how do I run bun test" },
+    });
     p.capture.events.push({
       type: "message.updated",
       properties: { info: { id: "msg_u", role: "user", sessionID: "ses_u" } },
@@ -520,7 +769,10 @@ describe("memory_status tool + epoch wiring", () => {
 
   test("/memory-report command installs beside /repo-init", async () => {
     await loadPlugin(process.cwd());
-    const text = readFileSync(join(process.env.OPENCODE_COMMANDS_DIR!, "memory-report.md"), "utf8");
+    const text = readFileSync(
+      join(process.env.OPENCODE_COMMANDS_DIR!, "memory-report.md"),
+      "utf8",
+    );
     expect(text).toContain("memory_status");
   });
 });

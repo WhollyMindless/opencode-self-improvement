@@ -2,7 +2,12 @@
 import { join } from "node:path";
 import { cacheRate, estTok, fmtBytes, fmtCount, fmtMs } from "./format.ts";
 import { captureLag, ledgerIsYoung, rowsPerDay } from "./metrics.ts";
-import { type BlockedRow, type StatusPayload, type StoreCounts, emptyStats } from "./payload.ts";
+import {
+  type BlockedRow,
+  type StatusPayload,
+  type StoreCounts,
+  emptyStats,
+} from "./payload.ts";
 
 function ago(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -44,7 +49,9 @@ export function cacheLines(p: StatusPayload): string[] {
         ]
       : [
           `  cache busts    ${st.invalidations} this session · last ${
-            st.lastInvalidation ? `${st.lastInvalidation.at.slice(11, 19)} (${st.lastInvalidation.reason})` : "-"
+            st.lastInvalidation
+              ? `${st.lastInvalidation.at.slice(11, 19)} (${st.lastInvalidation.reason})`
+              : "-"
           }`,
           "                 a memory YOU saved in this session never costs one — you",
           "                 already said it (#165). A correction, a removal, or a row",
@@ -88,14 +95,18 @@ export function windowLines(p: StatusPayload): string[] {
   if (used > 0) {
     const share = Math.round((memTok / used) * 1000) / 10;
     const rate = cacheRate(m);
-    out.push(`  of what you sent  ≈ ${fmtCount(used)} prompt tok · memory is ${share}% of it`);
+    out.push(
+      `  of what you sent  ≈ ${fmtCount(used)} prompt tok · memory is ${share}% of it`,
+    );
     out.push(
       rate
         ? `  cache served     ${rate.pct}% of that prompt from cache → memory rides free after turn 1`
         : "  cache served     provider has not reported a split yet",
     );
   } else {
-    out.push("  of what you sent  not measured yet — receipts appear after the first assistant turn");
+    out.push(
+      "  of what you sent  not measured yet — receipts appear after the first assistant turn",
+    );
   }
   const busts = p.stats?.invalidations ?? 0;
   out.push(
@@ -114,7 +125,9 @@ export function attributionLines(p: StatusPayload): string[] {
   const a = p.attribution;
   if (!a) return ["  not computed — no memory was injected this session"];
   if (a.pathsCited === 0 && a.commandsMatched === 0 && a.readsTotal === 0) {
-    return ["  the injected memory cited no file paths or commands yet — nothing to attribute"];
+    return [
+      "  the injected memory cited no file paths or commands yet — nothing to attribute",
+    ];
   }
   return [
     `  Tier A · commands   ${a.commandSaves} lookup(s) avoided [measured] · ran a remembered command with no prior file lookup`,
@@ -136,9 +149,14 @@ export function renderMemoryReport(input: {
   const { status, store, blocked } = input;
   const out: string[] = ["MEMORY STATUS", ""];
   if (input.quarantined?.length) {
-    out.push("QUARANTINE", `  ${input.quarantined.length} rows withheld from recall and injection; review/release in the memory viewer.`);
+    out.push(
+      "QUARANTINE",
+      `  ${input.quarantined.length} rows withheld from recall and injection; review/release in the memory viewer.`,
+    );
     for (const row of input.quarantined.slice(0, 20)) {
-      out.push(`  ${row.ts}  ${row.patterns.join(", ") || "marked for review"}`);
+      out.push(
+        `  ${row.ts}  ${row.patterns.join(", ") || "marked for review"}`,
+      );
     }
     out.push("");
   }
@@ -150,15 +168,28 @@ export function renderMemoryReport(input: {
     );
   } else {
     out.push("CONTEXT", ...contextLines(status));
-    out.push("", "CACHE — the receipts on your prompt-cache cost", ...cacheLines(status));
-    out.push("", "CONTEXT WINDOW — is memory bloating your context?", ...windowLines(status));
+    out.push(
+      "",
+      "CACHE — the receipts on your prompt-cache cost",
+      ...cacheLines(status),
+    );
+    out.push(
+      "",
+      "CONTEXT WINDOW — is memory bloating your context?",
+      ...windowLines(status),
+    );
     out.push("", "INJECTED BLOCK (verbatim)");
-    if (status.block) out.push(...status.block.split("\n").map((l) => `  ${l}`));
+    if (status.block)
+      out.push(...status.block.split("\n").map((l) => `  ${l}`));
     else
       out.push(
         "  abstained — your prompt shares no content vocabulary with any memory, so nothing was injected (by design, no noise).",
       );
-    out.push("", "MEMORY ATTRIBUTION — answered from memory vs re-reading files", ...attributionLines(status));
+    out.push(
+      "",
+      "MEMORY ATTRIBUTION — answered from memory vs re-reading files",
+      ...attributionLines(status),
+    );
   }
 
   out.push("", "RECENT BLOCKED WRITES");
@@ -166,17 +197,23 @@ export function renderMemoryReport(input: {
   for (const b of blocked) {
     out.push(`  ${b.ts}  session ${b.sid}  ${b.reason}`);
   }
-  out.push("  (reasons are logged via memory_evidence; the gate never deletes — it asks for a rephrase)");
+  out.push(
+    "  (reasons are logged via memory_evidence; the gate never deletes — it asks for a rephrase)",
+  );
 
   out.push(
     "",
     "STORE",
     `  ${store.active} active · ${store.superseded} superseded · ${store.open} open · ${store.scopes} scopes` +
-      (store.malformed ? ` · ${store.malformed} malformed (skipped; fix the ts= field or undo)` : ""),
+      (store.malformed
+        ? ` · ${store.malformed} malformed (skipped; fix the ts= field or undo)`
+        : ""),
   );
   if (store.neverRetrieved !== undefined) {
     const used = store.active - store.neverRetrieved;
-    const share = store.active ? Math.round((store.neverRetrieved / store.active) * 100) : 0;
+    const share = store.active
+      ? Math.round((store.neverRetrieved / store.active) * 100)
+      : 0;
     // A ledger younger than the window cannot honestly call anything "never"
     // — it has not been watching long enough. Say what it covers instead of
     // letting day-one readers see 100% dead weight.
@@ -190,13 +227,21 @@ export function renderMemoryReport(input: {
   }
   const sizing: string[] = [];
   if (store.bytes !== undefined) {
-    sizing.push(`${fmtBytes(store.bytes)} total · ${fmtBytes(store.bytesPerRow ?? 0)} per row`);
+    sizing.push(
+      `${fmtBytes(store.bytes)} total · ${fmtBytes(store.bytesPerRow ?? 0)} per row`,
+    );
   }
-  if (store.rowsPerDay !== undefined) sizing.push(`${store.rowsPerDay} rows/day (30d)`);
+  if (store.rowsPerDay !== undefined)
+    sizing.push(`${store.rowsPerDay} rows/day (30d)`);
   if (store.captureLag && store.captureLag.n) {
-    sizing.push(`capture lag p50 ${fmtMs(store.captureLag.p50)} / p95 ${fmtMs(store.captureLag.p95)}`);
+    sizing.push(
+      `capture lag p50 ${fmtMs(store.captureLag.p50)} / p95 ${fmtMs(store.captureLag.p95)}`,
+    );
   }
   if (sizing.length) out.push(`  ${sizing.join(" · ")}`);
-  out.push("", "Terminal (CLI/TUI) users: /memory opens this as a live panel; the footer shows a one-line badge.");
+  out.push(
+    "",
+    "Terminal (CLI/TUI) users: /memory opens this as a live panel; the footer shows a one-line badge.",
+  );
   return out.join("\n");
 }

@@ -28,7 +28,10 @@ export interface SessionState {
   sid: string;
   calls: ToolResult[];
   // Last observed status per tool, so a FAIL->PASS transition is visible.
-  lastByTool: Map<string, { status: "FAIL" | "PASS"; call: string; emitted: boolean }>;
+  lastByTool: Map<
+    string,
+    { status: "FAIL" | "PASS"; call: string; emitted: boolean }
+  >;
   // A pending completion-gate failure awaiting a later PASS.
   pendingGate: {
     call: string;
@@ -104,7 +107,14 @@ const sessions = new Map<string, SessionState>();
 export function session(sid: string): SessionState {
   let s = sessions.get(sid);
   if (!s) {
-    s = { sid, calls: [], lastByTool: new Map(), pendingGate: null, turns: 0, finalized: false };
+    s = {
+      sid,
+      calls: [],
+      lastByTool: new Map(),
+      pendingGate: null,
+      turns: 0,
+      finalized: false,
+    };
     sessions.set(sid, s);
   }
   return s;

@@ -4,8 +4,8 @@
 import type { ToolRegister } from "./deps.ts";
 import { record } from "../evidence/record.ts";
 import { formatMemory } from "../inject/format.ts";
-import { loadAll } from "../store/files/load.ts"
-import { isInjectable } from "../store/model/predicates.ts"
+import { loadAll } from "../store/files/load.ts";
+import { isInjectable } from "../store/model/predicates.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 import type { Memory } from "../store/model/memory.ts";
 import { RecallArgs, validated } from "./schema.ts";
@@ -25,10 +25,10 @@ function scoreMemory(m: Memory, q: string): number {
   return score;
 }
 
-
 export const register: ToolRegister = (editor, deps) => {
   const { toolIds, noteHits, direct } = deps;
-    editor.add(validated(RecallArgs, {
+  editor.add(
+    validated(RecallArgs, {
       name: "memory_recall",
       description:
         "Look up durable project knowledge — build/test/lint commands, decisions, patterns, preferences, blockers — BEFORE searching the repo or reading files. Use for 'how do I run X', conventions, and past decisions. By scope, type, or free-text query; with no filters it returns the most recent memories.",
@@ -36,10 +36,13 @@ export const register: ToolRegister = (editor, deps) => {
       async execute(args, context): Promise<{ content: string }> {
         const { sid, call } = toolIds(context);
         const reader = readerFromSid(sid);
-        let results = (await loadAll()).filter(isInjectable).filter((m) => isVisibleTo(m, reader));
+        let results = (await loadAll())
+          .filter(isInjectable)
+          .filter((m) => isVisibleTo(m, reader));
         if (!results.length) return { content: "No memories found" };
         const total = results.length;
-        if (args.scope) results = results.filter((m) => m.scope.includes(args.scope!));
+        if (args.scope)
+          results = results.filter((m) => m.scope.includes(args.scope!));
         if (args.type) results = results.filter((m) => m.type === args.type);
         if (args.query) {
           results = results
@@ -49,7 +52,9 @@ export const register: ToolRegister = (editor, deps) => {
             .map((x) => x.m);
         }
         const limit = args.limit || 20;
-        const limited = args.query ? results.slice(0, limit) : results.slice(-limit);
+        const limited = args.query
+          ? results.slice(0, limit)
+          : results.slice(-limit);
         if (!limited.length) return { content: "No matching memories" };
         const openIn = limited.filter((m) => m.status === "open").length;
         if (openIn > 0) {
@@ -66,7 +71,10 @@ export const register: ToolRegister = (editor, deps) => {
           );
         }
         if (args.query) await noteHits("recall", sid, limited, args.query);
-        return { content: `Found ${results.length} (${total} total)\n\n${limited.map(formatMemory).join("\n")}` };
+        return {
+          content: `Found ${results.length} (${total} total)\n\n${limited.map(formatMemory).join("\n")}`,
+        };
       },
-    }));
+    }),
+  );
 };

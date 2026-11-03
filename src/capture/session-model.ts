@@ -23,7 +23,8 @@ const lastModel = new Map<string, SessionModelRef>();
 export function recordSessionModel(sid: string, model: unknown): void {
   if (!model || typeof model !== "object") return;
   const m = model as Record<string, unknown>;
-  const providerID = typeof m.providerID === "string" ? m.providerID.trim() : "";
+  const providerID =
+    typeof m.providerID === "string" ? m.providerID.trim() : "";
   const id = typeof m.id === "string" ? m.id.trim() : "";
   if (!providerID || !id) return;
   // Sessions churn and a long-lived server must not grow one entry per

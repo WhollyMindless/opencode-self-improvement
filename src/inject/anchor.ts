@@ -1,7 +1,7 @@
 // anchor — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
-import { loadAll } from "../store/files/load.ts"
-import { type Memory } from "../store/model/memory.ts"
-import { isInjectable } from "../store/model/predicates.ts"
+import { loadAll } from "../store/files/load.ts";
+import { type Memory } from "../store/model/memory.ts";
+import { isInjectable } from "../store/model/predicates.ts";
 import { readerFromSid, visibleTo } from "../store/model/visibility.ts";
 import { cmpTs } from "../core/cmp-ts.ts";
 import { FRAME, capToBudget } from "./budget.ts";
@@ -20,9 +20,15 @@ const ANCHOR_SETTLED_LIMIT = 5;
 
 const ANCHOR_BUDGET = 2500;
 
-export async function compactionAnchor(limit = 12, sid?: string): Promise<string> {
+export async function compactionAnchor(
+  limit = 12,
+  sid?: string,
+): Promise<string> {
   // Repo-scoped: model-facing reads see the caller's repo + global rows.
-  const mems = visibleTo((await loadAll()).filter(isInjectable), readerFromSid(sid));
+  const mems = visibleTo(
+    (await loadAll()).filter(isInjectable),
+    readerFromSid(sid),
+  );
   if (!mems.length) return "";
   const byNewest = (a: Memory, b: Memory) => cmpTs(b.ts, a.ts);
   const open = mems

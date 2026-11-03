@@ -12,9 +12,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setRepoScope } from "../src/identity/repokey.ts";
-import { formatLine } from "../src/core/logfmt/format.ts"
+import { formatLine } from "../src/core/logfmt/format.ts";
 import { appendLog } from "../src/core/logfmt/publish.ts";
-import { appendMemory } from "../src/store/files/append.ts"
+import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll, malformedCount } from "../src/store/files/load.ts";
 import { loadPlugin } from "./harness.ts";
 import { startViewer, type ViewerServer } from "../src/viewer/server.ts";
@@ -39,10 +39,20 @@ const EXPECTED_WIRE = {
     properties: {
       type: {
         type: "string",
-        enum: ["decision", "learning", "preference", "blocker", "context", "pattern"],
+        enum: [
+          "decision",
+          "learning",
+          "preference",
+          "blocker",
+          "context",
+          "pattern",
+        ],
         description: "Type of memory",
       },
-      scope: { type: "string", description: "Scope/area (e.g., auth, api, ctl)" },
+      scope: {
+        type: "string",
+        description: "Scope/area (e.g., auth, api, ctl)",
+      },
       content: { type: "string", description: "The memory content" },
       issue: { type: "string", description: "Related issue" },
       tags: { type: "array", items: { type: "string" } },
@@ -65,7 +75,10 @@ const EXPECTED_WIRE = {
   memory_init: {
     type: "object",
     properties: {
-      force: { type: "boolean", description: "Re-run even if initialized (refresh after drift)" },
+      force: {
+        type: "boolean",
+        description: "Re-run even if initialized (refresh after drift)",
+      },
       mode: {
         type: "string",
         enum: ["fast", "moderate", "full"],
@@ -81,7 +94,14 @@ const EXPECTED_WIRE = {
       scope: { type: "string" },
       type: {
         type: "string",
-        enum: ["decision", "learning", "preference", "blocker", "context", "pattern"],
+        enum: [
+          "decision",
+          "learning",
+          "preference",
+          "blocker",
+          "context",
+          "pattern",
+        ],
       },
       query: { type: "string" },
       limit: { type: "number" },
@@ -95,7 +115,14 @@ const EXPECTED_WIRE = {
       scope: { type: "string" },
       type: {
         type: "string",
-        enum: ["decision", "learning", "preference", "blocker", "context", "pattern"],
+        enum: [
+          "decision",
+          "learning",
+          "preference",
+          "blocker",
+          "context",
+          "pattern",
+        ],
       },
       content: { type: "string" },
       kw: KW_WIRE,
@@ -120,29 +147,47 @@ const EXPECTED_WIRE = {
       scope: { type: "string" },
       type: {
         type: "string",
-        enum: ["decision", "learning", "preference", "blocker", "context", "pattern"],
+        enum: [
+          "decision",
+          "learning",
+          "preference",
+          "blocker",
+          "context",
+          "pattern",
+        ],
       },
-      reason: { type: "string", description: "Why this is being deleted (audit)" },
+      reason: {
+        type: "string",
+        description: "Why this is being deleted (audit)",
+      },
     },
     required: ["scope", "type", "reason"],
     additionalProperties: false,
   },
-  memory_list: { type: "object", properties: {}, required: [], additionalProperties: false },
+  memory_list: {
+    type: "object",
+    properties: {},
+    required: [],
+    additionalProperties: false,
+  },
   memory_undo: {
     type: "object",
     properties: {
       list: { type: "boolean", description: "List snapshots" },
       snapshot: {
         type: "string",
-        description: "Store-owned snapshot to restore (bare name from list, or its full path)",
+        description:
+          "Store-owned snapshot to restore (bare name from list, or its full path)",
       },
       merge: {
         type: "boolean",
-        description: "With snapshot: keep rows written after the snapshot instead of refusing",
+        description:
+          "With snapshot: keep rows written after the snapshot instead of refusing",
       },
       force: {
         type: "boolean",
-        description: "With snapshot: exact rollback even if the file changed since",
+        description:
+          "With snapshot: exact rollback even if the file changed since",
       },
     },
     required: [],
@@ -165,12 +210,17 @@ const EXPECTED_WIRE = {
     properties: {
       loser: {
         type: "string",
-        description: "Ts id of the stored losing row to supersede (a blocked write was never stored and has no id)",
+        description:
+          "Ts id of the stored losing row to supersede (a blocked write was never stored and has no id)",
       },
-      survivor: { type: "string", description: "Ts id of the stored canonical winning row" },
+      survivor: {
+        type: "string",
+        description: "Ts id of the stored canonical winning row",
+      },
       reason: {
         type: "string",
-        description: "Why the survivor is canonical over the loser (written to evidence)",
+        description:
+          "Why the survivor is canonical over the loser (written to evidence)",
       },
     },
     required: ["loser", "survivor", "reason"],
@@ -179,7 +229,10 @@ const EXPECTED_WIRE = {
   memory_export: {
     type: "object",
     properties: {
-      scope: { type: "string", description: "Only export memories in this exact scope" },
+      scope: {
+        type: "string",
+        description: "Only export memories in this exact scope",
+      },
       file: {
         type: "string",
         description:
@@ -192,7 +245,10 @@ const EXPECTED_WIRE = {
   memory_import: {
     type: "object",
     properties: {
-      file: { type: "string", description: "Path to a .jsonl export file, inside the memory root" },
+      file: {
+        type: "string",
+        description: "Path to a .jsonl export file, inside the memory root",
+      },
     },
     required: ["file"],
     additionalProperties: false,
@@ -200,14 +256,22 @@ const EXPECTED_WIRE = {
   memory_consolidate: {
     type: "object",
     properties: {
-      scope: { type: "string", description: "Only consider rows in this scope" },
+      scope: {
+        type: "string",
+        description: "Only consider rows in this scope",
+      },
       jaccard: {
         type: "number",
         minimum: 0.2,
         maximum: 0.95,
         description: "Similarity floor for 'same statement' (default 0.55)",
       },
-      limit: { type: "number", minimum: 1, maximum: 50, description: "Maximum proposals to report (default 10)" },
+      limit: {
+        type: "number",
+        minimum: 1,
+        maximum: 50,
+        description: "Maximum proposals to report (default 10)",
+      },
     },
     required: [],
     additionalProperties: false,
@@ -215,17 +279,27 @@ const EXPECTED_WIRE = {
   memory_decay: {
     type: "object",
     properties: {
-      olderThanDays: { type: "number", default: 14, description: "Age threshold in days (default 14)" },
+      olderThanDays: {
+        type: "number",
+        default: 14,
+        description: "Age threshold in days (default 14)",
+      },
       dryRun: {
         type: "boolean",
         default: true,
-        description: "Preview only (default true). Set false to actually supersede.",
+        description:
+          "Preview only (default true). Set false to actually supersede.",
       },
     },
     required: [],
     additionalProperties: false,
   },
-  memory_status: { type: "object", properties: {}, required: [], additionalProperties: false },
+  memory_status: {
+    type: "object",
+    properties: {},
+    required: [],
+    additionalProperties: false,
+  },
 };
 
 let root: string;
@@ -240,12 +314,18 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
-const dayFile = () => join(process.env.OPENCODE_MEMORY_DIR!, `${new Date().toISOString().split("T")[0]}.logfmt`);
+const dayFile = () =>
+  join(
+    process.env.OPENCODE_MEMORY_DIR!,
+    `${new Date().toISOString().split("T")[0]}.logfmt`,
+  );
 
 describe("wire contract — zod generates the exact pre-zod JSON Schema", () => {
   test("all 14 registered tool inputs deep-equal the capture from main", async () => {
     const { tools } = await loadPlugin(root);
-    expect(Object.keys(tools).sort()).toEqual(Object.keys(EXPECTED_WIRE).sort());
+    expect(Object.keys(tools).sort()).toEqual(
+      Object.keys(EXPECTED_WIRE).sort(),
+    );
     for (const [name, expected] of Object.entries(EXPECTED_WIRE)) {
       expect(tools[name]!.input, name).toEqual(expected);
     }
@@ -281,7 +361,8 @@ describe("tool boundary — malformed calls are clean errors that do nothing", (
     const tooMany = await tool.memory_remember!.execute({
       type: "learning",
       scope: "s",
-      content: "a fact with an unbounded keyword list that must not land either",
+      content:
+        "a fact with an unbounded keyword list that must not land either",
       kw: Array.from({ length: 9 }, (_, i) => `alias ${i}`),
     });
     expect(tooMany).toContain("invalid arguments");
@@ -312,7 +393,12 @@ describe("tool boundary — malformed calls are clean errors that do nothing", (
 
   test("dryRun as a STRING is rejected, never coerced to true-or-false and executed", async () => {
     const { tool } = await loadPlugin(root);
-    await appendMemory({ type: "context", scope: "s", content: "open thread ancient plan about wiring", status: "open" });
+    await appendMemory({
+      type: "context",
+      scope: "s",
+      content: "open thread ancient plan about wiring",
+      status: "open",
+    });
     const out = await tool.memory_decay!.execute({ dryRun: "false" });
     expect(out).toContain("invalid arguments");
     // The row is untouched: a string "false" must not flip the dry-run guard.
@@ -321,8 +407,18 @@ describe("tool boundary — malformed calls are clean errors that do nothing", (
 
   test("coercion is non-breaking: a stringified numeric limit still works", async () => {
     const { tool } = await loadPlugin(root);
-    for (const c of ["alpha one", "beta two", "gamma three", "delta four", "epsilon five"]) {
-      await appendMemory({ type: "learning", scope: "s", content: `note ${c} about deploys` });
+    for (const c of [
+      "alpha one",
+      "beta two",
+      "gamma three",
+      "delta four",
+      "epsilon five",
+    ]) {
+      await appendMemory({
+        type: "learning",
+        scope: "s",
+        content: `note ${c} about deploys`,
+      });
     }
     const out = await tool.memory_recall!.execute({ limit: "2" });
     expect(out).toContain("Found 5 (5 total)");
@@ -354,7 +450,13 @@ describe("viewer boundary — malformed POSTs get 400, not coerced rows", () => 
   });
 
   test("edit with ts as an object is refused (pre-zod: String() made it '[object Object]')", async () => {
-    const res = await post("api/edit", { ts: {}, type: "learning", scope: "s", content: "c", reason: "r" });
+    const res = await post("api/edit", {
+      ts: {},
+      type: "learning",
+      scope: "s",
+      content: "c",
+      reason: "r",
+    });
     expect(res.status).toBe(400);
     expect(await loadAll()).toHaveLength(0);
   });
@@ -381,9 +483,18 @@ describe("store reader — ts is validated at load", () => {
   test("a row whose ts is not an ISO instant is skipped and counted, not loaded", async () => {
     await appendLog(
       dayFile(),
-      formatLine({ ts: "hello", type: "learning", scope: "ops", content: "ghost row with junk identity" }),
+      formatLine({
+        ts: "hello",
+        type: "learning",
+        scope: "ops",
+        content: "ghost row with junk identity",
+      }),
     );
-    await appendMemory({ type: "learning", scope: "ops", content: "a real row beside the ghost" });
+    await appendMemory({
+      type: "learning",
+      scope: "ops",
+      content: "a real row beside the ghost",
+    });
     const mems = await loadAll();
     expect(mems).toHaveLength(1);
     expect(mems[0]!.content).toContain("real row");
@@ -393,11 +504,21 @@ describe("store reader — ts is validated at load", () => {
   test("ISO instants load, including second precision and offsets in ms", async () => {
     await appendLog(
       dayFile(),
-      formatLine({ ts: "2026-01-01T00:00:00Z", type: "learning", scope: "s", content: "second precision ok" }),
+      formatLine({
+        ts: "2026-01-01T00:00:00Z",
+        type: "learning",
+        scope: "s",
+        content: "second precision ok",
+      }),
     );
     await appendLog(
       dayFile(),
-      formatLine({ ts: "2026-01-01T00:00:00.123456Z", type: "learning", scope: "s", content: "fractional precision ok" }),
+      formatLine({
+        ts: "2026-01-01T00:00:00.123456Z",
+        type: "learning",
+        scope: "s",
+        content: "fractional precision ok",
+      }),
     );
     expect(await loadAll()).toHaveLength(2);
     expect(malformedCount()).toBe(0);
@@ -406,7 +527,12 @@ describe("store reader — ts is validated at load", () => {
   test("a structurally valid but impossible date is malformed too (Month 13)", async () => {
     await appendLog(
       dayFile(),
-      formatLine({ ts: "2026-13-45T99:99:99.000Z", type: "learning", scope: "s", content: "impossible calendar row" }),
+      formatLine({
+        ts: "2026-13-45T99:99:99.000Z",
+        type: "learning",
+        scope: "s",
+        content: "impossible calendar row",
+      }),
     );
     expect(await loadAll()).toHaveLength(0);
     expect(malformedCount()).toBe(1);
@@ -418,7 +544,12 @@ describe("store reader — ts is validated at load", () => {
     expect(clean).not.toContain("malformed");
     await appendLog(
       dayFile(),
-      formatLine({ ts: "nope", type: "learning", scope: "s", content: "one bad row" }),
+      formatLine({
+        ts: "nope",
+        type: "learning",
+        scope: "s",
+        content: "one bad row",
+      }),
     );
     const dirty = await tool.memory_status!.execute({});
     expect(dirty).toContain("1 malformed");

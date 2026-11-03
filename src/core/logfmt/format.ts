@@ -1,6 +1,5 @@
 // format — split from src/logfmt.ts (#168 domain restructure). Declaration bodies are unchanged.
 
-
 export const IS_WINDOWS = process.platform === "win32";
 
 export type Fields = Record<string, unknown>;
@@ -9,9 +8,21 @@ export type Fields = Record<string, unknown>;
 // value would end the record early and the rest of the value would be read
 // back as a separate line of fields. Backslash is escaped too, so a value
 // ending in `\` cannot swallow its closing quote.
-const ESCAPE: Record<string, string> = { "\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t" };
+const ESCAPE: Record<string, string> = {
+  "\\": "\\\\",
+  '"': '\\"',
+  "\n": "\\n",
+  "\r": "\\r",
+  "\t": "\\t",
+};
 
-const UNESCAPE: Record<string, string> = { "\\": "\\", '"': '"', n: "\n", r: "\r", t: "\t" };
+const UNESCAPE: Record<string, string> = {
+  "\\": "\\",
+  '"': '"',
+  n: "\n",
+  r: "\r",
+  t: "\t",
+};
 
 // Lines written before these escapes existed stored backslashes raw, so in an
 // old line `C:\new` is a backslash and an `n`, not a newline. A line whose
@@ -27,7 +38,9 @@ const MARKER_VALUE = "1";
 export function quote(value: unknown): string {
   const s = String(value);
   if (s === "") return '""';
-  return /[\s"=]/.test(s) ? `"${s.replace(/[\\"\n\r\t]/g, (c) => ESCAPE[c])}"` : s;
+  return /[\s"=]/.test(s)
+    ? `"${s.replace(/[\\"\n\r\t]/g, (c) => ESCAPE[c])}"`
+    : s;
 }
 
 export function formatLine(fields: Fields): string {
@@ -63,7 +76,9 @@ export function parseLine(line: string): Fields | null {
     if (!m) break;
     tokens.push([m[1], m[2]]);
   }
-  const marker = tokens.findIndex(([k, v]) => k === MARKER && v === MARKER_VALUE);
+  const marker = tokens.findIndex(
+    ([k, v]) => k === MARKER && v === MARKER_VALUE,
+  );
   const fields: Fields = {};
   tokens.forEach(([key, value], i) => {
     if (key === MARKER) return;

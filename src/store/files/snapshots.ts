@@ -2,8 +2,12 @@
 import { open, readFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { snapshotDir } from "../../core/config/paths.ts";
-import { parseLine, type Fields } from "../../core/logfmt/format.ts"
-import { ensureDir, fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts"
+import { parseLine, type Fields } from "../../core/logfmt/format.ts";
+import {
+  ensureDir,
+  fileIdentity,
+  writeAtomic,
+} from "../../core/logfmt/publish.ts";
 import { readLines } from "../../core/logfmt/read.ts";
 import { withStoreLock, LOCK_WRITE } from "../lock.ts";
 

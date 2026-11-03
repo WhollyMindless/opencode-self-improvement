@@ -31,13 +31,15 @@ describe("self-metrics through the tool (#44)", () => {
     await appendMemory({
       type: "pattern",
       scope: "build",
-      content: "run bun test from the repo root to execute the whole suite before pushing",
+      content:
+        "run bun test from the repo root to execute the whole suite before pushing",
       status: "settled",
     });
     await appendMemory({
       type: "learning",
       scope: "api",
-      content: "the ingest endpoint returns 202 and reconciles later, never 200 inline",
+      content:
+        "the ingest endpoint returns 202 and reconciles later, never 200 inline",
       status: "open",
     });
     await recordCaptureLag("ses_x", 4200, "candidates");

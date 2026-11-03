@@ -2,7 +2,10 @@
 import { open, readFile } from "node:fs/promises";
 import { allowOutsideStorePaths, memoryRoot } from "../core/config/paths.ts";
 import { resolveContained } from "../store/containment.ts";
-import { isQuarantined, quarantineCandidate } from "../store/quarantine/quarantine.ts";
+import {
+  isQuarantined,
+  quarantineCandidate,
+} from "../store/quarantine/quarantine.ts";
 import { UnresolvedWriterError } from "../store/files/append.ts";
 import { writeTarget } from "../identity/repokey.ts";
 import { getCurrent } from "../core/state.ts";
@@ -40,26 +43,39 @@ function parseRow(line: string): WriteCandidate | null {
   }
   if (!row || typeof row !== "object" || Array.isArray(row)) return null;
   const r = row as Record<string, unknown>;
-  if (typeof r.type !== "string" || !(TYPES as readonly string[]).includes(r.type)) return null;
+  if (
+    typeof r.type !== "string" ||
+    !(TYPES as readonly string[]).includes(r.type)
+  )
+    return null;
   if (typeof r.scope !== "string" || !r.scope.trim()) return null;
   if (flattenMemoryText(r.scope) !== r.scope) return null;
   if (typeof r.content !== "string" || !r.content.trim()) return null;
   if (
     Array.isArray(r.tags) &&
     r.tags.some((t) => typeof t === "string" && flattenMemoryText(t) !== t)
-  ) return null;
-  if (typeof r.issue === "string" && flattenMemoryText(r.issue) !== r.issue) return null;
+  )
+    return null;
+  if (typeof r.issue === "string" && flattenMemoryText(r.issue) !== r.issue)
+    return null;
   // Keywords widen recall only, so a malformed entry costs them, never the row
   // (contrast scope/content, where a bad value makes the line malformed).
   const kw = Array.isArray(r.kw)
     ? r.kw.filter(
         (k): k is string =>
-          typeof k === "string" && !!k.trim() && flattenMemoryText(k.trim()) === k.trim(),
+          typeof k === "string" &&
+          !!k.trim() &&
+          flattenMemoryText(k.trim()) === k.trim(),
       )
     : undefined;
-  const c: WriteCandidate = { type: r.type, scope: r.scope, content: r.content };
+  const c: WriteCandidate = {
+    type: r.type,
+    scope: r.scope,
+    content: r.content,
+  };
   if (r.status === "open" || r.status === "settled") c.status = r.status;
-  if (Array.isArray(r.tags) && r.tags.every((t) => typeof t === "string")) c.tags = r.tags;
+  if (Array.isArray(r.tags) && r.tags.every((t) => typeof t === "string"))
+    c.tags = r.tags;
   if (kw?.length) c.kw = kw;
   if (typeof r.issue === "string" && r.issue) c.issue = r.issue;
   // Origin stamps survive an export/import hop (repokey.ts): a row written
@@ -92,7 +108,9 @@ function parseRow(line: string): WriteCandidate | null {
 // day files, snapshots and the blocklist, none of which are import formats.
 export async function importMemories(
   path: string,
-  gate: (c: WriteCandidate) => Promise<{ action: string; evidenceError?: string }>,
+  gate: (
+    c: WriteCandidate,
+  ) => Promise<{ action: string; evidenceError?: string }>,
   // The importing session, captured at tool entry (#127): "the importing
   // session's current repo" must be the CALLER's repo even though this loop
   // awaits the gate on every row, during which a concurrent session can move
@@ -112,16 +130,26 @@ export async function importMemories(
     allowOutside: allowOutsideStorePaths(),
   });
   if (!target.toLowerCase().endsWith(".jsonl")) {
-    throw new Error(`memory_import file must be a .jsonl export (got "${path}")`);
+    throw new Error(
+      `memory_import file must be a .jsonl export (got "${path}")`,
+    );
   }
   let text: string;
   try {
     text = await readFile(target, "utf8");
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`import file not found: ${target}`);
+    if ((err as NodeJS.ErrnoException).code === "ENOENT")
+      throw new Error(`import file not found: ${target}`);
     throw err;
   }
-  const tally: ImportTally = { promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0, unaudited: 0 };
+  const tally: ImportTally = {
+    promoted: 0,
+    collapsed: 0,
+    blocked: 0,
+    skipped: 0,
+    downgraded: 0,
+    unaudited: 0,
+  };
   // Preserve file-validation error precedence, but reject an unresolved owner
   // before gating any row. Resolution happened at entry, not at this await.
   if (!writeAt.ok) throw new UnresolvedWriterError(writeAt.sid);
@@ -154,7 +182,10 @@ export async function importMemories(
       if (c.repo !== currentScope.key) delete c.repo;
       if (c.repoPath !== currentScope.path) delete c.repoPath;
     }
-    if (c.status === "open" && (!allowFrontier || claimedGlobal || (hadStamp && !currentScope))) {
+    if (
+      c.status === "open" &&
+      (!allowFrontier || claimedGlobal || (hadStamp && !currentScope))
+    ) {
       c.status = "settled";
       tally.downgraded++;
     }

@@ -18,7 +18,10 @@ import { register as registerDecay } from "./decay.ts";
 import { register as registerStatus } from "./status-tool.ts";
 import type { ToolDeps, ToolEditorLike } from "./deps.ts";
 
-export function registerMemoryTools(editor: ToolEditorLike, deps: ToolDeps): void {
+export function registerMemoryTools(
+  editor: ToolEditorLike,
+  deps: ToolDeps,
+): void {
   for (const register of [
     registerRemember,
     registerConsolidate,

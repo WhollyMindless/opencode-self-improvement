@@ -2,22 +2,25 @@
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
-import { loadAll } from "../store/files/load.ts"
-import { isInjectable } from "../store/model/predicates.ts"
+import { loadAll } from "../store/files/load.ts";
+import { isInjectable } from "../store/model/predicates.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
 import { EmptyArgs, validated } from "./schema.ts";
 
 export const register: ToolRegister = (editor, deps) => {
   const { toolIds, direct } = deps;
-    editor.add(validated(EmptyArgs, {
+  editor.add(
+    validated(EmptyArgs, {
       name: "memory_list",
       description: "List memory scopes and types for discovery.",
       options: direct,
       async execute(_args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
         const reader = readerFromSid(sid);
-        const mems = (await loadAll()).filter(isInjectable).filter((m) => isVisibleTo(m, reader));
+        const mems = (await loadAll())
+          .filter(isInjectable)
+          .filter((m) => isVisibleTo(m, reader));
         if (!mems.length) return { content: "No memories found" };
         const scopes = new Map<string, number>();
         const types = new Map<string, number>();
@@ -30,7 +33,10 @@ export const register: ToolRegister = (editor, deps) => {
             .sort((a, b) => b[1] - a[1])
             .map(([k, c]) => `  ${flattenMemoryText(k)}: ${c}`)
             .join("\n");
-        return { content: `Total: ${mems.length}\n\nScopes:\n${fmt(scopes)}\n\nTypes:\n${fmt(types)}` };
+        return {
+          content: `Total: ${mems.length}\n\nScopes:\n${fmt(scopes)}\n\nTypes:\n${fmt(types)}`,
+        };
       },
-    }));
+    }),
+  );
 };

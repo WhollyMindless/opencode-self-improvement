@@ -3,7 +3,7 @@
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
 import { record } from "../evidence/record.ts";
-import { snapshotFiles } from "../store/files/snapshots.ts"
+import { snapshotFiles } from "../store/files/snapshots.ts";
 import { markManySuperseded } from "../store/files/supersede.ts";
 import { findStaleOpen } from "../portable/decay.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
@@ -11,14 +11,16 @@ import { DecayArgs, validated } from "./schema.ts";
 
 export const register: ToolRegister = (editor, deps) => {
   const { toolIds, direct } = deps;
-    editor.add(validated(DecayArgs, {
+  editor.add(
+    validated(DecayArgs, {
       name: "memory_decay",
       description:
         "Retire stale open threads (status=open older than olderThanDays) by superseding them — never deleting; rows stay recoverable via memory_undo. DRY RUN BY DEFAULT: without an explicit dryRun=false this only LISTS what would retire and mutates nothing (fail-closed). A real run snapshots every affected file before the first mutation.",
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
-        const days = Number(args.olderThanDays) > 0 ? Number(args.olderThanDays) : 14;
+        const days =
+          Number(args.olderThanDays) > 0 ? Number(args.olderThanDays) : 14;
         const dryRun = args.dryRun !== false; // only an explicit false mutates
         const stale = await findStaleOpen(days, sid);
         if (!stale.length) {
@@ -33,7 +35,11 @@ export const register: ToolRegister = (editor, deps) => {
         if (dryRun) {
           await record(
             "decay_dry_run",
-            { days, stale: stale.length, mem: stale.map((m) => m.ts).join(",") },
+            {
+              days,
+              stale: stale.length,
+              mem: stale.map((m) => m.ts).join(","),
+            },
             false,
           );
           return {
@@ -46,7 +52,9 @@ export const register: ToolRegister = (editor, deps) => {
         // one whole-file copy per affected file, taken before the first
         // mutation. The batch pass snapshots again per file it touches; this
         // pass guarantees a pre-decay copy exists even if a later file fails.
-        const snapshot = await snapshotFiles([...new Set(stale.map((m) => m.file))]);
+        const snapshot = await snapshotFiles([
+          ...new Set(stale.map((m) => m.file)),
+        ]);
         // One lock/read/snapshot/publish per file for the whole decay run (#61):
         // N retired rows are one undo point, not N. Idempotent (a no-op on rows
         // already superseded, out-of-band ones skipped under the lock).
@@ -54,13 +62,32 @@ export const register: ToolRegister = (editor, deps) => {
         let retired: number;
         try {
           retired = await markManySuperseded(
-            stale.map((m) => ({ ts: m.ts, fields: { superseded_by: "decay", reason: "decay" } })), durable,
+            stale.map((m) => ({
+              ts: m.ts,
+              fields: { superseded_by: "decay", reason: "decay" },
+            })),
+            durable,
           );
         } catch (err) {
           if (durable.length === 0) throw err;
           let why = err instanceof Error ? err.message : String(err);
-          await record("decay_applied", { days, retired: durable.length, mem: durable.join(","), snapshot: snapshot.join(","), partial: true, error: why }, false).catch((audit) => { why += `; audit failed: ${String(audit)}`; });
-          return { content: `memory_decay PARTIAL: retired row(s) ${durable.join(", ")}; stopped: ${why}. Recover with memory_undo; inspect memory_evidence before retrying.` };
+          await record(
+            "decay_applied",
+            {
+              days,
+              retired: durable.length,
+              mem: durable.join(","),
+              snapshot: snapshot.join(","),
+              partial: true,
+              error: why,
+            },
+            false,
+          ).catch((audit) => {
+            why += `; audit failed: ${String(audit)}`;
+          });
+          return {
+            content: `memory_decay PARTIAL: retired row(s) ${durable.join(", ")}; stopped: ${why}. Recover with memory_undo; inspect memory_evidence before retrying.`,
+          };
         }
         await record(
           "decay_applied",
@@ -79,5 +106,6 @@ export const register: ToolRegister = (editor, deps) => {
             "Recover with memory_undo.",
         };
       },
-    }));
+    }),
+  );
 };

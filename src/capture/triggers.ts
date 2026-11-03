@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { record } from "../evidence/record.ts";
 import { evidenceDir } from "../core/config/paths.ts";
-import { parseLine } from "../core/logfmt/format.ts"
+import { parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import {
@@ -31,7 +31,15 @@ export interface AfterOutput {
 // actually engaged with the code it later writes about (GATE-4's behavior-
 // grounded injection): reading/grepping a shot of live code, editing it, or
 // running commands. Empirical behavior substitutes for hand-copied refs.
-const ENGAGEMENT_TOOLS = new Set(["grep", "glob", "read", "edit", "write", "bash", "shell"]);
+const ENGAGEMENT_TOOLS = new Set([
+  "grep",
+  "glob",
+  "read",
+  "edit",
+  "write",
+  "bash",
+  "shell",
+]);
 
 const RECENT_EVIDENCE_CALLS = 10;
 // Pending recovery stores IDs only; the full attribution ledger stays in calls.
@@ -97,11 +105,13 @@ function classify(tool: string, out: AfterOutput): "FAIL" | "PASS" {
   if (tool === "bash" || tool === "shell") {
     const code = exitCode(out);
     if (typeof code === "number") return code === 0 ? "PASS" : "FAIL";
-    if (/\b(failed|failure|error|not found|command failed)\b/i.test(text)) return "FAIL";
+    if (/\b(failed|failure|error|not found|command failed)\b/i.test(text))
+      return "FAIL";
     return "PASS";
   }
   if (tool === "grep" || tool === "glob") {
-    if (/no (matches|files|results)|no output found|did not match/i.test(text)) return "FAIL";
+    if (/no (matches|files|results)|no output found|did not match/i.test(text))
+      return "FAIL";
     if (/\d+\s+match/i.test(text)) return "PASS";
     return text.trim() ? "PASS" : "FAIL";
   }
@@ -113,7 +123,10 @@ function summarize(text: string, n = 80): string {
   return one.length > n ? one.slice(0, n) + "…" : one;
 }
 
-export async function afterTool(input: AfterInput, out: AfterOutput): Promise<void> {
+export async function afterTool(
+  input: AfterInput,
+  out: AfterOutput,
+): Promise<void> {
   const tool = typeof input.tool === "string" ? input.tool : "?";
   const sid = typeof input.sessionID === "string" ? input.sessionID : undefined;
   const call = typeof input.callID === "string" ? input.callID : "?";
@@ -141,7 +154,9 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
   // Generic capture (data, not chat). The output_summary is telemetry about
   // the call (tool name + a short, redacted glimpse); the session/repo scoping
   // of evidence reads is tracked separately (#128 acceptance, #130).
-  if (["grep", "glob", "read", "edit", "write", "bash", "shell"].includes(tool)) {
+  if (
+    ["grep", "glob", "read", "edit", "write", "bash", "shell"].includes(tool)
+  ) {
     await record(
       "tool_result",
       {
@@ -165,8 +180,14 @@ export async function afterTool(input: AfterInput, out: AfterOutput): Promise<vo
     } else if (s.pendingGate && s.pendingGate.cmd === family) {
       const pend = s.pendingGate;
       const fix = pend.fix?.call ?? call;
-      const oldFix = pend.fix && pend.fix.index <= pend.count - pend.chain.length;
-      const chainCalls = [pend.call, ...(oldFix ? [fix] : []), ...pend.chain, call];
+      const oldFix =
+        pend.fix && pend.fix.index <= pend.count - pend.chain.length;
+      const chainCalls = [
+        pend.call,
+        ...(oldFix ? [fix] : []),
+        ...pend.chain,
+        call,
+      ];
       await record(
         "t4_learning",
         {
@@ -244,7 +265,10 @@ export function evidenceCalls(sid: string): string[] {
 // on each write: it grows throughout the session. Pin the actual trigger
 // witnesses when recorded rather than trying to reconstruct a FAIL->PASS
 // pairing from a cropped tail. The full ledger remains available above.
-export function writeEvidence(sid: string): { evidenceCalls: string[]; evidenceCallsCount: number } {
+export function writeEvidence(sid: string): {
+  evidenceCalls: string[];
+  evidenceCallsCount: number;
+} {
   const s = session(sid);
   const evidence = s.writeEvidence;
   const refs = new Set([
@@ -285,7 +309,9 @@ export function markFrontierTap(sid: string, call: string): void {
   s.firstTap = { call, turn: s.turns, ts: new Date().toISOString() };
 }
 
-export function firstFrontierTap(sid: string): { call: string; turn: number; ts: string } | undefined {
+export function firstFrontierTap(
+  sid: string,
+): { call: string; turn: number; ts: string } | undefined {
   return session(sid).firstTap;
 }
 
@@ -299,7 +325,9 @@ export async function finalizeSession(sid: string): Promise<void> {
   const tap = s.firstTap;
   const start = s.firstActivityTs ?? s.calls[0]?.ts;
   const ms =
-    tap && start ? Math.max(0, Date.parse(tap.ts) - Date.parse(start)) : undefined;
+    tap && start
+      ? Math.max(0, Date.parse(tap.ts) - Date.parse(start))
+      : undefined;
   await record(
     "session_convergence",
     {
@@ -307,7 +335,9 @@ export async function finalizeSession(sid: string): Promise<void> {
       turns: s.turns,
       tap_at: tap ? tap.call : "-",
       turns_to_tap: tap ? tap.turn : undefined,
-      re_derives: s.calls.filter((c) => ["grep", "glob", "read"].includes(c.tool)).length,
+      re_derives: s.calls.filter((c) =>
+        ["grep", "glob", "read"].includes(c.tool),
+      ).length,
       ms_to_tap: ms,
       calls: s.calls.length,
     },
@@ -335,7 +365,8 @@ export async function recentConvergenceSummary(limit = 6): Promise<string> {
   const dir = evidenceDir();
   if (!existsSync(dir)) return "";
   const files: string[] = [];
-  for await (const f of new Bun.Glob("*.logfmt").scan(dir)) files.push(join(dir, f));
+  for await (const f of new Bun.Glob("*.logfmt").scan(dir))
+    files.push(join(dir, f));
   files.sort();
   // sid -> tap turn from frontier_tapped rows (late taps lost from rollups).
   const lateTaps = new Map<string, number>();
@@ -364,7 +395,10 @@ export async function recentConvergenceSummary(limit = 6): Promise<string> {
     (r) => r.turn !== null || lateTaps.has(r.session),
   );
   if (!recent.length || !tapped.length) return "";
-  const sum = tapped.reduce((a, r) => a + (r.turn ?? lateTaps.get(r.session) ?? 0), 0);
+  const sum = tapped.reduce(
+    (a, r) => a + (r.turn ?? lateTaps.get(r.session) ?? 0),
+    0,
+  );
   const avg = sum / tapped.length;
   const label = avg % 1 === 0 ? String(avg) : avg.toFixed(1);
   return `${recent.length} sessions tracked, ${tapped.length} reached the frontier (first tap ~${label} turns)`;

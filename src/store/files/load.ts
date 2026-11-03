@@ -7,11 +7,19 @@ import { existsSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { HITS_FILENAME, memoryRoot } from "../../core/config/paths.ts";
-import { parseLine } from "../../core/logfmt/format.ts"
+import { parseLine } from "../../core/logfmt/format.ts";
 import { readLines } from "../../core/logfmt/read.ts";
 import { blockedTs } from "../blocklist.ts";
-import { ISO_TS_RE, type Memory, malformedWarnedFiles } from "../model/memory.ts";
-import { type Reader, isVisibleTo, readerForAmbient } from "../model/visibility.ts";
+import {
+  ISO_TS_RE,
+  type Memory,
+  malformedWarnedFiles,
+} from "../model/memory.ts";
+import {
+  type Reader,
+  isVisibleTo,
+  readerForAmbient,
+} from "../model/visibility.ts";
 
 const RESERVED = new Set([
   "deletions.logfmt",
@@ -33,7 +41,11 @@ export function malformedCount(): number {
   return malformedRows;
 }
 
-export function toMemory(fields: Record<string, unknown>, file: string, index: number): Memory | null {
+export function toMemory(
+  fields: Record<string, unknown>,
+  file: string,
+  index: number,
+): Memory | null {
   const ts = fields.ts;
   const type = fields.type;
   const scope = fields.scope;
@@ -56,13 +68,22 @@ export function toMemory(fields: Record<string, unknown>, file: string, index: n
     content: typeof fields.content === "string" ? fields.content : "",
     issue: typeof fields.issue === "string" ? fields.issue : undefined,
     tags: typeof fields.tags === "string" ? fields.tags.split(",") : undefined,
-    kw: typeof fields.kw === "string" && fields.kw
-      ? fields.kw.split(",").map((k) => k.trim()).filter((k) => k.length > 0)
-      : undefined,
-    superseded_by: typeof fields.superseded_by === "string" ? fields.superseded_by : undefined,
+    kw:
+      typeof fields.kw === "string" && fields.kw
+        ? fields.kw
+            .split(",")
+            .map((k) => k.trim())
+            .filter((k) => k.length > 0)
+        : undefined,
+    superseded_by:
+      typeof fields.superseded_by === "string"
+        ? fields.superseded_by
+        : undefined,
     reason: typeof fields.reason === "string" ? fields.reason : undefined,
     status:
-      fields.status === "open" || fields.status === "settled" ? fields.status : undefined,
+      fields.status === "open" || fields.status === "settled"
+        ? fields.status
+        : undefined,
     repo: typeof fields.repo === "string" ? fields.repo : undefined,
     repoPath: typeof fields.repoPath === "string" ? fields.repoPath : undefined,
     file,
@@ -98,9 +119,14 @@ export async function loadAll(): Promise<Memory[]> {
   return out;
 }
 
-export async function loadScope(scope: string, reader: Reader = readerForAmbient()): Promise<Memory[]> {
+export async function loadScope(
+  scope: string,
+  reader: Reader = readerForAmbient(),
+): Promise<Memory[]> {
   // Gate dedup/stale reads are repo-scoped: a row from another repo must not
   // collapse or supersede a write here. The reader is the CALLER's identity,
   // resolved at flow entry — not whatever current says after this await.
-  return (await loadAll()).filter((m) => m.scope === scope && isVisibleTo(m, reader));
+  return (await loadAll()).filter(
+    (m) => m.scope === scope && isVisibleTo(m, reader),
+  );
 }

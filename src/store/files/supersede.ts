@@ -1,7 +1,7 @@
 // supersede — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
 import { join } from "node:path";
-import { formatLine, parseLine } from "../../core/logfmt/format.ts"
-import { fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts"
+import { formatLine, parseLine } from "../../core/logfmt/format.ts";
+import { fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts";
 import { readLines } from "../../core/logfmt/read.ts";
 import { withStoreLock, LOCK_WRITE } from "../lock.ts";
 import { redactSecrets } from "../secrets.ts";
@@ -20,8 +20,15 @@ export interface SupersedeFields {
 
 // Mark an existing memory as superseded IN PLACE (entry retained, recoverable).
 // Idempotent: a second call is a no-op, so no double `superseded_by`.
-export async function markSuperseded(ts: string, fields: SupersedeFields, durable?: string[]): Promise<boolean> {
-  return (await markManySupersededReport([{ ts, fields }], durable)).marked.length > 0;
+export async function markSuperseded(
+  ts: string,
+  fields: SupersedeFields,
+  durable?: string[],
+): Promise<boolean> {
+  return (
+    (await markManySupersededReport([{ ts, fields }], durable)).marked.length >
+    0
+  );
 }
 
 // Batch supersession (#61): one lock acquisition, one read, one snapshot and
@@ -33,7 +40,10 @@ export async function markSuperseded(ts: string, fields: SupersedeFields, durabl
 // so a repeat run marks nothing and writes nothing. Duplicate ts entries in
 // one batch: the FIRST entry's fields win (mirrors row-by-row first-call-wins).
 // Returns the number of rows actually marked.
-export async function markManySuperseded(entries: { ts: string; fields: SupersedeFields }[], durable?: string[]): Promise<number> {
+export async function markManySuperseded(
+  entries: { ts: string; fields: SupersedeFields }[],
+  durable?: string[],
+): Promise<number> {
   return (await markManySupersededReport(entries, durable)).marked.length;
 }
 
@@ -58,16 +68,17 @@ export async function markManySupersededReport(
       ...(await withStoreLock(
         file,
         async () => {
-        // #106: identity BEFORE the read, like every other whole-file
-        // read-modify-write (#89's contract) - the publish below may retry a
-        // Windows handover only while the destination still matches this.
+          // #106: identity BEFORE the read, like every other whole-file
+          // read-modify-write (#89's contract) - the publish below may retry a
+          // Windows handover only while the destination still matches this.
           const since = await fileIdentity(file);
           const lines = await readLines(file);
           const ids: string[] = [];
           for (let i = 0; i < lines.length; i++) {
             const parsed = parseLine(lines[i]);
             if (!parsed || typeof parsed.superseded_by === "string") continue;
-            const fields = typeof parsed.ts === "string" ? wanted.get(parsed.ts) : undefined;
+            const fields =
+              typeof parsed.ts === "string" ? wanted.get(parsed.ts) : undefined;
             if (!fields) continue;
             // Whole line rewritten, not extended: an old-format line comes out in
             // the current format with its values unchanged (as markSuperseded did).
@@ -80,7 +91,9 @@ export async function markManySupersededReport(
             const clean: SupersedeFields = { ...fields };
             for (const k of Object.keys(clean)) {
               const v = (clean as unknown as Record<string, unknown>)[k];
-              if (typeof v === "string") (clean as unknown as Record<string, unknown>)[k] = redactSecrets(v);
+              if (typeof v === "string")
+                (clean as unknown as Record<string, unknown>)[k] =
+                  redactSecrets(v);
             }
             lines[i] = formatLine({ ...parsed, ...clean });
             ids.push(parsed.ts as string);
@@ -92,7 +105,7 @@ export async function markManySupersededReport(
           return ids;
         },
         LOCK_WRITE,
-      ))
+      )),
     );
   }
   // A ts that appears in several files (should not exist - append mints unique
@@ -112,7 +125,14 @@ export async function clearSuperseded(ts: string): Promise<boolean> {
       // update and merge_review), never by appendMemory, so they are all part of
       // the marker and go with it. Field order round-trips because parseLine
       // inserts keys in source order.
-      for (const key of ["superseded_by", "reason", "symbol", "from", "to", "entity"]) {
+      for (const key of [
+        "superseded_by",
+        "reason",
+        "symbol",
+        "from",
+        "to",
+        "entity",
+      ]) {
         delete parsed[key];
       }
       return formatLine(parsed);

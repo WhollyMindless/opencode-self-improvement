@@ -122,7 +122,10 @@ export interface BlockedRow {
 // by mtime (newest survive; a re-written session refreshes its mtime).
 export const SESSION_FILE_CAP = 32;
 
-export async function writeJson(path: string, p: StatusPayload): Promise<boolean> {
+export async function writeJson(
+  path: string,
+  p: StatusPayload,
+): Promise<boolean> {
   try {
     preparePrivateFile(path);
     await Bun.write(path, JSON.stringify(p, null, 2) + "\n");
@@ -134,7 +137,9 @@ export async function writeJson(path: string, p: StatusPayload): Promise<boolean
 
 export async function readJson(path: string): Promise<StatusPayload | null> {
   try {
-    const v: unknown = JSON.parse((await readFile(path, "utf8")).replace(/^\uFEFF/, ""));
+    const v: unknown = JSON.parse(
+      (await readFile(path, "utf8")).replace(/^\uFEFF/, ""),
+    );
     if (!v || typeof v !== "object") return null;
     const p = v as Partial<StatusPayload>;
     if (typeof p.at !== "string" || typeof p.block !== "string") return null;

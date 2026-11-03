@@ -28,13 +28,17 @@ function cmpTriples(a: readonly number[], b: readonly number[]): number {
 // could not be parsed; null when the version looks fine. Warn-only by design:
 // an old embedded bun should be visible, but must not stop memory from
 // loading. The caller decides how often to emit it (src/index.ts: once).
-export function bunFloorWarning(versionString: string | undefined): string | null {
+export function bunFloorWarning(
+  versionString: string | undefined,
+): string | null {
   const floor = MIN_BUN.join(".");
-  const seen = typeof versionString === "string" ? parseBunVersion(versionString) : null;
+  const seen =
+    typeof versionString === "string" ? parseBunVersion(versionString) : null;
   if (seen) {
     if (cmpTriples(seen, MIN_BUN) >= 0) return null;
     return `[opencode-self-improvement] Bun ${seen.join(".")} is below the supported minimum ${floor}; memory features may misbehave.`;
   }
-  const shown = versionString === undefined ? "unknown" : JSON.stringify(versionString);
+  const shown =
+    versionString === undefined ? "unknown" : JSON.stringify(versionString);
   return `[opencode-self-improvement] Bun version ${shown} is unrecognized (supported minimum ${floor}); memory features may misbehave.`;
 }

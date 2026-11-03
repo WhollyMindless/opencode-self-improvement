@@ -10,10 +10,18 @@ export interface ToolDeps {
   toolIds: (context?: unknown) => { sid: string; call: string };
   bindSessionIdentity: (sid: string | undefined) => Promise<void>;
   ownerlessWriter: (sid: string | undefined) => string | null;
-  refuseOwnerlessWrite: (sid: string, op: string) => Promise<{ content: string }>;
+  refuseOwnerlessWrite: (
+    sid: string,
+    op: string,
+  ) => Promise<{ content: string }>;
   gateContext: (sid?: string) => GateContext;
   sessions: ReturnType<typeof createInjectionEpochs>;
-  noteHits: (src: HitSource, sid: string, rows: Memory[], query: string) => Promise<void>;
+  noteHits: (
+    src: HitSource,
+    sid: string,
+    rows: Memory[],
+    query: string,
+  ) => Promise<void>;
   direct: { readonly codemode: false };
 }
 

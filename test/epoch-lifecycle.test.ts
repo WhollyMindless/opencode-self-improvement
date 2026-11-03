@@ -18,30 +18,56 @@ beforeEach(async () => {
   mkdirSync(repo);
   process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
   process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
-  resetState(); resetSessionScopes(); setRepoScope(null);
+  resetState();
+  resetSessionScopes();
+  setRepoScope(null);
   plugins = [];
-  await appendMemory({ type: "pattern", scope: "alpha", content: "azuki build workflow", repo: "global" });
-  await appendMemory({ type: "pattern", scope: "beta", content: "koto deploy workflow", repo: "global" });
+  await appendMemory({
+    type: "pattern",
+    scope: "alpha",
+    content: "azuki build workflow",
+    repo: "global",
+  });
+  await appendMemory({
+    type: "pattern",
+    scope: "beta",
+    content: "koto deploy workflow",
+    repo: "global",
+  });
 });
 afterEach(async () => {
   for (const p of plugins) await p.cleanup();
-  resetState(); resetSessionScopes(); setRepoScope(null);
-  delete process.env.OPENCODE_MEMORY_DIR; delete process.env.OPENCODE_COMMANDS_DIR;
-  if (dirname(resolve(root)) !== resolve(tmpdir()) || !basename(root).startsWith("osi-epoch-lifecycle-")) {
+  resetState();
+  resetSessionScopes();
+  setRepoScope(null);
+  delete process.env.OPENCODE_MEMORY_DIR;
+  delete process.env.OPENCODE_COMMANDS_DIR;
+  if (
+    dirname(resolve(root)) !== resolve(tmpdir()) ||
+    !basename(root).startsWith("osi-epoch-lifecycle-")
+  ) {
     throw new Error("Unexpected fixture cleanup target");
   }
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 async function plugin() {
-  const p = await loadPlugin(repo); plugins.push(p); return p;
+  const p = await loadPlugin(repo);
+  plugins.push(p);
+  return p;
 }
 async function context(p: LoadedPlugin, sid: string): Promise<string[]> {
-  const event = { sessionID: sid, system: [] as { type: string; text: string }[] };
+  const event = {
+    sessionID: sid,
+    system: [] as { type: string; text: string }[],
+  };
   await p.sessionHooks.context(event);
-  return event.system.map(part => part.text);
+  return event.system.map((part) => part.text);
 }
-const prompt = (p: LoadedPlugin, sid: string, text = "azuki") => p.sessionHooks.prompt({ sessionID: sid, prompt: { text } });
-const report = async (p: LoadedPlugin, sid: string) => (await p.tools.memory_status.execute({}, { sessionID: sid, id: "status" })).content;
+const prompt = (p: LoadedPlugin, sid: string, text = "azuki") =>
+  p.sessionHooks.prompt({ sessionID: sid, prompt: { text } });
+const report = async (p: LoadedPlugin, sid: string) =>
+  (await p.tools.memory_status.execute({}, { sessionID: sid, id: "status" }))
+    .content;
 async function until(check: () => boolean | Promise<boolean>): Promise<void> {
   for (let i = 0; i < 200; i++) {
     if (await check()) return;
@@ -51,7 +77,8 @@ async function until(check: () => boolean | Promise<boolean>): Promise<void> {
 }
 
 test("context before a prompt and after compaction stays uncached; compaction keeps lifetime counters", async () => {
-  const p = await plugin(), sid = "ses-lifecycle";
+  const p = await plugin(),
+    sid = "ses-lifecycle";
   const first = (await context(p, sid)).join("\n");
   expect(first).toContain("## Persistent memory");
   expect(first).not.toContain("## Relevant durable memory");
@@ -62,7 +89,9 @@ test("context before a prompt and after compaction stays uncached; compaction ke
   expect(await report(p, sid)).toContain("2 request(s)");
 
   await p.sessionHooks.compaction({ sessionID: sid, system: [] });
-  expect((await context(p, sid)).join("\n")).not.toContain("## Relevant durable memory");
+  expect((await context(p, sid)).join("\n")).not.toContain(
+    "## Relevant durable memory",
+  );
   expect(await report(p, sid)).toContain("no epoch yet");
 
   await prompt(p, sid, "koto");
@@ -76,7 +105,9 @@ test("context before a prompt and after compaction stays uncached; compaction ke
 });
 
 test("separate setup instances retain independent frozen bytes for the same session", async () => {
-  const a = await plugin(), b = await plugin(), sid = "ses-two-setups";
+  const a = await plugin(),
+    b = await plugin(),
+    sid = "ses-two-setups";
   await prompt(a, sid, "azuki");
   const first = await context(a, sid);
   await prompt(b, sid, "koto");
@@ -90,18 +121,28 @@ test("separate setup instances retain independent frozen bytes for the same sess
 });
 
 test("usage-only sessions evict prompt, epoch, counters, and measured usage together", async () => {
-  const p = await plugin(), sid = "ses-usage-eviction";
+  const p = await plugin(),
+    sid = "ses-usage-eviction";
   await prompt(p, sid);
   const first = await context(p, sid);
-  p.capture.events.push({ type: "session.usage.updated", data: { sessionID: sid, tokens: { input: 7, cache: { read: 13 } } } });
+  p.capture.events.push({
+    type: "session.usage.updated",
+    data: { sessionID: sid, tokens: { input: 7, cache: { read: 13 } } },
+  });
   await until(async () => (await readStatus(sid))?.measured?.read === 13);
 
   for (let i = 0; i < SESSION_CAP; i++) {
-    p.capture.events.push({ type: "session.usage.updated", data: { sessionID: `usage-only-${i}`, tokens: { input: 1 } } });
+    p.capture.events.push({
+      type: "session.usage.updated",
+      data: { sessionID: `usage-only-${i}`, tokens: { input: 1 } },
+    });
   }
   // This identity event is consumed after all queued usage events; the fake
   // API call is an observable barrier without guessing a processing delay.
-  p.capture.events.push({ type: "session.execution.started", data: { sessionID: "usage-barrier" } });
+  p.capture.events.push({
+    type: "session.execution.started",
+    data: { sessionID: "usage-barrier" },
+  });
   await until(() => p.capture.session.getCalls.includes("usage-barrier"));
   expect(await report(p, sid)).toContain("no epoch yet");
 

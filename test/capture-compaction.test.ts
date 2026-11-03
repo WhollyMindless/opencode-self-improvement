@@ -23,15 +23,26 @@
 //     inert again.
 // Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts"
+import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
-import { formatLine, parseLine, type Fields } from "../src/core/logfmt/format.ts";
+import {
+  formatLine,
+  parseLine,
+  type Fields,
+} from "../src/core/logfmt/format.ts";
 import { resetState } from "../src/core/state.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
-import { loadAll } from "../src/store/files/load.ts"
+import { loadAll } from "../src/store/files/load.ts";
 import { isActive } from "../src/store/model/predicates.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
@@ -57,9 +68,15 @@ afterEach(() => {
 });
 
 function seed(type: string, scope: string, content: string): void {
-  const file = join(memoryRoot(), `${new Date().toISOString().split("T")[0]}.logfmt`);
+  const file = join(
+    memoryRoot(),
+    `${new Date().toISOString().split("T")[0]}.logfmt`,
+  );
   mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, formatLine({ ts: new Date().toISOString(), type, scope, content }) + "\n");
+  appendFileSync(
+    file,
+    formatLine({ ts: new Date().toISOString(), type, scope, content }) + "\n",
+  );
 }
 
 function evidence(): Fields[] {
@@ -89,7 +106,11 @@ async function driveCompaction(
   sessionID: string,
   messages?: unknown,
 ): Promise<{ system: Array<{ type: string; text: string }> }> {
-  const event = { sessionID, system: [] as Array<{ type: string; text: string }>, messages };
+  const event = {
+    sessionID,
+    system: [] as Array<{ type: string; text: string }>,
+    messages,
+  };
   await loaded.sessionHooks["compaction"]?.(event);
   return event;
 }
@@ -103,12 +124,15 @@ async function ground(loaded: LoadedPlugin, sessionID: string): Promise<void> {
   );
 }
 
-const DUP_CONTENT = "Alpha builds are run with make all from the repository root directory.";
-const FRESH_CONTENT = "The staging API rate limit is 120 requests per minute per key as of October 2026.";
+const DUP_CONTENT =
+  "Alpha builds are run with make all from the repository root directory.";
+const FRESH_CONTENT =
+  "The staging API rate limit is 120 requests per minute per key as of October 2026.";
 // A second genuinely-new payload: in the two-setups idle test BOTH canned replies
 // must append, so the store assertion does not depend on which loop wins the
 // shared cooldown (#117).
-const FRESH_CONTENT_B = "The nightly archive job runs at 02:30 UTC and keeps fourteen days of tarballs.";
+const FRESH_CONTENT_B =
+  "The nightly archive job runs at 02:30 UTC and keeps fourteen days of tarballs.";
 
 // A pre-compaction transcript: both facts are still spelled out verbatim —
 // exactly the detail the summarizer is about to lose.
@@ -138,7 +162,10 @@ const THICK_TEXT =
 describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
   test("compaction mines the hook transcript through the gate; rows land tagged per trigger", async () => {
     seed("pattern", "build", DUP_CONTENT); // the dupe target, already in the store
-    const loaded = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    const loaded = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
     await ground(loaded, "ses-cc");
     loaded.capture.generate.response = JSON.stringify([
       { type: "pattern", scope: "build", content: DUP_CONTENT }, // exact dupe of the seeded row
@@ -157,7 +184,9 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
     // Exactly ONE new active memory, the fresh one, tagged for BOTH the shared
     // provenance path and the compaction trigger.
     const mems = (await loadAll()).filter(isActive);
-    const captured = mems.filter((m) => m.tags?.includes("auto_capture_compaction"));
+    const captured = mems.filter((m) =>
+      m.tags?.includes("auto_capture_compaction"),
+    );
     expect(captured.length).toBe(1);
     expect(captured[0].content).toBe(FRESH_CONTENT);
     expect(captured[0].tags).toContain("auto-capture");
@@ -167,14 +196,21 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
     expect(mems.length).toBe(2);
 
     // Evidence: the trigger names the line, the trigger field groups it.
-    const lines = evidence().filter((l) => String(l.ev).startsWith("auto_capture_compaction_"));
+    const lines = evidence().filter((l) =>
+      String(l.ev).startsWith("auto_capture_compaction_"),
+    );
     expect(lines.length).toBe(2);
-    expect(lines.every((l) => l.session === "ses-cc" && l.trigger === "compaction")).toBe(true);
+    expect(
+      lines.every((l) => l.session === "ses-cc" && l.trigger === "compaction"),
+    ).toBe(true);
 
     // The hook payload is the transcript source: one model call carrying the
     // pre-compaction detail, and NO session.context re-read.
     expect(loaded.capture.generate.calls.length).toBe(1);
-    expect(loaded.capture.generate.calls[0].model).toEqual({ providerID: "fake", id: "model" });
+    expect(loaded.capture.generate.calls[0].model).toEqual({
+      providerID: "fake",
+      id: "model",
+    });
     expect(loaded.capture.generate.calls[0].prompt).toContain("make all");
     expect(loaded.capture.context.calls.length).toBe(0);
 
@@ -190,7 +226,10 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
   });
 
   test("negative control: no compaction event -> nothing is captured", async () => {
-    const loaded = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    const loaded = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
     await waitFor(() => loaded.capture.events.subscribeCalls === 2);
     loaded.capture.context.messages = [{ role: "user", content: THICK_TEXT }];
     loaded.capture.generate.response = JSON.stringify([
@@ -200,8 +239,14 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
 
     expect(loaded.capture.generate.calls.length).toBe(0);
     expect(loaded.capture.context.calls.length).toBe(0);
-    expect(evidence().some((l) => String(l.ev).startsWith("auto_capture_"))).toBe(false);
-    expect((await loadAll()).some((m) => m.tags?.includes("auto_capture_compaction"))).toBe(false);
+    expect(
+      evidence().some((l) => String(l.ev).startsWith("auto_capture_")),
+    ).toBe(false);
+    expect(
+      (await loadAll()).some((m) =>
+        m.tags?.includes("auto_capture_compaction"),
+      ),
+    ).toBe(false);
 
     await loaded.cleanup();
   });
@@ -212,7 +257,9 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
     await sleep(50);
     expect(loaded.capture.generate.calls.length).toBe(0);
     expect(loaded.capture.context.calls.length).toBe(0);
-    expect(evidence().some((l) => String(l.ev).startsWith("auto_capture_"))).toBe(false);
+    expect(
+      evidence().some((l) => String(l.ev).startsWith("auto_capture_")),
+    ).toBe(false);
     // autoCapture is the master switch: captureOnCompact alone subscribes nothing
     expect(loaded.capture.events.subscribeCalls).toBe(1); // measured listener only
     await loaded.cleanup();
@@ -227,7 +274,11 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
     await driveCompaction(loaded, "ses-cc-off", thickMessages());
     await sleep(50);
     expect(loaded.capture.generate.calls.length).toBe(0);
-    expect(evidence().some((l) => String(l.ev).startsWith("auto_capture_compaction_"))).toBe(false);
+    expect(
+      evidence().some((l) =>
+        String(l.ev).startsWith("auto_capture_compaction_"),
+      ),
+    ).toBe(false);
 
     // Same options, idle trigger: still captures, and the row is NOT tagged
     // as compaction-triggered.
@@ -236,11 +287,20 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
     loaded.capture.generate.response = JSON.stringify([
       { type: "learning", scope: "api", content: FRESH_CONTENT },
     ]);
-    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-cc-off" } });
-    await waitFor(() => evidence().some((l) => l.ev === "auto_capture_promoted"));
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-cc-off" },
+    });
+    await waitFor(() =>
+      evidence().some((l) => l.ev === "auto_capture_promoted"),
+    );
 
     expect(loaded.capture.generate.calls.length).toBe(1);
-    expect(evidence().some((l) => String(l.ev).startsWith("auto_capture_compaction_"))).toBe(false);
+    expect(
+      evidence().some((l) =>
+        String(l.ev).startsWith("auto_capture_compaction_"),
+      ),
+    ).toBe(false);
     const row = (await loadAll()).find((m) => m.content === FRESH_CONTENT);
     expect(row?.tags).toContain("auto-capture");
     expect(row?.tags ?? []).not.toContain("auto_capture_compaction");
@@ -249,28 +309,41 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
   });
 
   test("cooldown bounds repeated compactions; triggers keep separate cooldowns", async () => {
-    const loaded = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    const loaded = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
     await ground(loaded, "ses-cool");
     loaded.capture.generate.response = JSON.stringify([
       { type: "learning", scope: "api", content: FRESH_CONTENT },
     ]);
 
     await driveCompaction(loaded, "ses-cool", thickMessages());
-    await waitFor(() => evidence().some((l) => l.ev === "auto_capture_compaction_promoted"));
+    await waitFor(() =>
+      evidence().some((l) => l.ev === "auto_capture_compaction_promoted"),
+    );
     expect(loaded.capture.generate.calls.length).toBe(1);
 
     // A second compaction in the same session, inside the cooldown: skipped.
     await driveCompaction(loaded, "ses-cool", thickMessages());
     await sleep(100);
     expect(loaded.capture.generate.calls.length).toBe(1);
-    expect(evidence().filter((l) => l.ev === "auto_capture_compaction_promoted").length).toBe(1);
+    expect(
+      evidence().filter((l) => l.ev === "auto_capture_compaction_promoted")
+        .length,
+    ).toBe(1);
 
     // Separate per-trigger cooldown: an idle right after compaction still
     // fires (the mined fact is now a store dupe, so the gate collapses it —
     // evidence lands as trigger=idle, naming the idle path).
     loaded.capture.context.messages = [{ role: "user", content: THICK_TEXT }];
-    loaded.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-cool" } });
-    await waitFor(() => evidence().some((l) => l.ev === "auto_capture_collapsed"));
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-cool" },
+    });
+    await waitFor(() =>
+      evidence().some((l) => l.ev === "auto_capture_collapsed"),
+    );
     expect(loaded.capture.generate.calls.length).toBe(2);
     const collapsed = evidence().find((l) => l.ev === "auto_capture_collapsed");
     expect(collapsed?.trigger).toBe("idle");
@@ -279,7 +352,10 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
   });
 
   test("hosts without hook messages fall back to session.context (PR #79 lesson)", async () => {
-    const loaded = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    const loaded = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
     await ground(loaded, "ses-legacy");
     loaded.capture.context.messages = [{ role: "user", content: THICK_TEXT }];
     loaded.capture.generate.response = JSON.stringify([
@@ -288,7 +364,9 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
 
     // Legacy-shape hook event: no messages field at all.
     await driveCompaction(loaded, "ses-legacy", undefined);
-    await waitFor(() => evidence().some((l) => l.ev === "auto_capture_compaction_promoted"));
+    await waitFor(() =>
+      evidence().some((l) => l.ev === "auto_capture_compaction_promoted"),
+    );
     expect(loaded.capture.context.calls).toEqual(["ses-legacy"]);
     expect(loaded.capture.generate.calls.length).toBe(1);
 
@@ -296,18 +374,32 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
   });
 
   test("a thin transcript on both paths mines nothing (no model call)", async () => {
-    const loaded = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
-    loaded.capture.context.messages = [{ role: "user", content: "too short to mine" }];
-    await driveCompaction(loaded, "ses-thin", [{ role: "user", content: "also short" }]);
+    const loaded = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
+    loaded.capture.context.messages = [
+      { role: "user", content: "too short to mine" },
+    ];
+    await driveCompaction(loaded, "ses-thin", [
+      { role: "user", content: "also short" },
+    ]);
     await waitFor(() => loaded.capture.context.calls.length === 1);
     await sleep(50);
     expect(loaded.capture.generate.calls.length).toBe(0);
-    expect(evidence().some((l) => String(l.ev).startsWith("auto_capture_compaction_"))).toBe(false);
+    expect(
+      evidence().some((l) =>
+        String(l.ev).startsWith("auto_capture_compaction_"),
+      ),
+    ).toBe(false);
     await loaded.cleanup();
   });
 
   test("no extra subscription; cleanup makes the compaction trigger inert", async () => {
-    const loaded = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    const loaded = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
     await waitFor(() => loaded.capture.events.subscribeCalls === 2);
     expect(loaded.capture.events.signals.length).toBe(2); // measured + idle capture
 
@@ -338,39 +430,73 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
 describe("cooldown shared across setup() registrations (#108)", () => {
   test("one compaction, two live setups, exactly ONE model call", async () => {
     seed("pattern", "build", DUP_CONTENT);
-    const a = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
-    const b = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    const a = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
+    const b = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
     await ground(a, "ses-twin");
-    a.capture.generate.response = JSON.stringify([{ type: "learning", scope: "api", content: FRESH_CONTENT }]);
-    b.capture.generate.response = JSON.stringify([{ type: "learning", scope: "api", content: FRESH_CONTENT }]);
+    a.capture.generate.response = JSON.stringify([
+      { type: "learning", scope: "api", content: FRESH_CONTENT },
+    ]);
+    b.capture.generate.response = JSON.stringify([
+      { type: "learning", scope: "api", content: FRESH_CONTENT },
+    ]);
 
     // A real host dispatches ONE compaction to every registered plugin; this
     // is exactly that, across the two registrations sharing one module.
     const messages = thickMessages();
-    await a.sessionHooks["compaction"]?.({ sessionID: "ses-twin", system: [], messages });
-    await b.sessionHooks["compaction"]?.({ sessionID: "ses-twin", system: [], messages });
-    await waitFor(() => evidence().some((l) => String(l.ev).startsWith("auto_capture_compaction_")));
+    await a.sessionHooks["compaction"]?.({
+      sessionID: "ses-twin",
+      system: [],
+      messages,
+    });
+    await b.sessionHooks["compaction"]?.({
+      sessionID: "ses-twin",
+      system: [],
+      messages,
+    });
+    await waitFor(() =>
+      evidence().some((l) =>
+        String(l.ev).startsWith("auto_capture_compaction_"),
+      ),
+    );
     await sleep(100); // a second, uncooled fire would have reached generate by now
 
     // Red pre-fix: BOTH setups' fresh cooldown maps let BOTH pay for the same
     // transcript (2 calls). The rows would have collapsed - the bug is the
     // spend, invisible in the store.
-    expect(a.capture.generate.calls.length + b.capture.generate.calls.length).toBe(1);
+    expect(
+      a.capture.generate.calls.length + b.capture.generate.calls.length,
+    ).toBe(1);
     expect((await loadAll()).filter(isActive).length).toBe(2); // seed + ONE promotion
   });
 
   test("an idle broadcast reaches every live subscription, and pays exactly ONE model call", async () => {
     seed("pattern", "build", DUP_CONTENT);
-    const a = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
-    const b = await loadPlugin(liveRoot, { autoCapture: true, captureModel: "fake/model" });
+    const a = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
+    const b = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
     await ground(b, "ses-twin-idle");
     // Both replies are genuinely new: the harness bus queues both subscribers
     // independently, so which loop wins the shared cooldown is scheduling luck -
     // with a DUP twin on either side, a collapse could legitimately leave the
     // store at one row and the assertion was red on correct code (#117). The
     // one-spend invariant this test pins is the CALL COUNT, not the content.
-    a.capture.generate.response = JSON.stringify([{ type: "learning", scope: "api", content: FRESH_CONTENT }]);
-    b.capture.generate.response = JSON.stringify([{ type: "learning", scope: "ops", content: FRESH_CONTENT_B }]);
+    a.capture.generate.response = JSON.stringify([
+      { type: "learning", scope: "api", content: FRESH_CONTENT },
+    ]);
+    b.capture.generate.response = JSON.stringify([
+      { type: "learning", scope: "ops", content: FRESH_CONTENT_B },
+    ]);
     const idleTranscript = [
       {
         role: "user",
@@ -388,16 +514,28 @@ describe("cooldown shared across setup() registrations (#108)", () => {
     // loops passed their own check and BOTH paid for one transcript (red).
     // Post-fix they share one truth: the first loop through the door records
     // the fire and the other skips.
-    a.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-twin-idle" } });
-    b.capture.events.push({ type: "session.execution.succeeded", data: { sessionID: "ses-twin-idle" } });
+    a.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-twin-idle" },
+    });
+    b.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-twin-idle" },
+    });
     // Completion signal: the evidence line is recorded after runWriteGate
     // returns, i.e. once the append has hit disk. The naked sleep this replaces
     // doubled as the whole append budget and lost it on a loaded Windows
     // runner; the compaction twin above already waits on evidence (#117).
-    await waitFor(() => evidence().some((l) => String(l.ev).startsWith("auto_capture_")));
-    expect(a.capture.generate.calls.length + b.capture.generate.calls.length).toBe(1);
+    await waitFor(() =>
+      evidence().some((l) => String(l.ev).startsWith("auto_capture_")),
+    );
+    expect(
+      a.capture.generate.calls.length + b.capture.generate.calls.length,
+    ).toBe(1);
     await sleep(150); // a second, uncooled fire would have reached generate by now
-    expect(a.capture.generate.calls.length + b.capture.generate.calls.length).toBe(1);
+    expect(
+      a.capture.generate.calls.length + b.capture.generate.calls.length,
+    ).toBe(1);
     expect((await loadAll()).filter(isActive).length).toBe(2); // seed + the winner's row
   });
 });

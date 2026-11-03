@@ -17,10 +17,16 @@ export interface PluginCtx {
   options?: Record<string, unknown>;
   tool?: {
     transform: (cb: (editor: ToolEditorLike) => void) => Promise<unknown>;
-    hook: (name: string, cb: (event: any) => Promise<void> | void) => Promise<HookReg | void>;
+    hook: (
+      name: string,
+      cb: (event: any) => Promise<void> | void,
+    ) => Promise<HookReg | void>;
   };
   session?: {
-    hook: (name: string, cb: (event: any) => Promise<void> | void) => Promise<HookReg | void>;
+    hook: (
+      name: string,
+      cb: (event: any) => Promise<void> | void,
+    ) => Promise<HookReg | void>;
     context?: (input: { sessionID: string }) => Promise<unknown>;
     get?: (input: { sessionID: string }) => Promise<unknown>;
   };
@@ -31,4 +37,3 @@ export interface PluginCtx {
     text: (input: unknown) => Promise<{ text?: string } | string>;
   };
 }
-

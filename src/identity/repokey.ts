@@ -86,7 +86,9 @@ function statOrNull(p: string) {
 // uncased descendants: lstat("Foo/123") would still follow a symlink at Foo,
 // whereas lstat("Foo") lets the caller distinguish that alias from a real
 // case-insensitive lookup. Index 0 stays untouched for Windows drive letters.
-function caseProbePair(p: string): { original: string; flipped: string } | null {
+function caseProbePair(
+  p: string,
+): { original: string; flipped: string } | null {
   for (let i = p.length - 1; i > 0; i--) {
     const c = p[i];
     const f = c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase();
@@ -122,8 +124,11 @@ export function isCaseInsensitivePath(dir: string): boolean | null {
         try {
           const original = lstatSync(pair.original);
           const flipped = lstatSync(pair.flipped);
-          ans = !original.isSymbolicLink() && !flipped.isSymbolicLink()
-            && original.dev === flipped.dev && original.ino === flipped.ino;
+          ans =
+            !original.isSymbolicLink() &&
+            !flipped.isSymbolicLink() &&
+            original.dev === flipped.dev &&
+            original.ino === flipped.ino;
         } catch {
           // Missing or unreadable alternate spelling cannot justify folding.
         }
@@ -152,7 +157,9 @@ export function normalizeDirPath(p: string): string {
     // deleted/unreadable mid-resolve: hash the given spelling rather than throw
   }
   r = r.replace(/\\/g, "/").replace(/\/+$/, "");
-  const fold = isCaseInsensitivePath(r) ?? (process.platform === "win32" || process.platform === "darwin");
+  const fold =
+    isCaseInsensitivePath(r) ??
+    (process.platform === "win32" || process.platform === "darwin");
   if (fold) r = r.toLowerCase();
   return r || "/";
 }
@@ -160,11 +167,18 @@ export function normalizeDirPath(p: string): string {
 // Resolve the current repo from any start dir (never throws; a non-git dir
 // simply scopes by the hash of its own normalized path).
 export function resolveRepo(startDir: string): RepoScope {
-  const path = git(["git", "rev-parse", "--show-toplevel"], startDir) ?? startDir;
+  const path =
+    git(["git", "rev-parse", "--show-toplevel"], startDir) ?? startDir;
   const remote = git(["git", "remote", "get-url", "origin"], path);
   const key = remote
-    ? createHash("sha1").update(normalizeRemote(remote)).digest("hex").slice(0, 12)
-    : createHash("sha1").update(normalizeDirPath(path)).digest("hex").slice(0, 12);
+    ? createHash("sha1")
+        .update(normalizeRemote(remote))
+        .digest("hex")
+        .slice(0, 12)
+    : createHash("sha1")
+        .update(normalizeDirPath(path))
+        .digest("hex")
+        .slice(0, 12);
   return { key, path };
 }
 
@@ -189,7 +203,8 @@ export function rememberSessionDir(sid: string, dir: string): void {
   const prev = bySession.get(sid);
   if (prev && prev.dir === dir) return;
   bySession.set(sid, { dir, scope: scopeForDir(dir) });
-  while (bySession.size > SESSION_CAP) bySession.delete(bySession.keys().next().value as string);
+  while (bySession.size > SESSION_CAP)
+    bySession.delete(bySession.keys().next().value as string);
 }
 
 // A binding learned from a fallback, not from the session's own identity. A
@@ -200,7 +215,10 @@ export function rememberSessionDir(sid: string, dir: string): void {
 // stream or the session-row API always replaces a provisional binding.
 const provisional = new Set<string>();
 
-export function bindSessionProvisional(sid: string, dir: string | undefined): void {
+export function bindSessionProvisional(
+  sid: string,
+  dir: string | undefined,
+): void {
   if (!sid || sid === "?" || !dir || bySession.has(sid)) return;
   rememberSessionDir(sid, dir);
   provisional.add(sid);

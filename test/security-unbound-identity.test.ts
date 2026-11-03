@@ -7,16 +7,26 @@
 // field carried verbatim into a daily row must scrub at the write boundary
 // like every other durable string (#128's rule, one line short).
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { appendMemory } from "../src/store/files/append.ts"
+import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
-import { resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState } from "../src/core/state.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts"
+import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 
 const TOKEN = "ghp_" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
@@ -69,7 +79,10 @@ async function seedPrivate(dir: string, marker: string): Promise<void> {
 const injected = (parts: Array<{ type: string; text: string }>): string =>
   parts.map((p) => p.text).join("\n");
 
-type ContextEvent = { sessionID: string; system: Array<{ type: string; text: string }> };
+type ContextEvent = {
+  sessionID: string;
+  system: Array<{ type: string; text: string }>;
+};
 
 // Probe 1: load A, load B, then invoke A's REAL context hook for a session
 // that was never bound. The module scope is B's repository — inheriting it
@@ -146,15 +159,24 @@ test("a credential in a supersede reason never reaches the daily row", async () 
     (rows.find((m) => m.content.includes(marker)) as { ts: string }).ts;
 
   const res = await p.tools.memory_merge_review.execute(
-    { loser: ts("PROBE4_LOSER_ROW"), survivor: ts("PROBE4_WINNER_ROW"), reason: `consolidated, key ${TOKEN} rotated` },
+    {
+      loser: ts("PROBE4_LOSER_ROW"),
+      survivor: ts("PROBE4_WINNER_ROW"),
+      reason: `consolidated, key ${TOKEN} rotated`,
+    },
     { sessionID: "ses-merge", id: "probe4-merge" },
   );
-  expect(String((res as { content?: string }).content ?? "")).toContain("Resolved merge");
+  expect(String((res as { content?: string }).content ?? "")).toContain(
+    "Resolved merge",
+  );
 
   const daily = readFileSync(join(memoryRoot(), `${dateStr()}.logfmt`), "utf8");
   expect(daily).toContain("PROBE4_LOSER_ROW"); // the row itself is there...
   expect(daily).not.toContain(TOKEN); // ...the credential inside its reason is not
-  const evidence = readFileSync(join(evidenceDir(), `${dateStr()}.logfmt`), "utf8");
+  const evidence = readFileSync(
+    join(evidenceDir(), `${dateStr()}.logfmt`),
+    "utf8",
+  );
   expect(evidence).not.toContain(TOKEN);
 });
 
@@ -188,10 +210,16 @@ test("an unbound session cannot retire another repository's rows through merge",
   const loserTs = ts("B_MERGE_LOSER");
 
   const res = await pa.tools.memory_merge_review.execute(
-    { loser: loserTs, survivor: ts("B_MERGE_WINNER"), reason: "cross-repo probe" },
+    {
+      loser: loserTs,
+      survivor: ts("B_MERGE_WINNER"),
+      reason: "cross-repo probe",
+    },
     { sessionID: "ses-a-never-bound", id: "probe2-merge" },
   );
-  expect(String((res as { content?: string }).content ?? "")).toContain("another repository");
+  expect(String((res as { content?: string }).content ?? "")).toContain(
+    "another repository",
+  );
   const loser = (await loadAll()).find((m) => m.ts === loserTs) as {
     superseded_by?: string;
   };

@@ -15,9 +15,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts"
+import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
-import { formatLine, parseLine, type Fields } from "../src/core/logfmt/format.ts";
+import {
+  formatLine,
+  parseLine,
+  type Fields,
+} from "../src/core/logfmt/format.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { systemDigest } from "../src/inject/digest.ts";
 import {
@@ -70,11 +74,20 @@ function field(line: Fields | undefined, key: string): string {
   return line ? String(line[key] ?? "") : "";
 }
 
-async function engage(sid: string, callID: string, tool: string): Promise<void> {
+async function engage(
+  sid: string,
+  callID: string,
+  tool: string,
+): Promise<void> {
   setCurrent({ sessionID: sid, callID, tool });
-  const { afterTool } = await import( "../src/capture/triggers.ts");
+  const { afterTool } = await import("../src/capture/triggers.ts");
   await afterTool(
-    { tool, sessionID: sid, callID, args: tool === "grep" ? { pattern: "x" } : { filePath: "x.ts" } },
+    {
+      tool,
+      sessionID: sid,
+      callID,
+      args: tool === "grep" ? { pattern: "x" } : { filePath: "x.ts" },
+    },
     { output: tool === "grep" ? "3 matches found" : "content", metadata: {} },
   );
 }
@@ -128,7 +141,9 @@ describe("session rollup (session_convergence evidence)", () => {
     await engage(a, "C1", "read");
 
     await checkNewSession("conv-b"); // session B opens -> A closes
-    const c = ev(evidence(), "session_convergence").find((l) => String(l.session) === a);
+    const c = ev(evidence(), "session_convergence").find(
+      (l) => String(l.session) === a,
+    );
     expect(c).toBeTruthy();
     expect(field(c, "tap_at")).toBe("-");
   });
@@ -145,7 +160,7 @@ describe("session rollup (session_convergence evidence)", () => {
       content: "frontier: late-tap race",
       status: "open",
     });
-    const hooks = await loadPlugin(liveRoot) as unknown as {
+    const hooks = (await loadPlugin(liveRoot)) as unknown as {
       tool: Record<string, { execute(args: unknown): Promise<string> }>;
     };
     markTurn(sid); // turn 1
@@ -153,7 +168,9 @@ describe("session rollup (session_convergence evidence)", () => {
     setCurrent({ sessionID: sid, callID: "C2", tool: "memory_compact" });
     await onCompacting({ sessionID: sid }); // finalizes WITHOUT a tap
     expect(field(ev(evidence(), "session_convergence")[0], "tap_at")).toBe("-");
-    expect(field(ev(evidence(), "session_convergence")[0], "turns_to_tap")).toBe("");
+    expect(
+      field(ev(evidence(), "session_convergence")[0], "turns_to_tap"),
+    ).toBe("");
 
     // The session keeps going, then recalls the open thread -> late tap.
     markTurn(sid); // turn 2
@@ -164,7 +181,9 @@ describe("session rollup (session_convergence evidence)", () => {
     expect(field(t, "turn")).toBe("2");
 
     // The rollup stays pristine (append-only, no double count)…
-    expect(field(ev(evidence(), "session_convergence")[0], "turns_to_tap")).toBe("");
+    expect(
+      field(ev(evidence(), "session_convergence")[0], "turns_to_tap"),
+    ).toBe("");
     expect(ev(evidence(), "session_convergence").length).toBe(1);
     // …but the aggregate now counts this session as having reached the frontier.
     const summary = await recentConvergenceSummary(6);
@@ -187,7 +206,7 @@ describe("measurement through the real plugin surface", () => {
       content: "frontier: prove convergence measurement",
       status: "open",
     });
-    const hooks = await loadPlugin(liveRoot) as unknown as {
+    const hooks = (await loadPlugin(liveRoot)) as unknown as {
       tool: Record<string, { execute(args: unknown): Promise<string> }>;
     };
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_recall" });
@@ -202,13 +221,19 @@ describe("measurement through the real plugin surface", () => {
     expect(firstFrontierTap(sid)?.call).toBe("C1");
     expect(firstFrontierTap(sid)?.turn).toBe(1);
     await finalizeSession(sid);
-    expect(field(ev(evidence(), "session_convergence")[0], "turns_to_tap")).toBe("1");
+    expect(
+      field(ev(evidence(), "session_convergence")[0], "turns_to_tap"),
+    ).toBe("1");
   });
 
   test("memory_recall with no open threads does not mark a tap", async () => {
     const sid = "conv-norecall";
-    await appendMemory({ type: "pattern", scope: "poc", content: "run tests with vitest" });
-    const hooks = await loadPlugin(liveRoot) as unknown as {
+    await appendMemory({
+      type: "pattern",
+      scope: "poc",
+      content: "run tests with vitest",
+    });
+    const hooks = (await loadPlugin(liveRoot)) as unknown as {
       tool: Record<string, { execute(args: unknown): Promise<string> }>;
     };
     setCurrent({ sessionID: sid, callID: "C1", tool: "memory_recall" });
@@ -230,8 +255,22 @@ describe("digest aggregate (convergence tracking)", () => {
     mkdirSync(evidenceDir(), { recursive: true });
     writeFileSync(
       join(evidenceDir(), `${dateStr()}.logfmt`),
-      formatLine({ ev: "session_convergence", ts: "t1", session: "s1", turns: "5", turns_to_tap: "2" }) + "\n" +
-      formatLine({ ev: "session_convergence", ts: "t2", session: "s2", turns: "8", turns_to_tap: "3" }) + "\n",
+      formatLine({
+        ev: "session_convergence",
+        ts: "t1",
+        session: "s1",
+        turns: "5",
+        turns_to_tap: "2",
+      }) +
+        "\n" +
+        formatLine({
+          ev: "session_convergence",
+          ts: "t2",
+          session: "s2",
+          turns: "8",
+          turns_to_tap: "3",
+        }) +
+        "\n",
     );
 
     const system: string[] = [];

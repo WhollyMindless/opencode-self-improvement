@@ -11,12 +11,23 @@
 // Hermetic: OPENCODE_MEMORY_DIR points at a temp dir and the "live" source tree
 // is a throwaway, so nothing here touches this repo or the real memory store.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts"
+import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
-import { formatLine, parseLine, type Fields } from "../src/core/logfmt/format.ts";
+import {
+  formatLine,
+  parseLine,
+  type Fields,
+} from "../src/core/logfmt/format.ts";
 import { resetState } from "../src/core/state.ts";
 import { loadPlugin } from "./harness.ts";
 
@@ -61,9 +72,15 @@ function field(line: Fields | undefined, key: string): string {
 describe("compaction contract — the plugin must not corrupt the model call", () => {
   test("experimental.session.compacting leaves context/prompt untouched", async () => {
     const hooks = await hooksFor();
-    const output: { context: string[]; prompt?: string } = { context: [], prompt: undefined };
+    const output: { context: string[]; prompt?: string } = {
+      context: [],
+      prompt: undefined,
+    };
 
-    await hooks["experimental.session.compacting"]!({ sessionID: "ses_test" }, output);
+    await hooks["experimental.session.compacting"]!(
+      { sessionID: "ses_test" },
+      output,
+    );
 
     expect(output.context).toEqual([]);
     expect(output.prompt).toBeUndefined();
@@ -73,7 +90,10 @@ describe("compaction contract — the plugin must not corrupt the model call", (
     const hooks = await hooksFor();
     const output = { context: ["sentinel"], prompt: "REPLACEMENT" };
 
-    await hooks["experimental.session.compacting"]!({ sessionID: "ses_test" }, output);
+    await hooks["experimental.session.compacting"]!(
+      { sessionID: "ses_test" },
+      output,
+    );
 
     expect(output.context).toEqual(["sentinel"]);
     expect(output.prompt).toBe("REPLACEMENT");
@@ -99,7 +119,12 @@ describe("compaction contract — the plugin must not corrupt the model call", (
   test("tool results captured before compaction are counted in the T2 line", async () => {
     const hooks = await hooksFor();
     await hooks["tool.execute.after"]!(
-      { tool: "read", sessionID: "ses_test", callID: "C1", args: { filePath: "x.ts" } },
+      {
+        tool: "read",
+        sessionID: "ses_test",
+        callID: "C1",
+        args: { filePath: "x.ts" },
+      },
       { title: "read", output: "content", metadata: {} },
     );
 
@@ -150,16 +175,38 @@ describe("compaction-time hook surface is total (never throws)", () => {
 // `system` parts (visible to the summarizer model). The harness adapter copies
 // pushed part texts onto `output.system`.
 
-function seed(status: "open" | "settled" | undefined, type: string, scope: string, content: string): void {
-  const file = join(memoryRoot(), `${new Date().toISOString().split("T")[0]}.logfmt`);
+function seed(
+  status: "open" | "settled" | undefined,
+  type: string,
+  scope: string,
+  content: string,
+): void {
+  const file = join(
+    memoryRoot(),
+    `${new Date().toISOString().split("T")[0]}.logfmt`,
+  );
   mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, formatLine({ ts: new Date().toISOString(), type, scope, content, status }) + "\n");
+  appendFileSync(
+    file,
+    formatLine({ ts: new Date().toISOString(), type, scope, content, status }) +
+      "\n",
+  );
 }
 
 describe("memory-aware compaction anchor", () => {
   test("open + settled memories are pushed as a system part the summarizer sees", async () => {
-    seed("open", "context", "plan", "Open thread: finish the flurb widget migration before Friday.");
-    seed(undefined, "pattern", "build", "Build the widget with make all and test it with bun test.");
+    seed(
+      "open",
+      "context",
+      "plan",
+      "Open thread: finish the flurb widget migration before Friday.",
+    );
+    seed(
+      undefined,
+      "pattern",
+      "build",
+      "Build the widget with make all and test it with bun test.",
+    );
 
     const hooks = await hooksFor();
     const output = {
@@ -167,7 +214,10 @@ describe("memory-aware compaction anchor", () => {
       prompt: undefined as string | undefined,
       system: [] as string[],
     };
-    await hooks["experimental.session.compacting"]!({ sessionID: "ses_anchor" }, output);
+    await hooks["experimental.session.compacting"]!(
+      { sessionID: "ses_anchor" },
+      output,
+    );
 
     expect(output.system.length).toBe(1);
     const anchor = output.system[0];
@@ -182,7 +232,10 @@ describe("memory-aware compaction anchor", () => {
   test("no active memories -> no anchor pushed; T2 bookkeeping still runs", async () => {
     const hooks = await hooksFor();
     const output = { context: [] as string[], system: [] as string[] };
-    await hooks["experimental.session.compacting"]!({ sessionID: "ses_anchor_empty" }, output);
+    await hooks["experimental.session.compacting"]!(
+      { sessionID: "ses_anchor_empty" },
+      output,
+    );
 
     expect(output.system).toEqual([]);
     const t2 = evidence().filter((l) => l.ev === "t2_compaction");
@@ -192,12 +245,19 @@ describe("memory-aware compaction anchor", () => {
 
   test("anchor is capped at 2500 chars and never cut mid-line", async () => {
     for (let i = 0; i < 40; i++) {
-      seed(i % 2 === 0 ? "open" : "settled", "learning", "bench",
-        `flurb benchmark note ${i}: ` + "x".repeat(200));
+      seed(
+        i % 2 === 0 ? "open" : "settled",
+        "learning",
+        "bench",
+        `flurb benchmark note ${i}: ` + "x".repeat(200),
+      );
     }
     const hooks = await hooksFor();
     const output = { context: [] as string[], system: [] as string[] };
-    await hooks["experimental.session.compacting"]!({ sessionID: "ses_anchor_cap" }, output);
+    await hooks["experimental.session.compacting"]!(
+      { sessionID: "ses_anchor_cap" },
+      output,
+    );
 
     expect(output.system.length).toBe(1);
     const anchor = output.system[0];
@@ -209,7 +269,9 @@ describe("memory-aware compaction anchor", () => {
     const rows = anchor.split("\n").filter((line) => line.startsWith("- "));
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
-      expect(row).toMatch(/^- .*learning\/bench: flurb benchmark note (?:[0-9]|[1-3][0-9]): x{200}$/);
+      expect(row).toMatch(
+        /^- .*learning\/bench: flurb benchmark note (?:[0-9]|[1-3][0-9]): x{200}$/,
+      );
     }
   });
 });

@@ -28,8 +28,12 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { exportsDir, memoryRoot } from "../src/core/config/paths.ts";
-import { expandHome, isWithin, resolveContained } from "../src/store/containment.ts";
-import { exportMemories, writeExport } from "../src/portable/export.ts"
+import {
+  expandHome,
+  isWithin,
+  resolveContained,
+} from "../src/store/containment.ts";
+import { exportMemories, writeExport } from "../src/portable/export.ts";
 import { importMemories } from "../src/portable/import.ts";
 import { resetState } from "../src/core/state.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
@@ -71,7 +75,8 @@ function makeLink(target: string, linkPath: string): void {
   try {
     symlinkSync(target, linkPath);
   } catch (err) {
-    if (!(err instanceof Error && "code" in err && err.code === "EPERM")) throw err;
+    if (!(err instanceof Error && "code" in err && err.code === "EPERM"))
+      throw err;
     rmSync(linkPath, { recursive: true, force: true });
     symlinkSync(target, linkPath, "junction");
   }
@@ -91,7 +96,8 @@ const CAN_SYMLINK = (() => {
     symlinkSync(join(probe, "nothing-here"), join(probe, "probe"));
     return true;
   } catch (err) {
-    if (err instanceof Error && "code" in err && err.code === "EPERM") return false;
+    if (err instanceof Error && "code" in err && err.code === "EPERM")
+      return false;
     throw err;
   } finally {
     rmSync(probe, { recursive: true, force: true });
@@ -100,7 +106,11 @@ const CAN_SYMLINK = (() => {
 
 const outsidePayload = (marker: string) =>
   `${[
-    JSON.stringify({ _export: "opencode-self-improvement", version: 1, count: 1 }),
+    JSON.stringify({
+      _export: "opencode-self-improvement",
+      version: 1,
+      count: 1,
+    }),
     JSON.stringify({ type: "learning", scope: "s", content: marker }),
   ].join("\n")}\n`;
 
@@ -141,13 +151,17 @@ describe("expandHome", () => {
 
 describe("resolveContained", () => {
   test("a relative request resolves against the root, never the process cwd", async () => {
-    const got = await resolveContained("out.jsonl", exportsDir(), { label: "t" });
+    const got = await resolveContained("out.jsonl", exportsDir(), {
+      label: "t",
+    });
     expect(got).toBe(join(exportsDir(), "out.jsonl"));
     expect(got).toBe(resolve(exportsDir(), "out.jsonl"));
   });
 
   test("a nested request may create directories inside the root", async () => {
-    const got = await resolveContained("sub/deep/out.jsonl", exportsDir(), { label: "t" });
+    const got = await resolveContained("sub/deep/out.jsonl", exportsDir(), {
+      label: "t",
+    });
     expect(got).toBe(join(exportsDir(), "sub/deep/out.jsonl"));
   });
 
@@ -160,9 +174,10 @@ describe("resolveContained", () => {
       "~",
       resolve(homedir(), ".ssh", "authorized_keys"),
     ]) {
-      await expect(resolveContained(bad, exportsDir(), { label: "t" }), bad).rejects.toThrow(
-        /must stay inside|escapes/,
-      );
+      await expect(
+        resolveContained(bad, exportsDir(), { label: "t" }),
+        bad,
+      ).rejects.toThrow(/must stay inside|escapes/);
     }
   });
 
@@ -171,32 +186,44 @@ describe("resolveContained", () => {
     // but whitespace: NUL and the non-whitespace C0/C1 controls below all
     // survive it and are still refused. If trim() ever learned to eat these,
     // this list is the guard.
-    for (const bad of ["", "   ", "a\u0000b.jsonl", "a\tb", "\u0085x.jsonl", "x.jsonl\u001f"]) {
-      await expect(resolveContained(bad, exportsDir(), { label: "t" }), JSON.stringify(bad))
-        .rejects.toThrow(/must not be empty|must not contain control characters/);
+    for (const bad of [
+      "",
+      "   ",
+      "a\u0000b.jsonl",
+      "a\tb",
+      "\u0085x.jsonl",
+      "x.jsonl\u001f",
+    ]) {
+      await expect(
+        resolveContained(bad, exportsDir(), { label: "t" }),
+        JSON.stringify(bad),
+      ).rejects.toThrow(
+        /must not be empty|must not contain control characters/,
+      );
     }
   });
 
   test("surrounding whitespace is trimmed rather than refused", async () => {
     // A model that emits "x.jsonl\n" as a string argument means that file.
     // Refusing it as a control character is a trap with no security upside.
-    expect(await resolveContained("  out.jsonl\n ", exportsDir(), { label: "t" })).toBe(
-      join(exportsDir(), "out.jsonl"),
-    );
+    expect(
+      await resolveContained("  out.jsonl\n ", exportsDir(), { label: "t" }),
+    ).toBe(join(exportsDir(), "out.jsonl"));
   });
 
   test.skipIf(!CAN_SYMLINK)(
     "a dangling symlink in the path is refused, not waved through",
     async () => {
-    // realAncestor() must lstat(), not stat(): stat() follows this link to
-    // nothing, the walk skips past it as "missing", and the request comes back
-    // ACCEPTED — leaving mkdir() to fail on the link with a raw errno.
-    mkdirSync(exportsDir(), { recursive: true });
-    symlinkSync(join(root, "nothing-here"), join(exportsDir(), "dangling"));
-    await expect(
-      resolveContained("dangling/out.jsonl", exportsDir(), { label: "t" }),
-    ).rejects.toThrow(/could not be resolved/);
-  });
+      // realAncestor() must lstat(), not stat(): stat() follows this link to
+      // nothing, the walk skips past it as "missing", and the request comes back
+      // ACCEPTED — leaving mkdir() to fail on the link with a raw errno.
+      mkdirSync(exportsDir(), { recursive: true });
+      symlinkSync(join(root, "nothing-here"), join(exportsDir(), "dangling"));
+      await expect(
+        resolveContained("dangling/out.jsonl", exportsDir(), { label: "t" }),
+      ).rejects.toThrow(/could not be resolved/);
+    },
+  );
 
   test("a symlinked parent inside the root cannot carry the request out", async () => {
     const outside = join(root, "escape-target");
@@ -218,9 +245,9 @@ describe("resolveContained", () => {
       writeFileSync(victim, "do not overwrite me\n");
       mkdirSync(exportsDir(), { recursive: true });
       makeLink(victim, join(exportsDir(), "out.jsonl"));
-      await expect(resolveContained("out.jsonl", exportsDir(), { label: "t" })).rejects.toThrow(
-        /symbolic link/,
-      );
+      await expect(
+        resolveContained("out.jsonl", exportsDir(), { label: "t" }),
+      ).rejects.toThrow(/symbolic link/);
       expect(readFileSync(victim, "utf8")).toBe("do not overwrite me\n");
     },
   );
@@ -236,28 +263,34 @@ describe("resolveContained", () => {
     const inside = join(exportsDir(), "inside");
     mkdirSync(inside, { recursive: true });
     makeLink(inside, join(exportsDir(), "alias"));
-    await expect(resolveContained("alias", exportsDir(), { label: "t" })).rejects.toThrow(
-      /symbolic link|not a regular file/,
-    );
+    await expect(
+      resolveContained("alias", exportsDir(), { label: "t" }),
+    ).rejects.toThrow(/symbolic link|not a regular file/);
     expect(existsSync(inside)).toBe(true);
   });
 
   test("a directory is not an acceptable target", async () => {
     mkdirSync(join(exportsDir(), "adir"), { recursive: true });
-    await expect(resolveContained("adir", exportsDir(), { label: "t" })).rejects.toThrow(
-      /not a regular file/,
-    );
+    await expect(
+      resolveContained("adir", exportsDir(), { label: "t" }),
+    ).rejects.toThrow(/not a regular file/);
   });
 
   test("rejections do not reveal whether the path exists", async () => {
     const outside = join(root, "i-exist-outside.jsonl");
     writeFileSync(outside, "x\n");
     const missing = join(root, "i-do-not-exist.jsonl");
-    const hit = await refusal(() => resolveContained(outside, exportsDir(), { label: "t" }));
-    const miss = await refusal(() => resolveContained(missing, exportsDir(), { label: "t" }));
+    const hit = await refusal(() =>
+      resolveContained(outside, exportsDir(), { label: "t" }),
+    );
+    const miss = await refusal(() =>
+      resolveContained(missing, exportsDir(), { label: "t" }),
+    );
     // Same wording for both, once the caller's own name is masked out: no
     // existence oracle for anything outside the root.
-    expect(hit.replace("i-exist-outside", "X")).toBe(miss.replace("i-do-not-exist", "X"));
+    expect(hit.replace("i-exist-outside", "X")).toBe(
+      miss.replace("i-do-not-exist", "X"),
+    );
   });
 
   // Which traversal failures a platform reports at all is OS behavior, not
@@ -266,19 +299,21 @@ describe("resolveContained", () => {
   test.skipIf(process.platform === "win32")(
     "raw filesystem errors never reach the caller",
     async () => {
-    // ENOTDIR and ELOOP used to surface as Bun's own text — errno plus the full
-    // resolved path — straight into a model-facing tool result.
-    writeFileSync(join(memoryRoot(), "status.json"), "{}\n");
-    symlinkSync(join(memoryRoot(), "loop-a"), join(memoryRoot(), "loop-b"));
-    symlinkSync(join(memoryRoot(), "loop-b"), join(memoryRoot(), "loop-a"));
-    for (const p of [
-      join(memoryRoot(), "status.json", "x.jsonl"), // ENOTDIR
-      join(memoryRoot(), "loop-a", "x.jsonl"), // ELOOP
-    ]) {
-      expect(await refusal(() => resolveContained(p, memoryRoot(), { label: "t" }))).toBe(
-        "t could not be resolved",
-      );
-    }
+      // ENOTDIR and ELOOP used to surface as Bun's own text — errno plus the full
+      // resolved path — straight into a model-facing tool result.
+      writeFileSync(join(memoryRoot(), "status.json"), "{}\n");
+      symlinkSync(join(memoryRoot(), "loop-a"), join(memoryRoot(), "loop-b"));
+      symlinkSync(join(memoryRoot(), "loop-b"), join(memoryRoot(), "loop-a"));
+      for (const p of [
+        join(memoryRoot(), "status.json", "x.jsonl"), // ENOTDIR
+        join(memoryRoot(), "loop-a", "x.jsonl"), // ELOOP
+      ]) {
+        expect(
+          await refusal(() =>
+            resolveContained(p, memoryRoot(), { label: "t" }),
+          ),
+        ).toBe("t could not be resolved");
+      }
     },
   );
 
@@ -292,7 +327,9 @@ describe("resolveContained", () => {
     }
     expect(existsSync(exportsDir())).toBe(false);
     // …and export still works afterwards.
-    expect((await exportMemories()).path.startsWith(join(memoryRoot(), "exports"))).toBe(true);
+    expect(
+      (await exportMemories()).path.startsWith(join(memoryRoot(), "exports")),
+    ).toBe(true);
   });
 
   test("a root that exists as a regular file names the cause", async () => {
@@ -300,7 +337,10 @@ describe("resolveContained", () => {
     // into the neutral wording is worse than useless here: the hint says "omit
     // file for the default", and the default fails for the same reason.
     writeFileSync(exportsDir(), "not a directory");
-    for (const call of [() => exportMemories(), () => exportMemories({ file: "a.jsonl" })]) {
+    for (const call of [
+      () => exportMemories(),
+      () => exportMemories({ file: "a.jsonl" }),
+    ]) {
       const msg = await refusal(call);
       expect(msg).toInclude("is not a directory");
       expect(msg).not.toInclude("could not be resolved");
@@ -321,7 +361,9 @@ describe("resolveContained", () => {
     const outside = join(root, "elsewhere");
     mkdirSync(outside, { recursive: true });
     makeLink(outside, exportsDir());
-    await expect(exportMemories({ file: "via-link.jsonl" })).rejects.toThrow(/escapes the store root/);
+    await expect(exportMemories({ file: "via-link.jsonl" })).rejects.toThrow(
+      /escapes the store root/,
+    );
     expect(existsSync(join(outside, "via-link.jsonl"))).toBe(false);
     // The argument-free default is the call a model makes without knowing
     // anything about the layout, so it must not be the one that skips the check.
@@ -332,32 +374,35 @@ describe("resolveContained", () => {
   test.skipIf(!CAN_SYMLINK)(
     "a link to another file INSIDE the root is refused, not followed",
     async () => {
-    // The realpath check passes (both ends are inside); only an lstat at the
-    // final component sees the link. A stat() here would wave it through and
-    // clobber the target.
-    mkdirSync(exportsDir(), { recursive: true });
-    const target = join(exportsDir(), "someone-else.jsonl");
-    writeFileSync(target, "existing export\n");
-    symlinkSync(target, join(exportsDir(), "mine.jsonl"));
-    await expect(exportMemories({ file: "mine.jsonl" })).rejects.toThrow(/must not be a symbolic link/);
-    expect(readFileSync(target, "utf8")).toBe("existing export\n");
-  });
+      // The realpath check passes (both ends are inside); only an lstat at the
+      // final component sees the link. A stat() here would wave it through and
+      // clobber the target.
+      mkdirSync(exportsDir(), { recursive: true });
+      const target = join(exportsDir(), "someone-else.jsonl");
+      writeFileSync(target, "existing export\n");
+      symlinkSync(target, join(exportsDir(), "mine.jsonl"));
+      await expect(exportMemories({ file: "mine.jsonl" })).rejects.toThrow(
+        /must not be a symbolic link/,
+      );
+      expect(readFileSync(target, "utf8")).toBe("existing export\n");
+    },
+  );
 
   // libuv does not implement O_NOFOLLOW on Windows — the open follows the link
   // there — so this guarantee is POSIX-only and the Windows leg cannot pin it.
   test.skipIf(process.platform === "win32")(
     "the writer itself refuses to follow a link (O_NOFOLLOW)",
     async () => {
-    // The classic swap-in-the-window attack, made deterministic: containment
-    // would reject this path earlier, so the flag is what stands between a
-    // link planted after the check and the target it points at.
-    mkdirSync(exportsDir(), { recursive: true });
-    const victim = join(exportsDir(), "target.jsonl");
-    writeFileSync(victim, "original\n");
-    const link = join(exportsDir(), "swapped.jsonl");
-    symlinkSync(victim, link);
-    await expect(writeExport(link, "evil\n")).rejects.toThrow();
-    expect(readFileSync(victim, "utf8")).toBe("original\n");
+      // The classic swap-in-the-window attack, made deterministic: containment
+      // would reject this path earlier, so the flag is what stands between a
+      // link planted after the check and the target it points at.
+      mkdirSync(exportsDir(), { recursive: true });
+      const victim = join(exportsDir(), "target.jsonl");
+      writeFileSync(victim, "original\n");
+      const link = join(exportsDir(), "swapped.jsonl");
+      symlinkSync(victim, link);
+      await expect(writeExport(link, "evil\n")).rejects.toThrow();
+      expect(readFileSync(victim, "utf8")).toBe("original\n");
     },
   );
 
@@ -414,12 +459,18 @@ describe("resolveContained", () => {
     });
     expect(got).toBe(anywhere);
     await expect(
-      resolveContained("a\u0000b", exportsDir(), { label: "t", allowOutside: true }),
+      resolveContained("a\u0000b", exportsDir(), {
+        label: "t",
+        allowOutside: true,
+      }),
     ).rejects.toThrow(/control characters/);
     // `~` is still expanded, so the hatch cannot smuggle a literal "~" dir.
-    expect(await resolveContained("~", exportsDir(), { label: "t", allowOutside: true })).toBe(
-      resolve(homedir()),
-    );
+    expect(
+      await resolveContained("~", exportsDir(), {
+        label: "t",
+        allowOutside: true,
+      }),
+    ).toBe(resolve(homedir()));
   });
 });
 
@@ -444,8 +495,15 @@ describe("memory_export destination", () => {
     const victim = join(root, "victim.jsonl");
     const dotfile = join(root, ".gitconfig");
     writeFileSync(dotfile, "[user]\n  name = keep me\n");
-    for (const bad of [victim, dotfile, join(root, "..", "escape.jsonl"), "~/.osi-probe.jsonl"]) {
-      await expect(exportMemories({ file: bad })).rejects.toThrow(/memory_export file/);
+    for (const bad of [
+      victim,
+      dotfile,
+      join(root, "..", "escape.jsonl"),
+      "~/.osi-probe.jsonl",
+    ]) {
+      await expect(exportMemories({ file: bad })).rejects.toThrow(
+        /memory_export file/,
+      );
     }
     expect(existsSync(victim)).toBe(false);
     expect(readFileSync(dotfile, "utf8")).toBe("[user]\n  name = keep me\n");
@@ -460,17 +518,24 @@ describe("memory_export destination", () => {
     const target = join(exportsDir(), "legit.jsonl");
     mkdirSync(exportsDir(), { recursive: true });
     writeFileSync(target, "sentinel\n");
-    await expect(exportMemories({ file: "../legit.jsonl" })).rejects.toThrow(/memory_export file/);
+    await expect(exportMemories({ file: "../legit.jsonl" })).rejects.toThrow(
+      /memory_export file/,
+    );
     expect(readFileSync(target, "utf8")).toBe("sentinel\n");
   });
 
   test("an empty destination is a caller bug, not a silent redirect to the default", async () => {
-    await expect(exportMemories({ file: "  " })).rejects.toThrow(/must not be empty/);
+    await expect(exportMemories({ file: "  " })).rejects.toThrow(
+      /must not be empty/,
+    );
   });
 
   test("the tool reports a refused destination as a soft message, not a thrown call", async () => {
     const loaded = await loadPlugin(liveRoot);
-    const out = await toolOf(loaded, "memory_export")({ file: join(root, "nope.jsonl") });
+    const out = await toolOf(
+      loaded,
+      "memory_export",
+    )({ file: join(root, "nope.jsonl") });
     expect(out).toContain("memory_export failed");
     expect(out).toContain("must stay inside");
     expect(existsSync(join(root, "nope.jsonl"))).toBe(false);
@@ -483,7 +548,10 @@ describe("memory_export destination", () => {
 describe("memory_import source", () => {
   test("a file inside the memory root is read", async () => {
     const file = join(memoryRoot(), "in.jsonl");
-    writeFileSync(file, outsidePayload("One durable fact about the build pipeline."));
+    writeFileSync(
+      file,
+      outsidePayload("One durable fact about the build pipeline."),
+    );
     const seen: string[] = [];
     const tally = await importMemories(file, async (c) => {
       seen.push(c.content);
@@ -508,9 +576,9 @@ describe("memory_import source", () => {
 
   test("traversal out of the root is refused, and is not reported as missing", async () => {
     writeFileSync(join(root, "day.jsonl"), outsidePayload("MARKER"));
-    await expect(importMemories("../day.jsonl", async () => ({ action: "promoted" }))).rejects.toThrow(
-      /must stay inside/,
-    );
+    await expect(
+      importMemories("../day.jsonl", async () => ({ action: "promoted" })),
+    ).rejects.toThrow(/must stay inside/);
   });
 
   test("a symlink inside the store pointing outside is refused", async () => {
@@ -522,10 +590,13 @@ describe("memory_import source", () => {
     makeLink(outsideDir, join(memoryRoot(), "linkdir"));
     let gateCalls = 0;
     await expect(
-      importMemories(join(memoryRoot(), "linkdir", "payload.jsonl"), async () => {
-        gateCalls++;
-        return { action: "promoted" };
-      }),
+      importMemories(
+        join(memoryRoot(), "linkdir", "payload.jsonl"),
+        async () => {
+          gateCalls++;
+          return { action: "promoted" };
+        },
+      ),
     ).rejects.toThrow(/escapes/);
     expect(gateCalls).toBe(0);
   });
@@ -533,7 +604,10 @@ describe("memory_import source", () => {
   test("a non-.jsonl name inside the root is refused, so the tally cannot sniff store files", async () => {
     // Day files, snapshots and the blocklist all live under the root; parsing
     // them as JSONL would report a line count even though none is an import.
-    writeFileSync(join(memoryRoot(), "2026-01-02.logfmt"), "ts=x type=learning\n");
+    writeFileSync(
+      join(memoryRoot(), "2026-01-02.logfmt"),
+      "ts=x type=learning\n",
+    );
     mkdirSync(join(memoryRoot(), "snapshots"), { recursive: true });
     let gateCalls = 0;
     for (const bad of [
@@ -552,13 +626,18 @@ describe("memory_import source", () => {
 
   test("a genuinely missing file inside the root still reports not-found", async () => {
     await expect(
-      importMemories(join(memoryRoot(), "gone.jsonl"), async () => ({ action: "promoted" })),
+      importMemories(join(memoryRoot(), "gone.jsonl"), async () => ({
+        action: "promoted",
+      })),
     ).rejects.toThrow(/not found/);
   });
 
   test("the tool reports a refused source as a soft message", async () => {
     const loaded = await loadPlugin(liveRoot);
-    const out = await toolOf(loaded, "memory_import")({ file: join(root, "x.jsonl") });
+    const out = await toolOf(
+      loaded,
+      "memory_import",
+    )({ file: join(root, "x.jsonl") });
     expect(out).toContain("memory_import failed");
     expect(out).toContain("must stay inside");
     await loaded.cleanup();
@@ -570,9 +649,9 @@ describe("memory_import source", () => {
 describe("OPENCODE_MEMORY_ALLOW_OUTSIDE_PATHS", () => {
   test("unset by default: the store boundary holds", async () => {
     expect(process.env.OPENCODE_MEMORY_ALLOW_OUTSIDE_PATHS).toBeUndefined();
-    await expect(exportMemories({ file: join(root, "o.jsonl") })).rejects.toThrow(
-      /must stay inside/,
-    );
+    await expect(
+      exportMemories({ file: join(root, "o.jsonl") }),
+    ).rejects.toThrow(/must stay inside/);
   });
 
   test("when set, both directions accept paths anywhere (migration path)", async () => {
@@ -581,16 +660,25 @@ describe("OPENCODE_MEMORY_ALLOW_OUTSIDE_PATHS", () => {
     expect((await exportMemories({ file: out })).path).toBe(out);
     expect(existsSync(out)).toBe(true);
     // The store was empty, so the file holds only the header: a clean 0 rows.
-    const tally = await importMemories(out, async () => ({ action: "promoted" }));
-    expect(tally).toEqual({ promoted: 0, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0, unaudited: 0 });
+    const tally = await importMemories(out, async () => ({
+      action: "promoted",
+    }));
+    expect(tally).toEqual({
+      promoted: 0,
+      collapsed: 0,
+      blocked: 0,
+      skipped: 0,
+      downgraded: 0,
+      unaudited: 0,
+    });
   });
 
   test("only an explicit truthy value opens it", async () => {
     for (const off of ["0", "false", "", "no"]) {
       process.env.OPENCODE_MEMORY_ALLOW_OUTSIDE_PATHS = off;
-      await expect(exportMemories({ file: join(root, "o.jsonl") })).rejects.toThrow(
-        /must stay inside/,
-      );
+      await expect(
+        exportMemories({ file: join(root, "o.jsonl") }),
+      ).rejects.toThrow(/must stay inside/);
     }
     for (const on of ["1", "true", "YES", " on "]) {
       process.env.OPENCODE_MEMORY_ALLOW_OUTSIDE_PATHS = on;

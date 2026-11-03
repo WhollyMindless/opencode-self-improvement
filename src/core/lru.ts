@@ -8,27 +8,27 @@
 export const SESSION_CAP = 64;
 
 export class SessionLru {
-	private readonly order = new Set<string>();
-	private readonly cap: number;
-	private readonly onEvict: (sid: string) => void;
+  private readonly order = new Set<string>();
+  private readonly cap: number;
+  private readonly onEvict: (sid: string) => void;
 
-	constructor(cap: number, onEvict: (sid: string) => void) {
-		this.cap = cap;
-		this.onEvict = onEvict;
-	}
+  constructor(cap: number, onEvict: (sid: string) => void) {
+    this.cap = cap;
+    this.onEvict = onEvict;
+  }
 
-	// Mark a session as just used; evicts the least recently used beyond the cap.
-	touch(sid: string): void {
-		this.order.delete(sid);
-		this.order.add(sid);
-		while (this.order.size > this.cap) {
-			const oldest = this.order.values().next().value as string;
-			this.order.delete(oldest);
-			this.onEvict(oldest);
-		}
-	}
+  // Mark a session as just used; evicts the least recently used beyond the cap.
+  touch(sid: string): void {
+    this.order.delete(sid);
+    this.order.add(sid);
+    while (this.order.size > this.cap) {
+      const oldest = this.order.values().next().value as string;
+      this.order.delete(oldest);
+      this.onEvict(oldest);
+    }
+  }
 
-	get size(): number {
-		return this.order.size;
-	}
+  get size(): number {
+    return this.order.size;
+  }
 }

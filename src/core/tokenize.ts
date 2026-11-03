@@ -89,16 +89,28 @@ export const POL_NEG = "neg";
 const POLARITY: ReadonlyMap<string, string> = new Map<string, string>(
   [
     ["enable enables enabled enabling", "disable disables disabled disabling"],
-    ["allow allows allowed allowing", "deny denies denied denying disallow disallows disallowed"],
+    [
+      "allow allows allowed allowing",
+      "deny denies denied denying disallow disallows disallowed",
+    ],
     [
       "permit permits permitted permitting",
       "refuse refuses refused refusing forbid forbids forbidden prohibit prohibits prohibited prohibiting",
     ],
     ["accept accepts accepted accepting", "reject rejects rejected rejecting"],
-    ["include includes included including", "exclude excludes excluded excluding"],
+    [
+      "include includes included including",
+      "exclude excludes excluded excluding",
+    ],
     ["add adds added adding", "remove removes removed removing"],
-    ["start starts started starting begin begins began beginning", "stop stops stopped stopping halt halts halted halting cease ceases ceased ceasing"],
-    ["require requires required requiring", "waive waives waived waiving exempt exempts exempted exempting"],
+    [
+      "start starts started starting begin begins began beginning",
+      "stop stops stopped stopping halt halts halted halting cease ceases ceased ceasing",
+    ],
+    [
+      "require requires required requiring",
+      "waive waives waived waiving exempt exempts exempted exempting",
+    ],
     ["keep keeps kept keeping", "drop drops dropped dropping"],
     ["true", "false"],
     ["always", "never"],
@@ -205,4 +217,3 @@ export function polaritySigns(text: string): string[] {
   if (held) signs.add(held);
   return [...signs].sort();
 }
-

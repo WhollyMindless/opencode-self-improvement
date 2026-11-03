@@ -14,10 +14,15 @@ import { Plugin, usePlugin } from "@opencode/plugin/tui";
 import type { PanelInput } from "@opencode/plugin/tui/context";
 import { evidenceDir, memoryRoot } from "../core/config/paths.ts";
 import { fmtBytes, fmtMs } from "../status/format.ts";
-import { cacheHealth, cacheRate, type CacheHealth } from "../status/format.ts"
-import { ledgerIsYoung } from "../status/metrics.ts"
-import { type BlockedRow, type StatusPayload } from "../status/payload.ts"
-import { attributionLines, cacheLines, contextLines, windowLines } from "../status/report.ts"
+import { cacheHealth, cacheRate, type CacheHealth } from "../status/format.ts";
+import { ledgerIsYoung } from "../status/metrics.ts";
+import { type BlockedRow, type StatusPayload } from "../status/payload.ts";
+import {
+  attributionLines,
+  cacheLines,
+  contextLines,
+  windowLines,
+} from "../status/report.ts";
 import { blockedRecent, readStatus, statusDir } from "../status/write.ts";
 
 const PANEL = "self-improvement.memory";
@@ -54,7 +59,8 @@ export default Plugin.define({
     // Dot colors: theme semantic colors when the host provides them, stable
     // hex fallbacks otherwise. Resolved once per setup.
     const th = context.theme as unknown as Record<string, any>;
-    const col = (v: unknown, fallback: string): string => (typeof v === "string" ? v : fallback);
+    const col = (v: unknown, fallback: string): string =>
+      typeof v === "string" ? v : fallback;
     const DOT: Record<CacheHealth, string> = {
       green: col(th.success, "#4ade80"),
       recent: col(th.warning, "#fbbf24"),
@@ -128,9 +134,12 @@ export default Plugin.define({
       }
     };
     const ensureWatchers = () => {
-      if (!rootWatcher) rootWatcher = attach(() => watch(memoryRoot(), scheduleRefresh));
-      if (!dirWatcher) dirWatcher = attach(() => watch(statusDir(), scheduleRefresh));
-      if (!evWatcher) evWatcher = attach(() => watch(evidenceDir(), scheduleRefresh));
+      if (!rootWatcher)
+        rootWatcher = attach(() => watch(memoryRoot(), scheduleRefresh));
+      if (!dirWatcher)
+        dirWatcher = attach(() => watch(statusDir(), scheduleRefresh));
+      if (!evWatcher)
+        evWatcher = attach(() => watch(evidenceDir(), scheduleRefresh));
     };
     ensureWatchers();
     const timer = setInterval(() => {
@@ -163,7 +172,11 @@ export default Plugin.define({
       append: "home.footer.status",
       render: () => {
         const s = status();
-        return <text fg={context.theme.text.base}>{s ? `mem ${s.store.active}` : "mem -"}</text>;
+        return (
+          <text fg={context.theme.text.base}>
+            {s ? `mem ${s.store.active}` : "mem -"}
+          </text>
+        );
       },
     });
 
@@ -172,7 +185,12 @@ export default Plugin.define({
       append: "session.panel",
       render: (panel) => (
         <Show when={panel.name === PANEL}>
-          <MemoryPanel panel={panel} refresh={refresh} status={status()} blocked={blocked()} />
+          <MemoryPanel
+            panel={panel}
+            refresh={refresh}
+            status={status()}
+            blocked={blocked()}
+          />
         </Show>
       ),
     });
@@ -193,7 +211,10 @@ export default Plugin.define({
               slash: { name: "memory" },
               run: () => {
                 if (!context.ui.panel.open(PANEL)) {
-                  context.ui.toast.show({ message: "the memory panel needs an open session", variant: "info" });
+                  context.ui.toast.show({
+                    message: "the memory panel needs an open session",
+                    variant: "info",
+                  });
                 }
               },
             },
@@ -230,7 +251,12 @@ function MemoryPanel(props: {
         bind: "r",
         run: () => void props.refresh(props.panel.sessionID),
       },
-      { id: "self-improvement.memory.fullscreen", title: "Fullscreen", bind: "f", run: props.panel.toggleFullscreen },
+      {
+        id: "self-improvement.memory.fullscreen",
+        title: "Fullscreen",
+        bind: "f",
+        run: props.panel.toggleFullscreen,
+      },
     ],
   }));
 
@@ -245,19 +271,43 @@ function MemoryPanel(props: {
       <Section t="CONTEXT" />
       <Show
         when={s()}
-        fallback={<text fg={context.theme.text.base}>  no epoch yet — nothing injected (fresh server, or no prompt scored)</text>}
+        fallback={
+          <text fg={context.theme.text.base}>
+            {
+              "  no epoch yet — nothing injected (fresh server, or no prompt scored)"
+            }
+          </text>
+        }
       >
-        <For each={contextLines(s()!)}>{(line) => <text fg={context.theme.text.base}>{line}</text>}</For>
+        <For each={contextLines(s()!)}>
+          {(line) => <text fg={context.theme.text.base}>{line}</text>}
+        </For>
       </Show>
 
       <Section t="CACHE" />
-      <Show when={s()} fallback={<text fg={context.theme.text.base}>  nothing to report before the first epoch</text>}>
-        <For each={cacheLines(s()!)}>{(line) => <text fg={context.theme.text.base}>{line}</text>}</For>
+      <Show
+        when={s()}
+        fallback={
+          <text fg={context.theme.text.base}>
+            {"  nothing to report before the first epoch"}
+          </text>
+        }
+      >
+        <For each={cacheLines(s()!)}>
+          {(line) => <text fg={context.theme.text.base}>{line}</text>}
+        </For>
       </Show>
 
       <Section t="CONTEXT WINDOW — is memory bloating your context?" />
-      <Show when={s()} fallback={<text fg={context.theme.text.base}>  nothing injected yet</text>}>
-        <For each={windowLines(s()!)}>{(line) => <text fg={context.theme.text.base}>{line}</text>}</For>
+      <Show
+        when={s()}
+        fallback={
+          <text fg={context.theme.text.base}>{"  nothing injected yet"}</text>
+        }
+      >
+        <For each={windowLines(s()!)}>
+          {(line) => <text fg={context.theme.text.base}>{line}</text>}
+        </For>
       </Show>
 
       <Section t="INJECTED BLOCK (VERBATIM)" />
@@ -266,41 +316,78 @@ function MemoryPanel(props: {
           when={s()!.block}
           fallback={
             <text fg={context.theme.text.base}>
-              {"  abstained — your prompt shares no content vocabulary with any memory, so nothing was injected (by design)"}
+              {
+                "  abstained — your prompt shares no content vocabulary with any memory, so nothing was injected (by design)"
+              }
             </text>
           }
         >
-          <For each={s()!.block.split("\n")}>{(line) => <text fg={context.theme.text.base}>{"  " + line}</text>}</For>
+          <For each={s()!.block.split("\n")}>
+            {(line) => <text fg={context.theme.text.base}>{"  " + line}</text>}
+          </For>
         </Show>
       </Show>
 
       <Section t="MEMORY ATTRIBUTION — answered from memory vs re-reading files" />
-      <Show when={s()} fallback={<text fg={context.theme.text.base}>  nothing injected yet</text>}>
-        <For each={attributionLines(s()!)}>{(line) => <text fg={context.theme.text.base}>{line}</text>}</For>
+      <Show
+        when={s()}
+        fallback={
+          <text fg={context.theme.text.base}>{"  nothing injected yet"}</text>
+        }
+      >
+        <For each={attributionLines(s()!)}>
+          {(line) => <text fg={context.theme.text.base}>{line}</text>}
+        </For>
       </Show>
 
       <Section t="RECENT BLOCKED WRITES" />
-      <Show when={props.blocked.length} fallback={<text fg={context.theme.text.base}>  (none today or yesterday)</text>}>
+      <Show
+        when={props.blocked.length}
+        fallback={
+          <text fg={context.theme.text.base}>
+            {"  (none today or yesterday)"}
+          </text>
+        }
+      >
         <For each={props.blocked}>
-          {(b) => <text fg={context.theme.text.base}>{"  " + b.ts.slice(11, 19) + "  " + b.reason + "  " + b.sid}</text>}
+          {(b) => (
+            <text fg={context.theme.text.base}>
+              {"  " + b.ts.slice(11, 19) + "  " + b.reason + "  " + b.sid}
+            </text>
+          )}
         </For>
       </Show>
 
       <Section t="STORE" />
       <Show when={s()}>
         <text fg={context.theme.text.base}>
-          {"  " + (s()?.store.active ?? 0) + " active · " + (s()?.store.superseded ?? 0) + " superseded · " +
-            (s()?.store.open ?? 0) + " open · " + (s()?.store.scopes ?? 0) + " scopes" +
-            ((s()?.store.malformed ?? 0) > 0 ? " · " + s()!.store.malformed + " malformed (skipped)" : "") +
+          {"  " +
+            (s()?.store.active ?? 0) +
+            " active · " +
+            (s()?.store.superseded ?? 0) +
+            " superseded · " +
+            (s()?.store.open ?? 0) +
+            " open · " +
+            (s()?.store.scopes ?? 0) +
+            " scopes" +
+            ((s()?.store.malformed ?? 0) > 0
+              ? " · " + s()!.store.malformed + " malformed (skipped)"
+              : "") +
             ((s()?.store.neverRetrieved ?? 0) > 0
               ? " · " +
                 s()!.store.neverRetrieved +
                 (ledgerIsYoung(s()!.store.ledgerSince)
-                  ? " never retrieved (ledger since " + (s()!.store.ledgerSince?.slice(0, 10) ?? "no lines") + ")"
+                  ? " never retrieved (ledger since " +
+                    (s()!.store.ledgerSince?.slice(0, 10) ?? "no lines") +
+                    ")"
                   : " never retrieved (30d)")
               : "") +
             ((s()?.store.bytes ?? 0) > 0
-              ? " · " + fmtBytes(s()!.store.bytes!) + " · " + s()!.store.bytesPerRow + " B/row"
+              ? " · " +
+                fmtBytes(s()!.store.bytes!) +
+                " · " +
+                s()!.store.bytesPerRow +
+                " B/row"
               : "") +
             ((s()?.store.captureLag?.n ?? 0) > 0
               ? " · capture p50 " + fmtMs(s()!.store.captureLag!.p50)
@@ -308,7 +395,9 @@ function MemoryPanel(props: {
         </text>
       </Show>
 
-      <text fg={context.theme.text.base}>{"\n  r refresh · f fullscreen · esc close"}</text>
+      <text fg={context.theme.text.base}>
+        {"\n  r refresh · f fullscreen · esc close"}
+      </text>
     </box>
   );
 }

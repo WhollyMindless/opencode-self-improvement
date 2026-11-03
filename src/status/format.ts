@@ -32,11 +32,17 @@ export function fmtCount(n: number): string {
 }
 
 /** Session-wide prompt-cache hit rate from measured usage; null = nothing measured. */
-export function cacheRate(m?: Measured | null): { read: number; prompt: number; pct: number } | null {
+export function cacheRate(
+  m?: Measured | null,
+): { read: number; prompt: number; pct: number } | null {
   if (!m) return null;
   const prompt = (m.input || 0) + (m.read || 0) + (m.write || 0);
   if (prompt <= 0) return null;
-  return { read: m.read || 0, prompt, pct: Math.round(((m.read || 0) / prompt) * 100) };
+  return {
+    read: m.read || 0,
+    prompt,
+    pct: Math.round(((m.read || 0) / prompt) * 100),
+  };
 }
 
 /**

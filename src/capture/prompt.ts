@@ -39,7 +39,7 @@ export function buildCapturePrompt(transcript: string, max = 3): string {
     "- scope: short area name (e.g. auth, api, build).",
     '- status: "open" for a live planning thread; otherwise "settled".',
     "- content: one self-contained fact, 20-600 characters, useful in a NEW session.",
-    '- kw: 3-5 search keywords for how a DIFFERENT session would ask for this — synonyms and alternate names, other verb forms, the literal command or file name. They are indexed for retrieval and never shown to a model. Omit (or []) when the content already uses those words.',
+    "- kw: 3-5 search keywords for how a DIFFERENT session would ask for this — synonyms and alternate names, other verb forms, the literal command or file name. They are indexed for retrieval and never shown to a model. Omit (or []) when the content already uses those words.",
     "- Keep: decisions made, working commands, user preferences, blockers hit, durable context, conventions.",
     "- Skip: anything derivable from the code or git history, small talk, and details that only mattered inside this conversation.",
     "- If nothing is worth remembering, output [ ].",

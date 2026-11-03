@@ -29,9 +29,11 @@ export const isoTs = z.iso.datetime();
 // are rejected at every write boundary instead. Lookup-only scopes (recall,
 // forget, export) stay plain strings so a row stored before this check can
 // still be found and forgotten.
-const memoryField = z.string().refine((value) => flattenMemoryText(value) === value, {
-  message: "must not contain control characters",
-});
+const memoryField = z
+  .string()
+  .refine((value) => flattenMemoryText(value) === value, {
+    message: "must not contain control characters",
+  });
 
 // Retrieval keywords (#40). The shape cap mirrors MAX_KEYWORDS in memory.ts,
 // which is the authority at write time (it also lowercases, de-dupes and drops
@@ -68,7 +70,10 @@ export const RememberArgs = z.object({
 });
 
 export const InitArgs = z.object({
-  force: z.boolean().describe("Re-run even if initialized (refresh after drift)").optional(),
+  force: z
+    .boolean()
+    .describe("Re-run even if initialized (refresh after drift)")
+    .optional(),
   mode: z
     .enum(["fast", "moderate", "full"])
     .describe("codebase-memory index mode (default moderate)")
@@ -95,7 +100,9 @@ export const UpdateArgs = z.object({
     .optional(),
   status: z
     .enum(STATUSES)
-    .describe("Settled or open; omitted keeps the target row's standing (an open frontier row stays open)")
+    .describe(
+      "Settled or open; omitted keeps the target row's standing (an open frontier row stays open)",
+    )
     .optional(),
 });
 
@@ -111,11 +118,15 @@ export const UndoArgs = z.object({
   list: z.boolean().describe("List snapshots").optional(),
   snapshot: z
     .string()
-    .describe("Store-owned snapshot to restore (bare name from list, or its full path)")
+    .describe(
+      "Store-owned snapshot to restore (bare name from list, or its full path)",
+    )
     .optional(),
   merge: z
     .boolean()
-    .describe("With snapshot: keep rows written after the snapshot instead of refusing")
+    .describe(
+      "With snapshot: keep rows written after the snapshot instead of refusing",
+    )
     .optional(),
   force: z
     .boolean()
@@ -126,7 +137,10 @@ export const UndoArgs = z.object({
 export const EvidenceArgs = z.object({
   date: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "must be a YYYY-MM-DD calendar date (paths are refused)")
+    .regex(
+      /^\d{4}-\d{2}-\d{2}$/,
+      "must be a YYYY-MM-DD calendar date (paths are refused)",
+    )
     .optional(),
   ev: z.string().optional(),
   limit: z.coerce.number().optional(),
@@ -135,9 +149,15 @@ export const EvidenceArgs = z.object({
 export const MergeReviewArgs = z.object({
   loser: z
     .string()
-    .describe("Ts id of the stored losing row to supersede (a blocked write was never stored and has no id)"),
+    .describe(
+      "Ts id of the stored losing row to supersede (a blocked write was never stored and has no id)",
+    ),
   survivor: z.string().describe("Ts id of the stored canonical winning row"),
-  reason: z.string().describe("Why the survivor is canonical over the loser (written to evidence)"),
+  reason: z
+    .string()
+    .describe(
+      "Why the survivor is canonical over the loser (written to evidence)",
+    ),
 });
 
 export const ConsolidateArgs = z.object({
@@ -148,11 +168,19 @@ export const ConsolidateArgs = z.object({
     .min(0.2)
     .max(0.95)
     .optional(),
-  limit: z.number().describe("Maximum proposals to report (default 10)").min(1).max(50).optional(),
+  limit: z
+    .number()
+    .describe("Maximum proposals to report (default 10)")
+    .min(1)
+    .max(50)
+    .optional(),
 });
 
 export const ExportArgs = z.object({
-  scope: z.string().describe("Only export memories in this exact scope").optional(),
+  scope: z
+    .string()
+    .describe("Only export memories in this exact scope")
+    .optional(),
   file: z
     .string()
     .describe(
@@ -162,12 +190,13 @@ export const ExportArgs = z.object({
 });
 
 export const ImportArgs = z.object({
-  file: z.string().describe("Path to a .jsonl export file, inside the memory root"),
+  file: z
+    .string()
+    .describe("Path to a .jsonl export file, inside the memory root"),
 });
 
 export const DecayArgs = z.object({
-  olderThanDays: z
-    .coerce
+  olderThanDays: z.coerce
     .number()
     .optional()
     .meta({ default: 14 })
@@ -200,11 +229,16 @@ export const EditBody = z.object({
 export const DeleteBody = z.object({ ts: isoTs, reason: z.string() });
 export const BlockBody = z.object({ ts: isoTs, reason: z.string() });
 export const UnblockBody = z.object({ ts: isoTs });
-export const ReleaseQuarantineBody = z.object({ ts: isoTs, reason: z.string().trim().min(1) });
+export const ReleaseQuarantineBody = z.object({
+  ts: isoTs,
+  reason: z.string().trim().min(1),
+});
 // #35: lift a value-keyed rejection. `ch` is the 12-hex content hash the gate's
 // block hint names, and the same identifier a `dedup_rejected` evidence line
 // carries — so a human can act on either without reading the store by hand.
-export const UnrejectBody = z.object({ ch: z.string().regex(/^[0-9a-f]{12}$/) });
+export const UnrejectBody = z.object({
+  ch: z.string().regex(/^[0-9a-f]{12}$/),
+});
 // Strict fields by intent: String(body.x ?? "") coercion once let unvalidated
 // POSTs append rows with empty type/scope/content.
 // repo/repoPath (#129): the origin stamp of the DELETED row, replayed from the
@@ -256,7 +290,10 @@ export function validated<S extends ZodTypeAny>(
   return {
     ...def,
     input: wire(schema),
-    async execute(raw: unknown, context?: unknown): Promise<{ content: string }> {
+    async execute(
+      raw: unknown,
+      context?: unknown,
+    ): Promise<{ content: string }> {
       const parsed = schema.safeParse(raw ?? {});
       if (!parsed.success) {
         const issues = parsed.error.issues.map(

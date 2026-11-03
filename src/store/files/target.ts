@@ -10,7 +10,10 @@ export type TargetResolution =
 // Pick the row an update/merge call means. Without a query the caller keeps the
 // legacy "most recent active row of this scope+type" behaviour; with one, a
 // miss or a tie fails CLOSED rather than silently rewriting a different row.
-export function resolveMemoryTarget(rows: Memory[], query?: string): TargetResolution {
+export function resolveMemoryTarget(
+  rows: Memory[],
+  query?: string,
+): TargetResolution {
   if (!query || !query.trim()) {
     const last = rows[rows.length - 1];
     return last ? { status: "ok", target: last } : { status: "not_found" };

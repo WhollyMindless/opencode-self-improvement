@@ -16,12 +16,18 @@ import { flattenTranscript } from "./transcript.ts";
 
 interface CaptureHost {
   options?: Record<string, unknown>;
-  event?: { subscribe: (o?: { signal?: AbortSignal }) => AsyncIterable<unknown> };
+  event?: {
+    subscribe: (o?: { signal?: AbortSignal }) => AsyncIterable<unknown>;
+  };
   generate?: { text: (input: unknown) => Promise<{ text?: string } | string> };
   session?: { context?: (input: { sessionID: string }) => Promise<unknown> };
   // Host default model (#139): the last-resort source for an omitted
   // captureModel. Optional-call everywhere: older/fake hosts expose none.
-  model?: { default?: { get?: () => { providerID: string; modelID: string } | undefined } };
+  model?: {
+    default?: {
+      get?: () => { providerID: string; modelID: string } | undefined;
+    };
+  };
 }
 
 interface CaptureDependencies {
@@ -47,13 +53,18 @@ const lastCaptureRun = new Map<string, number>();
 const CAPTURE_COOLDOWN_MS = 5 * 60_000;
 
 /** True if this trigger may fire for this session now; records the fire. */
-function captureCooldownPasses(trigger: "idle" | "compaction", sid: string, now: number): boolean {
+function captureCooldownPasses(
+  trigger: "idle" | "compaction",
+  sid: string,
+  now: number,
+): boolean {
   const key = `${trigger}:${sid}`;
   if (now - (lastCaptureRun.get(key) ?? 0) < CAPTURE_COOLDOWN_MS) return false;
   // Sessions churn and a long-lived server must not grow one entry per
   // session forever; oldest-inserted go first (the ledger throttle's rule).
   if (lastCaptureRun.size > 2000) {
-    for (const k of [...lastCaptureRun.keys()].slice(0, 1000)) lastCaptureRun.delete(k);
+    for (const k of [...lastCaptureRun.keys()].slice(0, 1000))
+      lastCaptureRun.delete(k);
   }
   lastCaptureRun.set(key, now);
   return true;
@@ -72,7 +83,10 @@ export function resetCaptureCooldowns(): void {
 // alone is insufficient evidence that the host emits it (#78, #136).
 // Identity triggers have a separate observed check in that test, combining
 // this recording with the 2.2.2 move extract in host-session-move.json (#176).
-export const TURN_END_EVENTS = ["session.execution.succeeded", "session.execution.interrupted"] as const;
+export const TURN_END_EVENTS = [
+  "session.execution.succeeded",
+  "session.execution.interrupted",
+] as const;
 
 /** Every event type the capture subscription reacts to (fidelity-tested). */
 export const CAPTURE_EVENT_TYPES: readonly string[] = [...TURN_END_EVENTS];
@@ -88,7 +102,10 @@ export const CAPTURE_EVENT_TYPES: readonly string[] = [...TURN_END_EVENTS];
  */
 export function captureTriggerFor(event: unknown): boolean {
   const type = (event as { type?: unknown } | null)?.type;
-  return typeof type === "string" && (TURN_END_EVENTS as readonly string[]).includes(type);
+  return (
+    typeof type === "string" &&
+    (TURN_END_EVENTS as readonly string[]).includes(type)
+  );
 }
 
 export function configureAutoCapture(
@@ -117,7 +134,11 @@ export function configureAutoCapture(
       console.warn(
         `[opencode-self-improvement] autoCapture is on but captureModel ${JSON.stringify(captureModelOpt)} is invalid (expected "provider/id"); auto-capture disabled.`,
       );
-    } else if (!ctx.event?.subscribe || !ctx.generate?.text || !ctx.session?.context) {
+    } else if (
+      !ctx.event?.subscribe ||
+      !ctx.generate?.text ||
+      !ctx.session?.context
+    ) {
       console.warn(
         "[opencode-self-improvement] autoCapture is on but this OpenCode context lacks event.subscribe/generate.text/session.context; auto-capture disabled.",
       );
@@ -130,7 +151,8 @@ export function configureAutoCapture(
       // and the fail-closed catch below would hide it. Optional call: the
       // setup guard proves it exists, but property narrowing does not survive
       // into the closure, and undefined degrades safely (empty transcript).
-      const contextFn = (input: { sessionID: string }) => ctx.session?.context?.(input);
+      const contextFn = (input: { sessionID: string }) =>
+        ctx.session?.context?.(input);
 
       // #139 model resolution: explicit option (captured above) wins; else the
       // ref this session's context hook last carried; else the host default.
@@ -140,8 +162,11 @@ export function configureAutoCapture(
       const hostDefault = (): SessionModelRef | null => {
         const d = ctx.model?.default?.get?.();
         if (
-          d && typeof d.providerID === "string" && d.providerID &&
-          typeof d.modelID === "string" && d.modelID
+          d &&
+          typeof d.providerID === "string" &&
+          d.providerID &&
+          typeof d.modelID === "string" &&
+          d.modelID
         )
           return { providerID: d.providerID, id: d.modelID };
         return null;
@@ -183,7 +208,13 @@ export function configureAutoCapture(
         // store refuses. Skip BEFORE the model call — no tokens spent on a
         // capture that cannot be stored — and leave the reason in evidence.
         if (!writeTarget(sid).ok) {
-          await record("auto_capture_refused", { session: sid, trigger, ...(modelTag ? { model: modelTag } : {}) }, true, sid, captureGate.evidenceContext);
+          await record(
+            "auto_capture_refused",
+            { session: sid, trigger, ...(modelTag ? { model: modelTag } : {}) },
+            true,
+            sid,
+            captureGate.evidenceContext,
+          );
           return;
         }
         if (!model) {
@@ -194,7 +225,13 @@ export function configureAutoCapture(
               "[opencode-self-improvement] autoCapture is on but captureModel is omitted and neither session.context nor the host default names a model; capture skipped (warned once).",
             );
           }
-          await record("auto_capture_refused", { session: sid, trigger, reason: "no_model" }, true, sid, captureGate.evidenceContext);
+          await record(
+            "auto_capture_refused",
+            { session: sid, trigger, reason: "no_model" },
+            true,
+            sid,
+            captureGate.evidenceContext,
+          );
           return;
         }
         let transcript = seeded;
@@ -216,9 +253,12 @@ export function configureAutoCapture(
           // a PEM body whose BEGIN marker fell off, or a token whose prefix
           // fell off, matches no pattern — buildCapturePrompt's own scrub
           // (kept, defense in depth) cannot recognize a fragment.
-          prompt: buildCapturePrompt(redactSecrets(transcript).slice(-8000), captureMax),
+          prompt: buildCapturePrompt(
+            redactSecrets(transcript).slice(-8000),
+            captureMax,
+          ),
         });
-        const text = typeof out === "string" ? out : out?.text ?? "";
+        const text = typeof out === "string" ? out : (out?.text ?? "");
         const candidates = parseCandidates(text, captureMax);
         for (const c of candidates) {
           const durable: string[] = [];
@@ -237,10 +277,21 @@ export function configureAutoCapture(
           } catch (err) {
             // A refused write must not disappear into the hook's fail-soft
             // wrapper. Preserve any earlier gate retirements in the receipt.
-            await record(durable.length ? "auto_capture_partial" : "auto_capture_refused", {
-              session: sid, trigger, type: c.type, scope: redactSecrets(c.scope),
-              reason: String(err), retired: durable.join(",") || undefined, model: modelTag,
-            }, false, sid, captureGate.evidenceContext);
+            await record(
+              durable.length ? "auto_capture_partial" : "auto_capture_refused",
+              {
+                session: sid,
+                trigger,
+                type: c.type,
+                scope: redactSecrets(c.scope),
+                reason: String(err),
+                retired: durable.join(",") || undefined,
+                model: modelTag,
+              },
+              false,
+              sid,
+              captureGate.evidenceContext,
+            );
             continue;
           }
           await record(
@@ -265,12 +316,20 @@ export function configureAutoCapture(
             captureGate.evidenceContext,
           );
         }
-        await recordCaptureLag(sid, lagMs, candidates.length ? "candidates" : "empty", captureGate.evidenceContext, modelTag);
+        await recordCaptureLag(
+          sid,
+          lagMs,
+          candidates.length ? "candidates" : "empty",
+          captureGate.evidenceContext,
+          modelTag,
+        );
       }
 
       void (async () => {
         try {
-          for await (const raw of eventApi.subscribe({ signal: controller.signal })) {
+          for await (const raw of eventApi.subscribe({
+            signal: controller.signal,
+          })) {
             if (!captureTriggerFor(raw)) continue;
             const sid = captureSessionID(raw);
             if (sid === undefined) continue;
@@ -301,7 +360,12 @@ export function configureAutoCapture(
           const now = Date.now();
           if (!captureCooldownPasses("compaction", sid, now)) return; // 5-min cooldown
           void guarded("session.compaction (auto-capture)", () =>
-            captureSession(sid, flattenTranscript(messages), "compaction", messages),
+            captureSession(
+              sid,
+              flattenTranscript(messages),
+              "compaction",
+              messages,
+            ),
           );
         };
       }

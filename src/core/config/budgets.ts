@@ -1,6 +1,5 @@
 // budgets — split from src/config.ts (#168 domain restructure). Declaration bodies are unchanged.
 
-
 // Character budget for the injected "Relevant durable memory" block (the
 // cache-safe epoch injection). Overridable via OPENCODE_MEMORY_INJECT_BUDGET
 // (plugin options take precedence — see src/index.ts); falls back to 1200 on

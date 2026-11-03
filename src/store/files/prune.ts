@@ -1,14 +1,18 @@
 // prune — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
 import { join, basename } from "node:path";
-import { parseLine } from "../../core/logfmt/format.ts"
-import { fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts"
+import { parseLine } from "../../core/logfmt/format.ts";
+import { fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts";
 import { readLines } from "../../core/logfmt/read.ts";
 import { withStoreLock, LOCK_WRITE } from "../lock.ts";
 import { tombstoneMany } from "../tombstones/tombstone.ts";
 import { type DeletedMemory, logDeletion } from "./deletions.ts";
 import { memoryFiles, toMemory } from "./load.ts";
 import { snapshotFiles } from "./snapshots.ts";
-import { type Reader, isVisibleTo, readerForAmbient } from "../model/visibility.ts";
+import {
+  type Reader,
+  isVisibleTo,
+  readerForAmbient,
+} from "../model/visibility.ts";
 
 export interface PruneResult {
   deleted: DeletedMemory[];
@@ -43,7 +47,12 @@ export async function prune(
           // Repo floor: forgetting scope X here must never delete
           // another repo's row for scope X — same basename collisions are real
           // (a fork next to its upstream).
-          if (m && m.scope === scope && m.type === type && isVisibleTo(m, reader)) {
+          if (
+            m &&
+            m.scope === scope &&
+            m.type === type &&
+            isVisibleTo(m, reader)
+          ) {
             fileDeleted.push({ memory: m, reason });
             await logDeletion(m, reason);
             changed = true;
@@ -53,7 +62,11 @@ export async function prune(
         }
         if (!changed) return;
         snapshot.push(...(await snapshotFiles([file])));
-        await writeAtomic(file, kept.join("\n") + (kept.length ? "\n" : ""), since);
+        await writeAtomic(
+          file,
+          kept.join("\n") + (kept.length ? "\n" : ""),
+          since,
+        );
         deleted.push(...fileDeleted);
       },
       LOCK_WRITE,

@@ -1,6 +1,6 @@
 // deletions — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
 import { deletionsFile } from "../../core/config/paths.ts";
-import { formatLine } from "../../core/logfmt/format.ts"
+import { formatLine } from "../../core/logfmt/format.ts";
 import { appendLog } from "../../core/logfmt/publish.ts";
 import { redactSecrets } from "../secrets.ts";
 import { type Memory } from "../model/memory.ts";
@@ -10,7 +10,10 @@ export interface DeletedMemory {
   reason: string;
 }
 
-export async function logDeletion(memory: Memory, reason: string): Promise<void> {
+export async function logDeletion(
+  memory: Memory,
+  reason: string,
+): Promise<void> {
   await appendLog(
     deletionsFile(),
     formatLine({

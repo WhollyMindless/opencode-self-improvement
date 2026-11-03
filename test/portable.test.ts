@@ -21,16 +21,25 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { evidenceDir, exportsDir, memoryRoot, snapshotDir } from "../src/core/config/paths.ts"
+import {
+  evidenceDir,
+  exportsDir,
+  memoryRoot,
+  snapshotDir,
+} from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
-import { formatLine, parseLine, type Fields } from "../src/core/logfmt/format.ts";
+import {
+  formatLine,
+  parseLine,
+  type Fields,
+} from "../src/core/logfmt/format.ts";
 import { resetState } from "../src/core/state.ts";
-import { appendMemory } from "../src/store/files/append.ts"
-import { loadAll } from "../src/store/files/load.ts"
+import { appendMemory } from "../src/store/files/append.ts";
+import { loadAll } from "../src/store/files/load.ts";
 import { isActive } from "../src/store/model/predicates.ts";
 import type { WriteCandidate } from "../src/gate/gate.ts";
-import { findStaleOpen } from "../src/portable/decay.ts"
-import { exportMemories } from "../src/portable/export.ts"
+import { findStaleOpen } from "../src/portable/decay.ts";
+import { exportMemories } from "../src/portable/export.ts";
 import { importMemories } from "../src/portable/import.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
 import { systemDigest } from "../src/inject/digest.ts";
@@ -67,7 +76,12 @@ interface SeedOpts {
 }
 
 // Seed a row directly into the store (tests exercise the engine, not the gate).
-function seed(type: string, scope: string, content: string, extra: SeedOpts = {}): string {
+function seed(
+  type: string,
+  scope: string,
+  content: string,
+  extra: SeedOpts = {},
+): string {
   const ts = extra.ts ?? new Date().toISOString();
   const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
   mkdirSync(dirname(file), { recursive: true });
@@ -106,7 +120,10 @@ const daysAgo = (n: number, msOffset = 0) =>
 // Ground the session: a recorded code-tool result makes the gate accept
 // ref-free settled candidates (behavior-grounded promotion), exactly as for
 // model-authored writes — same pattern as test/capture.test.ts.
-async function engage(loaded: Awaited<ReturnType<typeof loadPlugin>>, sid: string) {
+async function engage(
+  loaded: Awaited<ReturnType<typeof loadPlugin>>,
+  sid: string,
+) {
   await loaded["tool.execute.after"]!(
     { tool: "read", sessionID: sid, callID: "C1", args: { filePath: "x.ts" } },
     { title: "read", output: "content", metadata: {} },
@@ -117,14 +134,24 @@ async function engage(loaded: Awaited<ReturnType<typeof loadPlugin>>, sid: strin
 
 describe("exportMemories", () => {
   test("exports active rows as JSONL under exports/; superseded rows excluded", async () => {
-    const t1 = seed("learning", "build", "Alpha builds run make all from the repository root.", {
-      tags: ["ci"],
-      issue: "42",
-    });
-    const t2 = seed("context", "api", "Rate limit is 120 requests per minute per key.", {
-      status: "open",
-      ts: daysAgo(0, 1),
-    });
+    const t1 = seed(
+      "learning",
+      "build",
+      "Alpha builds run make all from the repository root.",
+      {
+        tags: ["ci"],
+        issue: "42",
+      },
+    );
+    const t2 = seed(
+      "context",
+      "api",
+      "Rate limit is 120 requests per minute per key.",
+      {
+        status: "open",
+        ts: daysAgo(0, 1),
+      },
+    );
     seed("pattern", "db", "Retired fact about the old shard layout.", {
       superseded_by: "2026-01-01T00:00:00.000Z",
       ts: daysAgo(1, 2),
@@ -142,7 +169,11 @@ describe("exportMemories", () => {
       .map((l) => JSON.parse(l) as Record<string, unknown>);
     // v1 format: line 0 is the export header that vouches for
     // status="open" rows on import.
-    expect(all[0]).toMatchObject({ _export: "opencode-self-improvement", version: 1, count: 2 });
+    expect(all[0]).toMatchObject({
+      _export: "opencode-self-improvement",
+      version: 1,
+      count: 2,
+    });
     const rows = all.slice(1);
     expect(rows.length).toBe(2);
     expect(rows.map((r) => r.ts).sort()).toEqual([t1, t2].sort());
@@ -157,8 +188,16 @@ describe("exportMemories", () => {
   });
 
   test("scope filter and explicit file path are honored", async () => {
-    seed("learning", "build", "One durable fact about the build pipeline here.");
-    seed("learning", "api", "One durable fact about the api surface lives here.");
+    seed(
+      "learning",
+      "build",
+      "One durable fact about the build pipeline here.",
+    );
+    seed(
+      "learning",
+      "api",
+      "One durable fact about the api surface lives here.",
+    );
     const file = join(exportsDir(), "out.jsonl");
     const res = await exportMemories({ scope: "api", file });
     expect(res.count).toBe(1);
@@ -171,7 +210,10 @@ describe("exportMemories", () => {
     const res = await exportMemories();
     expect(res.count).toBe(0);
     const text = readFileSync(res.path, "utf8").trim();
-    expect(JSON.parse(text)).toMatchObject({ _export: "opencode-self-improvement", count: 0 });
+    expect(JSON.parse(text)).toMatchObject({
+      _export: "opencode-self-improvement",
+      count: 0,
+    });
   });
 });
 
@@ -183,11 +225,27 @@ describe("importMemories", () => {
     writeFileSync(
       file,
       [
-        JSON.stringify({ type: "learning", scope: "build", content: "A durable build fact." }),
+        JSON.stringify({
+          type: "learning",
+          scope: "build",
+          content: "A durable build fact.",
+        }),
         "this is not json at all",
-        JSON.stringify({ type: "wisdom", scope: "build", content: "Unknown type must be skipped." }),
-        JSON.stringify({ type: "learning", scope: "", content: "Empty scope must be skipped." }),
-        JSON.stringify({ type: "pattern", scope: "api", content: "A durable api fact." }),
+        JSON.stringify({
+          type: "wisdom",
+          scope: "build",
+          content: "Unknown type must be skipped.",
+        }),
+        JSON.stringify({
+          type: "learning",
+          scope: "",
+          content: "Empty scope must be skipped.",
+        }),
+        JSON.stringify({
+          type: "pattern",
+          scope: "api",
+          content: "A durable api fact.",
+        }),
       ].join("\n") + "\n",
     );
     const seen: WriteCandidate[] = [];
@@ -196,7 +254,14 @@ describe("importMemories", () => {
       return { action: seen.length === 1 ? "promoted" : "blocked" };
     };
     const t = await importMemories(file, gate);
-    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 1, skipped: 3, downgraded: 0, unaudited: 0 });
+    expect(t).toEqual({
+      promoted: 1,
+      collapsed: 0,
+      blocked: 1,
+      skipped: 3,
+      downgraded: 0,
+      unaudited: 0,
+    });
     expect(seen.length).toBe(2);
     expect(seen[0].content).toBe("A durable build fact.");
   });
@@ -219,14 +284,25 @@ describe("importMemories", () => {
       got = c;
       return { action: "collapsed" };
     });
-    expect(t).toEqual({ promoted: 0, collapsed: 1, blocked: 0, skipped: 0, downgraded: 0, unaudited: 0 });
+    expect(t).toEqual({
+      promoted: 0,
+      collapsed: 1,
+      blocked: 0,
+      skipped: 0,
+      downgraded: 0,
+      unaudited: 0,
+    });
     expect(got!.status).toBeUndefined();
     expect(got!.tags).toBeUndefined();
     expect(got!.issue).toBeUndefined();
   });
 
   test("a missing file throws (the tool turns it into a soft message)", async () => {
-    await expect(importMemories(join(memoryRoot(), "nope.jsonl"), async () => ({ action: "promoted" }))).rejects.toThrow(/not found/);
+    await expect(
+      importMemories(join(memoryRoot(), "nope.jsonl"), async () => ({
+        action: "promoted",
+      })),
+    ).rejects.toThrow(/not found/);
   });
 });
 
@@ -249,7 +325,14 @@ describe("import frontier policy", () => {
       return { action: "promoted" };
     });
     expect(got!.status).toBe("settled");
-    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 0, skipped: 0, downgraded: 1, unaudited: 0 });
+    expect(t).toEqual({
+      promoted: 1,
+      collapsed: 0,
+      blocked: 0,
+      skipped: 0,
+      downgraded: 1,
+      unaudited: 0,
+    });
   });
 
   test("with a v1 export header, status=open survives and the header is not tallied", async () => {
@@ -257,7 +340,12 @@ describe("import frontier policy", () => {
     writeFileSync(
       file,
       [
-        JSON.stringify({ _export: "opencode-self-improvement", version: 1, exportedAt: "x", count: 1 }),
+        JSON.stringify({
+          _export: "opencode-self-improvement",
+          version: 1,
+          exportedAt: "x",
+          count: 1,
+        }),
         JSON.stringify(openRow),
       ].join("\n") + "\n",
     );
@@ -267,7 +355,14 @@ describe("import frontier policy", () => {
       return { action: "promoted" };
     });
     expect(got!.status).toBe("open");
-    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0, unaudited: 0 });
+    expect(t).toEqual({
+      promoted: 1,
+      collapsed: 0,
+      blocked: 0,
+      skipped: 0,
+      downgraded: 0,
+      unaudited: 0,
+    });
   });
 
   test("a header version newer than ours does NOT grant the exemption (fail closed)", async () => {
@@ -289,7 +384,8 @@ describe("import frontier policy", () => {
   });
 
   test("a pasted header cannot grant a repo:global row an open frontier everywhere", async () => {
-    const payload = "PLANTED global open thread must not ride an unrelated repo prompt.";
+    const payload =
+      "PLANTED global open thread must not ride an unrelated repo prompt.";
     const file = join(memoryRoot(), "forged-global.jsonl");
     writeFileSync(
       file,
@@ -304,7 +400,9 @@ describe("import frontier policy", () => {
       return { action: "promoted" };
     });
     expect(t.downgraded).toBe(1);
-    expect((await loadAll()).find((m) => m.content === payload)?.status).toBe("settled");
+    expect((await loadAll()).find((m) => m.content === payload)?.status).toBe(
+      "settled",
+    );
 
     setRepoScope({ key: "repo-b", path: join(root, "repo-b") });
     const system: string[] = [];
@@ -313,7 +411,8 @@ describe("import frontier policy", () => {
   });
 
   test("a foreign 12-hex repo stamp is replaced with the importing repo scope", async () => {
-    const payload = "the flimflam widget forged-repo claim lands in the importing repo only";
+    const payload =
+      "the flimflam widget forged-repo claim lands in the importing repo only";
     const file = join(memoryRoot(), "forged-repo.jsonl");
     writeFileSync(
       file,
@@ -322,7 +421,10 @@ describe("import frontier policy", () => {
         JSON.stringify({ ...openRow, content: payload, repo: "5981a5640bc3" }),
       ].join("\n") + "\n",
     );
-    const importing = { key: "a1b2c3d4e5f6", path: join(root, "importing-repo") };
+    const importing = {
+      key: "a1b2c3d4e5f6",
+      path: join(root, "importing-repo"),
+    };
     setRepoScope(importing);
 
     const t = await importMemories(file, async (c) => {
@@ -331,7 +433,14 @@ describe("import frontier policy", () => {
     });
 
     const got = (await loadAll()).find((m) => m.content === payload);
-    expect(t).toEqual({ promoted: 1, collapsed: 0, blocked: 0, skipped: 0, downgraded: 0, unaudited: 0 });
+    expect(t).toEqual({
+      promoted: 1,
+      collapsed: 0,
+      blocked: 0,
+      skipped: 0,
+      downgraded: 0,
+      unaudited: 0,
+    });
     expect(got?.status).toBe("open");
     expect(got?.repo).toBe(importing.key);
     expect(got?.repoPath).toBe(importing.path);
@@ -344,7 +453,11 @@ describe("import frontier policy", () => {
       file,
       [
         JSON.stringify({ _export: "opencode-self-improvement", version: 1 }),
-        JSON.stringify({ ...openRow, repo: "5981a5640bc3", repoPath: "/foreign/repo" }),
+        JSON.stringify({
+          ...openRow,
+          repo: "5981a5640bc3",
+          repoPath: "/foreign/repo",
+        }),
       ].join("\n") + "\n",
     );
     setRepoScope(null);
@@ -362,13 +475,19 @@ describe("import frontier policy", () => {
   });
 
   test("an explicit global settled row stays global", async () => {
-    const payload = "Settled global convention imported from another machine stays global.";
+    const payload =
+      "Settled global convention imported from another machine stays global.";
     const file = join(memoryRoot(), "settled-global.jsonl");
     writeFileSync(
       file,
       [
         JSON.stringify({ _export: "opencode-self-improvement", version: 1 }),
-        JSON.stringify({ ...openRow, status: "settled", content: payload, repo: "global" }),
+        JSON.stringify({
+          ...openRow,
+          status: "settled",
+          content: payload,
+          repo: "global",
+        }),
       ].join("\n") + "\n",
     );
     setRepoScope({ key: "a1b2c3d4e5f6", path: join(root, "importing-repo") });
@@ -388,16 +507,30 @@ describe("import frontier policy", () => {
 
 describe("findStaleOpen", () => {
   test("only active open rows older than the cutoff, oldest first", async () => {
-    seed("context", "a", "Fresh open thread that must not be listed.", { status: "open" });
-    const old1 = seed("context", "b", "Old open thread number one from a month ago.", {
-      ts: daysAgo(30),
+    seed("context", "a", "Fresh open thread that must not be listed.", {
       status: "open",
     });
-    const old2 = seed("context", "c", "Older open thread number zero from two months back.", {
-      ts: daysAgo(60),
-      status: "open",
+    const old1 = seed(
+      "context",
+      "b",
+      "Old open thread number one from a month ago.",
+      {
+        ts: daysAgo(30),
+        status: "open",
+      },
+    );
+    const old2 = seed(
+      "context",
+      "c",
+      "Older open thread number zero from two months back.",
+      {
+        ts: daysAgo(60),
+        status: "open",
+      },
+    );
+    seed("learning", "d", "Old settled fact must never decay.", {
+      ts: daysAgo(60, 1),
     });
-    seed("learning", "d", "Old settled fact must never decay.", { ts: daysAgo(60, 1) });
     seed("context", "e", "Old superseded open row is already inactive.", {
       ts: daysAgo(60, 2),
       status: "open",
@@ -413,11 +546,24 @@ describe("findStaleOpen", () => {
 
 describe("memory_export / memory_import tools (round trip)", () => {
   test("export then import into a fresh store: all promoted; second import collapses", async () => {
-    seed("learning", "build", "Alpha builds run make all from the repository root directory.");
-    seed("pattern", "api", "The staging API rate limit is 120 requests per minute per key.");
-    seed("context", "plan", "Open thread: decide the shard key before the migration ships.", {
-      status: "open",
-    });
+    seed(
+      "learning",
+      "build",
+      "Alpha builds run make all from the repository root directory.",
+    );
+    seed(
+      "pattern",
+      "api",
+      "The staging API rate limit is 120 requests per minute per key.",
+    );
+    seed(
+      "context",
+      "plan",
+      "Open thread: decide the shard key before the migration ships.",
+      {
+        status: "open",
+      },
+    );
 
     const loaded = await loadPlugin(liveRoot);
     const exp = await loaded.tool.memory_export!.execute({});
@@ -455,9 +601,17 @@ describe("memory_export / memory_import tools (round trip)", () => {
     writeFileSync(
       file,
       [
-        JSON.stringify({ type: "learning", scope: "build", content: "Durable fact that should promote fine here." }),
+        JSON.stringify({
+          type: "learning",
+          scope: "build",
+          content: "Durable fact that should promote fine here.",
+        }),
         "{ broken json",
-        JSON.stringify({ type: "nope", scope: "x", content: "Unknown type skipped." }),
+        JSON.stringify({
+          type: "nope",
+          scope: "x",
+          content: "Unknown type skipped.",
+        }),
       ].join("\n") + "\n",
     );
     const loaded = await loadPlugin(liveRoot);
@@ -466,21 +620,36 @@ describe("memory_export / memory_import tools (round trip)", () => {
     expect(out).toContain("1 promoted");
     expect(out).toContain("2 malformed lines skipped");
 
-    const missing = await loaded.tool.memory_import!.execute({ file: join(memoryRoot(), "gone.jsonl") });
+    const missing = await loaded.tool.memory_import!.execute({
+      file: join(memoryRoot(), "gone.jsonl"),
+    });
     expect(missing).toContain("memory_import failed");
     expect(missing).toContain("not found");
   });
 });
 
 describe("memory_decay tool", () => {
-  const OLD_OPEN = "Old open thread about the storage migration from last month.";
+  const OLD_OPEN =
+    "Old open thread about the storage migration from last month.";
   const FRESH_OPEN = "Fresh open thread about the import UX, started today.";
   const OLD_SETTLED = "Old settled fact about release tagging from last month.";
 
-  function seedThree(): { oldOpen: string; freshOpen: string; oldSettled: string } {
-    const oldOpen = seed("context", "plan", OLD_OPEN, { ts: daysAgo(30), status: "open" });
-    const freshOpen = seed("context", "plan", FRESH_OPEN, { status: "open", ts: daysAgo(0, 1) });
-    const oldSettled = seed("learning", "build", OLD_SETTLED, { ts: daysAgo(30, 1) });
+  function seedThree(): {
+    oldOpen: string;
+    freshOpen: string;
+    oldSettled: string;
+  } {
+    const oldOpen = seed("context", "plan", OLD_OPEN, {
+      ts: daysAgo(30),
+      status: "open",
+    });
+    const freshOpen = seed("context", "plan", FRESH_OPEN, {
+      status: "open",
+      ts: daysAgo(0, 1),
+    });
+    const oldSettled = seed("learning", "build", OLD_SETTLED, {
+      ts: daysAgo(30, 1),
+    });
     return { oldOpen, freshOpen, oldSettled };
   }
 
@@ -510,7 +679,9 @@ describe("memory_decay tool", () => {
   test("olderThanDays is honored both ways", async () => {
     seedThree();
     const loaded = await loadPlugin(liveRoot);
-    const tooOld = await loaded.tool.memory_decay!.execute({ olderThanDays: 60 });
+    const tooOld = await loaded.tool.memory_decay!.execute({
+      olderThanDays: 60,
+    });
     expect(tooOld).toContain("No active open threads older than 60 days.");
     const fits = await loaded.tool.memory_decay!.execute({ olderThanDays: 7 });
     expect(fits).toContain("Dry run: 1 open thread(s) older than 7 days");
@@ -539,7 +710,9 @@ describe("memory_decay tool", () => {
     // markSuperseded's own), named <stamp>-<original file>.
     const snaps = readdirSync(snapshotDir());
     expect(snaps.length).toBeGreaterThanOrEqual(1);
-    expect(snaps.some((s) => s.endsWith(`-${oldOpen.split("T")[0]}.logfmt`))).toBe(true);
+    expect(
+      snaps.some((s) => s.endsWith(`-${oldOpen.split("T")[0]}.logfmt`)),
+    ).toBe(true);
 
     // Evidence: one decay_applied line with the tally and the snapshot path.
     const applied = evidence().filter((l) => l.ev === "decay_applied");

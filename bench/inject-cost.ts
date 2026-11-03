@@ -29,7 +29,13 @@
 // is byte-identical across runs.
 //
 // Run: bun bench/inject-cost.ts   (also: bun run bench)
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  appendFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -43,13 +49,13 @@ process.env.OPENCODE_MEMORY_DIR = store;
 delete process.env.OPENCODE_MEMORY_INJECT_BUDGET; // the bench measures the DEFAULT budget
 
 import { injectBudget } from "../src/core/config/budgets.ts";
-import { compactionAnchor } from "../src/inject/anchor.ts"
-import { capToBudget } from "../src/inject/budget.ts"
-import { systemDigest } from "../src/inject/digest.ts"
-import { storeVersion } from "../src/inject/version.ts"
+import { compactionAnchor } from "../src/inject/anchor.ts";
+import { capToBudget } from "../src/inject/budget.ts";
+import { systemDigest } from "../src/inject/digest.ts";
+import { storeVersion } from "../src/inject/version.ts";
 import { relevantKnowledge } from "../src/recall/relevant.ts";
-import { loadAll } from "../src/store/files/load.ts"
-import { type Memory } from "../src/store/model/memory.ts"
+import { loadAll } from "../src/store/files/load.ts";
+import { type Memory } from "../src/store/model/memory.ts";
 import { isActive } from "../src/store/model/predicates.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
 
@@ -67,9 +73,36 @@ function lcg(seed: number): () => number {
 const rand = lcg(20261018);
 const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rand() * xs.length)];
 
-const TOPICS = ["vitest", "bun", "esbuild", "playwright", "docker", "postgres", "redis", "nginx", "graphql", "rust"] as const;
-const SCOPES = ["build", "api", "auth", "infra", "db", "frontend", "cli", "docs"] as const;
-const TYPES = ["learning", "pattern", "decision", "preference", "blocker", "context"] as const;
+const TOPICS = [
+  "vitest",
+  "bun",
+  "esbuild",
+  "playwright",
+  "docker",
+  "postgres",
+  "redis",
+  "nginx",
+  "graphql",
+  "rust",
+] as const;
+const SCOPES = [
+  "build",
+  "api",
+  "auth",
+  "infra",
+  "db",
+  "frontend",
+  "cli",
+  "docs",
+] as const;
+const TYPES = [
+  "learning",
+  "pattern",
+  "decision",
+  "preference",
+  "blocker",
+  "context",
+] as const;
 const PHRASES = [
   "run the suite from the repository root, never a subdirectory",
   "the cache key must include the schema version or reads go stale",
@@ -96,7 +129,18 @@ const PHRASES = [
   "watch mode debounces file events by fifty milliseconds to coalesce",
   "the auth middleware refreshes tokens only on a forty-one response",
 ] as const;
-const PROMPT_WORDS = ["run", "build", "test", "cache", "config", "deploy", "check", "rate", "limit", "rebuild"] as const;
+const PROMPT_WORDS = [
+  "run",
+  "build",
+  "test",
+  "cache",
+  "config",
+  "deploy",
+  "check",
+  "rate",
+  "limit",
+  "rebuild",
+] as const;
 
 interface Row {
   ts: string;
@@ -108,7 +152,8 @@ interface Row {
 
 // Synthetic base timestamp: memory rows never use the wall clock.
 const BASE = Date.parse("2026-09-01T00:00:00.000Z");
-const iso = (offsetSec: number) => new Date(BASE + offsetSec * 1000).toISOString();
+const iso = (offsetSec: number) =>
+  new Date(BASE + offsetSec * 1000).toISOString();
 
 // 50 memories: topic+scope prefix (so prompts can match them) plus enough
 // phrases to land between ~260 and ~560 chars — realistic durable-memory size.
@@ -120,22 +165,42 @@ for (let i = 0; i < 50; i++) {
   const target = 260 + Math.floor(rand() * 300);
   let content = `${topic} ${scope}:`;
   while (content.length < target) content += ` ${pick(PHRASES)}`;
-  memories.push({ ts: iso(i * 37), type, scope, content, status: i % 7 === 3 ? "open" : "settled" });
+  memories.push({
+    ts: iso(i * 37),
+    type,
+    scope,
+    content,
+    status: i % 7 === 3 ? "open" : "settled",
+  });
 }
 
 // 20 user prompts: one topic each plus a couple of shared vocabulary words.
 const prompts: string[] = [];
 for (let i = 0; i < 20; i++) {
-  prompts.push(`${TOPICS[i % TOPICS.length]} ${pick(PROMPT_WORDS)} ${pick(PROMPT_WORDS)} how`);
+  prompts.push(
+    `${TOPICS[i % TOPICS.length]} ${pick(PROMPT_WORDS)} ${pick(PROMPT_WORDS)} how`,
+  );
 }
 
 // Three writes that land mid-session (turns 5, 10, 15). They change the store
 // fingerprint; whether each one changes what the session is SHOWN is exactly
 // what the bust columns measure — do not assume all three are visible.
 const SESSION_WRITES: Array<{ scope: string; content: string }> = [
-  { scope: "infra", content: "Mid-session fact one: the staging deploy waits for the health check to pass twice in a row." },
-  { scope: "ledger", content: "Mid-session fact two: nimrod flurb quux calibration prunes stale zebra-dashboard widget ledgers nightly." },
-  { scope: "cli", content: "Mid-session fact three: the import tool tags every promoted row so provenance survives a round trip." },
+  {
+    scope: "infra",
+    content:
+      "Mid-session fact one: the staging deploy waits for the health check to pass twice in a row.",
+  },
+  {
+    scope: "ledger",
+    content:
+      "Mid-session fact two: nimrod flurb quux calibration prunes stale zebra-dashboard widget ledgers nightly.",
+  },
+  {
+    scope: "cli",
+    content:
+      "Mid-session fact three: the import tool tags every promoted row so provenance survives a round trip.",
+  },
 ];
 
 const storeFile = () => join(store, "2026-09-01.logfmt");
@@ -144,7 +209,13 @@ function seedStore(): void {
   rmSync(store, { recursive: true, force: true });
   mkdirSync(store, { recursive: true });
   const lines = memories.map((m) =>
-    formatLine({ ts: m.ts, type: m.type, scope: m.scope, content: m.content, status: m.status }),
+    formatLine({
+      ts: m.ts,
+      type: m.type,
+      scope: m.scope,
+      content: m.content,
+      status: m.status,
+    }),
   );
   writeFileSync(storeFile(), lines.join("\n") + "\n");
 }
@@ -156,7 +227,11 @@ const budget = injectBudget(); // 1200 (env cleared above)
 // The standing digest + open-thread frontier, exactly as the context hook
 // renders it from the CURRENT store (or from the rows a caller supplies — the
 // #165 arm re-renders with the session's own additions taken back out).
-async function digestParts(sid: string, legacy = false, rows?: Memory[]): Promise<string[]> {
+async function digestParts(
+  sid: string,
+  legacy = false,
+  rows?: Memory[],
+): Promise<string[]> {
   const all = rows ?? (await loadAll()).filter(isActive);
   const parts: string[] = [];
   await systemDigest({ sessionID: sid }, { system: parts }, { rows: all });
@@ -165,7 +240,11 @@ async function digestParts(sid: string, legacy = false, rows?: Memory[]): Promis
   // promoted write rewrote the cached prefix whether or not the model was shown
   // anything new. Reproduced verbatim from the shipped 0.14.x text.
   if (legacy && parts.length && parts[0].startsWith("\n## Persistent memory")) {
-    const latest = all.map((m) => m.ts).sort().pop() ?? "?";
+    const latest =
+      all
+        .map((m) => m.ts)
+        .sort()
+        .pop() ?? "?";
     parts[0] =
       "\n## Persistent memory (opencode-self-improvement)\n" +
       `${all.length} durable memories; latest: ${latest}. ` +
@@ -175,8 +254,12 @@ async function digestParts(sid: string, legacy = false, rows?: Memory[]): Promis
   }
   return parts;
 }
-const section = async (sid: string, block: string, legacy = false, rows?: Memory[]) =>
-  [...(await digestParts(sid, legacy, rows)), block].join("\n");
+const section = async (
+  sid: string,
+  block: string,
+  legacy = false,
+  rows?: Memory[],
+) => [...(await digestParts(sid, legacy, rows)), block].join("\n");
 
 // The three writes land mid-session, at turns 5, 10 and 15.
 const writeAt = (i: number) => (i === 4 ? 0 : i === 9 ? 1 : i === 14 ? 2 : -1);
@@ -197,7 +280,8 @@ function applyWrite(write: number): void {
 // on EVERY prompt, which changed the system prefix every turn.
 seedStore();
 const aSections: string[] = [];
-for (const p of prompts) aSections.push(await section("ses-a", await relevantKnowledge(p, 3)));
+for (const p of prompts)
+  aSections.push(await section("ses-a", await relevantKnowledge(p, 3)));
 
 // Policy B: the pre-#162 shipped behavior — block frozen against the store
 // fingerprint and capped at the budget, but the digest rebuilt per request.
@@ -230,7 +314,10 @@ for (let i = 0; i < prompts.length; i++) {
   const version = await storeVersion();
   if (!cEpoch || cEpoch.version !== version) {
     const raw = await relevantKnowledge(prompts[i], 5);
-    const rendered = await section("ses-c", raw ? capToBudget(raw, budget) : "");
+    const rendered = await section(
+      "ses-c",
+      raw ? capToBudget(raw, budget) : "",
+    );
     if (!cEpoch || cEpoch.section !== rendered) {
       cEpoch = { version, section: rendered };
       cRecomputes++;
@@ -250,7 +337,12 @@ for (let i = 0; i < prompts.length; i++) {
 // row, still survives that subtraction and would still bust.
 seedStore();
 const dSections: string[] = [];
-let dEpoch: { version: string; section: string; ownRows: Set<string>; prompt: string } | null = null;
+let dEpoch: {
+  version: string;
+  section: string;
+  ownRows: Set<string>;
+  prompt: string;
+} | null = null;
 let dRecomputes = 0;
 const authored = new Set<string>();
 for (let i = 0; i < prompts.length; i++) {
@@ -263,18 +355,32 @@ for (let i = 0; i < prompts.length; i++) {
   if (!dEpoch || dEpoch.version !== version) {
     const rows = (await loadAll()).filter(isActive);
     const raw = await relevantKnowledge(prompts[i], 5, rows);
-    const rendered = await section("ses-d", raw ? capToBudget(raw, budget) : "", false, rows);
+    const rendered = await section(
+      "ses-d",
+      raw ? capToBudget(raw, budget) : "",
+      false,
+      rows,
+    );
     let adopt = !dEpoch || dEpoch.section !== rendered;
     if (adopt && dEpoch) {
       const frozen = dEpoch;
-      const extra = rows.filter((m) => authored.has(m.ts) && !frozen.ownRows.has(m.ts));
+      const extra = rows.filter(
+        (m) => authored.has(m.ts) && !frozen.ownRows.has(m.ts),
+      );
       if (extra.length) {
         // Re-score the SAME inputs the frozen bytes came from — same rows minus
         // the session's own additions, same prompt. A topic change is not a
         // content change: the epoch refuses to refresh for one anyway.
         const back = rows.filter((m) => !extra.some((e) => e.ts === m.ts));
         const rawBack = await relevantKnowledge(frozen.prompt, 5, back);
-        if ((await section("ses-d", rawBack ? capToBudget(rawBack, budget) : "", false, back)) === frozen.section) {
+        if (
+          (await section(
+            "ses-d",
+            rawBack ? capToBudget(rawBack, budget) : "",
+            false,
+            back,
+          )) === frozen.section
+        ) {
           adopt = false;
         }
       }
@@ -284,7 +390,9 @@ for (let i = 0; i < prompts.length; i++) {
         version,
         section: rendered,
         prompt: prompts[i],
-        ownRows: new Set(rows.filter((m) => authored.has(m.ts)).map((m) => m.ts)),
+        ownRows: new Set(
+          rows.filter((m) => authored.has(m.ts)).map((m) => m.ts),
+        ),
       };
       dRecomputes++;
     } else if (dEpoch) {
@@ -308,7 +416,8 @@ const sum = (xs: string[]) => xs.reduce((a, b) => a + b.length, 0);
 const worst = (xs: string[]) => Math.max(0, ...xs.map((b) => b.length));
 // What the provider cache actually sees: how many times the riding bytes changed
 // after the first fill. One change = one full re-prefill of the conversation.
-const busts = (xs: string[]) => xs.reduce((n, s, i) => (i > 0 && s !== xs[i - 1] ? n + 1 : n), 0);
+const busts = (xs: string[]) =>
+  xs.reduce((n, s, i) => (i > 0 && s !== xs[i - 1] ? n + 1 : n), 0);
 const sumA = sum(aSections);
 const sumB = sum(bSections);
 const sumC = sum(cSections);

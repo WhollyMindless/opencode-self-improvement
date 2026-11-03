@@ -5,14 +5,23 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { runWriteGate } from "../src/gate/gate.ts";
-import { exportMemories } from "../src/portable/export.ts"
+import { exportMemories } from "../src/portable/export.ts";
 import { importMemories } from "../src/portable/import.ts";
 import * as evidence from "../src/evidence/record.ts";
-import { appendMemory } from "../src/store/files/append.ts"
-import { loadAll } from "../src/store/files/load.ts"
-import { type Memory } from "../src/store/model/memory.ts"
-import { isVisibleTo, readerForSession } from "../src/store/model/visibility.ts";
-import { rememberSessionDir, resetSessionScopes, resolveRepo, sessionScope, setRepoScope } from "../src/identity/repokey.ts";
+import { appendMemory } from "../src/store/files/append.ts";
+import { loadAll } from "../src/store/files/load.ts";
+import { type Memory } from "../src/store/model/memory.ts";
+import {
+  isVisibleTo,
+  readerForSession,
+} from "../src/store/model/visibility.ts";
+import {
+  rememberSessionDir,
+  resetSessionScopes,
+  resolveRepo,
+  sessionScope,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
 import { tombstone } from "../src/store/tombstones/tombstone.ts";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
@@ -57,14 +66,20 @@ afterEach(async () => {
     if (savedEnv[key] === undefined) delete process.env[key];
     else process.env[key] = savedEnv[key];
   }
-  if (dirname(resolve(root)) !== resolve(tmpdir()) || !basename(root).startsWith("osi-collapse-visibility-")) {
+  if (
+    dirname(resolve(root)) !== resolve(tmpdir()) ||
+    !basename(root).startsWith("osi-collapse-visibility-")
+  ) {
     throw new Error("Unexpected fixture cleanup target");
   }
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
 function git(dir: string, ...args: string[]): void {
-  const p = Bun.spawnSync(["git", "-C", dir, ...args], { stdout: "pipe", stderr: "pipe" });
+  const p = Bun.spawnSync(["git", "-C", dir, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   if (p.exitCode !== 0) throw new Error(p.stderr.toString());
 }
 
@@ -74,8 +89,16 @@ async function plugin(dir: string): Promise<LoadedPlugin> {
   return p;
 }
 
-async function remember(p: LoadedPlugin, sid: string, content: string, issue?: string): Promise<Memory> {
-  const reply = await p.tools.memory_remember.execute({ ...fields, content, issue }, ctx(sid));
+async function remember(
+  p: LoadedPlugin,
+  sid: string,
+  content: string,
+  issue?: string,
+): Promise<Memory> {
+  const reply = await p.tools.memory_remember.execute(
+    { ...fields, content, issue },
+    ctx(sid),
+  );
   expect(reply.content).toMatch(/^Remembered/);
   const row = (await loadAll()).find((m) => m.content === content);
   if (!row) throw new Error("Remembered row missing");
@@ -85,7 +108,13 @@ async function remember(p: LoadedPlugin, sid: string, content: string, issue?: s
 async function sharedCheckouts() {
   for (const dir of [a, b]) {
     git(dir, "init", "--quiet");
-    git(dir, "remote", "add", "origin", "https://example.invalid/visibility/shared.git");
+    git(
+      dir,
+      "remote",
+      "add",
+      "origin",
+      "https://example.invalid/visibility/shared.git",
+    );
   }
   const pa = await plugin(a);
   const pb = await plugin(b);
@@ -97,15 +126,25 @@ async function sharedCheckouts() {
 }
 
 function changeOrigin(): void {
-  git(a, "remote", "set-url", "origin", "https://example.invalid/visibility/fork.git");
+  git(
+    a,
+    "remote",
+    "set-url",
+    "origin",
+    "https://example.invalid/visibility/fork.git",
+  );
   // Model fresh host resolution after an origin change; directory scopes are cached.
   resetSessionScopes();
   rememberSessionDir("reader-a", a);
 }
 
 const update = (p: LoadedPlugin, target: string, sid = "writer") =>
-  p.tools.memory_update.execute({ ...fields, query: target, content: newProse }, ctx(sid));
-const recall = (p: LoadedPlugin) => p.tools.memory_recall.execute({ scope: fields.scope }, ctx("reader-a"));
+  p.tools.memory_update.execute(
+    { ...fields, query: target, content: newProse },
+    ctx(sid),
+  );
+const recall = (p: LoadedPlugin) =>
+  p.tools.memory_recall.execute({ scope: fields.scope }, ctx("reader-a"));
 async function row(ts: string): Promise<Memory> {
   const found = (await loadAll()).find((m) => m.ts === ts);
   if (!found) throw new Error(`Row missing: ${ts}`);
@@ -115,26 +154,29 @@ async function row(ts: string): Promise<Memory> {
 function moveDuringGate(p: LoadedPlugin): () => boolean {
   const record = evidence.record;
   let moved = false;
-  const spy = spyOn(evidence, "record").mockImplementation(async (...args: Parameters<typeof record>) => {
-    if (args[0] === "gate_start" && !moved) {
-      moved = true;
-      // The real listener changes the binding during the gate's existing await.
-      // No fabricated gate result or store mutation is involved.
-      p.capture.events.push({
-        type: "session.moved",
-        location: { directory: a },
-        data: { sessionID: "writer", location: { directory: b } },
-      });
-      const expected = resolveRepo(b);
-      const deadline = Date.now() + 2000;
-      while (sessionScope("writer")?.path !== expected.path) {
-        if (Date.now() >= deadline) throw new Error("Session move was not delivered");
-        await Bun.sleep(1);
+  const spy = spyOn(evidence, "record").mockImplementation(
+    async (...args: Parameters<typeof record>) => {
+      if (args[0] === "gate_start" && !moved) {
+        moved = true;
+        // The real listener changes the binding during the gate's existing await.
+        // No fabricated gate result or store mutation is involved.
+        p.capture.events.push({
+          type: "session.moved",
+          location: { directory: a },
+          data: { sessionID: "writer", location: { directory: b } },
+        });
+        const expected = resolveRepo(b);
+        const deadline = Date.now() + 2000;
+        while (sessionScope("writer")?.path !== expected.path) {
+          if (Date.now() >= deadline)
+            throw new Error("Session move was not delivered");
+          await Bun.sleep(1);
+        }
+        expect(sessionScope("writer")).toEqual(expected);
       }
-      expect(sessionScope("writer")).toEqual(expected);
-    }
-    return record(...args);
-  });
+      return record(...args);
+    },
+  );
   restoreRecord = () => spy.mockRestore();
   return () => moved;
 }
@@ -146,18 +188,28 @@ test("same-origin checkouts with different paths do not fold even while both can
   expect(reply.content).toContain("repository path visibility differs");
   expect((await row(target.ts)).superseded_by).toBeUndefined();
   expect((await row(survivor.ts)).superseded_by).toBeUndefined();
-  expect(reply.content).toContain(`memory_merge_review with loser="${target.ts}", survivor="${survivor.ts}"`);
+  expect(reply.content).toContain(
+    `memory_merge_review with loser="${target.ts}", survivor="${survivor.ts}"`,
+  );
   expect(reply.content).toContain("explicit reason");
   expect(reply.content).not.toContain("memory_forget");
 
   // An explicit choice may cross paths (#131); the suggested remedy must
   // retire exactly the named loser, not every row of this scope and type.
   const unrelated = await appendMemory({
-    ...fields, content: "Plan to audit payroll each quarter", repo: target.repo, repoPath: target.repoPath,
+    ...fields,
+    content: "Plan to audit payroll each quarter",
+    repo: target.repo,
+    repoPath: target.repoPath,
   });
-  const merged = await pb.tools.memory_merge_review.execute({
-    loser: target.ts, survivor: survivor.ts, reason: "Explicitly keep the survivor's standing",
-  }, ctx("writer"));
+  const merged = await pb.tools.memory_merge_review.execute(
+    {
+      loser: target.ts,
+      survivor: survivor.ts,
+      reason: "Explicitly keep the survivor's standing",
+    },
+    ctx("writer"),
+  );
   expect(merged.content).toMatch(/^Resolved merge:/);
   expect((await row(target.ts)).superseded_by).toBe(survivor.ts);
   expect((await row(survivor.ts)).superseded_by).toBeUndefined();
@@ -202,7 +254,12 @@ test("a session move cannot expose invisible survivor metadata in a refusal", as
   const pa = await plugin(a);
   const pb = await plugin(b);
   const target = await remember(pa, "seed-a", oldProse);
-  const survivor = await remember(pb, "seed-b", newProse, "PRIVATE-SURVIVOR-175");
+  const survivor = await remember(
+    pb,
+    "seed-b",
+    newProse,
+    "PRIVATE-SURVIVOR-175",
+  );
   rememberSessionDir("writer", a);
   expect(isVisibleTo(survivor, readerForSession("writer"))).toBe(false);
   const moved = moveDuringGate(pa);
@@ -224,36 +281,71 @@ test.each([
   ["absent survivor path", "private", "same", undefined, false],
   ["explicit global rows", "global", "old-path", "other-path", true],
   ["legacy global target", undefined, "old-path", "other-path", true],
-] as const)("collapse visibility: %s", async (_name, ownership, targetPath, survivorPath, folds) => {
-  // Seed before setup so the legacy target has no ambient repository stamp.
-  const repo = ownership === "private" ? resolveRepo(a).key : ownership;
-  const target = await appendMemory({ ...fields, content: oldProse, repo, repoPath: targetPath });
-  const survivor = await appendMemory({ ...fields, content: newProse, repo: repo ?? "global", repoPath: survivorPath });
-  const pa = await plugin(a);
-  const reply = await update(pa, target);
-  if (folds) {
-    expect(reply.content).toContain("was retired in its favor");
-    expect((await row(target)).superseded_by).toBe(survivor);
-  } else {
-    expect(reply.content).toContain("was NOT retired");
-    expect(reply.content).toContain("repository path visibility differs");
-    expect((await row(target)).superseded_by).toBeUndefined();
-  }
-  expect((await row(survivor)).superseded_by).toBeUndefined();
-});
-
+] as const)(
+  "collapse visibility: %s",
+  async (_name, ownership, targetPath, survivorPath, folds) => {
+    // Seed before setup so the legacy target has no ambient repository stamp.
+    const repo = ownership === "private" ? resolveRepo(a).key : ownership;
+    const target = await appendMemory({
+      ...fields,
+      content: oldProse,
+      repo,
+      repoPath: targetPath,
+    });
+    const survivor = await appendMemory({
+      ...fields,
+      content: newProse,
+      repo: repo ?? "global",
+      repoPath: survivorPath,
+    });
+    const pa = await plugin(a);
+    const reply = await update(pa, target);
+    if (folds) {
+      expect(reply.content).toContain("was retired in its favor");
+      expect((await row(target)).superseded_by).toBe(survivor);
+    } else {
+      expect(reply.content).toContain("was NOT retired");
+      expect(reply.content).toContain("repository path visibility differs");
+      expect((await row(target)).superseded_by).toBeUndefined();
+    }
+    expect((await row(survivor)).superseded_by).toBeUndefined();
+  },
+);
 
 test("session move cannot expose a private competing decision in the blocked-overlap hint", async () => {
   const pa = await plugin(a);
   await plugin(b);
   const scopeA = resolveRepo(a);
   const scopeB = resolveRepo(b);
-  const target = await appendMemory({ type: "decision", scope: "queue", content: "Use a dedicated worker for invoice delivery", status: "open", repo: scopeA.key, repoPath: scopeA.path });
-  const rival = await appendMemory({ type: "decision", scope: "queue", content: "Use Redis for the durable message queue", status: "open", repo: scopeB.key, repoPath: scopeB.path });
+  const target = await appendMemory({
+    type: "decision",
+    scope: "queue",
+    content: "Use a dedicated worker for invoice delivery",
+    status: "open",
+    repo: scopeA.key,
+    repoPath: scopeA.path,
+  });
+  const rival = await appendMemory({
+    type: "decision",
+    scope: "queue",
+    content: "Use Redis for the durable message queue",
+    status: "open",
+    repo: scopeB.key,
+    repoPath: scopeB.path,
+  });
   rememberSessionDir("writer", a);
   expect(isVisibleTo(await row(rival), readerForSession("writer"))).toBe(false);
   const moved = moveDuringGate(pa);
-  const reply = await pa.tools.memory_update.execute({ type: "decision", scope: "queue", query: target, content: "Use Postgres for the durable message queue", status: "open" }, ctx("writer"));
+  const reply = await pa.tools.memory_update.execute(
+    {
+      type: "decision",
+      scope: "queue",
+      query: target,
+      content: "Use Postgres for the durable message queue",
+      status: "open",
+    },
+    ctx("writer"),
+  );
   expect(moved()).toBe(true);
   expect(reply.content).not.toContain(rival);
   expect(reply.content).not.toContain("superseded_overlap");
@@ -263,76 +355,123 @@ test("session move cannot expose a private competing decision in the blocked-ove
   expect((await row(rival)).superseded_by).toBeUndefined();
 });
 
-
 test("a direct gate snapshots named read and write identity before its first await", async () => {
   const pa = await plugin(a);
   rememberSessionDir("writer", a);
   const moved = moveDuringGate(pa);
-  const outcome = await runWriteGate({ ...fields, content: "Keep the original operation owner across a session move" }, { sessionID: "writer", liveRoot: a, evidenceCalls: [], hasGateCheck: false });
+  const outcome = await runWriteGate(
+    {
+      ...fields,
+      content: "Keep the original operation owner across a session move",
+    },
+    {
+      sessionID: "writer",
+      liveRoot: a,
+      evidenceCalls: [],
+      hasGateCheck: false,
+    },
+  );
   expect(moved()).toBe(true);
   expect(outcome.action).toBe("promoted");
   expect((await row(outcome.ts!)).repo).toBe(resolveRepo(a).key);
   expect((await row(outcome.ts!)).repoPath).toBe(resolveRepo(a).path);
 });
 
-test.each([{ moves: false }, { moves: true }])("unscoped ambient gate pins explicit global ownership (scope moves: $moves)", async ({ moves }) => {
-  // No plugin, named session, or module scope at entry. The record seam lets
-  // another setup acquire the ambient scope before appendMemory is reached.
-  const record = evidence.record;
-  const spy = spyOn(evidence, "record").mockImplementation(async (...args: Parameters<typeof record>) => {
-    if (args[0] === "gate_start" && moves) setRepoScope(resolveRepo(b));
-    return record(...args);
-  });
-  restoreRecord = () => spy.mockRestore();
-  const outcome = await runWriteGate({ ...fields, content: "Unscoped ambient write through the gate" }, {
-    liveRoot: a, evidenceCalls: [], hasGateCheck: false,
-  });
-  expect(outcome.action).toBe("promoted");
-  const stored = await row(outcome.ts!);
-  expect(stored.repo).toBe("global");
-  expect(stored.repoPath).toBeUndefined();
+test.each([{ moves: false }, { moves: true }])(
+  "unscoped ambient gate pins explicit global ownership (scope moves: $moves)",
+  async ({ moves }) => {
+    // No plugin, named session, or module scope at entry. The record seam lets
+    // another setup acquire the ambient scope before appendMemory is reached.
+    const record = evidence.record;
+    const spy = spyOn(evidence, "record").mockImplementation(
+      async (...args: Parameters<typeof record>) => {
+        if (args[0] === "gate_start" && moves) setRepoScope(resolveRepo(b));
+        return record(...args);
+      },
+    );
+    restoreRecord = () => spy.mockRestore();
+    const outcome = await runWriteGate(
+      { ...fields, content: "Unscoped ambient write through the gate" },
+      {
+        liveRoot: a,
+        evidenceCalls: [],
+        hasGateCheck: false,
+      },
+    );
+    expect(outcome.action).toBe("promoted");
+    const stored = await row(outcome.ts!);
+    expect(stored.repo).toBe("global");
+    expect(stored.repoPath).toBeUndefined();
 
-  // Explicit global differs from legacy unstamped rows on portability: an
-  // importer must not adopt this captured global row into its own repository.
-  const exported = await exportMemories();
-  setRepoScope(resolveRepo(b));
-  let imported: string | undefined;
-  const tally = await importMemories(exported.path, async (candidate) => {
-    expect(candidate.repo).toBe("global");
-    imported = await appendMemory(candidate);
-    return { action: "promoted" };
-  });
-  expect(tally.promoted).toBe(1);
-  expect((await row(imported!)).repo).toBe("global");
-  expect((await row(imported!)).repoPath).toBeUndefined();
-});
+    // Explicit global differs from legacy unstamped rows on portability: an
+    // importer must not adopt this captured global row into its own repository.
+    const exported = await exportMemories();
+    setRepoScope(resolveRepo(b));
+    let imported: string | undefined;
+    const tally = await importMemories(exported.path, async (candidate) => {
+      expect(candidate.repo).toBe("global");
+      imported = await appendMemory(candidate);
+      return { action: "promoted" };
+    });
+    expect(tally.promoted).toBe(1);
+    expect((await row(imported!)).repo).toBe("global");
+    expect((await row(imported!)).repoPath).toBeUndefined();
+  },
+);
 
-
-test.each([{ blocked: false }, { blocked: true }])("gate evidence stays with operation repository (blocked: $blocked)", async ({ blocked }) => {
-  const pa = await plugin(a);
-  const pb = await plugin(b);
-  rememberSessionDir("writer", a);
-  setCurrent({ sessionID: "writer", callID: "operation-call", tool: "memory_remember" });
-  const moved = moveDuringGate(pa);
-  const outcome = await runWriteGate({ ...fields, status: blocked ? "settled" : "open", content: "Private operation metadata belongs to the original repository" }, {
-    sessionID: "writer", liveRoot: a, evidenceCalls: [], hasGateCheck: false,
-  });
-  expect(moved()).toBe(true);
-  expect(outcome.action).toBe(blocked ? "blocked" : "promoted");
-  const event = blocked ? "write_blocked" : "write_promoted";
-  const own = await pa.tools.memory_evidence.execute({ ev: event }, ctx("evidence-reader-a"));
-  const foreign = await pb.tools.memory_evidence.execute({ ev: event }, ctx("evidence-reader-b"));
-  expect(foreign.content).not.toContain(outcome.chain);
-  expect(own.content).toContain(outcome.chain);
-  const started = await pa.tools.memory_evidence.execute({ ev: "gate_start" }, ctx("evidence-reader-a"));
-  expect(started.content).toContain(outcome.chain);
-  expect(own.content).toContain("sid=writer");
-  expect(own.content).toContain("call=operation-call");
-  if (!blocked) {
-    if (!outcome.ts) throw new Error("promoted gate outcome is missing its row id");
-    expect((await row(outcome.ts)).repo).toBe(resolveRepo(a).key);
-  }
-});
+test.each([{ blocked: false }, { blocked: true }])(
+  "gate evidence stays with operation repository (blocked: $blocked)",
+  async ({ blocked }) => {
+    const pa = await plugin(a);
+    const pb = await plugin(b);
+    rememberSessionDir("writer", a);
+    setCurrent({
+      sessionID: "writer",
+      callID: "operation-call",
+      tool: "memory_remember",
+    });
+    const moved = moveDuringGate(pa);
+    const outcome = await runWriteGate(
+      {
+        ...fields,
+        status: blocked ? "settled" : "open",
+        content:
+          "Private operation metadata belongs to the original repository",
+      },
+      {
+        sessionID: "writer",
+        liveRoot: a,
+        evidenceCalls: [],
+        hasGateCheck: false,
+      },
+    );
+    expect(moved()).toBe(true);
+    expect(outcome.action).toBe(blocked ? "blocked" : "promoted");
+    const event = blocked ? "write_blocked" : "write_promoted";
+    const own = await pa.tools.memory_evidence.execute(
+      { ev: event },
+      ctx("evidence-reader-a"),
+    );
+    const foreign = await pb.tools.memory_evidence.execute(
+      { ev: event },
+      ctx("evidence-reader-b"),
+    );
+    expect(foreign.content).not.toContain(outcome.chain);
+    expect(own.content).toContain(outcome.chain);
+    const started = await pa.tools.memory_evidence.execute(
+      { ev: "gate_start" },
+      ctx("evidence-reader-a"),
+    );
+    expect(started.content).toContain(outcome.chain);
+    expect(own.content).toContain("sid=writer");
+    expect(own.content).toContain("call=operation-call");
+    if (!blocked) {
+      if (!outcome.ts)
+        throw new Error("promoted gate outcome is missing its row id");
+      expect((await row(outcome.ts)).repo).toBe(resolveRepo(a).key);
+    }
+  },
+);
 
 test("captured unresolved evidence stays private and scrubbed after binding", async () => {
   const pa = await plugin(a);
@@ -342,9 +481,21 @@ test("captured unresolved evidence stays private and scrubbed after binding", as
   expect(captured.scope).toBeNull();
   rememberSessionDir("unresolved", b);
   const secret = "sk-" + "proj-AbCdEf1234567890AbCdEf1234567890abcdef";
-  await evidence.record("private_probe", { note: secret }, true, "unresolved", captured);
-  const own = await pa.tools.memory_evidence.execute({ ev: "private_probe" }, ctx("unresolved"));
-  const foreign = await pb.tools.memory_evidence.execute({ ev: "private_probe" }, ctx("other-reader"));
+  await evidence.record(
+    "private_probe",
+    { note: secret },
+    true,
+    "unresolved",
+    captured,
+  );
+  const own = await pa.tools.memory_evidence.execute(
+    { ev: "private_probe" },
+    ctx("unresolved"),
+  );
+  const foreign = await pb.tools.memory_evidence.execute(
+    { ev: "private_probe" },
+    ctx("other-reader"),
+  );
   expect(own.content).toContain("ev=private_probe");
   expect(own.content).not.toContain(secret);
   expect(own.content).not.toContain("foreign-call");
@@ -352,27 +503,54 @@ test("captured unresolved evidence stays private and scrubbed after binding", as
   expect(foreign.content).toBe("No evidence");
 });
 
-test.each([{ corrected: false }, { corrected: true }])("rejection evidence keeps its operation owner after a session move (corrected: $corrected)", async ({ corrected }) => {
-  const pa = await plugin(a);
-  const pb = await plugin(b);
-  const rejected = "the production service retains audit records for 30 days before cleanup";
-  await tombstone(rejected, { reason: "wrong retention policy", source: "forget" });
-  rememberSessionDir("writer", a);
-  setCurrent({ sessionID: "writer", callID: "rejection-call", tool: "memory_remember" });
-  const moved = moveDuringGate(pa);
-  const outcome = await runWriteGate({ ...fields, content: corrected ? rejected.replace("30", "90") : rejected }, {
-    sessionID: "writer", liveRoot: a, evidenceCalls: [], hasGateCheck: false,
-  });
-  expect(moved()).toBe(true);
-  expect(outcome.action).toBe(corrected ? "promoted" : "blocked");
-  if (outcome.action === "blocked") expect(outcome.reason).toBe("previously_rejected");
-  const event = corrected ? "rejection_vetoed" : "dedup_rejected";
-  const own = await pa.tools.memory_evidence.execute({ ev: event }, ctx("rejection-reader-a"));
-  const foreign = await pb.tools.memory_evidence.execute({ ev: event }, ctx("rejection-reader-b"));
-  expect(own.content).toContain(outcome.chain);
-  expect(own.content).toContain("call=rejection-call");
-  expect(foreign.content).not.toContain(outcome.chain);
-});
+test.each([{ corrected: false }, { corrected: true }])(
+  "rejection evidence keeps its operation owner after a session move (corrected: $corrected)",
+  async ({ corrected }) => {
+    const pa = await plugin(a);
+    const pb = await plugin(b);
+    const rejected =
+      "the production service retains audit records for 30 days before cleanup";
+    await tombstone(rejected, {
+      reason: "wrong retention policy",
+      source: "forget",
+    });
+    rememberSessionDir("writer", a);
+    setCurrent({
+      sessionID: "writer",
+      callID: "rejection-call",
+      tool: "memory_remember",
+    });
+    const moved = moveDuringGate(pa);
+    const outcome = await runWriteGate(
+      {
+        ...fields,
+        content: corrected ? rejected.replace("30", "90") : rejected,
+      },
+      {
+        sessionID: "writer",
+        liveRoot: a,
+        evidenceCalls: [],
+        hasGateCheck: false,
+      },
+    );
+    expect(moved()).toBe(true);
+    expect(outcome.action).toBe(corrected ? "promoted" : "blocked");
+    if (outcome.action === "blocked")
+      expect(outcome.reason).toBe("previously_rejected");
+    const event = corrected ? "rejection_vetoed" : "dedup_rejected";
+    const own = await pa.tools.memory_evidence.execute(
+      { ev: event },
+      ctx("rejection-reader-a"),
+    );
+    const foreign = await pb.tools.memory_evidence.execute(
+      { ev: event },
+      ctx("rejection-reader-b"),
+    );
+    expect(own.content).toContain(outcome.chain);
+    expect(own.content).toContain("call=rejection-call");
+    expect(foreign.content).not.toContain(outcome.chain);
+  },
+);
 
 test("ambient evidence captures its scope without adding suppressed session fields", async () => {
   const pa = await plugin(a);
@@ -382,8 +560,14 @@ test("ambient evidence captures its scope without adding suppressed session fiel
   const captured = evidence.captureEvidenceContext();
   setRepoScope(resolveRepo(b));
   await evidence.record("ambient_probe", {}, false, undefined, captured);
-  const own = await pa.tools.memory_evidence.execute({ ev: "ambient_probe" }, ctx("ambient-reader-a"));
-  const foreign = await pb.tools.memory_evidence.execute({ ev: "ambient_probe" }, ctx("ambient-reader-b"));
+  const own = await pa.tools.memory_evidence.execute(
+    { ev: "ambient_probe" },
+    ctx("ambient-reader-a"),
+  );
+  const foreign = await pb.tools.memory_evidence.execute(
+    { ev: "ambient_probe" },
+    ctx("ambient-reader-b"),
+  );
   expect(own.content).toContain("ev=ambient_probe");
   expect(own.content).not.toContain("sid=");
   expect(foreign.content).toBe("No evidence");

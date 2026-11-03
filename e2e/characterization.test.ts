@@ -7,10 +7,31 @@
 // and the store files left behind. These are specification-first tests: they
 // describe shipped behavior exactly as observed, so a flow can change only
 // through an intentional, visible red.
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
-import { REPO, type Fake, type Guest, makeGuest, startFake, turn } from "./support/harness.ts";
+import {
+  REPO,
+  type Fake,
+  type Guest,
+  makeGuest,
+  startFake,
+  turn,
+} from "./support/harness.ts";
 
 let fake: Fake;
 const guests: Guest[] = [];
@@ -21,7 +42,8 @@ beforeAll(async () => {
   fake = await startFake();
 });
 afterEach(() => {
-  for (const g of guests.splice(0)) rmSync(g.root, { recursive: true, force: true });
+  for (const g of guests.splice(0))
+    rmSync(g.root, { recursive: true, force: true });
   for (const f of extraFakes.splice(0)) f.stop();
 });
 afterAll(() => fake.stop());
@@ -34,7 +56,15 @@ function guest(): Guest {
 
 /** A scripted assistant tool_call step. `args` is the tool-call JSON object. */
 function call(id: string, tool: string, args: Record<string, unknown>) {
-  return { tool_calls: [{ id, type: "function", function: { name: tool, arguments: JSON.stringify(args) } }] };
+  return {
+    tool_calls: [
+      {
+        id,
+        type: "function",
+        function: { name: tool, arguments: JSON.stringify(args) },
+      },
+    ],
+  };
 }
 
 const FACT =
@@ -44,7 +74,12 @@ const FACT =
 function canonicalLines(memoryDir: string): string[] {
   return readdirSync(memoryDir)
     .filter((f) => /^\d{4}-\d{2}-\d{2}\.logfmt$/.test(f))
-    .flatMap((f) => readFileSync(join(memoryDir, f), "utf8").trim().split("\n").filter(Boolean));
+    .flatMap((f) =>
+      readFileSync(join(memoryDir, f), "utf8")
+        .trim()
+        .split("\n")
+        .filter(Boolean),
+    );
 }
 
 function rowWith(memoryDir: string, needle: string): string {
@@ -65,19 +100,22 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
   // @covers hook:session.prompt hook:tool.execute.before hook:tool.execute.after hook:event.subscribe
   test("Scenario: memory_update retires the old row, refuses ambiguity and bad selectors", async () => {
     const g = guest();
-    const REPLACEMENT = "the triskelion alpha widget cadence moved to a fortnightly review with the vendor";
+    const REPLACEMENT =
+      "the triskelion alpha widget cadence moved to a fortnightly review with the vendor";
     fake.setSteps({
       "SMOKE::upd": [
         call("u0", "memory_remember", {
           type: "learning",
           scope: "flimflam",
-          content: "triskelion alpha widget cadence: the team prunes the retro board every tuesday",
+          content:
+            "triskelion alpha widget cadence: the team prunes the retro board every tuesday",
           status: "open",
         }),
         call("u1", "memory_remember", {
           type: "learning",
           scope: "flimflam",
-          content: "triskelion beta gadget rollout hides behind a desktop flag toggled at boot",
+          content:
+            "triskelion beta gadget rollout hides behind a desktop flag toggled at boot",
           status: "open",
         }),
         call("u2", "memory_update", {
@@ -102,19 +140,29 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
       ],
     });
 
-    const run = await turn(fake, g, "SMOKE::upd store two notes, update one, then try ambiguous and nonsense selectors");
+    const run = await turn(
+      fake,
+      g,
+      "SMOKE::upd store two notes, update one, then try ambiguous and nonsense selectors",
+    );
 
     expect(run.exit).toBe(0);
     expect(run.errors()).toEqual([]);
     const [updated, ambiguous, missing] = run.outputs("memory_update");
     // Then the named row is replaced: promoted + retired, named in the reply.
-    expect(updated).toMatch(/^Updated learning in flimflam \(superseded \d{4}-\d{2}-\d{2}T/);
+    expect(updated).toMatch(
+      /^Updated learning in flimflam \(superseded \d{4}-\d{2}-\d{2}T/,
+    );
     // A selector matching several live rows fails closed and NAMES the rivals,
     // so the caller can disambiguate instead of guessing.
-    expect(ambiguous).toInclude('memory_update blocked: "triskelion" matches 2 active learning rows in flimflam');
+    expect(ambiguous).toInclude(
+      'memory_update blocked: "triskelion" matches 2 active learning rows in flimflam',
+    );
     expect(ambiguous).toInclude("Nothing was written");
     // And an unmatched selector writes nothing and says so.
-    expect(missing).toInclude("memory_update blocked: no active learning row in flimflam");
+    expect(missing).toInclude(
+      "memory_update blocked: no active learning row in flimflam",
+    );
     expect(missing).toInclude("Nothing was written");
 
     // Three rows on disk: two replacements' worth of state and the untouched
@@ -125,21 +173,38 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     const rep = rowWith(g.memoryDir, "fortnightly review");
     expect(old).toInclude(`superseded_by=${tsOf(rep)}`);
     expect(rep).not.toInclude("superseded_by=");
-    expect(rowWith(g.memoryDir, "beta gadget rollout")).not.toInclude("superseded_by=");
+    expect(rowWith(g.memoryDir, "beta gadget rollout")).not.toInclude(
+      "superseded_by=",
+    );
   }, 240_000);
 
   test("Scenario: memory_undo lists the update's snapshot; check refuses, merge restores", async () => {
     // Given a fresh store where an update retires a row (snapshot-first)
     const g = guest();
-    const NEW = "the flimflam nightly now packages with docker buildx bake instead of the old shell script";
+    const NEW =
+      "the flimflam nightly now packages with docker buildx bake instead of the old shell script";
     fake.setSteps({
       "SMOKE::undo-1": [
-        call("n1", "memory_remember", { type: "learning", scope: "flimflam", content: FACT, status: "open" }),
-        call("n2", "memory_update", { type: "learning", scope: "flimflam", content: NEW, query: "widget" }),
+        call("n1", "memory_remember", {
+          type: "learning",
+          scope: "flimflam",
+          content: FACT,
+          status: "open",
+        }),
+        call("n2", "memory_update", {
+          type: "learning",
+          scope: "flimflam",
+          content: NEW,
+          query: "widget",
+        }),
         { content: "UNDO-SETUP" },
       ],
     });
-    const setup = await turn(fake, g, "SMOKE::undo-1 store the fact then update it");
+    const setup = await turn(
+      fake,
+      g,
+      "SMOKE::undo-1 store the fact then update it",
+    );
     expect(setup.exit).toBe(0);
     expect(setup.outputs("memory_update")[0]).toInclude("Updated");
     const snapDir = join(g.memoryDir, "snapshots");
@@ -155,7 +220,11 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
         { content: "UNDO-DONE" },
       ],
     });
-    const run = await turn(fake, g, "SMOKE::undo-2 list snapshots and undo the update");
+    const run = await turn(
+      fake,
+      g,
+      "SMOKE::undo-2 list snapshots and undo the update",
+    );
 
     expect(run.exit).toBe(0);
     expect(run.errors()).toEqual([]);
@@ -171,7 +240,9 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     // Merge is a deliberate SUPERSET, not a rollback: rows written after the
     // snapshot are kept and tallied by name (the replacement may itself
     // predate the supersede snapshot, so only the count SHAPE is pinned).
-    expect(restored).toMatch(/Kept \d+ added \/ \d+ changed row\(s\) written after the snapshot\./);
+    expect(restored).toMatch(
+      /Kept \d+ added \/ \d+ changed row\(s\) written after the snapshot\./,
+    );
     const rows = canonicalLines(g.memoryDir);
     expect(rows.length).toBe(2);
     for (const needle of ["flimflam widget pipeline", "docker buildx bake"]) {
@@ -180,7 +251,9 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     }
     // The stamp survives — proving merge kept the CURRENT (superseded) version
     // rather than reviving the snapshot copy. force is the rollback mode.
-    expect(rowWith(g.memoryDir, "flimflam widget pipeline")).toInclude("superseded_by=");
+    expect(rowWith(g.memoryDir, "flimflam widget pipeline")).toInclude(
+      "superseded_by=",
+    );
   }, 240_000);
 
   // @covers hook:session.context
@@ -188,14 +261,23 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     const g = guest();
     fake.setSteps({
       "SMOKE::exp": [
-        call("x1", "memory_remember", { type: "learning", scope: "flimflam", content: FACT, status: "open" }),
+        call("x1", "memory_remember", {
+          type: "learning",
+          scope: "flimflam",
+          content: FACT,
+          status: "open",
+        }),
         call("x2", "memory_export", {}),
         call("x3", "memory_export", { file: "../outside-store.jsonl" }),
         { content: "EXP-DONE" },
       ],
     });
 
-    const run = await turn(fake, g, "SMOKE::exp store the fact, export the store, then try escaping exports/");
+    const run = await turn(
+      fake,
+      g,
+      "SMOKE::exp store the fact, export the store, then try escaping exports/",
+    );
 
     expect(run.exit).toBe(0);
     expect(run.errors()).toEqual([]);
@@ -212,12 +294,16 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     expect(header.version).toBe(1);
     expect(header.count).toBe(1);
     expect(artifact.length).toBe(2);
-    expect(JSON.parse(artifact[1]).content).toInclude("flimflam widget pipeline");
+    expect(JSON.parse(artifact[1]).content).toInclude(
+      "flimflam widget pipeline",
+    );
 
     // And a destination outside the store is refused before the filesystem
     // learns whether anything exists there — no escape, no oracle.
     expect(run.outputs("memory_export")[1]).toInclude("memory_export failed");
-    expect(existsSync(join(g.memoryDir, "..", "outside-store.jsonl"))).toBe(false);
+    expect(existsSync(join(g.memoryDir, "..", "outside-store.jsonl"))).toBe(
+      false,
+    );
   }, 240_000);
 
   test("Scenario: memory_import replays an export through the gate and tallies malformed lines", async () => {
@@ -239,7 +325,8 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
           ts: "2026-01-01T00:00:00.000Z",
           type: "learning",
           scope: "flimflam",
-          content: "imported flimflam ledger digest ships nightly at midnight to the finance box",
+          content:
+            "imported flimflam ledger digest ships nightly at midnight to the finance box",
           status: "open",
         }),
         "this line is not json at all",
@@ -253,21 +340,32 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
       JSON.stringify({
         type: "learning",
         scope: "flimflam",
-        content: "unvouched flimflam frontier claim copied from a chat log without any export header",
+        content:
+          "unvouched flimflam frontier claim copied from a chat log without any export header",
         status: "open",
       }) + "\n",
     );
     fake.setSteps({
       "SMOKE::imp": [
         call("m1", "memory_import", { file: join(expDir, "incoming.jsonl") }),
-        call("m2", "memory_import", { file: join(expDir, "does-not-exist.jsonl") }),
-        call("m3", "memory_import", { file: join(expDir, "handwritten.jsonl") }),
-        call("m4", "memory_recall", { query: "flimflam ledger digest midnight" }),
+        call("m2", "memory_import", {
+          file: join(expDir, "does-not-exist.jsonl"),
+        }),
+        call("m3", "memory_import", {
+          file: join(expDir, "handwritten.jsonl"),
+        }),
+        call("m4", "memory_recall", {
+          query: "flimflam ledger digest midnight",
+        }),
         { content: "IMP-DONE" },
       ],
     });
 
-    const run = await turn(fake, g, "SMOKE::imp import the incoming file, a missing file, and a handwritten one, then recall");
+    const run = await turn(
+      fake,
+      g,
+      "SMOKE::imp import the incoming file, a missing file, and a handwritten one, then recall",
+    );
 
     expect(run.exit).toBe(0);
     expect(run.errors()).toEqual([]);
@@ -298,7 +396,10 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
       'ts=2020-01-01T00:00:00.000Z type=learning scope=ancient content="the ancient flimflam migration plan from the previous decade still needs an owner" status=open\n',
     );
     fake.setSteps({
-      "SMOKE::dec-1": [call("z1", "memory_decay", { olderThanDays: 14 }), { content: "DEC-DRY" }],
+      "SMOKE::dec-1": [
+        call("z1", "memory_decay", { olderThanDays: 14 }),
+        { content: "DEC-DRY" },
+      ],
     });
 
     const dry = await turn(fake, g, "SMOKE::dec-1 sweep stale open threads");
@@ -306,21 +407,34 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     expect(dry.exit).toBe(0);
     expect(dry.errors()).toEqual([]);
     // Default call is a preview: it lists and mutates nothing.
-    expect(dry.outputs("memory_decay")[0]).toInclude("Dry run: 1 open thread(s) older than 14 days");
-    expect(dry.outputs("memory_decay")[0]).toInclude("ancient flimflam migration plan");
-    expect(rowWith(g.memoryDir, "ancient flimflam migration plan")).not.toInclude("superseded_by=");
+    expect(dry.outputs("memory_decay")[0]).toInclude(
+      "Dry run: 1 open thread(s) older than 14 days",
+    );
+    expect(dry.outputs("memory_decay")[0]).toInclude(
+      "ancient flimflam migration plan",
+    );
+    expect(
+      rowWith(g.memoryDir, "ancient flimflam migration plan"),
+    ).not.toInclude("superseded_by=");
 
     // When the same session re-runs the sweep with an explicit dryRun=false
     fake.setSteps({
-      "SMOKE::dec-2": [call("z2", "memory_decay", { olderThanDays: 14, dryRun: false }), { content: "DEC-APPLY" }],
+      "SMOKE::dec-2": [
+        call("z2", "memory_decay", { olderThanDays: 14, dryRun: false }),
+        { content: "DEC-APPLY" },
+      ],
     });
     const applied = await turn(fake, g, "SMOKE::dec-2 apply the sweep now");
 
     expect(applied.exit).toBe(0);
     expect(applied.errors()).toEqual([]);
     // The explicit false retires by supersession, never deletion, snapshot first.
-    expect(applied.outputs("memory_decay")[0]).toInclude("Decayed 1 open thread(s) older than 14 days");
-    expect(applied.outputs("memory_decay")[0]).toInclude("superseded, not deleted");
+    expect(applied.outputs("memory_decay")[0]).toInclude(
+      "Decayed 1 open thread(s) older than 14 days",
+    );
+    expect(applied.outputs("memory_decay")[0]).toInclude(
+      "superseded, not deleted",
+    );
     const row = rowWith(g.memoryDir, "ancient flimflam migration plan");
     expect(row).toInclude("superseded_by=decay");
     expect(existsSync(join(g.memoryDir, "snapshots"))).toBe(true);
@@ -329,7 +443,10 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
   test("Scenario: memory_consolidate answers a fresh store and writes nothing", async () => {
     const g = guest();
     fake.setSteps({
-      "SMOKE::con": [call("k1", "memory_consolidate", {}), { content: "CON-DONE" }],
+      "SMOKE::con": [
+        call("k1", "memory_consolidate", {}),
+        { content: "CON-DONE" },
+      ],
     });
 
     const run = await turn(fake, g, "SMOKE::con propose consolidations");
@@ -350,12 +467,24 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
   test("Scenario: memory_merge_review fails closed without a reason and resolves the loser", async () => {
     // Given two active sibling rows whose ids the test reads off the store
     const g = guest();
-    const A = "the flimflam alpha-widget cadence review meets every tuesday to prune stale board items";
-    const B = "the flimflam beta-gadget rollout ships behind a feature flag toggled in the desktop app";
+    const A =
+      "the flimflam alpha-widget cadence review meets every tuesday to prune stale board items";
+    const B =
+      "the flimflam beta-gadget rollout ships behind a feature flag toggled in the desktop app";
     fake.setSteps({
       "SMOKE::mrg-1": [
-        call("q1", "memory_remember", { type: "learning", scope: "flimflam", content: A, status: "open" }),
-        call("q2", "memory_remember", { type: "learning", scope: "flimflam", content: B, status: "open" }),
+        call("q1", "memory_remember", {
+          type: "learning",
+          scope: "flimflam",
+          content: A,
+          status: "open",
+        }),
+        call("q2", "memory_remember", {
+          type: "learning",
+          scope: "flimflam",
+          content: B,
+          status: "open",
+        }),
         { content: "MRG-SEED" },
       ],
     });
@@ -368,29 +497,49 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     // When the same session tries an empty-reason resolve, then a real one
     fake.setSteps({
       "SMOKE::mrg-2": [
-        call("q3", "memory_merge_review", { loser: "", survivor: "", reason: "" }),
+        call("q3", "memory_merge_review", {
+          loser: "",
+          survivor: "",
+          reason: "",
+        }),
         call("q4", "memory_merge_review", {
           loser,
           survivor: "2099-01-01T00:00:00.000Z",
           reason: "names a row that is not in the store",
         }),
-        call("q5", "memory_merge_review", { loser, survivor, reason: "e2e characterization" }),
+        call("q5", "memory_merge_review", {
+          loser,
+          survivor,
+          reason: "e2e characterization",
+        }),
         { content: "MRG-DONE" },
       ],
     });
-    const run = await turn(fake, g, "SMOKE::mrg-2 resolve the merge gate three ways");
+    const run = await turn(
+      fake,
+      g,
+      "SMOKE::mrg-2 resolve the merge gate three ways",
+    );
 
     expect(run.exit).toBe(0);
     expect(run.errors()).toEqual([]);
     const [blocked, ghost, resolved] = run.outputs("memory_merge_review");
-    expect(blocked).toInclude("loser, survivor, and reason are all required (fail-closed)");
+    expect(blocked).toInclude(
+      "loser, survivor, and reason are all required (fail-closed)",
+    );
     // A survivor that does not exist cannot canonize anything: fail closed,
     // and the message says no evidence was written.
-    expect(ghost).toInclude("survivor 2099-01-01T00:00:00.000Z does not exist in the store");
+    expect(ghost).toInclude(
+      "survivor 2099-01-01T00:00:00.000Z does not exist in the store",
+    );
     expect(ghost).toInclude("No evidence written");
     // The resolution names both rows and the durable follow-up.
-    expect(resolved).toInclude(`Resolved merge: ${survivor} is canonical; ${loser} superseded`);
-    expect(resolved).toInclude("Evidence recorded for reason='e2e characterization'");
+    expect(resolved).toInclude(
+      `Resolved merge: ${survivor} is canonical; ${loser} superseded`,
+    );
+    expect(resolved).toInclude(
+      "Evidence recorded for reason='e2e characterization'",
+    );
     // Store side: the loser carries the survivor pointer; nothing was deleted.
     const row = rowWith(g.memoryDir, "alpha-widget");
     expect(row).toInclude(`superseded_by=${survivor}`);
@@ -401,14 +550,23 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     const g = guest();
     fake.setSteps({
       "SMOKE::evi": [
-        call("w1", "memory_remember", { type: "learning", scope: "flimflam", content: FACT, status: "open" }),
+        call("w1", "memory_remember", {
+          type: "learning",
+          scope: "flimflam",
+          content: FACT,
+          status: "open",
+        }),
         call("w2", "memory_evidence", { date: UTC_DAY() }),
         call("w3", "memory_evidence", { date: "2026-13-45" }),
         { content: "EVI-DONE" },
       ],
     });
 
-    const run = await turn(fake, g, "SMOKE::evi store the fact then read today's evidence, then a fake date");
+    const run = await turn(
+      fake,
+      g,
+      "SMOKE::evi store the fact then read today's evidence, then a fake date",
+    );
 
     expect(run.exit).toBe(0);
     expect(run.errors()).toEqual([]);
@@ -425,7 +583,10 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     const g = guest();
     writeFileSync(
       join(g.projDir, "package.json"),
-      JSON.stringify({ name: "e2e-init-probe", scripts: { test: "echo t", lint: "echo l", ship: "echo s" } }),
+      JSON.stringify({
+        name: "e2e-init-probe",
+        scripts: { test: "echo t", lint: "echo l", ship: "echo s" },
+      }),
     );
     fake.setSteps({
       "SMOKE::ini": [
@@ -435,7 +596,11 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
       ],
     });
 
-    const run = await turn(fake, g, "SMOKE::ini initialize this repository, then initialize again");
+    const run = await turn(
+      fake,
+      g,
+      "SMOKE::ini initialize this repository, then initialize again",
+    );
 
     expect(run.exit).toBe(0);
     expect(run.errors()).toEqual([]);
@@ -445,9 +610,11 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     expect(first).toInclude("Initialized ");
     expect(first).toMatch(/Graph: (indexed|unavailable|index-failed)/);
     expect(first).toInclude("Scripts (2):");
-    expect(first).toInclude('npm run test');
+    expect(first).toInclude("npm run test");
     expect(first).not.toInclude("npm run ship");
-    expect(first).toMatch(/Memories: written=\d+, collapsed=\d+, blocked=\d+; stamp=\S+/);
+    expect(first).toMatch(
+      /Memories: written=\d+, collapsed=\d+, blocked=\d+; stamp=\S+/,
+    );
     // Second run at the same head: no-op, by stamp.
     expect(second).toInclude("Already initialized for ");
     expect(second).toInclude("Nothing to do.");
@@ -474,10 +641,26 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     const RACE_B =
       "the race probe beta from host two records that the shared ledger kept every append intact";
     fake.setSteps({
-      "RACE::a": [call("r1", "memory_remember", { type: "learning", scope: "race", content: RACE_A, status: "open" }), { content: "RACE-A" }],
+      "RACE::a": [
+        call("r1", "memory_remember", {
+          type: "learning",
+          scope: "race",
+          content: RACE_A,
+          status: "open",
+        }),
+        { content: "RACE-A" },
+      ],
     });
     fakeB.setSteps({
-      "RACE::b": [call("r2", "memory_remember", { type: "learning", scope: "race", content: RACE_B, status: "open" }), { content: "RACE-B" }],
+      "RACE::b": [
+        call("r2", "memory_remember", {
+          type: "learning",
+          scope: "race",
+          content: RACE_B,
+          status: "open",
+        }),
+        { content: "RACE-B" },
+      ],
     });
 
     // When both write at the same time
@@ -499,7 +682,10 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     // record: no interleaved halves, no lost append.
     const rows = canonicalLines(gA.memoryDir);
     expect(rows.length).toBe(2);
-    for (const l of rows) expect(l).toMatch(/^ts=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z type=learning /);
+    for (const l of rows)
+      expect(l).toMatch(
+        /^ts=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z type=learning /,
+      );
     expect(rows.some((l) => l.includes("probe alpha"))).toBe(true);
     expect(rows.some((l) => l.includes("probe beta"))).toBe(true);
     // And the run left no lock file behind on either host (bounded poll so a

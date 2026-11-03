@@ -103,7 +103,9 @@ async function probeLock(lockPath: string): Promise<LockProbe> {
     await stat(lockPath);
     return "present";
   } catch (probe) {
-    return (probe as NodeJS.ErrnoException).code === "ENOENT" ? "absent" : "unknown";
+    return (probe as NodeJS.ErrnoException).code === "ENOENT"
+      ? "absent"
+      : "unknown";
   }
 }
 
@@ -261,7 +263,13 @@ export async function withStoreLock<T>(
   }
 
   try {
-    return await holdFileLock(lockPath, file, fn, opts, timeoutMs - (Date.now() - started));
+    return await holdFileLock(
+      lockPath,
+      file,
+      fn,
+      opts,
+      timeoutMs - (Date.now() - started),
+    );
   } finally {
     finish();
   }

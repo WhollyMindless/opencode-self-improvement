@@ -11,12 +11,16 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendMemory } from "../src/store/files/append.ts"
-import { loadAll } from "../src/store/files/load.ts"
-import { type Memory } from "../src/store/model/memory.ts"
-import { isActive } from "../src/store/model/predicates.ts"
+import { appendMemory } from "../src/store/files/append.ts";
+import { loadAll } from "../src/store/files/load.ts";
+import { type Memory } from "../src/store/model/memory.ts";
+import { isActive } from "../src/store/model/predicates.ts";
 import { isVisibleHere } from "../src/store/model/visibility.ts";
-import { resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState } from "../src/core/state.ts";
 import { deletionsFile } from "../src/core/config/paths.ts";
 import { startViewer, type ViewerServer } from "../src/viewer/server.ts";
@@ -55,7 +59,11 @@ async function startAdminViewer(): Promise<ViewerServer> {
   return viewer;
 }
 
-async function post(v: ViewerServer, route: string, body: Record<string, unknown>): Promise<Response> {
+async function post(
+  v: ViewerServer,
+  route: string,
+  body: Record<string, unknown>,
+): Promise<Response> {
   return v.server.fetch(
     new Request(new URL(route, v.url), {
       method: "POST",
@@ -180,7 +188,11 @@ test("editing a legacy unstamped row leaves it global — and now says so on the
   // No stamp on the target means legacy/explicit-global: the replacement lands
   // with the SAME visibility (global), stated honestly as repo=global rather
   // than left ambiguous by the viewer's missing scope.
-  const ts = await appendMemory({ type: "preference", scope: "style", content: "Prefer tabs." });
+  const ts = await appendMemory({
+    type: "preference",
+    scope: "style",
+    content: "Prefer tabs.",
+  });
   const v = await startAdminViewer();
   const res = await post(v, "/api/edit", {
     ts,

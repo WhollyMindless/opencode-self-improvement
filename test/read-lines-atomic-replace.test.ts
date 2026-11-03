@@ -32,8 +32,9 @@ test("a larger atomic replacement is not cropped to the previous file size", asy
   // the exists()/text() race without sleeps or mocking the bytes returned:
   // both old and new reader implementations read the real replacement file.
   const realFile = Bun.file;
-  const factory = spyOn(Bun, "file").mockImplementation((path: unknown, options?: BlobPropertyBag) =>
-    path === file ? cached : Reflect.apply(realFile, Bun, [path, options]),
+  const factory = spyOn(Bun, "file").mockImplementation(
+    (path: unknown, options?: BlobPropertyBag) =>
+      path === file ? cached : Reflect.apply(realFile, Bun, [path, options]),
   );
   try {
     const lines = await readLines(file);

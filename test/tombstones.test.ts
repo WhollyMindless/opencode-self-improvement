@@ -34,14 +34,24 @@ import { memoryRoot } from "../src/core/config/paths.ts";
 import { contentHash } from "../src/evidence/record.ts";
 import { runWriteGate } from "../src/gate/gate.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
-import { loadAll } from "../src/store/files/load.ts"
+import { loadAll } from "../src/store/files/load.ts";
 import { prune } from "../src/store/files/prune.ts";
 import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
 import { redactSecrets, REDACTED_SECRET } from "../src/store/secrets.ts";
 import { resetState } from "../src/core/state.ts";
 import { numericTokens, polaritySigns } from "../src/core/tokenize.ts";
-import { findRejection, rejectedFile } from "../src/store/tombstones/rejection.ts"
-import { NEAR_FLOOR, removeTombstone, resetTombstoneCache, sketchOf, tombstone, tombstones } from "../src/store/tombstones/tombstone.ts";
+import {
+  findRejection,
+  rejectedFile,
+} from "../src/store/tombstones/rejection.ts";
+import {
+  NEAR_FLOOR,
+  removeTombstone,
+  resetTombstoneCache,
+  sketchOf,
+  tombstone,
+  tombstones,
+} from "../src/store/tombstones/tombstone.ts";
 import { blockMemory, unblockMemory } from "../src/viewer/mutate.ts";
 import { blockedEntries } from "../src/store/blocklist.ts";
 import { loadPlugin } from "./harness.ts";
@@ -66,7 +76,12 @@ let root: string;
 
 /** A grounded gate context: refs/engagement satisfied, so the ONLY thing that
  *  can refuse these writes is the rejection check. */
-const ctx = () => ({ liveRoot: root, evidenceCalls: [], hasGateCheck: true, hasEngagement: true });
+const ctx = () => ({
+  liveRoot: root,
+  evidenceCalls: [],
+  hasGateCheck: true,
+  hasEngagement: true,
+});
 
 const REJECTED =
   "decided to adopt the express framework for the http layer and terminate tls at the load balancer";
@@ -86,7 +101,11 @@ describe("rejection survives deletion of the row that held it", () => {
   test("exact content replayed after a forget is refused, not stored", async () => {
     expect((await promote(REJECTED)).action).toBe("promoted");
 
-    const res = await prune("http", "decision", "wrong call, do not record this");
+    const res = await prune(
+      "http",
+      "decision",
+      "wrong call, do not record this",
+    );
     expect(res.deleted).toHaveLength(1);
 
     const replay = await promote(REJECTED);
@@ -96,7 +115,12 @@ describe("rejection survives deletion of the row that held it", () => {
   });
 
   test("the refusal names when, why, and the hash the human needs to lift it", async () => {
-    await tombstone(REJECTED, { reason: "wrong call", source: "forget", scope: "http", type: "decision" });
+    await tombstone(REJECTED, {
+      reason: "wrong call",
+      source: "forget",
+      scope: "http",
+      type: "decision",
+    });
 
     const replay = await promote(REJECTED);
     const hint = replay.hint ?? "";
@@ -131,7 +155,14 @@ describe("rejection survives deletion of the row that held it", () => {
     );
     expect(outcome.action).toBe("blocked");
 
-    const log = readFileSync(join(memoryRoot(), "evidence", `${new Date().toISOString().slice(0, 10)}.logfmt`), "utf8");
+    const log = readFileSync(
+      join(
+        memoryRoot(),
+        "evidence",
+        `${new Date().toISOString().slice(0, 10)}.logfmt`,
+      ),
+      "utf8",
+    );
     expect(log).toContain("ev=dedup_rejected");
     expect(log).toContain("match_kind=exact");
     expect(log).toContain("reason=previously_rejected");
@@ -161,7 +192,12 @@ describe("near-match closes the rewording hole", () => {
   });
 
   test("an unrelated fact in the same scope still stores clean", async () => {
-    await tombstone(REJECTED, { reason: "wrong call", source: "forget", scope: "http", type: "decision" });
+    await tombstone(REJECTED, {
+      reason: "wrong call",
+      source: "forget",
+      scope: "http",
+      type: "decision",
+    });
     expect((await promote(UNRELATED)).action).toBe("promoted");
   });
 
@@ -191,7 +227,8 @@ describe("near-match closes the rewording hole", () => {
       expect((await promote(wasRejected)).action).toBe("promoted");
       await prune("http", "decision", "wrong call");
       const next = await promote(newClaim);
-      if (next.action === "blocked") refused.push(`${newClaim} <- ${next.hint ?? "?"}`);
+      if (next.action === "blocked")
+        refused.push(`${newClaim} <- ${next.hint ?? "?"}`);
     }
     // Empty means no legitimate rewrite was vetoed; a failure prints exactly
     // which claim was refused and by what reasoning.
@@ -199,12 +236,19 @@ describe("near-match closes the rewording hole", () => {
   });
 
   test("near-match never fires on short content, which is where false positives live", async () => {
-    await tombstone("use bun for scripts", { reason: "stale", source: "forget" });
+    await tombstone("use bun for scripts", {
+      reason: "stale",
+      source: "forget",
+    });
     // Byte-identical: still refused, because that is an exact match, not a guess.
-    expect((await promote("use bun for scripts", "tooling")).action).toBe("blocked");
+    expect((await promote("use bun for scripts", "tooling")).action).toBe(
+      "blocked",
+    );
     // Different short content: must NOT be refused. Two dozen-token strings can
     // share most of their tokens by accident; a refusal here would be a lie.
-    expect((await promote("prefer pnpm workspaces for monorepos", "tooling")).action).toBe("promoted");
+    expect(
+      (await promote("prefer pnpm workspaces for monorepos", "tooling")).action,
+    ).toBe("promoted");
   });
 
   test("findRejection reports the strongest near-match, not the first", async () => {
@@ -234,7 +278,10 @@ describe("the tombstone holds hashes, never values", () => {
     // The contrast that stops this pin passing vacuously: the DELETION audit
     // does keep the prose verbatim (that is its documented job), which is
     // precisely why the tombstone must not add a second copyable body.
-    const deletions = readFileSync(join(memoryRoot(), "deletions.logfmt"), "utf8");
+    const deletions = readFileSync(
+      join(memoryRoot(), "deletions.logfmt"),
+      "utf8",
+    );
     expect(deletions).toContain("balancer");
   });
 
@@ -245,7 +292,8 @@ describe("the tombstone holds hashes, never values", () => {
   // sig and the timestamp are all hex/digits, so a substring check on "30" would
   // be an accident in either direction.)
   test("value signatures stay hashes and labels, never the value", async () => {
-    const withValue = "the production service retains audit records for 45 days before cleanup";
+    const withValue =
+      "the production service retains audit records for 45 days before cleanup";
     await tombstone(withValue, { reason: "wrong policy", source: "forget" });
 
     const raw = readFileSync(rejectedFile(), "utf8");
@@ -269,7 +317,10 @@ describe("the tombstone holds hashes, never values", () => {
 
   test("an idempotent rejection does not append a second line for the same value", async () => {
     await tombstone(REJECTED, { reason: "first", source: "forget" });
-    const second = await tombstone(REJECTED, { reason: "again", source: "forget" });
+    const second = await tombstone(REJECTED, {
+      reason: "again",
+      source: "forget",
+    });
     expect(second.recorded).toBe(false);
     expect(await tombstones()).toHaveLength(1);
   });
@@ -289,7 +340,9 @@ describe("the tombstone holds hashes, never values", () => {
       (_, i) => `release gate ${i} requires a distinct green pipeline run`,
     );
     for (const content of lines) {
-      expect((await promote(content, "http", "learning")).action).toBe("promoted");
+      expect((await promote(content, "http", "learning")).action).toBe(
+        "promoted",
+      );
     }
     const res = await prune("http", "learning", "bulk");
     expect(res.deleted).toHaveLength(40);
@@ -306,7 +359,9 @@ describe("the tombstone holds hashes, never values", () => {
     expect(refused).toHaveLength(40);
     // And the raw file really is 40 lines, so the count above cannot be a
     // parser coincidence.
-    expect(readFileSync(rejectedFile(), "utf8").trimEnd().split("\n")).toHaveLength(40);
+    expect(
+      readFileSync(rejectedFile(), "utf8").trimEnd().split("\n"),
+    ).toHaveLength(40);
   });
 });
 
@@ -331,15 +386,21 @@ describe("the tombstone holds hashes, never values", () => {
 // disagreement and neither is omission — both were regressions, and both are
 // pinned in the restatement list below.
 describe("a near-match releases a changed value, not only a rewording", () => {
-  const DAYS_WAS = "the production service retains audit records for 30 days before cleanup";
-  const DAYS_IS = "the production service retains audit records for 90 days before cleanup";
-  const MODE_WAS = "the service must enable anonymous access for production control endpoints";
-  const MODE_IS = "the service must disable anonymous access for production control endpoints";
+  const DAYS_WAS =
+    "the production service retains audit records for 30 days before cleanup";
+  const DAYS_IS =
+    "the production service retains audit records for 90 days before cleanup";
+  const MODE_WAS =
+    "the service must enable anonymous access for production control endpoints";
+  const MODE_IS =
+    "the service must disable anonymous access for production control endpoints";
 
   test("a corrected number stores clean although the sketch clears the floor", async () => {
     // The premise, pinned so a future tweak that changes the scoring cannot make
     // this pass vacuously: without the value guard this pair IS a near-match.
-    expect(jac(sketchOf(DAYS_WAS), sketchOf(DAYS_IS))).toBeGreaterThanOrEqual(NEAR_FLOOR);
+    expect(jac(sketchOf(DAYS_WAS), sketchOf(DAYS_IS))).toBeGreaterThanOrEqual(
+      NEAR_FLOOR,
+    );
 
     expect((await promote(DAYS_WAS)).action).toBe("promoted");
     await prune("http", "decision", "wrong policy");
@@ -350,7 +411,9 @@ describe("a near-match releases a changed value, not only a rewording", () => {
   });
 
   test("an opposite instruction stores clean although the sketch clears the floor", async () => {
-    expect(jac(sketchOf(MODE_WAS), sketchOf(MODE_IS))).toBeGreaterThanOrEqual(NEAR_FLOOR);
+    expect(jac(sketchOf(MODE_WAS), sketchOf(MODE_IS))).toBeGreaterThanOrEqual(
+      NEAR_FLOOR,
+    );
 
     expect((await promote(MODE_WAS)).action).toBe("promoted");
     await prune("http", "decision", "wrong policy");
@@ -368,15 +431,24 @@ describe("a near-match releases a changed value, not only a rewording", () => {
   test("the guard does not dissolve the rewording guarantee", async () => {
     const restatements = [
       // same retention period, reworded prose
-      [DAYS_WAS, "audit records are kept by the production service for 30 days and then purged"],
+      [
+        DAYS_WAS,
+        "audit records are kept by the production service for 30 days and then purged",
+      ],
       // a synonym of the rejected polarity verb
-      [MODE_WAS, "the service shall allow anonymous access for production control endpoints"],
+      [
+        MODE_WAS,
+        "the service shall allow anonymous access for production control endpoints",
+      ],
       // the rejected polarity reached by negating its opposite. This pair also
       // pins match SELECTION: it scores HIGHER against MODE_WAS (0.889, a flipped
       // polarity, so correctly not the rejected fact) than against MODE_IS (0.700,
       // the real one), so the guard must fall through to the weaker match rather
       // than report the strongest — and name the rejection it actually restates.
-      [MODE_IS, "the service must not enable anonymous access for production control endpoints"],
+      [
+        MODE_IS,
+        "the service must not enable anonymous access for production control endpoints",
+      ],
       // reworded with the value DROPPED: the value is gone, but nothing asserts it
       // CHANGED — see differsIn, or deleting "30" would be a way to smuggle a
       // rejected claim back in.
@@ -390,21 +462,34 @@ describe("a near-match releases a changed value, not only a rewording", () => {
       // polarity term. "Never disable" asserts the same thing as "enable", so it
       // restates the rejected claim; it was being released because `never`
       // contributed its own sign as well as flipping "disable".
-      [MODE_WAS, "the service must never disable anonymous access for production control endpoints"],
+      [
+        MODE_WAS,
+        "the service must never disable anonymous access for production control endpoints",
+      ],
     ] as const;
 
     const leaked: string[] = [];
     for (const [wasRejected, reworded] of restatements) {
-      const { ch } = await tombstone(wasRejected, { reason: "wrong call", source: "forget" });
+      const { ch } = await tombstone(wasRejected, {
+        reason: "wrong call",
+        source: "forget",
+      });
       const again = await promote(reworded);
-      if (again.action !== "blocked" || again.reason !== "previously_rejected") {
-        leaked.push(`${reworded} <- action=${again.action} reason=${again.reason ?? "-"}`);
+      if (
+        again.action !== "blocked" ||
+        again.reason !== "previously_rejected"
+      ) {
+        leaked.push(
+          `${reworded} <- action=${again.action} reason=${again.reason ?? "-"}`,
+        );
       } else if (!(again.hint ?? "").includes(ch)) {
         // Refusing is not enough — the hint has to name the rejection it actually
         // restates, not the highest-scoring one. Three tombstones are in the file
         // by the last iteration, and the third pair is refused by the weaker of
         // two matches, so this is what catches a "strongest wins" regression.
-        leaked.push(`${reworded} <- refused, but pointing at the wrong rejection`);
+        leaked.push(
+          `${reworded} <- refused, but pointing at the wrong rejection`,
+        );
       }
     }
     expect(leaked).toEqual([]);
@@ -423,7 +508,11 @@ describe("a near-match releases a changed value, not only a rewording", () => {
     expect(out.action).toBe("promoted");
 
     const log = readFileSync(
-      join(memoryRoot(), "evidence", `${new Date().toISOString().slice(0, 10)}.logfmt`),
+      join(
+        memoryRoot(),
+        "evidence",
+        `${new Date().toISOString().slice(0, 10)}.logfmt`,
+      ),
       "utf8",
     );
     expect(log).toContain("ev=rejection_vetoed");
@@ -439,8 +528,10 @@ describe("a near-match releases a changed value, not only a rewording", () => {
   // sentence with something appended. Without this pair the guard could satisfy
   // the 30→90 case with a "sets are disjoint" rule it should not have.
   test("a value change vetoes even when both statements share another number", async () => {
-    const was = "the production service retains audit records for 30 days with 5 copies before cleanup";
-    const is = "the production service retains audit records for 90 days with 5 copies before cleanup";
+    const was =
+      "the production service retains audit records for 30 days with 5 copies before cleanup";
+    const is =
+      "the production service retains audit records for 90 days with 5 copies before cleanup";
     expect(jac(sketchOf(was), sketchOf(is))).toBeGreaterThanOrEqual(NEAR_FLOOR);
 
     expect((await promote(was)).action).toBe("promoted");
@@ -474,25 +565,41 @@ describe("a near-match releases a changed value, not only a rewording", () => {
 // vocabulary makes rather than one the sketch makes.
 describe("the value dimensions the sketch cannot see", () => {
   test("synonyms collapse to one sign; a flip changes it; negation composes", () => {
-    expect(polaritySigns("the service must enable anonymous access")).toEqual(["pos"]);
+    expect(polaritySigns("the service must enable anonymous access")).toEqual([
+      "pos",
+    ]);
     // A rewording with a different verb of the same sign is still the same claim.
-    expect(polaritySigns("the service shall allow anonymous access")).toEqual(["pos"]);
-    expect(polaritySigns("the service must disable anonymous access")).toEqual(["neg"]);
+    expect(polaritySigns("the service shall allow anonymous access")).toEqual([
+      "pos",
+    ]);
+    expect(polaritySigns("the service must disable anonymous access")).toEqual([
+      "neg",
+    ]);
     // …and a reversal reached by negating the opposite verb is the REVERSAL, not
     // a new claim, which is why it still matches a rejected "disable".
-    expect(polaritySigns("the service must not enable anonymous access")).toEqual(["neg"]);
+    expect(
+      polaritySigns("the service must not enable anonymous access"),
+    ).toEqual(["neg"]);
     expect(polaritySigns("the flag is not disabled")).toEqual(["pos"]);
     // A copula keeps the negation alive across it; an ordinary word ends it.
     expect(polaritySigns("the flag must not be enabled")).toEqual(["neg"]);
-    expect(polaritySigns("the flag was removed and enabled anyway")).toEqual(["neg", "pos"]);
+    expect(polaritySigns("the flag was removed and enabled anyway")).toEqual([
+      "neg",
+      "pos",
+    ]);
     // Prose that asserts neither presence nor prohibition has no polarity, and
     // that is not the same as a row that recorded none (see differsIn).
-    expect(polaritySigns("the service retains records for 30 days")).toEqual([]);
+    expect(polaritySigns("the service retains records for 30 days")).toEqual(
+      [],
+    );
   });
 
   test("numeric tokens are the quantities, versions and ids in the sentence", () => {
     expect(numericTokens("retains records for 30 days")).toEqual(["30"]);
-    expect(numericTokens("pinned to alpine 3.19 with 2 retries")).toEqual(["2", "3.19"]);
+    expect(numericTokens("pinned to alpine 3.19 with 2 retries")).toEqual([
+      "2",
+      "3.19",
+    ]);
     expect(numericTokens("no numbers in this claim")).toEqual([]);
     expect(numericTokens("30 days, then 30 days again")).toEqual(["30"]);
   });
@@ -502,11 +609,17 @@ describe("the value dimensions the sketch cannot see", () => {
     // that negates what follows it. Used as a negator it must contribute only the
     // flipped predicate, or "never disable" ends up asserting both signs and stops
     // matching the "enable" claim it restates.
-    expect(polaritySigns("the service must never disable anonymous access")).toEqual(["pos"]);
-    expect(polaritySigns("the service must never enable anonymous access")).toEqual(["neg"]);
+    expect(
+      polaritySigns("the service must never disable anonymous access"),
+    ).toEqual(["pos"]);
+    expect(
+      polaritySigns("the service must never enable anonymous access"),
+    ).toEqual(["neg"]);
     // Standalone — nothing in its span to negate — it still asserts the ban.
     expect(polaritySigns("the job never runs")).toEqual(["neg"]);
-    expect(polaritySigns("we never allow it and never log it")).toEqual(["neg"]);
+    expect(polaritySigns("we never allow it and never log it")).toEqual([
+      "neg",
+    ]);
   });
 });
 
@@ -530,7 +643,9 @@ describe("a tombstone never carries an unscrubbed reason", () => {
     await prune("http", "decision", `rotated ${token} for the deployment`);
 
     // Pre-existing boundary, unchanged.
-    expect(readFileSync(join(memoryRoot(), "deletions.logfmt"), "utf8")).not.toContain(token);
+    expect(
+      readFileSync(join(memoryRoot(), "deletions.logfmt"), "utf8"),
+    ).not.toContain(token);
     const rejected = readFileSync(rejectedFile(), "utf8");
     expect(rejected).not.toContain(token);
 
@@ -556,7 +671,10 @@ describe("a tombstone never carries an unscrubbed reason", () => {
 
 describe("lifting a rejection is a human action", () => {
   test("un-tombstone lets the value be stored again", async () => {
-    const { ch } = await tombstone(REJECTED, { reason: "wrong call", source: "forget" });
+    const { ch } = await tombstone(REJECTED, {
+      reason: "wrong call",
+      source: "forget",
+    });
     expect((await promote(REJECTED)).action).toBe("blocked");
     expect(await removeTombstone(ch)).toBe(true);
     expect((await promote(REJECTED)).action).toBe("promoted");
@@ -584,12 +702,17 @@ describe("lifting a rejection is a human action", () => {
   });
 
   test("no plugin tool can lift a rejection", async () => {
-    const { ch } = await tombstone(REJECTED, { reason: "wrong call", source: "forget" });
+    const { ch } = await tombstone(REJECTED, {
+      reason: "wrong call",
+      source: "forget",
+    });
     expect((await promote(REJECTED)).action).toBe("blocked");
 
     // Name scan first: nothing registered is even shaped like an un-reject.
     const names = Object.keys((await loadPlugin()).tool);
-    expect(names.filter((n) => /unreject|tombstone|lift|approve/i.test(n))).toEqual([]);
+    expect(
+      names.filter((n) => /unreject|tombstone|lift|approve/i.test(n)),
+    ).toEqual([]);
 
     // Then the behavioral half: every IN-PROCESS tool is offered the most
     // plausible arguments it could take for clearing a tombstone, and none may
@@ -602,7 +725,14 @@ describe("lifting a rejection is a human action", () => {
     const before = readFileSync(rejectedFile(), "utf8");
     for (const name of invokable) {
       await loaded.tool[name]
-        .execute({ ch, ts: ch, scope: "http", type: "decision", reason: "lift", file: "x.jsonl" })
+        .execute({
+          ch,
+          ts: ch,
+          scope: "http",
+          type: "decision",
+          reason: "lift",
+          file: "x.jsonl",
+        })
         .catch(() => undefined);
     }
     expect(readFileSync(rejectedFile(), "utf8")).toBe(before);

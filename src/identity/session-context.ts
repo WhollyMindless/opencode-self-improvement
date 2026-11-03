@@ -6,9 +6,23 @@ import { unresolvedWriteMessage } from "../store/files/append.ts";
 import { readerFromSid } from "../store/model/visibility.ts";
 import { getCurrent } from "../core/state.ts";
 import { SESSION_CAP, SessionLru } from "../core/lru.ts";
-import { writeEvidence, hasGateCheck, hasEngagement } from "../capture/triggers.ts";
-import { bindSessionProvisional, writeTarget, sessionDir, sessionDirFirm, rememberSessionDir } from "./repokey.ts";
-import { toolIdentity, sessionDirectoryFromMessages, sessionDirectoryFromRow } from "./host-events.ts";
+import {
+  writeEvidence,
+  hasGateCheck,
+  hasEngagement,
+} from "../capture/triggers.ts";
+import {
+  bindSessionProvisional,
+  writeTarget,
+  sessionDir,
+  sessionDirFirm,
+  rememberSessionDir,
+} from "./repokey.ts";
+import {
+  toolIdentity,
+  sessionDirectoryFromMessages,
+  sessionDirectoryFromRow,
+} from "./host-events.ts";
 
 interface SessionLookupHost {
   session?: {
@@ -19,7 +33,10 @@ interface SessionLookupHost {
 
 export function createSessionContext(
   ctx: SessionLookupHost,
-  { instanceDir, liveRoot }: { instanceDir: string | undefined; liveRoot: string },
+  {
+    instanceDir,
+    liveRoot,
+  }: { instanceDir: string | undefined; liveRoot: string },
 ) {
   const gateContext = (sid?: string): GateContext => {
     // Every session-scoped member resolves for the CALLER's session when it
@@ -61,7 +78,10 @@ export function createSessionContext(
     return target.ok ? null : target.sid;
   };
 
-  const refuseOwnerlessWrite = async (sid: string, op: string): Promise<{ content: string }> => {
+  const refuseOwnerlessWrite = async (
+    sid: string,
+    op: string,
+  ): Promise<{ content: string }> => {
     await record("write_refused", { op }, true, sid);
     return { content: unresolvedWriteMessage(sid) };
   };
@@ -97,8 +117,11 @@ export function createSessionContext(
   // below is what actually resolves serve-host sessions.
   // One-shot: never overwrites an event-bound entry.
   const bindingSids = new Set<string>();
-  async function bindSessionFromMessages(sid: string | undefined): Promise<void> {
-    if (!sid || sid === "?" || sessionDirFirm(sid) || bindingSids.has(sid)) return;
+  async function bindSessionFromMessages(
+    sid: string | undefined,
+  ): Promise<void> {
+    if (!sid || sid === "?" || sessionDirFirm(sid) || bindingSids.has(sid))
+      return;
     bindingSids.add(sid);
     try {
       const msgs = await ctx.session?.context?.({ sessionID: sid });
@@ -119,9 +142,12 @@ export function createSessionContext(
   // lookup per session; a miss is remembered so a host without the API is
   // not re-asked on every turn (bounded LRU, same cap as the scope cache).
   const apiBindTried = new Set<string>();
-  const apiBindOrder = new SessionLru(SESSION_CAP, (evicted) => apiBindTried.delete(evicted));
+  const apiBindOrder = new SessionLru(SESSION_CAP, (evicted) =>
+    apiBindTried.delete(evicted),
+  );
   async function bindSessionFromApi(sid: string | undefined): Promise<void> {
-    if (!sid || sid === "?" || sessionDirFirm(sid) || apiBindTried.has(sid)) return;
+    if (!sid || sid === "?" || sessionDirFirm(sid) || apiBindTried.has(sid))
+      return;
     apiBindTried.add(sid);
     apiBindOrder.touch(sid);
     try {
@@ -146,5 +172,12 @@ export function createSessionContext(
     bindSessionProvisional(sid, instanceDir);
   }
 
-  return { gateContext, ownerlessWriter, refuseOwnerlessWrite, toolIds, bindSessionFromApi, bindSessionIdentity };
+  return {
+    gateContext,
+    ownerlessWriter,
+    refuseOwnerlessWrite,
+    toolIds,
+    bindSessionFromApi,
+    bindSessionIdentity,
+  };
 }

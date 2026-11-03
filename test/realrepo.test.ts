@@ -10,12 +10,25 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts"
+import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
-import { extractCallForms, findLiveCall, sameArgs } from "../src/gate/resolver.ts";
+import {
+  extractCallForms,
+  findLiveCall,
+  sameArgs,
+} from "../src/gate/resolver.ts";
 import { runWriteGate } from "../src/gate/gate.ts";
-import { afterTool, evidenceCalls, hasEngagement, hasGateCheck } from "../src/capture/triggers.ts";
-import { formatLine, parseLine, type Fields } from "../src/core/logfmt/format.ts";
+import {
+  afterTool,
+  evidenceCalls,
+  hasEngagement,
+  hasGateCheck,
+} from "../src/capture/triggers.ts";
+import {
+  formatLine,
+  parseLine,
+  type Fields,
+} from "../src/core/logfmt/format.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
 
 const CANDIDATES = ["~/Documents/Babylon.js", "~/Documents/BabylonJS"];
@@ -27,9 +40,15 @@ const skip = LIVE_ROOT ? describe : describe.skip;
 
 skip("R1 — real-repo resolver fidelity (MeshBuilder is split across .pure.ts)", () => {
   test("BABYLON.MeshBuilder.CreateBox resolves to a real source file with a real signature", async () => {
-    const forms = extractCallForms("use BABYLON.MeshBuilder.CreateBox(name, options, scene)");
+    const forms = extractCallForms(
+      "use BABYLON.MeshBuilder.CreateBox(name, options, scene)",
+    );
     expect(forms.length).toBe(1);
-    const live = await findLiveCall(forms[0].name, forms[0].fileHint, LIVE_ROOT!);
+    const live = await findLiveCall(
+      forms[0].name,
+      forms[0].fileHint,
+      LIVE_ROOT!,
+    );
     expect(live).not.toBeNull();
     // The resolver must NOT land in node_modules type declarations or compiled
     // dist output — both have empty/rewritten signatures and poison drift hits.
@@ -47,12 +66,22 @@ skip("R1 — real-repo resolver fidelity (MeshBuilder is split across .pure.ts)"
     const sid = "r1-promote";
     setCurrent({ sessionID: sid, callID: "C1", tool: "grep" });
     await afterTool(
-      { tool: "grep", sessionID: sid, callID: "C1", args: { pattern: "CreateBox" } },
+      {
+        tool: "grep",
+        sessionID: sid,
+        callID: "C1",
+        args: { pattern: "CreateBox" },
+      },
       { output: "5 matches found", metadata: {} },
     );
     setCurrent({ sessionID: sid, callID: "C2", tool: "read" });
     await afterTool(
-      { tool: "read", sessionID: sid, callID: "C2", args: { filePath: "packages/dev/core/src/Meshes/meshBuilder.pure.ts" } },
+      {
+        tool: "read",
+        sessionID: sid,
+        callID: "C2",
+        args: { filePath: "packages/dev/core/src/Meshes/meshBuilder.pure.ts" },
+      },
       { output: "export const MeshBuilder = …", metadata: {} },
     );
     const ctx = {
@@ -63,16 +92,27 @@ skip("R1 — real-repo resolver fidelity (MeshBuilder is split across .pure.ts)"
     };
     setCurrent({ sessionID: sid, callID: "C3", tool: "memory_remember" });
     const outcome = await runWriteGate(
-      { type: "pattern", scope: "babylon", content: "use BABYLON.MeshBuilder.CreateBox(name, options, scene) to create a box" },
+      {
+        type: "pattern",
+        scope: "babylon",
+        content:
+          "use BABYLON.MeshBuilder.CreateBox(name, options, scene) to create a box",
+      },
       ctx,
     );
     expect(outcome.action).toBe("promoted");
   });
 
   test("shorthand usage (fewer args than the live signature) is NOT drift", async () => {
-    const forms = extractCallForms("SceneLoader.ImportMesh(meshNames, rootUrl, sceneFilename)");
+    const forms = extractCallForms(
+      "SceneLoader.ImportMesh(meshNames, rootUrl, sceneFilename)",
+    );
     expect(forms.length).toBe(1);
-    const live = await findLiveCall(forms[0].name, forms[0].fileHint, LIVE_ROOT!);
+    const live = await findLiveCall(
+      forms[0].name,
+      forms[0].fileHint,
+      LIVE_ROOT!,
+    );
     expect(live).not.toBeNull();
     // live ImportMesh has many more params — shorthand memory is a usage
     // note, not a signature claim. Only the args the memory actually states
@@ -84,7 +124,11 @@ skip("R1 — real-repo resolver fidelity (MeshBuilder is split across .pure.ts)"
     // Old Mesh API is CreateBox(name, size, scene); MeshBuilder uses (name, options, scene).
     const forms = extractCallForms("MeshBuilder.CreateBox(name, size, scene)");
     expect(forms.length).toBe(1);
-    const live = await findLiveCall(forms[0].name, forms[0].fileHint, LIVE_ROOT!);
+    const live = await findLiveCall(
+      forms[0].name,
+      forms[0].fileHint,
+      LIVE_ROOT!,
+    );
     expect(live).not.toBeNull();
     // `size` is not a MeshBuilder.CreateBox param — this must NOT be treated
     // as a shorthand prefix; it is a positional mismatch (real drift).

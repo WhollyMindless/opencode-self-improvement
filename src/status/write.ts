@@ -15,11 +15,17 @@
 // sees no status files (it says so) — the RPC surface is the planned follow-up.
 import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { evidenceDir, memoryRoot } from "../core/config/paths.ts"
+import { evidenceDir, memoryRoot } from "../core/config/paths.ts";
 import { dateStr } from "../core/time.ts";
-import { parseLine } from "../core/logfmt/format.ts"
+import { parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
-import { type BlockedRow, SESSION_FILE_CAP, type StatusPayload, readJson, writeJson } from "./payload.ts";
+import {
+  type BlockedRow,
+  SESSION_FILE_CAP,
+  type StatusPayload,
+  readJson,
+  writeJson,
+} from "./payload.ts";
 
 export function statusFile(): string {
   return join(memoryRoot(), "status.json");
@@ -41,7 +47,9 @@ export function sessionStatusFile(sessionID: string): string {
 
 async function pruneStatusDir(): Promise<void> {
   try {
-    const names = (await readdir(statusDir())).filter((n) => n.endsWith(".json"));
+    const names = (await readdir(statusDir())).filter((n) =>
+      n.endsWith(".json"),
+    );
     if (names.length <= SESSION_FILE_CAP) return;
     const withMtime = await Promise.all(
       names.map(async (n) => {
@@ -80,7 +88,9 @@ export async function writeStatus(p: StatusPayload): Promise<void> {
  * a missing file returns null ("mem -") rather than another session's epoch.
  * Without one: the global latest file.
  */
-export async function readStatus(sessionID?: string): Promise<StatusPayload | null> {
+export async function readStatus(
+  sessionID?: string,
+): Promise<StatusPayload | null> {
   try {
     if (sessionID) return await readJson(sessionStatusFile(sessionID));
     return await readJson(statusFile());
@@ -94,10 +104,14 @@ export async function readStatus(sessionID?: string): Promise<StatusPayload | nu
 export async function blockedRecent(limit = 6): Promise<BlockedRow[]> {
   try {
     const today = dateStr();
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().split("T")[0]!;
+    const yesterday = new Date(Date.now() - 86_400_000)
+      .toISOString()
+      .split("T")[0]!;
     const rows: BlockedRow[] = [];
     for (const day of [yesterday, today]) {
-      for (const line of await readLines(join(evidenceDir(), `${day}.logfmt`))) {
+      for (const line of await readLines(
+        join(evidenceDir(), `${day}.logfmt`),
+      )) {
         const f = parseLine(line);
         if (!f || f.ev !== "write_blocked") continue;
         rows.push({

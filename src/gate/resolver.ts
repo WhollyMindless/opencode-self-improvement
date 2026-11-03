@@ -32,7 +32,10 @@ export interface Gate1Result {
   missingPaths: string[];
 }
 
-export function balancedParen(text: string, openIdx: number): { inner: string; end: number } | null {
+export function balancedParen(
+  text: string,
+  openIdx: number,
+): { inner: string; end: number } | null {
   if (text[openIdx] !== "(") return null;
   let depth = 0;
   let quote: string | null = null;
@@ -62,10 +65,45 @@ const CALL_RE = /([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\s*\(/g;
 // is a file reference followed by parenthetical prose, not a call to a method
 // named `json`.
 const FILE_EXT = new Set([
-  "json", "jsonc", "jsonl", "logfmt", "md", "mdx", "ts", "tsx", "js", "jsx",
-  "mjs", "cjs", "py", "go", "rs", "rb", "java", "kt", "sh", "bash", "zsh",
-  "yaml", "yml", "toml", "ini", "conf", "cfg", "txt", "csv", "html", "htm",
-  "css", "scss", "xml", "sql", "tf", "lock", "log", "env",
+  "json",
+  "jsonc",
+  "jsonl",
+  "logfmt",
+  "md",
+  "mdx",
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "py",
+  "go",
+  "rs",
+  "rb",
+  "java",
+  "kt",
+  "sh",
+  "bash",
+  "zsh",
+  "yaml",
+  "yml",
+  "toml",
+  "ini",
+  "conf",
+  "cfg",
+  "txt",
+  "csv",
+  "html",
+  "htm",
+  "css",
+  "scss",
+  "xml",
+  "sql",
+  "tf",
+  "lock",
+  "log",
+  "env",
 ]);
 
 // Parenthetical PROSE is not a code call signature. A code-like arg list is
@@ -119,7 +157,8 @@ export function extractCallForms(content: string): CallForm[] {
 // as `Button.ts` and `config.json` as `config.js`, and the existence check then
 // blocked real files. `.tsx.snap` and `.js.map` are other files, not refs; a
 // sentence-ending `.` still ends the ref.
-const PATH_RE = /[A-Za-z0-9_@./-]+\.(?:ts|tsx|js|jsx|mjs|cjs)(?!\w|\.\w)(?::\d+)?/g;
+const PATH_RE =
+  /[A-Za-z0-9_@./-]+\.(?:ts|tsx|js|jsx|mjs|cjs)(?!\w|\.\w)(?::\d+)?/g;
 
 export function extractPathRefs(content: string): string[] {
   if (content.length > REGEX_SCAN_MAX_CHARS) return [];
@@ -140,7 +179,12 @@ export function checkablePathRefs(content: string): string[] {
     const prev = m.index && m.index > 0 ? content[m.index - 1] : "";
     if (prev === "$" || prev === "~" || prev === "/") continue;
     if (!ref.includes("/")) continue;
-    if (ref.includes("//") || ref.startsWith("/") || ref.split("/").includes("..")) continue;
+    if (
+      ref.includes("//") ||
+      ref.startsWith("/") ||
+      ref.split("/").includes("..")
+    )
+      continue;
     // A dotted first segment reads as a hostname (opencode.ai/x/index.ts), not
     // a repo directory. `.` itself is the legitimate relative root prefix.
     const first = ref.split("/")[0];
@@ -154,7 +198,10 @@ async function isDirectory(path: string): Promise<boolean> {
   try {
     // A listing that yields even one entry proves liveRoot is a real tree;
     // a missing path throws ENOENT/ENOTDIR and fails open (nothing verifiable).
-    for (const _ of new Bun.Glob("*").scanSync({ onlyFiles: false, cwd: path })) {
+    for (const _ of new Bun.Glob("*").scanSync({
+      onlyFiles: false,
+      cwd: path,
+    })) {
       void _;
       return true;
     }
@@ -253,7 +300,11 @@ function relRank(rel: string): number {
 // in a gate run instead of a glob pass per extension per call form. Semantics
 // match Bun.Glob defaults: dot entries are skipped, symlinks (file or dir)
 // are neither listed nor traversed, extensions match case-sensitively.
-async function walkSources(absDir: string, relDir: string, out: string[]): Promise<void> {
+async function walkSources(
+  absDir: string,
+  relDir: string,
+  out: string[],
+): Promise<void> {
   let dh: Awaited<ReturnType<typeof opendir>>;
   try {
     dh = await opendir(absDir);
@@ -265,11 +316,16 @@ async function walkSources(absDir: string, relDir: string, out: string[]): Promi
       if (ent.name.startsWith(".")) continue;
       if (ent.isDirectory()) {
         if (!SKIP_DIRS.includes(ent.name)) {
-          await walkSources(join(absDir, ent.name), relDir ? `${relDir}/${ent.name}` : ent.name, out);
+          await walkSources(
+            join(absDir, ent.name),
+            relDir ? `${relDir}/${ent.name}` : ent.name,
+            out,
+          );
         }
       } else if (ent.isFile()) {
         const dot = ent.name.lastIndexOf(".");
-        if (dot > 0 && SOURCE_EXTS.includes(ent.name.slice(dot + 1))) out.push(relDir ? `${relDir}/${ent.name}` : ent.name);
+        if (dot > 0 && SOURCE_EXTS.includes(ent.name.slice(dot + 1)))
+          out.push(relDir ? `${relDir}/${ent.name}` : ent.name);
       }
     }
   } catch {
@@ -298,7 +354,10 @@ export interface TreeIndex {
 export async function buildTreeIndex(liveRoot: string): Promise<TreeIndex> {
   const out: string[] = [];
   await walkSources(liveRoot, "", out);
-  return { files: [...new Set(out)].filter((f) => relRank(f) < Infinity), texts: new Map() };
+  return {
+    files: [...new Set(out)].filter((f) => relRank(f) < Infinity),
+    texts: new Map(),
+  };
 }
 
 export type LazyTree = () => Promise<TreeIndex>;
@@ -345,7 +404,12 @@ export async function findLiveCall(
   const tiebreak = (a: string, b: string) => a.localeCompare(b);
   if (fileHint) {
     const h = fileHint.toLowerCase();
-    files.sort((a, b) => relRank(a) - relRank(b) || hintBoost(b, h) - hintBoost(a, h) || tiebreak(a, b));
+    files.sort(
+      (a, b) =>
+        relRank(a) - relRank(b) ||
+        hintBoost(b, h) - hintBoost(a, h) ||
+        tiebreak(a, b),
+    );
   } else {
     files.sort((a, b) => relRank(a) - relRank(b) || tiebreak(a, b));
   }
@@ -358,7 +422,9 @@ export async function findLiveCall(
   const CHUNK = 32;
   for (let i = 0; i < files.length; i += CHUNK) {
     const chunk = files.slice(i, i + CHUNK);
-    const texts = await Promise.all(chunk.map((rel) => textOf(index, join(liveRoot, rel))));
+    const texts = await Promise.all(
+      chunk.map((rel) => textOf(index, join(liveRoot, rel))),
+    );
     for (let j = 0; j < chunk.length; j++) {
       const text = texts[j];
       if (text === null || !text.includes(name)) continue;
@@ -374,7 +440,8 @@ export async function findLiveCall(
         if (callMatch) {
           const idx = text.indexOf("(", callMatch.index);
           const paren = idx >= 0 ? balancedParen(text, idx) : null;
-          if (paren) fallback = { file: join(liveRoot, rel), argsText: paren.inner };
+          if (paren)
+            fallback = { file: join(liveRoot, rel), argsText: paren.inner };
         }
       }
     }
@@ -383,7 +450,10 @@ export async function findLiveCall(
 }
 
 // The signature a memory/evidence already embeds for `symbol` in `scope`.
-export function indexedSignature(symbol: string, scope: Memory[]): CallForm | null {
+export function indexedSignature(
+  symbol: string,
+  scope: Memory[],
+): CallForm | null {
   for (const m of scope) {
     for (const form of extractCallForms(m.content)) {
       if (form.symbol === symbol) return form;
@@ -406,7 +476,14 @@ export async function gate1(input: ResolveInput): Promise<Gate1Result> {
   const forms = extractCallForms(input.content);
   const pathRefs = extractPathRefs(input.content);
   const refs = forms.length + pathRefs.length;
-  if (refs === 0) return { refs: 0, resolved: [], drift: null, candidateStale: false, missingPaths: [] };
+  if (refs === 0)
+    return {
+      refs: 0,
+      resolved: [],
+      drift: null,
+      candidateStale: false,
+      missingPaths: [],
+    };
 
   let drift: DriftInfo | null = null;
   const resolved: string[] = [];
@@ -417,7 +494,8 @@ export async function gate1(input: ResolveInput): Promise<Gate1Result> {
   const missingPaths: string[] = [];
   if (await isDirectory(input.liveRoot)) {
     for (const ref of checkablePathRefs(input.content)) {
-      if (!(await Bun.file(join(input.liveRoot, ref)).exists())) missingPaths.push(ref);
+      if (!(await Bun.file(join(input.liveRoot, ref)).exists()))
+        missingPaths.push(ref);
     }
   }
 
@@ -425,11 +503,18 @@ export async function gate1(input: ResolveInput): Promise<Gate1Result> {
     const tree = await (input.tree ?? memoTree(input.liveRoot))();
     for (const form of forms) {
       resolved.push(form.symbol);
-      const live = await findLiveCall(form.name, form.fileHint, input.liveRoot, tree);
+      const live = await findLiveCall(
+        form.name,
+        form.fileHint,
+        input.liveRoot,
+        tree,
+      );
       if (!live) continue;
       const indexed = indexedSignature(form.symbol, input.scopeMemories);
       const candidateDiffers = !sameArgs(form.argsText, live.argsText);
-      const indexedDiffers = indexed ? !sameArgs(indexed.argsText, live.argsText) : false;
+      const indexedDiffers = indexed
+        ? !sameArgs(indexed.argsText, live.argsText)
+        : false;
       if (candidateDiffers) {
         drift = {
           symbol: form.symbol,

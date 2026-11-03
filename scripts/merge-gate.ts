@@ -33,11 +33,19 @@ for (const [k, v] of Object.entries(process.env)) {
   }
   env[k] = v;
 }
-if (scrubbed) console.log(`(scrubbed ${scrubbed} GIT_* variables — running under a git hook)`);
+if (scrubbed)
+  console.log(
+    `(scrubbed ${scrubbed} GIT_* variables — running under a git hook)`,
+  );
 
 for (const [label, cmd] of steps) {
   console.log(`\n=== merge gate: ${label} ===`);
-  const p = Bun.spawnSync(cmd, { cwd: REPO, env, stdout: "inherit", stderr: "inherit" });
+  const p = Bun.spawnSync(cmd, {
+    cwd: REPO,
+    env,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
   if (p.exitCode !== 0) {
     console.error(`\nmerge gate FAILED at: ${label}`);
     process.exit(p.exitCode ?? 1);

@@ -2,14 +2,26 @@
 // nothing else. Every other read path made all-repository breadth a property of
 // the entry point in #133; the export path still dumped every repo's private
 // rows into a plaintext JSONL. The export twin of #127.
-import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { exportMemories } from "../src/portable/export.ts";
-import { rememberSessionDir, resetSessionScopes, resolveRepo, setRepoScope } from "../src/identity/repokey.ts";
+import {
+  rememberSessionDir,
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../src/identity/repokey.ts";
 import { resetState } from "../src/core/state.ts";
 
 let root: string;
@@ -53,7 +65,13 @@ async function plugin(dir: string | null) {
 }
 function seed(dir: string, content: string) {
   const scope = resolveRepo(dir);
-  return appendMemory({ type: "context", scope: "s", content, repo: scope.key, repoPath: scope.path });
+  return appendMemory({
+    type: "context",
+    scope: "s",
+    content,
+    repo: scope.key,
+    repoPath: scope.path,
+  });
 }
 const ctx = (sessionID: string) => ({ sessionID, id: "exp-proof" });
 function exportedText(result: { content: string }): string {
@@ -76,7 +94,10 @@ describe("memory_export respects repo visibility (#143)", () => {
     await appendMemory({ type: "context", scope: "s", content: G_MARK });
     // Control: recall already hides B from this session — export is the only
     // path deviating from the reader every other entry point gets.
-    const recall = await pa.tools.memory_recall.execute({ query: B_MARK }, ctx("ses-a"));
+    const recall = await pa.tools.memory_recall.execute(
+      { query: B_MARK },
+      ctx("ses-a"),
+    );
     expect(recall.content).not.toContain(B_MARK);
     const res = await pa.tools.memory_export.execute({}, ctx("ses-a"));
     expect(res.content).toContain("Exported");

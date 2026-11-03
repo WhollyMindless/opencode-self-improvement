@@ -11,13 +11,17 @@ export function requireTempPath(path: string, role: string): void {
   while (!existsSync(p)) {
     const up = dirname(p);
     if (up === p) {
-      console.error(`${role}: refusing to run against a path that cannot be checked: ${path}`);
+      console.error(
+        `${role}: refusing to run against a path that cannot be checked: ${path}`,
+      );
       process.exit(2);
     }
     p = up;
   }
   if (!realpathSync(p).startsWith(realpathSync(tmpdir()) + sep)) {
-    console.error(`${role}: refusing to run against a non-temporary store path: ${path}`);
+    console.error(
+      `${role}: refusing to run against a non-temporary store path: ${path}`,
+    );
     process.exit(2);
   }
 }
