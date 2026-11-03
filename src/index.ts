@@ -7,6 +7,9 @@
 // OpenCode V2 session/tool API. Slash commands are installed as markdown by
 // src/command.ts. The default export `{ id, setup(ctx) }` is checked against
 // the SDK's Plugin type using a type-only import (see the note on `plugin`).
+import { registerHooks } from "./events.ts";
+import { guarded } from "./core/hooks.ts";
+import type { PluginCtx } from "./core/host.ts";
 import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { basename, join } from "node:path";
 import { frontierBudget, injectBudget } from "./core/config/budgets.ts"
@@ -18,27 +21,26 @@ import { resolveMemoryTarget } from "./store/files/target.ts"
 import { type Memory } from "./store/model/memory.ts"
 import { isActive, isInjectable } from "./store/model/predicates.ts"
 import { evidenceVisibleTo, isVisibleTo } from "./store/model/visibility.ts";
-import { auditCaveat, runWriteGate, sameStrList, type WriteCandidate } from "./gate/gate.ts";
+import { auditCaveat, sameStrList, type WriteCandidate } from "./gate/gate.ts";
 import { withStoreLock } from "./store/lock.ts";
-import { isQuarantined, quarantineCandidate, quarantineReasons } from "./store/quarantine/quarantine.ts";
+import { isQuarantined, quarantineReasons } from "./store/quarantine/quarantine.ts";
 import { pruneMemory } from "./store/prune.ts";
 import { findStaleOpen } from "./portable/decay.ts"
 import { exportMemories } from "./portable/export.ts"
 import { importMemories } from "./portable/import.ts";
 import { listSnapshots, restoreSnapshot } from "./store/undo.ts";
-import { evidenceFileFor, record, recordCaptureLag } from "./evidence/record.ts";
+import { evidenceFileFor, record } from "./evidence/record.ts";
 import { proposeConsolidations } from "./consolidate/propose.ts"
 import { renderProposals } from "./consolidate/render.ts";
 import { readReads } from "./hits/ledger.ts";
-import { compactionAnchor } from "./inject/anchor.ts"
 import { formatMemory } from "./inject/format.ts"
-import { contextualPull } from "./inject/pull.ts"
-import { pullQuery } from "./recall/relevant.ts"
 import { sharedTerms } from "./recall/shared-terms.ts";
+import { configureAutoCapture, CAPTURE_EVENT_TYPES } from "./capture/runtime.ts";
+export { resetCaptureCooldowns, TURN_END_EVENTS, CAPTURE_EVENT_TYPES, captureTriggerFor } from "./capture/runtime.ts";
 import { createInjectionEpochs } from "./inject/epochs.ts";
 import { createSessionContext } from "./identity/session-context.ts";
 import { registerMemoryTools } from "./tools/registry.ts";
-import { readLedger, neverRetrieved, recordHits, useSignals, type HitSource } from "./hits/ledger.ts";
+import { readLedger, neverRetrieved, recordHits, type HitSource } from "./hits/ledger.ts";
 import { formatInit } from "./init/format.ts"
 import { runInit } from "./init/run.ts";
 import { ensureInitCommand, ensureMemoryReportCommand } from "./command/ensure.ts";
@@ -47,29 +49,16 @@ import { type Measured, type StoreCounts } from "./status/payload.ts"
 import { renderMemoryReport } from "./status/report.ts"
 import { blockedRecent } from "./status/write.ts";
 import {
-  afterTool,
-  checkNewSession,
   firstFrontierTap,
   markFrontierTap,
-  markTurn,
-  onCompacting,
 } from "./capture/triggers.ts";
 import { setCurrent } from "./core/state.ts";
 import { resolveRepo, setRepoScope, rememberSessionDir, bindSessionProvisional, writeTarget } from "./identity/repokey.ts";
 import { parseLine } from "./core/logfmt/format.ts"
 import { readLines } from "./core/logfmt/read.ts";
-import { parseCandidates, parseModelRef } from "./capture/candidates.ts"
-import { lagSince } from "./capture/lag.ts"
-import { buildCapturePrompt } from "./capture/prompt.ts"
-import { flattenTranscript } from "./capture/transcript.ts";
-import { redactSecrets } from "./store/secrets.ts";
+import { parseModelRef } from "./capture/candidates.ts"
 import { flattenMemoryText } from "./store/sanitize.ts";
 import { bunFloorWarning } from "./core/runtime.ts";
-import {
-  captureSessionID,
-  sessionIdentityEvent,
-  sessionUsageEvent,
-} from "./identity/host-events.ts";
 
 // Tool/input boundaries are zod schemas (src/schema.ts): the JSON Schema the
 // host sees is GENERATED from them, and raw args are re-parsed at execution.
@@ -90,132 +79,11 @@ import {
   validated,
 } from "./tools/schema.ts";
 
-// --- OpenCode V2 runtime shapes (loose: we only read a few fields) ----------
-interface ToolDef {
-  name: string;
-  description: string;
-  input: Record<string, unknown>;
-  options?: { codemode?: boolean; namespace?: string };
-  execute: (args: any, context: any) => Promise<{ content: string }>;
-}
-interface ToolEditorLike {
-  add: (tool: ToolDef) => void;
-}
-interface HookReg {
-  dispose?: () => Promise<void> | void;
-}
-interface PluginCtx {
-  location?: { directory?: string };
-  options?: Record<string, unknown>;
-  tool?: {
-    transform: (cb: (editor: ToolEditorLike) => void) => Promise<unknown>;
-    hook: (name: string, cb: (event: any) => Promise<void> | void) => Promise<HookReg | void>;
-  };
-  session?: {
-    hook: (name: string, cb: (event: any) => Promise<void> | void) => Promise<HookReg | void>;
-    context?: (input: { sessionID: string }) => Promise<unknown>;
-    get?: (input: { sessionID: string }) => Promise<unknown>;
-  };
-  event?: {
-    subscribe: (o?: { signal?: AbortSignal }) => AsyncIterable<unknown>;
-  };
-  generate?: {
-    text: (input: unknown) => Promise<{ text?: string } | string>;
-  };
-}
-
-// Best-effort extraction of a tool's textual output + metadata from the V2
-// execute.after `result` payload, whose exact encoding varies by tool.
-function resultText(result: unknown): string {
-  if (typeof result === "string") return result;
-  if (!result || typeof result !== "object") return "";
-  const r = result as Record<string, unknown>;
-  for (const k of ["output", "text", "content", "stdout"]) {
-    const v = r[k];
-    if (typeof v === "string") return v;
-  }
-  if (Array.isArray(r.content)) {
-    return (r.content as Array<Record<string, unknown>>)
-      .map((c) => (typeof c?.text === "string" ? c.text : ""))
-      .filter(Boolean)
-      .join("\n");
-  }
-  return "";
-}
-function resultMeta(result: unknown): Record<string, unknown> {
-  if (result && typeof result === "object") {
-    const m = (result as Record<string, unknown>).metadata;
-    if (m && typeof m === "object") return m as Record<string, unknown>;
-  }
-  return {};
-}
-
 const PLUGIN_ID = "opencode-self-improvement";
-
-// Tag on store rows captured by the COMPACTION trigger (issue #41). Rows keep
-// the shared "auto-capture" provenance tag (src/inject.ts renders it) and add
-// this one so decay/status can tell which trigger wrote them — the same
-// distinction the auto_capture_compaction_* evidence lines carry.
-const CAPTURE_COMPACT_TAG = "auto_capture_compaction";
 
 // The setup-time Bun-floor warning fires once per process (setup can run for
 // more than one location).
 let bunFloorChecked = false;
-
-// Auto-capture cooldown, shared by EVERY setup() registration (#108): setup
-// runs for more than one location, and per-closure cooldown maps made those
-// registrations strangers - one compaction could pay for two model calls on
-// one transcript. Same module-level shape as `turns` in src/lock.ts; the key
-// names the trigger, so measuring one trigger is still not confounded by the
-// other having fired moments ago.
-const lastCaptureRun = new Map<string, number>();
-
-const CAPTURE_COOLDOWN_MS = 5 * 60_000;
-
-/** True if this trigger may fire for this session now; records the fire. */
-function captureCooldownPasses(trigger: "idle" | "compaction", sid: string, now: number): boolean {
-  const key = `${trigger}:${sid}`;
-  if (now - (lastCaptureRun.get(key) ?? 0) < CAPTURE_COOLDOWN_MS) return false;
-  // Sessions churn and a long-lived server must not grow one entry per
-  // session forever; oldest-inserted go first (the ledger throttle's rule).
-  if (lastCaptureRun.size > 2000) {
-    for (const k of [...lastCaptureRun.keys()].slice(0, 1000)) lastCaptureRun.delete(k);
-  }
-  lastCaptureRun.set(key, now);
-  return true;
-}
-
-/** Clear the cooldown windows (tests; also what a process restart does). */
-export function resetCaptureCooldowns(): void {
-  lastCaptureRun.clear();
-}
-
-// ---- capture trigger vocabulary (#136) -------------------------------------
-// Single source of truth for capture subscriptions. Both turn-end events were
-// observed on the desktop service (test/fixtures/host-events.jsonl).
-// test/event-fidelity.test.ts requires every trigger to appear in both that
-// recording and the installed @opencode/schema manifest: a declared event
-// alone is insufficient evidence that the host emits it (#78, #136).
-// Identity triggers have a separate observed check in that test, combining
-// this recording with the 2.2.2 move extract in host-session-move.json (#176).
-export const TURN_END_EVENTS = ["session.execution.succeeded", "session.execution.interrupted"] as const;
-
-/** Every event type the capture subscription reacts to (fidelity-tested). */
-export const CAPTURE_EVENT_TYPES: readonly string[] = [...TURN_END_EVENTS];
-
-// `session.idle`, `session.status`, and `session.execution.failed` are declared
-// but absent from that recording, so they deliberately do not trigger capture.
-// Adding a trigger requires a recording; status would also need idle filtering.
-
-/**
- * True when a host event means "this session just went quiet". The internal
- * trigger name stays "idle" (cooldown keys, `auto_capture_*` evidence lines and
- * the historical idle-vs-compaction bench all use it).
- */
-export function captureTriggerFor(event: unknown): boolean {
-  const type = (event as { type?: unknown } | null)?.type;
-  return typeof type === "string" && (TURN_END_EVENTS as readonly string[]).includes(type);
-}
 
 // The real setup implementation, written against the loose local PluginCtx
 // (the only members of the V2 context this plugin actually touches).
@@ -254,16 +122,6 @@ const impl = {
     // ~/.config/opencode/commands, so this is the canonical V2 install path.
     await ensureInitCommand();
     await ensureMemoryReportCommand();
-
-    // Fail-closed hook guard: the plugin's own bookkeeping can never take down a
-    // tool call, the system transform, or compaction.
-    async function guarded(name: string, fn: () => Promise<void>): Promise<void> {
-      try {
-        await fn();
-      } catch (err) {
-        console.warn(`[opencode-self-improvement] ${name} hook failed (ignored):`, err);
-      }
-    }
 
     const { gateContext, ownerlessWriter, refuseOwnerlessWrite, toolIds, bindSessionFromApi, bindSessionIdentity } =
       createSessionContext(ctx, { instanceDir, liveRoot });
@@ -309,165 +167,11 @@ const impl = {
     // means "off". Declared here because the hook registers before capture.
     let onCompactCapture: ((sid: string, messages: unknown) => void) | undefined;
 
-    // Bookkeeping: track the active session/tool/call before a tool runs.
-    await ctx.tool?.hook("execute.before", (event: any) =>
-      guarded("tool.execute.before", async () => {
-        setCurrent({
-          sessionID: event?.sessionID,
-          callID: event?.callID ?? event?.id,
-          tool: event?.tool,
-        });
-      }),
-    );
-
-    await ctx.tool?.hook("execute.after", (event: any) =>
-      guarded("tool.execute.after", async () => {
-        const input = {
-          tool: event?.tool,
-          sessionID: event?.sessionID,
-          callID: event?.callID ?? event?.id,
-          args: event?.input,
-        };
-        setCurrent(input);
-        // Evidence lines written below stamp the RECORDING repository. Bind
-        // an unbound caller to this instance first (SYNC provisional; the
-        // prompt hook / events bind firmly in production) so a tool_result
-        // can never carry another instance's stamp (#127).
-        if (typeof event?.sessionID === "string") {
-          bindSessionProvisional(event.sessionID, instanceDir);
-        }
-        const out = { output: resultText(event?.result), metadata: resultMeta(event?.result) };
-        await afterTool(input, out);
-        const pulled = await contextualPull(input, out as { output?: unknown }, budget, await useSignals());
-        if (pulled.length) await noteHits("pull", String(event?.sessionID ?? ""), pulled, pullQuery(input.args));
-        // Write a contextual-pull append back when the tool result is text we own.
-        if (event?.result && typeof event.result === "object" && typeof event.result.content === "string") {
-          const text = resultText(event.result);
-          if (out.output && out.output !== text) event.result.content = out.output;
-        }
-      }),
-    );
-
-    // Tiny system digest + open-thread frontier block, injected into the system prompt.
-    await ctx.session?.hook("context", (event: any) =>
-      guarded("session.context (systemDigest)", async () => {
-        // Route store reads in this hook through the right session's scope:
-        // the sid is captured from the event BEFORE any await and carried
-        // explicitly — the global current set here is legacy bookkeeping
-        // only, never the identity this flow filters with (#127).
-        const sid = typeof event?.sessionID === "string" ? event.sessionID : undefined;
-        setCurrent({ sessionID: event?.sessionID });
-        if (typeof sid === "string") sessions.touch(sid);
-        // Resolve WHOSE repository this injection reads before the store
-        // read below: an unbound session would otherwise fall to global-only
-        // and silently lose its own frontier rows. SYNC provisional bind to
-        // this instance's workspace — the prompt hook (or an event) has
-        // already bound firmly in production, so no host lookup belongs in
-        // this hot path (#127).
-        if (typeof sid === "string") bindSessionProvisional(sid, instanceDir);
-        await sessions.deliver(sid, (text) => event?.system?.push?.({ type: "text", text }));
-      }),
-    );
-
-    // Memory-first injection, frozen per epoch (cache-safe). Remember the
-    // latest user prompt here; the request-time context hook builds or
-    // invalidates the epoch immediately before delivery. Relevance staleness
-    // is accepted while the injectable rows stay unchanged, preserving a
-    // stable system prefix across ordinary turns.
-    // Never mutate event.prompt.text — it is stored verbatim and rendered in
-    // the UI.
-    await ctx.session?.hook("prompt", (event: any) =>
-      guarded("session.prompt (inject)", async () => {
-        setCurrent({ sessionID: event?.sessionID });
-        const sid = event?.sessionID;
-        if (typeof sid === "string") {
-          sessions.touch(sid);
-          markTurn(sid);
-          await checkNewSession(sid);
-          await bindSessionIdentity(sid);
-          await sessions.prompt(sid, event?.prompt?.text ?? "");
-        }
-      }),
-    );
-
-    // Session-convergence rollup at compaction. The epoch is dropped so the
-    // next prompt re-scores against the post-compaction store. Memory-aware
-    // compaction: the durable-memory anchor is pushed onto the hook's system
-    // parts (visible to the summarizer model, which runs AFTER hooks) so the
-    // summary preserves the facts. Never sets event.result — that would skip
-    // the summarizer call entirely. Also fires the context-death auto-capture
-    // (issue #41, opt-in; see the capture section): the transcript is mined
-    // while it still exists, BEFORE the summarizer replaces it.
-    await ctx.session?.hook("compaction", (event: any) =>
-      guarded("session.compaction (onCompacting)", async () => {
-        const sid = typeof event?.sessionID === "string" ? event.sessionID : undefined;
-        setCurrent({ sessionID: event?.sessionID });
-        // The anchor read and the capture pass below partition by the session's
-        // repository; SYNC provisional bind only — a host lookup from this
-        // hook would violate the zero-token promise (#127, see capture).
-        if (typeof sid === "string") bindSessionProvisional(sid, instanceDir);
-        await onCompacting({ sessionID: event?.sessionID });
-        if (typeof event?.sessionID === "string") {
-          sessions.invalidate(event.sessionID);
-        }
-        const anchor = await compactionAnchor(12, sid);
-        if (anchor) event?.system?.push?.({ type: "text", text: anchor });
-        // Fire-and-forget: a capture model call must never delay the compaction
-        // the user is waiting for, and failures stay inside the guarded path.
-        // The payload's own messages ride along so the mining sees the
-        // pre-compaction transcript even if the store moves under it.
-        if (onCompactCapture && sid) {
-          onCompactCapture(sid, event.messages);
-        }
-      }),
-    );
-
-    // ---- measured prompt-cache health (usage events) -----------------------
-    // Zero-model by design: usage arrives on `session.usage.updated` (v2 hosts)
-    // or `message.updated` assistant info (older hosts), carrying tokens
-    // {input, output, reasoning, cache.read/write}; the session-wide
-    // read/(read+input+write) share is the honest receipt behind the
-    // byte-stability proxy. Streaming updates arrive repeatedly — overwriting
-    // with the latest is correct because the final update carries the complete
-    // usage. Flushes the per-session status file so the TUI badge refreshes
-    // once per turn instead of per step. Degrades to "not measured" when the
-    // host exposes no event stream.
-    const measuredController = new AbortController();
-    if (ctx.event?.subscribe) {
-      const eventApi = ctx.event;
-      void (async () => {
-        try {
-          for await (const raw of eventApi.subscribe({ signal: measuredController.signal })) {
-            // Session identity: created fires for new sessions, execution.started
-            // every turn (covers sessions resumed across a restart), moved on a
-            // workspace change. Stamps and visibility resolve through this.
-            const identity = sessionIdentityEvent(raw);
-            if (identity) {
-              const { sessionID: sid, directory: dir } = identity;
-              if (dir !== undefined) rememberSessionDir(sid, dir);
-              // 2.1.4 serve sends execution.started with no location at all:
-              // resolve the session row instead of leaving the session unbound.
-              else void guarded("session bind (api)", () => bindSessionFromApi(sid));
-              continue;
-            }
-            const usage = sessionUsageEvent(raw);
-            if (!usage) continue;
-            const { sessionID, input, read, write } = usage;
-            sessions.touch(sessionID);
-            measuredTurns.set(sessionID, {
-              at: new Date().toISOString(),
-              input,
-              read,
-              write,
-            });
-            await guarded("status flush (measured)", () => flushStatus(sessionID));
-          }
-        } catch {
-          // the subscription ended (abort or host error); nothing to do
-        }
-      })();
-    }
-
+    const measuredController = await registerHooks(ctx, {
+      guarded, sessions, instanceDir, budget, noteHits, bindSessionIdentity,
+      bindSessionFromApi, measuredTurns, flushStatus,
+      getCompactCapture: () => onCompactCapture,
+    });
     // ---- opt-in auto-capture (idle + compaction triggers) ------------------
     // Default OFF: capture never reads sessions and never calls a model. (The
     // measured-cache listener above does subscribe to the event stream by
@@ -483,181 +187,9 @@ const impl = {
     // so decay/status — and bench/capture-trigger-compare.ts — can measure
     // which trigger earns its tokens. Every failure is swallowed: capture must
     // never be able to break a session.
-    let captureCleanup: Cleanup | undefined;
-    if (ctx.options?.autoCapture === true) {
-      const captureModel =
-        typeof ctx.options.captureModel === "string" ? ctx.options.captureModel : "";
-      const captureMax = Number(ctx.options.captureMax) || 3;
-      const captureOnCompact = ctx.options?.captureOnCompact !== false;
-      const modelRef = parseModelRef(captureModel);
-      if (!modelRef) {
-        // Invalid/missing model: skip registering the whole subscription
-        // rather than guess (and warn once, at setup).
-        console.warn(
-          `[opencode-self-improvement] autoCapture is on but captureModel ${JSON.stringify(captureModel)} is invalid (expected "provider/id"); auto-capture disabled.`,
-        );
-      } else if (!ctx.event?.subscribe || !ctx.generate?.text || !ctx.session?.context) {
-        console.warn(
-          "[opencode-self-improvement] autoCapture is on but this OpenCode context lacks event.subscribe/generate.text/session.context; auto-capture disabled.",
-        );
-      } else {
-        const controller = new AbortController();
-        const eventApi = ctx.event;
-        const generateApi = ctx.generate;
-        // Arrow wrapper: keep the receiver bound. The harness fakes are closures,
-        // but a real client method that reads `this` would break if detached —
-        // and the fail-closed catch below would hide it. Optional call: the
-        // setup guard proves it exists, but property narrowing does not survive
-        // into the closure, and undefined degrades safely (empty transcript).
-        const contextFn = (input: { sessionID: string }) => ctx.session?.context?.(input);
-
-        // ONE capture pass, shared by both triggers. `seeded` is a transcript
-        // already in hand — the compaction hook carries the PRE-compaction
-        // messages, which is the whole point (Compaction Cliff: one round
-        // retains 53% of exact-wording rules); when it is absent (older host
-        // shapes) or too thin, the session context is read instead, the same
-        // source the idle trigger mines.
-        async function captureSession(
-          sid: string,
-          seeded: string,
-          trigger: "idle" | "compaction",
-          seededMsgs?: unknown,
-        ): Promise<void> {
-          // Bind the capturing session for the synchronous stretches of this
-          // path - but NOT as a promise: the awaits below let another session
-          // move current, so the gate context and the persisted rows thread
-          // `sid` explicitly instead of reading it back from the global (#116).
-          setCurrent({ sessionID: sid });
-          // The capture's dedup reads and the rows it writes partition by the
-          // CAPTURED session's repository — an unbound sid would otherwise
-          // read global-only and mine duplicates into the store (#127; in
-          // production the prompt hook already bound it firmly, so this is a
-          // no-op there). SYNC only: a lookup call here would break the
-          // zero-token promise of the capture tests.
-          bindSessionProvisional(sid, instanceDir);
-          const captureGate = gateContext(sid);
-          // #152: an instance with no workspace cannot say which repository the
-          // mined rows belong to, and rows with no owner are exactly what the
-          // store refuses. Skip BEFORE the model call — no tokens spent on a
-          // capture that cannot be stored — and leave the reason in evidence.
-          if (!writeTarget(sid).ok) {
-            await record("auto_capture_refused", { session: sid, trigger }, true, sid, captureGate.evidenceContext);
-            return;
-          }
-          let transcript = seeded;
-          let msgs = seededMsgs;
-          if (transcript.length < 200) {
-            msgs = await contextFn({ sessionID: sid });
-            transcript = flattenTranscript(msgs);
-          }
-          if (transcript.length < 200) return; // too thin to mine reliably
-          // #44: how stale is a capture? Distance from the newest message of
-          // the mined transcript to this instant - measured on whatever the
-          // trigger actually mined (the hook payload for compaction, the
-          // session context for idle), so both triggers' lag is comparable.
-          const lagMs = lagSince(msgs);
-          const out = await generateApi.text({
-            model: modelRef,
-            // Redact the COMPLETE transcript, THEN apply the character budget
-            // (#132). Cropping first can start the window INSIDE a credential:
-            // a PEM body whose BEGIN marker fell off, or a token whose prefix
-            // fell off, matches no pattern — buildCapturePrompt's own scrub
-            // (kept, defense in depth) cannot recognize a fragment.
-            prompt: buildCapturePrompt(redactSecrets(transcript).slice(-8000), captureMax),
-          });
-          const text = typeof out === "string" ? out : out?.text ?? "";
-          const candidates = parseCandidates(text, captureMax);
-          for (const c of candidates) {
-            const durable: string[] = [];
-            let outcome: Awaited<ReturnType<typeof runWriteGate>>;
-            try {
-              outcome = await runWriteGate(
-                quarantineCandidate({
-                  ...c,
-                  tags:
-                    trigger === "compaction"
-                      ? ["auto-capture", CAPTURE_COMPACT_TAG]
-                      : ["auto-capture"],
-                }),
-                { ...captureGate, durable },
-              );
-            } catch (err) {
-              // A refused write must not disappear into the hook's fail-soft
-              // wrapper. Preserve any earlier gate retirements in the receipt.
-              await record(durable.length ? "auto_capture_partial" : "auto_capture_refused", {
-                session: sid, trigger, type: c.type, scope: redactSecrets(c.scope),
-                reason: String(err), retired: durable.join(",") || undefined,
-              }, false, sid, captureGate.evidenceContext);
-              continue;
-            }
-            await record(
-              trigger === "compaction"
-                ? `auto_capture_compaction_${outcome.action}`
-                : `auto_capture_${outcome.action}`,
-              // A blocked credential-shaped scope must not reach the evidence log either.
-              // The promoted line also carries the audit fault when the
-              // write_promoted line fell (#155 review — capture has no
-              // reply to caveat, so this line is the trail's only note).
-              {
-                session: sid,
-                trigger,
-                type: c.type,
-                scope: redactSecrets(c.scope),
-                reason: outcome.reason ?? "",
-                audit_error: outcome.evidenceError,
-              },
-              false,
-              sid,
-              captureGate.evidenceContext,
-            );
-          }
-          await recordCaptureLag(sid, lagMs, candidates.length ? "candidates" : "empty", captureGate.evidenceContext);
-        }
-
-        void (async () => {
-          try {
-            for await (const raw of eventApi.subscribe({ signal: controller.signal })) {
-              if (!captureTriggerFor(raw)) continue;
-              const sid = captureSessionID(raw);
-              if (sid === undefined) continue;
-              setCurrent({ sessionID: sid });
-              const now = Date.now();
-              if (!captureCooldownPasses("idle", sid, now)) continue; // 5-min cooldown, shared across setups
-              try {
-                await captureSession(sid, "", "idle");
-              } catch {
-                // fail-closed: a broken capture attempt is invisible to the session
-              }
-            }
-          } catch {
-            // the subscription itself ended (abort or host error); nothing to do
-          }
-        })();
-        captureCleanup = () => controller.abort();
-
-        // The compaction trigger needs no extra subscription: the session
-        // compaction hook (registered above) calls through this seam. The
-        // cooldown names the trigger, so measuring a compaction capture is
-        // not confounded by an idle fire moments before - and lives at
-        // module level, so a second setup() cannot double-pay one
-        // compaction (#108).
-        if (captureOnCompact) {
-          onCompactCapture = (sid, messages) => {
-            if (controller.signal.aborted) return;
-            const now = Date.now();
-            if (!captureCooldownPasses("compaction", sid, now)) return; // 5-min cooldown
-            void guarded("session.compaction (auto-capture)", () =>
-              captureSession(sid, flattenTranscript(messages), "compaction", messages),
-            );
-          };
-        }
-      }
-    } else if (ctx.options?.captureOnCompact === true) {
-      // autoCapture is the master switch (zero-token default preserved).
-      console.warn(
-        "[opencode-self-improvement] captureOnCompact is on but autoCapture is off; compaction capture stays disabled (autoCapture is the master switch).",
-      );
-    }
+    const capture = configureAutoCapture(ctx, { instanceDir, gateContext, guarded });
+    onCompactCapture = capture.onCompactCapture;
+    const captureCleanup = capture.cleanup;
     // ---- startup heartbeat (#138) ------------------------------------------
     // Every other evidence line is written BY something that already worked,
     // so "capture is off", "capture is misconfigured" and "capture is armed and
