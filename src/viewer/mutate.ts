@@ -21,6 +21,7 @@ import { snapshotFiles } from "../store/files/snapshots.ts"
 import { markSuperseded } from "../store/files/supersede.ts"
 import { type Memory } from "../store/model/memory.ts"
 import { releaseQuarantine } from "../store/quarantine/release.ts";
+import { assertViewerWriteAllowed } from "./rejections.ts";
 
 export interface EditInput {
   ts: string;
@@ -75,6 +76,9 @@ export async function editMemory(input: EditInput): Promise<MutationResult> {
   const chain = chainId();
   const target = await findMemory(input.ts);
 
+  // Editing is not an implicit un-reject. Refuse before snapshots, appends,
+  // retirement or audit so a rejected edit leaves its original row intact.
+  await assertViewerWriteAllowed(input.content);
   const snapshot = await snapshotFiles([target.file]);
   const newTs = await appendMemory({
     type: input.type || target.type,

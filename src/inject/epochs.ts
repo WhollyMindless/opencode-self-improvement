@@ -2,7 +2,7 @@
 // index.ts; this module owns frozen bytes, refresh decisions, and their status.
 import { loadAll, malformedCount } from "../store/files/load.ts"
 import { type Memory } from "../store/model/memory.ts"
-import { isActive, isInjectable } from "../store/model/predicates.ts"
+import { isInjectable } from "../store/model/predicates.ts"
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 import { SESSION_CAP, SessionLru } from "../core/lru.ts";
 import { record } from "../evidence/record.ts";
@@ -11,7 +11,8 @@ import { systemDigest } from "./digest.ts"
 import { storeVersion } from "./version.ts"
 import { selectRelevant } from "../recall/relevant.ts";
 import { attributeSession, deriveMemoryRefs, type MemoryRefs } from "./attribution.ts";
-import { neverRetrieved, readLedger, useSignals } from "../hits/ledger.ts";
+import { readLedger, useSignals } from "../hits/ledger.ts";
+import { summarizeStore } from "../status/store-summary.ts";
 import { emptyStats, type Measured, type SessionStats, type StatusPayload } from "../status/payload.ts"
 import { writeStatus } from "../status/write.ts";
 import { callsFor } from "../capture/triggers.ts";
@@ -105,7 +106,6 @@ export function createInjectionEpochs({
     const ep = epoch.get(sid);
     if (!ep) return null;
     const all = await loadAll();
-    const act = all.filter(isActive);
     const led = await readLedger();
     return {
       at: ep.at,
@@ -116,15 +116,7 @@ export function createInjectionEpochs({
       blockChars: ep.block.length,
       sectionChars: ep.prefix.length,
       budget,
-      store: {
-        active: act.length,
-        superseded: all.length - act.length,
-        open: act.filter((m) => m.status === "open").length,
-        scopes: new Set(act.map((m) => m.scope)).size,
-        malformed: malformedCount(),
-        neverRetrieved: neverRetrieved(act, led).length,
-        ledgerSince: led.since,
-      },
+      store: summarizeStore(all, led, malformedCount()).counts,
       stats: statsFor(sid),
       measured: measuredTurns.get(sid) ?? null,
       attribution: attributeSession(callsFor(sid), ep.refs),

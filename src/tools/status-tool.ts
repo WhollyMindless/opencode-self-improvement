@@ -1,18 +1,16 @@
-// The memory_status tool, extracted from index.ts (#168). Schema, description
-// and handler are byte-identical to the pre-split source; closure access arrives
-// through ToolDeps.
+// The memory_status tool, extracted from index.ts (#168).
+// Closure access arrives through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
-import { neverRetrieved, readLedger } from "../hits/ledger.ts";
+import { readLedger } from "../hits/ledger.ts";
 import { formatMemory } from "../inject/format.ts";
 import { loadAll, malformedCount } from "../store/files/load.ts"
-import { isActive } from "../store/model/predicates.ts"
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 import { isQuarantined, quarantineReasons } from "../store/quarantine/quarantine.ts";
 import { EmptyArgs, validated } from "./schema.ts";
 import { captureLag, captureLagLines, rowsPerDay } from "../status/metrics.ts"
 import { renderMemoryReport } from "../status/report.ts"
 import { blockedRecent } from "../status/write.ts";
-import type { StoreCounts } from "../status/payload.ts";
+import { summarizeStore } from "../status/store-summary.ts";
 
 export const register: ToolRegister = (editor, deps) => {
   const { toolIds, sessions, direct } = deps;
@@ -28,19 +26,11 @@ export const register: ToolRegister = (editor, deps) => {
         if (sid !== "?") await sessions.refresh(sid);
         const status = sid === "?" ? null : await sessions.buildPayload(sid);
         const all = await loadAll();
-        const act = all.filter(isActive);
-        const store: StoreCounts = {
-          active: act.length,
-          superseded: all.length - act.length,
-          open: act.filter((m) => m.status === "open").length,
-          scopes: new Set(act.map((m) => m.scope)).size,
-          malformed: malformedCount(),
-        };
+        const malformed = malformedCount();
         // Use ledger (#42): how much of the store has never been surfaced.
         // Reported, never acted on — retirement is a decision, not a metric.
         const ledger = await readLedger();
-        store.neverRetrieved = neverRetrieved(act, ledger).length;
-        store.ledgerSince = ledger.since;
+        const { active: act, counts: store } = summarizeStore(all, ledger, malformed);
         // Self-metrics (#44): what the store costs, how fast it grows, and how
         // stale a capture is when it fires. Same rule as above — the numbers
         // are the point, not a verdict on them.

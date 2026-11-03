@@ -1,10 +1,12 @@
 #!/bin/sh
 # Local push gate: runs the full merge gate (typecheck, lint, unit, terminal
 # smoke + BDD on a real isolated opencode host) before anything leaves the
-# machine. CI enforces the same checks; this one just fails faster.
+# machine. This is the only check a direct push gets: ci.yml has no push
+# trigger, so skipping means no CI runs for this push and the change stays
+# unverified until a pull request is opened for it.
 # Emergency override: SKIP_GATE=1 git push
 if [ "${SKIP_GATE:-0}" = "1" ]; then
-  echo "merge-gate: SKIPPED via SKIP_GATE=1 — CI will still enforce everything"
+  echo "merge-gate: SKIPPED via SKIP_GATE=1 — no CI runs for this push; unverified until a pull request is opened"
   exit 0
 fi
 bun run gate || {
