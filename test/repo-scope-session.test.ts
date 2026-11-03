@@ -29,6 +29,7 @@ import { loadAll } from "../src/store/files/load.ts";
 import { isVisibleHere } from "../src/store/model/visibility.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
 import { loadPlugin } from "./harness.ts";
+import { dayFile, sleep } from "./helpers/logfmt.ts";
 
 const MODULE_SCOPE = { key: "mod111", path: "/work/module" };
 
@@ -53,12 +54,6 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
-const dayFile = () =>
-  join(
-    process.env.OPENCODE_MEMORY_DIR!,
-    `${new Date().toISOString().split("T")[0]}.logfmt`,
-  );
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
   const start = Date.now();
   while (!cond()) {

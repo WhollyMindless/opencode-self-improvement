@@ -7,24 +7,11 @@
 // Robustness: every host hook fails closed so a corrupt/missing store can never
 // break a tool call or the system transform.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
+import { evidenceDir } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
-import {
-  formatLine,
-  parseLine,
-  type Fields,
-} from "../src/core/logfmt/format.ts";
-import { readLines } from "../src/core/logfmt/read.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { isActive } from "../src/store/model/predicates.ts";
@@ -35,10 +22,10 @@ import {
   hasEngagement,
   hasGateCheck,
 } from "../src/capture/triggers.ts";
-import { systemDigest } from "../src/inject/digest.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
 import { rememberSessionDir, setRepoScope } from "../src/identity/repokey.ts";
 import { loadPlugin } from "./harness.ts";
+import { readEvidenceLog as evidence, ev, field } from "./helpers/logfmt.ts";
 
 let root: string;
 let liveRoot: string;
@@ -58,24 +45,6 @@ afterEach(() => {
   delete process.env.OPENCODE_COMMANDS_DIR;
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
-
-function evidence(): Fields[] {
-  const file = join(evidenceDir(), `${dateStr()}.logfmt`);
-  if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => parseLine(l))
-    .filter((f): f is Fields => f !== null);
-}
-
-function ev(lines: Fields[], name: string): Fields[] {
-  return lines.filter((l) => l.ev === name);
-}
-
-function field(line: Fields | undefined, key: string): string {
-  return line ? String(line[key] ?? "") : "";
-}
 
 function ctx(sid: string): GateContext {
   // The gate call below runs for this session IN liveRoot — a real host says

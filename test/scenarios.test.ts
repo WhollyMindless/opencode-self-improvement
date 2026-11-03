@@ -13,17 +13,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import {
-  evidenceDir,
-  memoryRoot,
-  snapshotDir,
-} from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import {
-  formatLine,
-  parseLine,
-  type Fields,
-} from "../src/core/logfmt/format.ts";
+import { memoryRoot, snapshotDir } from "../src/core/config/paths.ts";
+import { formatLine, type Fields } from "../src/core/logfmt/format.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { runWriteGate, type GateContext } from "../src/gate/gate.ts";
 import { pruneMemory } from "../src/store/prune.ts";
@@ -36,6 +27,7 @@ import {
 } from "../src/capture/triggers.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
 import { rememberSessionDir } from "../src/identity/repokey.ts";
+import { readEvidenceLog as evidence, ev, field } from "./helpers/logfmt.ts";
 
 let root: string;
 let liveRoot: string;
@@ -72,24 +64,6 @@ function writeCanonical(fields: Record<string, string>): void {
     join(memoryRoot(), "canonical.logfmt"),
     formatLine(fields) + "\n",
   );
-}
-
-function evidence(): Fields[] {
-  const file = join(evidenceDir(), `${dateStr()}.logfmt`);
-  if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => parseLine(l))
-    .filter((f): f is Fields => f !== null);
-}
-
-function ev(lines: Fields[], name: string): Fields[] {
-  return lines.filter((l) => l.ev === name);
-}
-
-function field(line: Fields | undefined, key: string): string {
-  return line ? String(line[key] ?? "") : "";
 }
 
 function assertOrder(lines: Fields[], expected: string[]): void {

@@ -3,30 +3,20 @@
 // the system digest, the open-first tie-break, and the frontier_injected
 // evidence line. Hermetic: temp OPENCODE_MEMORY_DIR, throwaway live tree.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
+import { evidenceDir } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
-import {
-  formatLine,
-  parseLine,
-  type Fields,
-} from "../src/core/logfmt/format.ts";
+import { formatLine } from "../src/core/logfmt/format.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { runWriteGate, type GateContext } from "../src/gate/gate.ts";
 import { systemDigest } from "../src/inject/digest.ts";
 import { relevantKnowledge } from "../src/recall/relevant.ts";
 import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
-import { resetState, setCurrent } from "../src/core/state.ts";
+import { resetState } from "../src/core/state.ts";
+import { readEvidenceLog as evidence } from "./helpers/logfmt.ts";
 
 let root: string;
 let liveRoot: string;
@@ -49,16 +39,6 @@ afterEach(() => {
   delete process.env.OPENCODE_MEMORY_DIR;
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
-
-function evidence(): Fields[] {
-  const file = join(evidenceDir(), `${dateStr()}.logfmt`);
-  if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => parseLine(l))
-    .filter((f): f is Fields => f !== null);
-}
 
 function ctx(): GateContext {
   return { liveRoot, evidenceCalls: [], hasGateCheck: false };

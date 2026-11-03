@@ -25,6 +25,7 @@ import {
 } from "../src/identity/repokey.ts";
 import { loadPlugin } from "./harness.ts";
 import moveRecording from "./fixtures/host-session-move.json";
+import { dayFile, sleep } from "./helpers/logfmt.ts";
 
 let root: string;
 beforeEach(() => {
@@ -41,12 +42,6 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const dayFile = () =>
-  join(
-    process.env.OPENCODE_MEMORY_DIR!,
-    `${new Date().toISOString().split("T")[0]}.logfmt`,
-  );
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
   const start = Date.now();
   while (!cond()) {

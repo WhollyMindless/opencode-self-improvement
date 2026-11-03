@@ -11,25 +11,14 @@
 // Hermetic: OPENCODE_MEMORY_DIR points at a temp dir and the "live" source tree
 // is a throwaway, so nothing here touches this repo or the real memory store.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import {
-  formatLine,
-  parseLine,
-  type Fields,
-} from "../src/core/logfmt/format.ts";
+import { memoryRoot } from "../src/core/config/paths.ts";
+import { formatLine } from "../src/core/logfmt/format.ts";
 import { resetState } from "../src/core/state.ts";
 import { loadPlugin } from "./harness.ts";
+import { readEvidenceLog as evidence, field } from "./helpers/logfmt.ts";
 
 let root: string;
 let liveRoot: string;
@@ -53,20 +42,6 @@ type AnyHook = (input: unknown, output: unknown) => Promise<void>;
 async function hooksFor(): Promise<Record<string, AnyHook | undefined>> {
   const loaded = await loadPlugin(liveRoot);
   return loaded as unknown as Record<string, AnyHook | undefined>;
-}
-
-function evidence(): Fields[] {
-  const file = join(evidenceDir(), `${dateStr()}.logfmt`);
-  if (!existsSync(file)) return [];
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => parseLine(l))
-    .filter((f): f is Fields => f !== null);
-}
-
-function field(line: Fields | undefined, key: string): string {
-  return line ? String(line[key] ?? "") : "";
 }
 
 describe("compaction contract — the plugin must not corrupt the model call", () => {

@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendLog } from "../src/core/logfmt/publish.ts";
 import { lockFileFor, withStoreLock } from "../src/store/lock.ts";
+import { sleep } from "./helpers/logfmt.ts";
 
 const roots: string[] = [];
 function tmp(): string {
@@ -29,8 +30,6 @@ afterEach(() => {
     rmSync(r, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function deferred() {
   let resolve!: () => void;

@@ -34,6 +34,7 @@ import { importMemories } from "../src/portable/import.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
 import type { Memory } from "../src/store/model/memory.ts";
 import { loadPlugin } from "./harness.ts";
+import { dayFile } from "./helpers/logfmt.ts";
 
 let root: string;
 
@@ -48,9 +49,6 @@ afterEach(() => {
   delete process.env.OPENCODE_MEMORY_DIR;
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
-
-const dayFile = () =>
-  join(memoryRoot(), `${new Date().toISOString().split("T")[0]}.logfmt`);
 
 function seedAt(
   ts: string,
