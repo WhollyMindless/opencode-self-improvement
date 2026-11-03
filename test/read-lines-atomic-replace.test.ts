@@ -1,10 +1,11 @@
 // A reader must use metadata and bytes from the same opened file. An atomic
 // replacement may change the path between the metadata lookup and the read.
-import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readLines } from "../src/core/logfmt/read.ts";
+import { replaceWithCachedHandle } from "./helpers/cached-handle.ts";
 
 let root: string;
 beforeEach(() => {
@@ -16,32 +17,20 @@ afterEach(() => {
 
 test("a larger atomic replacement is not cropped to the previous file size", async () => {
   const file = join(root, "day.logfmt");
-  writeFileSync(file, 'ts=old content="short"\n');
-  const cached = Bun.file(file);
-  expect(await cached.exists()).toBe(true);
-
   const rows = [
     `ts=new content="${"x".repeat(10_000)}"`,
     'ts=tail content="the final row must survive"',
   ];
-  const next = join(root, "replacement.tmp");
-  writeFileSync(next, rows.join("\n") + "\n");
-  renameSync(next, file);
-
-  // Supply the actual BunFile whose metadata predates the rename. This pins
-  // the exists()/text() race without sleeps or mocking the bytes returned:
-  // both old and new reader implementations read the real replacement file.
-  const realFile = Bun.file;
-  const factory = spyOn(Bun, "file").mockImplementation((path: unknown, options?: BlobPropertyBag) =>
-    path === file ? cached : Reflect.apply(realFile, Bun, [path, options]),
-  );
+  // The helper supplies the actual BunFile whose metadata predates the
+  // rename: no sleeps, no mocked bytes, both readers see the real file.
+  const restore = await replaceWithCachedHandle(file, rows.join("\n") + "\n", 'ts=old content="short"\n');
   try {
     const lines = await readLines(file);
     expect(lines).toHaveLength(2);
     expect(lines[0]).toBe(rows[0]);
     expect(lines[1]).toBe(rows[1]);
   } finally {
-    factory.mockRestore();
+    restore();
   }
 });
 
