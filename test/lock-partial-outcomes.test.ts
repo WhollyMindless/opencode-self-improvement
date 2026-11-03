@@ -73,7 +73,7 @@ beforeEach(() => {
     },
   );
   restoreEvidence = () => spy.mockRestore();
-});
+}, 30_000);
 afterEach(async () => {
   for (const plugin of plugins) await plugin.cleanup();
   while (pendingEvidence.size) await Promise.all(pendingEvidence);
@@ -87,7 +87,7 @@ afterEach(async () => {
   delete process.env.OPENCODE_COMMANDS_DIR;
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   expect(evidenceErrors).toEqual([]);
-});
+}, 30_000);
 function seed(ts: string, content: string) {
   writeFileSync(
     path(ts),
@@ -135,6 +135,16 @@ async function held(file: string, run: () => Promise<void>) {
 }
 const ctx = { sessionID: "partial-lock", id: "partial-lock-call" };
 
+// A starved ubuntu/Windows --parallel=4 worker can spend real time past Bun's
+// default 5s budget inside one of these held-file scenarios; the test dies
+// mid-flight, afterEach deletes the fixture underneath the still-pending work,
+// and the leftovers surface as "Unhandled error between tests" plus false
+// assertion failures in the tests beside it (measured on run 41356328156: a
+// snapshotFiles ENOENT after teardown, an escaped busy error, and a
+// superseded_by read that came back undefined). Bun applies the default 5s to
+// hooks even where the test carries a longer override, so every test AND hook
+// here gets an explicit 30s budget. No assertion moves; only time is granted
+// (#245, following d38e6a7).
 test("a batch retains the first file's durable receipt when the next file is busy", async () => {
   seed(first, "first row");
   seed(second, "second row");
@@ -170,7 +180,7 @@ test("a batch retains the first file's durable receipt when the next file is bus
   ).toEqual([second]);
   expect(retry).toEqual([second]);
   expect(durable).toEqual([first]);
-});
+}, 30_000);
 
 test("refusal at the first file has no durable receipts and merge reports no mutation", async () => {
   seed(first, "loser row");
@@ -201,7 +211,7 @@ test("refusal at the first file has no durable receipts and merge reports no mut
       readFileSync(path(second), "utf8"),
     ]).toEqual(before);
   });
-});
+}, 30_000);
 
 test("merge_review reports the retirement already published before a later timeout", async () => {
   seed(first, "loser row");
@@ -220,7 +230,7 @@ test("merge_review reports the retirement already published before a later timeo
     expect(out.content).toContain(basename(path(second)));
     expect(out.content).not.toContain("nothing was done");
   });
-});
+}, 30_000);
 
 test("canonical update retains the gate's completed retirement on a later busy file", async () => {
   seed(first, "worker backend mysql");
@@ -257,7 +267,7 @@ test("canonical update retains the gate's completed retirement on a later busy f
       (await loadAll()).find((row) => row.ts === second)?.superseded_by,
     ).toBeUndefined();
   });
-});
+}, 30_000);
 
 test("restore uses its real fail-closed policy and preserves the held file", async () => {
   seed(first, "snapshot row");
@@ -274,7 +284,7 @@ test("restore uses its real fail-closed policy and preserves the held file", asy
     (await restoreSnapshot(snapshot, memoryRoot(), "force")).restored,
   ).toBe(true);
   expect((await loadAll())[0].content).toBe("snapshot row");
-});
+}, 30_000);
 
 test("viewer edit names the durable replacement when retiring its original is refused", async () => {
   seed(first, "original viewer row");
@@ -301,7 +311,7 @@ test("viewer edit names the durable replacement when retiring its original is re
     expect(error).toContain(replacement.ts);
     expect(error).toContain(first);
   });
-});
+}, 30_000);
 
 test.each(["memory_forget", "memory_decay"])(
   "%s reports and audits the rows published before a later timeout",
@@ -342,6 +352,7 @@ test.each(["memory_forget", "memory_decay"])(
         );
     });
   },
+  30_000,
 );
 
 test("capture records each busy refusal and still records lag", async () => {
@@ -417,4 +428,4 @@ test("capture records each busy refusal and still records lag", async () => {
     expect(lines.filter((row) => row?.ev === "capture_lag")).toHaveLength(1);
     expect(readFileSync(path(today), "utf8")).toBe(before);
   });
-});
+}, 30_000);
