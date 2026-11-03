@@ -11,7 +11,7 @@ import { MergeReviewArgs, validated } from "./schema.ts";
 import { join } from "node:path";
 
 export const register: ToolRegister = (editor, deps) => {
-  const { toolIds, direct } = deps;
+  const { toolIds, bindSessionIdentity, direct } = deps;
     editor.add(validated(MergeReviewArgs, {
       name: "memory_merge_review",
       description:
@@ -19,6 +19,12 @@ export const register: ToolRegister = (editor, deps) => {
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
+        // Identity before authorization (#260): the entry binding is only
+        // provisional on the INSTANCE's directory. On a serve host the session
+        // row is the sole truth, and a tool call can be the first thing this
+        // instance sees for a session — resolve it like the write tools do
+        // before the Reader below partitions the seats.
+        await bindSessionIdentity(sid);
         if (!args.loser || !args.survivor || !args.reason) {
           return { content: "merge_review blocked: loser, survivor, and reason are all required (fail-closed)." };
         }
