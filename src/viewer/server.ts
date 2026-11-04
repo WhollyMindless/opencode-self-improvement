@@ -462,14 +462,17 @@ async function restoreEntryRoute(
   // silently release quarantine (the quarantine tags come back with the row;
   // releasing it stays the deliberate, reason-required release-quarantine
   // action), cannot drop import provenance, and a client-forged repo stamp
-  // loses to the authoritative one. With ts the lookup is by row identity;
-  // without ts it is by type/scope/content, so omitting ts cannot launder a
-  // KNOWN quarantined row back to injectable (F2). The client-replay fallback
-  // (#129 origin stamp, no metadata) survives only for rows the audit does not
-  // carry at all — a legacy record, not a legacy request.
-  const src = body.ts
-    ? await deletionAuditFor(body.ts)
-    : await deletionAuditByRow(body.type, body.scope, body.content);
+  // loses to the authoritative one. With ts the lookup is by row identity, and
+  // a ts that matches no audit line still resolves by type/scope/content
+  // before any fallback: an unknown explicit ts is an unresolved identity, not
+  // permission to replay (F2 residual). Without ts the lookup is by
+  // type/scope/content directly. Either way, omitting or missing ts cannot
+  // launder a KNOWN quarantined row back to injectable (F2). The client-replay
+  // fallback (#129 origin stamp, no metadata) survives only for rows the audit
+  // does not carry at all — a legacy record, not a legacy request.
+  const src =
+    (body.ts && (await deletionAuditFor(body.ts))) ||
+    (await deletionAuditByRow(body.type, body.scope, body.content));
   const t = await appendMemory({
     type: body.type,
     scope: body.scope,

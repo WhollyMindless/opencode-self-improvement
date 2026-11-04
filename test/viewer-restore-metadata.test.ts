@@ -271,6 +271,37 @@ test("restore-entry WITHOUT ts still resolves a known quarantined row — omitti
   expect(isInjectable(restored)).toBe(false);
 });
 
+test("restore-entry with an UNKNOWN explicit ts still resolves a known quarantined row — an unresolved identity is not a laundering path", async () => {
+  // F2 residual: the ts selects nothing, but the audit carries a matching
+  // type/scope/content line with all the metadata. The row lookup must run
+  // before the client-replay fallback — the same outcome as with the correct
+  // ts or an omitted ts.
+  const ts = await seedQuarantinedRow();
+  const v = await startAdminViewer();
+  expect((await post(v, "/api/delete", { ts, reason: "review" })).status).toBe(
+    200,
+  );
+
+  const res = await post(v, "/api/restore-entry", {
+    ts: "2000-01-01T00:00:00.000Z",
+    type: "context",
+    scope: "customer",
+    content: QUARANTINE_CONTENT,
+  });
+  expect(res.status).toBe(200);
+  const restored = (await loadAll()).filter(isActive).at(-1) as Memory;
+  expect(restored.content).toBe(QUARANTINE_CONTENT);
+  expect(restored.tags).toEqual([
+    "import",
+    "quarantine",
+    "quarantine:instruction_override",
+  ]);
+  expect(restored.kw).toEqual(["leak", "prompt"]);
+  expect(restored.issue).toBe("SEC-05");
+  expect(restored.status).toBe("open");
+  expect(isInjectable(restored)).toBe(false);
+});
+
 test("restore-entry without ts and without any audit record keeps the legacy client-replay fallback", async () => {
   // A row whose deletion predates the deletion audit: no line can be
   // resolved, so the #129 client replay of the origin stamp survives —

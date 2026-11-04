@@ -246,11 +246,12 @@ export const UnrejectBody = z.object({
 // silently landing global. Both absent = the documented legacy global restore.
 // ts (#207): identity of the deleted row. The server resolves the row's
 // metadata (tags/kw/issue/status, and the origin stamp) from the deletion
-// audit line itself — by ts when present, else by type/scope/content — so the
-// client can neither launder a quarantined row into an injectable one nor forge
-// a provenance the audit does not carry. The client-replay fallback above
-// applies only to rows the audit does not carry at all. The metadata fields
-// are deliberately NOT in this schema.
+// audit line itself — by ts when present, falling back to type/scope/content
+// when that ts matches no audit line, else directly by type/scope/content —
+// so the client can neither launder a quarantined row into an injectable one
+// nor forge a provenance the audit does not carry. The client-replay fallback
+// above applies only to rows the audit does not carry at all. The metadata
+// fields are deliberately NOT in this schema.
 export const RestoreEntryBody = z.object({
   ts: isoTs.optional(),
   type: z.enum(TYPES),
