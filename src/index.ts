@@ -237,7 +237,7 @@ const impl = {
     // ever writes through the gate. A per-session, per-trigger cooldown bounds
     // the cost. Compaction-triggered rows carry the CAPTURE_COMPACT_TAG tag and
     // auto_capture_compaction_* evidence lines, idle rows keep auto_capture_*,
-    // so decay/status — and bench/capture-trigger-compare.ts — can measure
+    // so decay/status — and bench/runners/capture-trigger-compare.ts — can measure
     // which trigger earns its tokens. Every failure is swallowed: capture must
     // never be able to break a session.
     const capture = configureAutoCapture(ctx, {

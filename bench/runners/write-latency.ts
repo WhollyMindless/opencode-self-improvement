@@ -26,8 +26,8 @@ for (let i = 0; i < NM_N; i++)
   writeFileSync(join(nm, `d${i}.ts`), `export function decoy${i}() {}\n`);
 
 process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
-const { runWriteGate } = await import("../src/gate/gate.ts");
-const { appendMemory } = await import("../src/store/files/append.ts");
+const { runWriteGate } = await import("../../src/gate/gate.ts");
+const { appendMemory } = await import("../../src/store/files/append.ts");
 
 const SCOPE = "wbench";
 // Scope memories with embedded call forms: gate2 resolves every one of them.

@@ -85,7 +85,8 @@ export async function markManySupersededReport(
             // The one exception is SECRET SCRUB (#128, review probe 4): the
             // fields a merge/decay/update copies into the loser's row carry
             // caller-authored prose (the rotation note "key ghp_... rotated"),
-            // and content already scrubs at this same boundary (line 260). The
+            // and content already scrubs at this same boundary (appendMemory
+            // redacts content in src/store/files/append.ts). The
             // durable row must not be the one place a credential survives when
             // the evidence line beside it was cleaned.
             const clean: SupersedeFields = { ...fields };
@@ -121,7 +122,7 @@ export async function clearSuperseded(ts: string): Promise<boolean> {
   for (const file of await memoryFiles()) {
     const outcome = await stampRow(file, ts, (parsed) => {
       if (typeof parsed.superseded_by !== "string") return null;
-      // These five keys are written only by markSuperseded (drift, canonical,
+      // These six keys are written only by markSuperseded (drift, canonical,
       // update and merge_review), never by appendMemory, so they are all part of
       // the marker and go with it. Field order round-trips because parseLine
       // inserts keys in source order.
