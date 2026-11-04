@@ -209,6 +209,14 @@ async function audit(
       // legacy/unstamped case — restore leaves it global, as documented.
       repo: mem.repo,
       repoPath: mem.repoPath,
+      // #207: tags (which carry quarantine), kw, issue and status survive the
+      // same way, so restoring a deleted row cannot silently release
+      // quarantine or drop provenance. Absent metadata writes nothing — the
+      // legacy fallback the restore path documents.
+      tags: mem.tags?.length ? mem.tags.join(",") : undefined,
+      kw: mem.kw?.length ? mem.kw.join(",") : undefined,
+      issue: mem.issue,
+      status: mem.status,
       // Same write-boundary rule as evidence (#128): an audit reason is
       // human prose and must not persist a recognized credential.
       reason: redactSecrets(reason),
