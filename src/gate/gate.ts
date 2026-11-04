@@ -545,22 +545,27 @@ export async function runWriteGate(
       driftPlan.map((p) => ({ ts: p.s.memory.ts, fields: p.fields })),
       ctx.durable,
     );
-    if (marked.length > 0) {
-      // Ledger BEFORE the audit lines: what is on disk now stays on disk no
-      // matter what the record loop below does (round-3 probe 3).
-      for (const p of driftPlan) {
-        supersededTs = p.s.memory.ts;
-        await rec("superseded_by", {
-          gate: 2,
-          mem: p.s.memory.ts,
-          target: p.target,
-          reason: "drift",
-          symbol: p.s.symbol,
-          from: p.s.from,
-          to: p.s.to,
-          chain,
-        });
-      }
+    // #208: the audit trail names only rows THIS call retired. A row the
+    // batch skipped (retired out of band between the scan and the publish)
+    // belongs to the other session's chain and reason; recording it here
+    // would attribute that retirement to this write — the same rule #158
+    // round 3 pins for the durable ledger.
+    const retired = new Set(marked);
+    // Ledger BEFORE the audit lines: what is on disk now stays on disk no
+    // matter what the record loop below does (round-3 probe 3).
+    for (const p of driftPlan) {
+      if (!retired.has(p.s.memory.ts)) continue;
+      supersededTs = p.s.memory.ts;
+      await rec("superseded_by", {
+        gate: 2,
+        mem: p.s.memory.ts,
+        target: p.target,
+        reason: "drift",
+        symbol: p.s.symbol,
+        from: p.s.from,
+        to: p.s.to,
+        chain,
+      });
     }
   }
 
@@ -607,21 +612,22 @@ export async function runWriteGate(
       })),
       ctx.durable,
     );
-    if (canonMarked.length > 0) {
-      // Same ledger discipline as the drift batch above.
-      for (const p of canonPlan) {
-        if (!supersededTs) supersededTs = p.ts;
-        await rec("superseded_by", {
-          gate: 2,
-          mem: p.ts,
-          target,
-          reason: "canonical",
-          entity: canon.entry.entity,
-          from: p.from,
-          to: canon.entry.value,
-          chain,
-        });
-      }
+    // #208: same attribution rule as the drift batch above — evidence and
+    // promoted.supersedes name only the rows this call actually retired.
+    const canonRetired = new Set(canonMarked);
+    for (const p of canonPlan) {
+      if (!canonRetired.has(p.ts)) continue;
+      if (!supersededTs) supersededTs = p.ts;
+      await rec("superseded_by", {
+        gate: 2,
+        mem: p.ts,
+        target,
+        reason: "canonical",
+        entity: canon.entry.entity,
+        from: p.from,
+        to: canon.entry.value,
+        chain,
+      });
     }
   }
 
