@@ -28,6 +28,16 @@ export async function logDeletion(
       // stamp writes no stamp here — the legacy global path, unchanged.
       repo: memory.repo,
       repoPath: memory.repoPath,
+      // #207: the visibility- and provenance-bearing metadata survives here
+      // too. tags carry the quarantine marker, so a restore that reads this
+      // line cannot silently release quarantine; issue and kw keep provenance
+      // and recall aliases alive; status keeps an open thread open. Comma-
+      // joined scalars match the memory line, and a row without them writes
+      // nothing — the legacy fallback the restore documents.
+      tags: memory.tags?.length ? memory.tags.join(",") : undefined,
+      kw: memory.kw?.length ? memory.kw.join(",") : undefined,
+      issue: memory.issue,
+      status: memory.status,
       reason: redactSecrets(reason),
     }),
   );

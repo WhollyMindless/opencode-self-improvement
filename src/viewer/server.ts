@@ -26,6 +26,7 @@ import { blockedEntries } from "../store/blocklist.ts";
 import { listSnapshots, restoreSnapshot } from "../store/undo.ts";
 import { appendMemory } from "../store/files/append.ts";
 import { loadAll, memoryFiles } from "../store/files/load.ts";
+import { type MemoryStatus } from "../store/model/memory.ts";
 import { parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
 import { releaseQuarantinedMemory } from "./mutate.ts";
@@ -130,6 +131,50 @@ interface Row {
   // restore-entry round trip can restore the row's ORIGINAL visibility.
   repo?: string;
   repoPath?: string;
+  // #207: the deleted row's metadata, read back from the audit line, so the
+  // deleted-entry UI can show WHAT is being restored — in particular whether
+  // it is quarantined. Only deletion rows carry these; blocked rows do not.
+  tags?: string[];
+  kw?: string[];
+  issue?: string;
+  status?: string;
+  quarantined?: boolean;
+}
+
+// Comma-joined scalars back into arrays, the inverse of the audit write.
+function splitScalar(value: unknown): string[] | undefined {
+  return typeof value === "string" && value
+    ? value.split(",").filter(Boolean)
+    : undefined;
+}
+
+// The metadata a deletion audit line carries for the deleted row (#207).
+// Kept out of the client contract: restore resolves it here, from the store's
+// own record, rather than trusting replayed bytes.
+interface DeletionMeta {
+  tags?: string[];
+  kw?: string[];
+  issue?: string;
+  status?: MemoryStatus;
+  repo?: string;
+  repoPath?: string;
+}
+
+function auditMeta(f: NonNullable<ReturnType<typeof parseLine>>): DeletionMeta {
+  const tags = splitScalar(f.tags);
+  const kw = splitScalar(f.kw);
+  return {
+    ...(tags ? { tags } : {}),
+    ...(kw ? { kw } : {}),
+    ...(typeof f.issue === "string" && f.issue ? { issue: f.issue } : {}),
+    ...(f.status === "open" || f.status === "settled"
+      ? { status: f.status }
+      : {}),
+    ...(typeof f.repo === "string" && f.repo ? { repo: f.repo } : {}),
+    ...(typeof f.repoPath === "string" && f.repoPath
+      ? { repoPath: f.repoPath }
+      : {}),
+  };
 }
 
 // Deleted entries live only in the audit log (their memory line was removed),
@@ -139,17 +184,36 @@ async function deletedRows(): Promise<Row[]> {
   return lines
     .map((l) => parseLine(l))
     .filter((f): f is NonNullable<typeof f> => f !== null)
-    .map((f) => ({
-      ts: String(f.original_ts ?? f.ts ?? ""),
-      type: String(f.type ?? ""),
-      scope: String(f.scope ?? ""),
-      content: String(f.content ?? ""),
-      reason: String(f.reason ?? ""),
-      ...(typeof f.repo === "string" && f.repo ? { repo: f.repo } : {}),
-      ...(typeof f.repoPath === "string" && f.repoPath
-        ? { repoPath: f.repoPath }
-        : {}),
-    }));
+    .map((f) => {
+      const meta = auditMeta(f);
+      return {
+        ts: String(f.original_ts ?? f.ts ?? ""),
+        type: String(f.type ?? ""),
+        scope: String(f.scope ?? ""),
+        content: String(f.content ?? ""),
+        reason: String(f.reason ?? ""),
+        ...meta,
+        // #207: the operator must SEE that a deleted row was quarantined —
+        // restoring it must not read as a way to release quarantine.
+        ...(meta.tags
+          ? { quarantined: isQuarantined({ tags: meta.tags }) }
+          : {}),
+      };
+    });
+}
+
+// The authoritative record of what a deleted row carried, keyed by the deleted
+// row's ts (#207). The LAST matching line wins: a row edited then deleted has
+// its newest state last, and that is the state a restore re-adds. Lines
+// written before #207 carry no metadata — the documented fallback.
+async function deletionAuditFor(ts: string): Promise<DeletionMeta | undefined> {
+  let found: DeletionMeta | undefined;
+  for (const line of await readLines(deletionsFile())) {
+    const f = parseLine(line);
+    if (!f || f.original_ts !== ts) continue;
+    found = auditMeta(f);
+  }
+  return found;
 }
 
 // Blocked entries are still on disk but hidden by the blocklist; scan every
@@ -371,16 +435,29 @@ async function restoreEntryRoute(
   body: z.infer<typeof RestoreEntryBody>,
 ): Promise<Response> {
   await assertViewerWriteAllowed(body.content);
-  // Origin survives the restore round trip (#129): when the audit line carried
-  // a repo stamp, the restored row carries it again — the viewer's own missing
-  // repository scope must never be what decides a row's visibility. No repo
-  // fields = the documented legacy/global restore path, unchanged.
+  // #207: with the deleted row's ts, every field that controls visibility or
+  // provenance is resolved from the audit line itself — the store's own
+  // record — so a restore cannot silently release quarantine (the quarantine
+  // tags come back with the row; releasing it stays the deliberate,
+  // reason-required release-quarantine action), cannot drop import
+  // provenance, and a client-forged repo stamp loses to the authoritative
+  // one. No ts, or no matching line: the documented legacy path — the #129
+  // client replay of the origin stamp, no metadata, unchanged.
+  const src = body.ts ? await deletionAuditFor(body.ts) : undefined;
   const t = await appendMemory({
     type: body.type,
     scope: body.scope,
     content: body.content,
-    repo: body.repo,
-    repoPath: body.repoPath,
+    ...(src
+      ? {
+          tags: src.tags,
+          kw: src.kw,
+          issue: src.issue,
+          status: src.status,
+          repo: src.repo,
+          repoPath: src.repoPath,
+        }
+      : { repo: body.repo, repoPath: body.repoPath }),
   });
   return json({ restored: t });
 }
