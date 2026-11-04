@@ -14,6 +14,7 @@ import {
 } from "../core/logfmt/publish.ts";
 import { readLines } from "../core/logfmt/read.ts";
 import { withStoreLock, LOCK_WRITE } from "./lock.ts";
+import { redactSecrets } from "./secrets.ts";
 
 const BLOCKLIST_FILENAME = "blocklist.logfmt";
 
@@ -54,7 +55,11 @@ export async function addBlock(ts: string, reason: string): Promise<string> {
     () =>
       appendLog(
         file,
-        formatLine({ ts, reason, blocked_at: new Date().toISOString() }),
+        formatLine({
+          ts,
+          reason: redactSecrets(reason),
+          blocked_at: new Date().toISOString(),
+        }),
       ),
     LOCK_WRITE,
   );
