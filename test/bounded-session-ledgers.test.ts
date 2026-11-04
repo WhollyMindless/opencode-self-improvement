@@ -143,12 +143,13 @@ test("frontier injection set is bounded: an evicted session re-records frontier_
 });
 
 test("repokey session cache evicts at the shared SESSION_CAP (no drift)", () => {
-  const dirs: string[] = [];
-  for (let i = 0; i <= SESSION_CAP; i++) {
-    const dir = mkdtempSync(join(tmpdir(), `osi-224-rk-${i}-`));
-    dirs.push(dir);
-    rememberSessionDir(`osi-224-rk-${i}`, dir);
-  }
+  // The bySession cache under test is keyed by session ID, so one existing
+  // fixture directory (removed by afterEach) pins the same eviction. Distinct
+  // mkdtemp dirs made every insert resolve through real `git` subprocesses:
+  // that loop took 5684.99ms on the Windows runner and timed out the 5s
+  // default (#287 review F1), and leaked its dirs outside `root`.
+  for (let i = 0; i <= SESSION_CAP; i++)
+    rememberSessionDir(`osi-224-rk-${i}`, root);
   expect(sessionDirFirm("osi-224-rk-0")).toBeUndefined();
-  expect(sessionDirFirm(`osi-224-rk-${SESSION_CAP}`)).toBe(dirs[SESSION_CAP]);
+  expect(sessionDirFirm(`osi-224-rk-${SESSION_CAP}`)).toBe(root);
 });
