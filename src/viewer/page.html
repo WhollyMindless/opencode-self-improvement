@@ -228,6 +228,12 @@ function render() {
       : m.superseded_by ? "superseded" : m.quarantined ? "quarantined" : "active";
     const stBadge = status === "superseded" ? badge("status-superseded", "superseded \u2192 " + m.superseded_by.slice(0,8))
       : badge("status-" + status, status);
+    // #207: a deleted row that was quarantined must SAY so next to its
+    // deleted badge — restore keeps the quarantine, and the operator must
+    // see both facts before clicking.
+    const stCell = kind === "deleted" && m.quarantined
+      ? stBadge + " " + badge("status-quarantined", "quarantined")
+      : stBadge;
     const actions = kind === "blocked"
       ? `<button class="btn warn" data-action="unblock" data-ts="${esc(m.ts)}" title="Restore this memory to the read paths">unblock</button>`
       : kind === "deleted"
@@ -241,7 +247,7 @@ function render() {
       <td>${badge("type", m.type)}</td>
       <td>${badge("scope", m.scope)}</td>
       <td class="content">${esc(m.content)}</td>
-      <td>${stBadge}</td>
+      <td>${stCell}</td>
       <td class="actions">${actions}</td>
     </tr>`;
   }).join("");
@@ -357,16 +363,21 @@ async function unreject(ch) {
   } catch (e) { toast(String(e.message), true); }
 }
 
-function restoreEntry(type, scope, content, repo, repoPath) {
+function restoreEntry(ts, type, scope, content, repo, repoPath, quarantined) {
   askModal(
     "Restore deleted memory?",
-    "Re-adds this entry to memory from its audit record.",
+    quarantined
+      ? "This entry is QUARANTINED. The restore re-adds it STILL QUARANTINED — withheld from recall and injection until you release quarantine deliberately."
+      : "Re-adds this entry to memory from its audit record.",
     "Restore",
     async () => {
       try {
         // The audit line's origin stamp rides along (#129): a restore keeps the
         // row's ORIGINAL visibility instead of silently landing global.
-        await api("/api/restore-entry", { type, scope, content, repo: repo || undefined, repoPath: repoPath || undefined });
+        // #207: the deleted ts keys the server-side audit lookup, so tags,
+        // keywords, issue and status come back from the store's record — this
+        // page cannot launder a quarantined row into an injectable one.
+        await api("/api/restore-entry", { ts, type, scope, content, repo: repo || undefined, repoPath: repoPath || undefined });
         toast("restored to memory");
         await refresh();
       } catch (e) { toast(String(e.message), true); }
@@ -392,7 +403,8 @@ $("rows").addEventListener("click", (e) => {
   else if (action === "un-reject") unreject(btn.dataset.ch);
   else if (action === "restore-deleted") {
     const { type, scope, content, repo, repoPath } = btn.dataset;
-    restoreEntry(type, scope, content, repo, repoPath);
+    const m = DATA.deleted.find((d) => d.ts === ts);
+    restoreEntry(ts, type, scope, content, repo, repoPath, !!m?.quarantined);
   }
 });
 
