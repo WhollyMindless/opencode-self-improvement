@@ -84,7 +84,7 @@ const errno = (code: string, op: string) =>
   );
 
 describe("absent-strike deadline rethrow (#107)", () => {
-  test("a holder seen earlier and lost at the deadline keeps its write", async () => {
+  test("a holder seen earlier and lost at the deadline keeps its explicit-proceed write", async () => {
     // The issue's consequence 2, built deterministic: iteration 1 finds the
     // holder's file (probe: present); iteration 2's create still fails
     // against it, the holder unlinks between create and probe (strike: 1),
@@ -116,13 +116,14 @@ describe("absent-strike deadline rethrow (#107)", () => {
         ran = true;
         return "written";
       },
-      { onEvent: (e) => events.push(e) },
+      { onTimeout: "proceed", onEvent: (e) => events.push(e) },
       BUDGET,
       now,
     )
       .then((v) => ({ v, threw: false }))
       .catch(() => ({ v: undefined, threw: true }));
-    // The concession path: timeout was audited, the write ran unlocked.
+    // The explicit proceed opt-in (#216: no longer the default): timeout was
+    // audited, the write ran unlocked.
     // Pre-fix: threw the stale creation error and lost the write.
     expect(result.threw).toBe(false);
     expect(result.v).toBe("written");
@@ -163,6 +164,46 @@ describe("absent-strike deadline rethrow (#107)", () => {
     }
     expect(ran).toBe(false); // pre-fix: TRUE — the unguarded write the comment forbids
     expect(message).toMatch(/EPERM/); // pre-fix: it never threw at all
+  });
+
+  test("a holder sighted only by EEXIST still fails closed, never on the stale create error", async () => {
+    // #216 rework of the vanish race: create answers EEXIST (the holder's
+    // file was there), the probe then answers ENOENT (it unlinked in
+    // between), and the scripted clock expires the budget in that same
+    // iteration. The EEXIST is itself a sighting, so the deadline outcome is
+    // the busy refusal — the invariant the lock.test.ts title names — not
+    // the raw creation error. Pre-fix (sighting = probe only): threw EEXIST.
+    const file = join(tmp(), "eexist-vanish.logfmt");
+    const lockPath = lockFileFor(file);
+    scriptedOpen.set(lockPath, async () => {
+      throw Object.assign(new Error("EEXIST: file already exists, open"), {
+        code: "EEXIST",
+      });
+    });
+    scriptedStat.set(lockPath, async () => {
+      throw Object.assign(new Error("ENOENT: no such file or directory"), {
+        code: "ENOENT",
+      });
+    });
+    const now = stepClock([0, 0, BUDGET]); // expires in iteration 1
+    let ran = false;
+    let message = "";
+    try {
+      await holdFileLock(
+        lockPath,
+        file,
+        async () => {
+          ran = true;
+        },
+        {},
+        BUDGET,
+        now,
+      );
+    } catch (e) {
+      message = String((e as Error).message ?? e);
+    }
+    expect(ran).toBe(false);
+    expect(message).toMatch(/busy/); // pre-fix: /EEXIST/
   });
 
   test("eight proven-absent probes still surface the creation error, clock idle", async () => {
