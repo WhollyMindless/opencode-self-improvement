@@ -11,14 +11,20 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import {
   canonicalFile,
+  deletionsFile,
   evidenceDir,
   memoryRoot,
 } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 import { formatLine, parseLine } from "../src/core/logfmt/format.ts";
+import * as publishModule from "../src/core/logfmt/publish.ts";
 import { loadAll } from "../src/store/files/load.ts";
+import * as deletionsModule from "../src/store/files/deletions.ts";
 import { snapshotFiles } from "../src/store/files/snapshots.ts";
 import { markManySupersededReport } from "../src/store/files/supersede.ts";
+import { pruneMemory } from "../src/store/prune.ts";
+import * as tombstoneModule from "../src/store/tombstones/tombstone.ts";
+import { contentHash } from "../src/evidence/record.ts";
 import {
   LOCK_RESTORE,
   LOCK_WRITE,
@@ -344,9 +350,15 @@ test.each(["memory_forget", "memory_decay"])(
       expect(
         rows.find((row) => row.ts === second)?.superseded_by,
       ).toBeUndefined();
-      if (tool === "memory_forget")
+      if (tool === "memory_forget") {
         expect(rows.map((row) => row.ts)).toEqual([second]);
-      else
+        // #206 STORE-1: the row the forget already published must stay
+        // rejected even though a later file timed out — the rows are gone,
+        // so a retry can never tombstone them.
+        const chs = (await tombstoneModule.tombstones()).map((t) => t.ch);
+        expect(chs).toContain(contentHash("first planned task"));
+        expect(chs).not.toContain(contentHash("second planned task"));
+      } else
         expect(rows.find((row) => row.ts === first)?.superseded_by).toBe(
           "decay",
         );
@@ -354,6 +366,103 @@ test.each(["memory_forget", "memory_decay"])(
   },
   30_000,
 );
+
+// #206 STORE-2: prune audited every deletion BEFORE republishing the file, so
+// a snapshot/publish failure left `action=deleted` lines for rows still on
+// disk — the viewer's Deleted panel listed a live row, restore-entry would
+// duplicate it, and undo treated the ts as intentionally removed. The audit
+// now follows the publish, matching the viewer's delete.
+test("a failed publish leaves no phantom deletion audit", async () => {
+  seed(first, "prune publish target");
+  const spy = spyOn(publishModule, "writeAtomic").mockRejectedValue(
+    Object.assign(new Error("EPERM: operation not permitted, rename"), {
+      code: "EPERM",
+    }),
+  );
+  let message = "";
+  try {
+    await pruneMemory("planning", "context", "probe reason");
+    message = "pruneMemory resolved; expected the publish failure to throw";
+  } catch (err) {
+    message = err instanceof Error ? err.message : String(err);
+  } finally {
+    spy.mockRestore();
+  }
+  expect(message).toContain("EPERM");
+  expect((await loadAll()).map((row) => row.content)).toEqual([
+    "prune publish target",
+  ]);
+  let audit = "";
+  try {
+    audit = readFileSync(deletionsFile(), "utf8");
+  } catch {
+    // no audit file at all is the correct shape
+  }
+  expect(audit).not.toContain("action=deleted");
+}, 30_000);
+
+// #206: failure of the bookkeeping writes themselves must be explicit, not
+// silent. An audit append failing after a committed publish keeps the row
+// deleted, still tombstones the value, and reports PARTIAL naming the audit.
+test("a failed deletion audit keeps the tombstone and reports PARTIAL", async () => {
+  seed(first, "audited then tombstoned");
+  const spy = spyOn(deletionsModule, "logDeletion").mockRejectedValue(
+    new Error("EPERM: audit append denied"),
+  );
+  const res = await pruneMemory("planning", "context", "probe reason").finally(
+    () => spy.mockRestore(),
+  );
+  expect(res.error).toContain("deletion audit failed");
+  expect(res.deleted.map((d) => d.memory.content)).toEqual([
+    "audited then tombstoned",
+  ]);
+  expect(await loadAll()).toEqual([]);
+  expect((await tombstoneModule.tombstones()).map((t) => t.ch)).toContain(
+    contentHash("audited then tombstoned"),
+  );
+}, 30_000);
+
+// The tombstone append failing after a committed publish is the residual the
+// PARTIAL reply must name: the rows are gone and unprotected, liftable only
+// by a human reject in the viewer. The audit line is truthful here — the
+// publish did land.
+test("a failed tombstone append is reported and the audit stays truthful", async () => {
+  seed(first, "tombstone write fails");
+  const spy = spyOn(tombstoneModule, "tombstoneMany").mockRejectedValue(
+    new Error("EACCES: rejected.logfmt append denied"),
+  );
+  const res = await pruneMemory("planning", "context", "probe reason").finally(
+    () => spy.mockRestore(),
+  );
+  expect(res.error).toContain("rejection tombstones incomplete");
+  expect(res.error).toContain("EACCES");
+  expect(res.deleted).toHaveLength(1);
+  expect(await loadAll()).toEqual([]);
+  const audit = readFileSync(deletionsFile(), "utf8");
+  expect(audit).toContain("action=deleted");
+  expect(audit).toContain(`original_ts=${first}`);
+}, 30_000);
+
+// #206: both errors survive together — the primary (busy file) and the
+// secondary (tombstone append) each appear in the PARTIAL error, so the
+// reply never hides one behind the other.
+test("a busy later file and a failed tombstone append both surface", async () => {
+  seed(first, "primary and secondary");
+  seed(second, "busy row");
+  const spy = spyOn(tombstoneModule, "tombstoneMany").mockRejectedValue(
+    new Error("EACCES: rejected.logfmt append denied"),
+  );
+  try {
+    await held(path(second), async () => {
+      const res = await pruneMemory("planning", "context", "probe reason");
+      expect(res.error).toContain(basename(path(second)));
+      expect(res.error).toContain("rejection tombstones incomplete");
+      expect((await loadAll()).map((row) => row.ts)).toEqual([second]);
+    });
+  } finally {
+    spy.mockRestore();
+  }
+}, 30_000);
 
 test("capture records each busy refusal and still records lag", async () => {
   const today = `${dateStr()}T00:00:00.000Z`;
