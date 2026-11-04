@@ -7,7 +7,16 @@
 // #223: a non-loopback bind or allowed host mints a startup token (0600, in
 // the store root) and every request must present it; loopback stays open.
 import { basename, join } from "node:path";
-import { linkSync, renameSync, rmSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  linkSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { isIP } from "node:net";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { serve, type Server } from "bun";
@@ -122,15 +131,45 @@ function tokenPath(): string {
 // atomic hard-link of a fully-written 0600 temp, so exactly one starter's
 // content lands at the path (link(2) refuses an existing target), and every
 // loser reads back the winner's complete token instead of overwriting the
-// file with its own. A corrupt prior file is replaced atomically.
-async function mintViewerToken(): Promise<string> {
+// file with its own.
+//
+// F1 residual (#223 review round 2): the hard-link claim solves an ABSENT
+// file, not a CORRUPT one — two starters that both read the same corrupt
+// winner used to replace it unconditionally, disagreeing on Linux and
+// throwing EPERM on Windows. Recovery is now serialized twice over: within
+// one process every mint runs through this promise chain, so the second
+// starter re-reads the repaired file instead of racing the repair; across
+// processes an O_EXCL lock file elects one repairman and the others adopt
+// its token. A replacement is never unconditional.
+//
+// F3 (#223 review round 2): the reuse path must enforce the 0600 contract
+// too. preparePrivateFile tightens an existing file to owner-only (keeping
+// owner bits, refusing a final-component symlink), so a token file left
+// world-readable is repaired before it is accepted — restoring what the
+// round-1 early return bypassed.
+let mintTail: Promise<unknown> = Promise.resolve();
+
+function mintViewerToken(): Promise<string> {
+  const run = mintTail.then(() => mintTokenOnce());
+  mintTail = run.catch(() => {});
+  return run;
+}
+
+function readToken(path: string): string {
+  try {
+    return readFileSync(path, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+async function mintTokenOnce(): Promise<string> {
   const path = tokenPath();
-  const prior = (
-    await Bun.file(path)
-      .text()
-      .catch(() => "")
-  ).trim();
-  if (TOKEN_SHAPE.test(prior)) return prior;
+  const prior = readToken(path);
+  if (TOKEN_SHAPE.test(prior)) {
+    preparePrivateFile(path);
+    return prior;
+  }
   const token = randomBytes(32).toString("hex");
   const tmp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   try {
@@ -140,14 +179,66 @@ async function mintViewerToken(): Promise<string> {
       linkSync(tmp, path);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-      const winner = (await Bun.file(path).text()).trim();
+      const winner = readToken(path);
       if (TOKEN_SHAPE.test(winner)) return winner;
-      renameSync(tmp, path);
+      return await recoverCorruptToken(path, tmp, token);
     }
+    return token;
   } finally {
     rmSync(tmp, { force: true });
   }
-  return token;
+}
+
+// Repair a corrupt token file under an O_EXCL lock (F1 residual, #223
+// review): exactly one starter replaces the file, the rest adopt its token.
+// The lock also keeps Windows from renaming onto a file a rival starter is
+// mid-read — the observed EPERM. A holder that crashes must not wedge every
+// later start, so a lock older than the wait window is stolen and retried.
+const RECOVER_WAIT_MS = 5_000;
+const RECOVER_STALE_MS = 15_000;
+
+async function recoverCorruptToken(
+  path: string,
+  tmp: string,
+  token: string,
+): Promise<string> {
+  const lock = path + ".recover";
+  const deadline = Date.now() + RECOVER_WAIT_MS;
+  for (;;) {
+    let held = false;
+    try {
+      closeSync(
+        openSync(
+          lock,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+          0o600,
+        ),
+      );
+      held = true;
+      const settled = readToken(path);
+      if (TOKEN_SHAPE.test(settled)) return settled;
+      renameSync(tmp, path);
+      return token;
+    } catch (err) {
+      if (held || (err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      const waiting = readToken(path);
+      if (TOKEN_SHAPE.test(waiting)) return waiting;
+      if (Date.now() < deadline) {
+        await Bun.sleep(25);
+        continue;
+      }
+      let stale = true;
+      try {
+        stale = Date.now() - statSync(lock).mtimeMs > RECOVER_STALE_MS;
+      } catch {
+        stale = true;
+      }
+      if (!stale) throw err;
+      rmSync(lock, { force: true });
+    } finally {
+      if (held) rmSync(lock, { force: true });
+    }
+  }
 }
 
 function tokenMatches(candidate: string, expected: string): boolean {
