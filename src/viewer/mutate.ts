@@ -283,11 +283,15 @@ export async function blockMemory(input: {
 // back in view. The tombstone is keyed on the value, so this withdraws the
 // rejection of that content wherever else a copy of it was blocked; that is the
 // same decision the tombstone made when it was written.
+// The lift is conditional on an actual un-block (#209): a no-op on a row that
+// was never blocked must not withdraw the rejection still guarding a blocked
+// identical copy, which would let the value be re-ingested.
 export async function unblockMemory(ts: string): Promise<boolean> {
   const removed = await removeBlock(ts);
+  if (!removed) return false;
   const mem = (await loadAll()).find((x) => x.ts === ts);
   if (mem) await removeTombstone(contentHash(mem.content));
-  return removed;
+  return true;
 }
 
 // The explicit un-tombstone escape hatch (#35): lifts a rejection recorded by
