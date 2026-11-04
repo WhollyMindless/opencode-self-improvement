@@ -15,8 +15,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   appendFileSync,
-  copyFileSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -41,6 +39,7 @@ import { contextualPull } from "../src/inject/pull.ts";
 import { relevantKnowledge } from "../src/recall/relevant.ts";
 import { loadPlugin } from "./harness.ts";
 import { readEvidenceLog as evidence, sleep } from "./helpers/logfmt.ts";
+import { roundTripThroughImport } from "./helpers/scenario-builders.ts";
 
 let root: string;
 let liveRoot: string;
@@ -394,19 +393,12 @@ describe("end-to-end: a headerless import cannot plant a frontier instruction", 
       },
     );
     const loaded = await loadPlugin(liveRoot);
-    const exp = await loaded.tool.memory_export!.execute({});
-    const file = exp.split(" -> ")[1]!;
-    expect(existsSync(file)).toBe(true);
-
-    process.env.OPENCODE_MEMORY_DIR = join(root, "memory2");
-    // A store reads only from inside itself (#24), so the hop copies the file
-    // in — exactly the step moving an export to another machine involves.
-    mkdirSync(memoryRoot(), { recursive: true });
-    const hop = join(memoryRoot(), "round-trip.jsonl");
-    copyFileSync(file, hop);
-    const imp = await loaded.tool.memory_import!.execute({ file: hop });
-    expect(imp).toContain("1 promoted");
-    expect(imp).not.toContain("downgraded");
+    // The export→hop→import sequence is the shared builder (#228).
+    const { importOut } = await roundTripThroughImport(loaded, root, {
+      hopName: "round-trip.jsonl",
+    });
+    expect(importOut).toContain("1 promoted");
+    expect(importOut).not.toContain("downgraded");
     const open = (await loadAll()).filter(
       (m) => isActive(m) && m.status === "open",
     );

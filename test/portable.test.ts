@@ -10,7 +10,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   appendFileSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -39,6 +38,7 @@ import { setRepoScope } from "../src/identity/repokey.ts";
 import { systemDigest } from "../src/inject/digest.ts";
 import { loadPlugin } from "./harness.ts";
 import { readEvidenceLog as evidence } from "./helpers/logfmt.ts";
+import { roundTripThroughImport } from "./helpers/scenario-builders.ts";
 
 let root: string;
 let liveRoot: string;
@@ -551,23 +551,16 @@ describe("memory_export / memory_import tools (round trip)", () => {
     );
 
     const loaded = await loadPlugin(liveRoot);
-    const exp = await loaded.tool.memory_export!.execute({});
-    expect(exp).toContain("Exported 3 memories ->");
-    const file = exp.split(" -> ")[1]!;
-    expect(existsSync(file)).toBe(true);
-
-    // Fresh store (simulates another machine). A store reads only from inside
-    // itself (#24), so the hop copies the export in first — the step actually
-    // moving a file to another machine involves.
-    process.env.OPENCODE_MEMORY_DIR = join(root, "memory2");
-    mkdirSync(memoryRoot(), { recursive: true });
-    const hop = join(memoryRoot(), "hop.jsonl");
-    copyFileSync(file, hop);
-    await engage(loaded, "ses-imp"); // ground the settled ref-free rows
-
-    const imp = await loaded.tool.memory_import!.execute({ file: hop });
-    expect(imp).toContain("3 promoted");
-    expect(imp).toContain("0 duplicates collapsed");
+    // Fresh store (simulates another machine); the export→hop→import sequence
+    // is the shared builder (#228).
+    const { exportOut, hop, importOut } = await roundTripThroughImport(
+      loaded,
+      root,
+      { beforeImport: () => engage(loaded, "ses-imp") }, // ground the settled ref-free rows
+    );
+    expect(exportOut).toContain("Exported 3 memories ->");
+    expect(importOut).toContain("3 promoted");
+    expect(importOut).toContain("0 duplicates collapsed");
     const mems = (await loadAll()).filter(isActive);
     expect(mems.length).toBe(3);
     expect(mems.every((m) => m.tags?.includes("import"))).toBe(true);
