@@ -16,7 +16,7 @@
 //   - a lock FILE created with O_EXCL, which is atomic across processes (and
 //     exclusive against our own tasks too, since the check is in the kernel).
 // A killed holder is recovered by age. A writer that waits past the budget
-// gives up waiting — see onTimeout.
+// gives up waiting — see onTimeout (default: fail closed, #216).
 //
 // Readers take NO lock: publishers hand over the new file with a rename
 // (writeAtomic in logfmt.ts), so a reader always sees a complete store, never
@@ -30,12 +30,24 @@ const LOCK_SUFFIX = ".lock";
 // A lock older than this belongs to a process that died holding it.
 const STALE_MS = 10_000;
 const DEFAULT_TIMEOUT_MS = 5_000;
+// #216: the default policy is fail-closed, the policy #196 moved every
+// production writer to. A writer that omits opts must refuse at the deadline,
+// not silently reintroduce the unlocked-proceed row loss the LOCK_WRITE
+// contract retired. "proceed" survives only as an explicit opt-in.
+const DEFAULT_ON_TIMEOUT = "fail";
 const MIN_BACKOFF_MS = 1;
 const MAX_BACKOFF_MS = 25;
 // How many consecutive create-failures with a proven-absent lock file mean
 // "this filesystem is not letting us create it" rather than "we are losing a
 // race with a live holder". The wait is a fast, bounded spin, not a budget.
 const ABSENT_THROW_STRIKES = 8;
+
+// The single source of the timeout policy (#216): both give-up paths — the
+// direct budget and the queue hand-off — resolve through here, so the
+// fail-closed default cannot drift between them.
+function timeoutPolicy(opts: LockOptions): "proceed" | "fail" {
+  return opts.onTimeout === "proceed" ? "proceed" : DEFAULT_ON_TIMEOUT;
+}
 
 export function lockFileFor(file: string): string {
   return file + LOCK_SUFFIX;
@@ -47,11 +59,11 @@ export type LockEvent = "steal" | "timeout";
 export interface LockOptions {
   timeoutMs?: number;
   /**
-   * What waiting past `timeoutMs` means. "fail" refuses the mutation (for
-   * callers where proceeding unlocked could destroy more than it saves, e.g.
-   * snapshot restore). The legacy default, "proceed", runs it unlocked and
-   * can lose acknowledged writes when another caller rewrites the same file.
-   * Store writers must use LOCK_WRITE (or an explicit fail-closed policy).
+   * What waiting past `timeoutMs` means. The default, "fail", refuses the
+   * mutation (#216: fail-closed is the contract every store writer keeps;
+   * LOCK_WRITE and LOCK_RESTORE spell it out). "proceed" runs the write
+   * unlocked and can lose acknowledged writes when another caller rewrites
+   * the same file — pass it only where that concession is intended.
    */
   onTimeout?: "proceed" | "fail";
   onEvent?: (event: LockEvent, waitedMs: number) => void;
@@ -154,7 +166,8 @@ export async function holdFileLock<T>(
   // `absentStrikes > 0` only remembers the LAST probe, so a holder that
   // legitimately finished and unlinked just as the budget expired was
   // throwing away ordinary writes instead of taking the contention
-  // concession it describes.
+  // concession it describes. An EEXIST from a failed create counts as such a
+  // sighting too (a create that returns EEXIST saw the file).
   let everSawHolder = false;
   for (;;) {
     try {
@@ -178,6 +191,16 @@ export async function holdFileLock<T>(
       // wait for — our own ability to create files is what is broken, and
       // the original error must surface instead of rotting into a timeout.
       firstErr ??= err;
+      // An EEXIST from the create is a sighting in its own right: on POSIX it
+      // proves the lock file WAS there at the attempt, even if the probe
+      // below then proves the holder unlinked in between (the vanish race).
+      // Without this, that race reached the deadline with everSawHolder false
+      // and surfaced the stale creation error instead of the busy refusal.
+      // Ambiguous labels (the Windows EPERM/EACCES family) stay non-sightings
+      // — blindness is blindness (#107) — and a create-yes/stat-no filesystem
+      // still dies on the strike rule long before the budget.
+      if ((err as NodeJS.ErrnoException).code === "EEXIST")
+        everSawHolder = true;
       const seen = await probeLock(lockPath);
       if (seen === "absent") {
         if (++absentStrikes >= ABSENT_THROW_STRIKES) throw firstErr;
@@ -191,18 +214,20 @@ export async function holdFileLock<T>(
       }
       if (now() - started >= budgetMs) {
         opts.onEvent?.("timeout", now() - started);
-        if (opts.onTimeout === "fail") {
+        // Blindness outranks policy (#107): a wait that never once saw a lock
+        // file has no holder to wait for — our own ability to create files is
+        // what is broken, and the original error must surface, never a busy
+        // refusal and never an unguarded write.
+        if (!everSawHolder) throw firstErr;
+        if (timeoutPolicy(opts) === "fail") {
           throw new Error(
             `memory store is busy: ${basename(file)} has been locked for ${now() - started}ms — retry`,
           );
         }
-        // Proceeding without the lock is the designed concession to
-        // contention — but never while we have seen the lock file not even
-        // once: on a filesystem where we cannot create it, writing "unlocked"
-        // would just mean writing unguarded. A holder we DID see and then lost
-        // is ordinary contention, and belongs to the concession (#107 —
+        // Proceeding without the lock is the explicit "proceed" opt-in
+        // (#216: no longer the default). A holder we DID see and then lost is
+        // ordinary contention, and belongs to the opt-in (#107 —
         // `absentStrikes > 0` remembered only the last probe, not the wait).
-        if (!everSawHolder) throw firstErr;
         return fn();
       }
       await sleep(backoff);
@@ -253,7 +278,7 @@ export async function withStoreLock<T>(
       // writer that is not going to finish.
       finish();
       opts.onEvent?.("timeout", Date.now() - started);
-      if (opts.onTimeout === "fail") {
+      if (timeoutPolicy(opts) === "fail") {
         throw new Error(
           `memory store is busy: ${basename(file)} has been locked for ${Date.now() - started}ms — retry`,
         );
