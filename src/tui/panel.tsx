@@ -123,7 +123,7 @@ export default Plugin.define({
         w.on("error", () => {
           try {
             w.close();
-          } catch {}
+          } catch {} // already closed; the null-out below is the real cleanup
           if (rootWatcher === w) rootWatcher = null;
           if (dirWatcher === w) dirWatcher = null;
           if (evWatcher === w) evWatcher = null;
@@ -230,7 +230,7 @@ export default Plugin.define({
       for (const w of [rootWatcher, dirWatcher, evWatcher]) {
         try {
           w?.close();
-        } catch {}
+        } catch {} // unmount: a watcher already closed or broken has nothing left to release
       }
     };
   },
