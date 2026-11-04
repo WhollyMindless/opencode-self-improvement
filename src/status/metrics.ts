@@ -103,6 +103,12 @@ export interface CaptureHealth {
   blocked: number;
   /** Newest `auto_capture_*` line, or null when nothing fired. */
   lastFired: string | null;
+  /**
+   * Newest `capture_lag` completion receipt in the window: proof the capture
+   * ran, independent of candidate outcome. A model response of `[]` writes
+   * only this line, so the inert verdict must consult it (#288 F1).
+   */
+  lastExecuted: string | null;
 }
 
 const CAPTURE_STATES: readonly CaptureHealthState[] = [
@@ -124,6 +130,7 @@ export function captureHealth(
   let rows = 0;
   let blocked = 0;
   let lastFired: string | null = null;
+  let lastExecuted: string | null = null;
   for (const line of lines) {
     const f = parseLine(line);
     if (!f) continue;
@@ -141,6 +148,13 @@ export function captureHealth(
       }
       continue;
     }
+    if (ev === "capture_lag") {
+      // Completion receipt: the model call finished whether or not it found
+      // candidates. Execution evidence on its own (#288 F1).
+      if (ts && ts >= cutoff && (!lastExecuted || ts > lastExecuted))
+        lastExecuted = ts;
+      continue;
+    }
     if (!ev.startsWith("auto_capture_")) continue;
     if (ts && ts < cutoff) continue;
     if (ev.endsWith("promoted")) rows++;
@@ -152,5 +166,5 @@ export function captureHealth(
       blocked++;
     if (ts && (!lastFired || ts > lastFired)) lastFired = ts;
   }
-  return { state, rows, blocked, lastFired };
+  return { state, rows, blocked, lastFired, lastExecuted };
 }

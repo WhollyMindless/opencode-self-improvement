@@ -398,7 +398,13 @@ describe("renderMemoryReport", () => {
       status: null,
       store: payload().store,
       blocked: [],
-      capture: { state: "off", rows: 0, blocked: 0, lastFired: null },
+      capture: {
+        state: "off",
+        rows: 0,
+        blocked: 0,
+        lastFired: null,
+        lastExecuted: null,
+      },
     });
     expect(text).toContain("auto-capture: off (default)");
   });
@@ -409,7 +415,13 @@ describe("renderMemoryReport", () => {
         status: null,
         store: payload().store,
         blocked: [],
-        capture: { state, rows: 0, blocked: 0, lastFired: null },
+        capture: {
+          state,
+          rows: 0,
+          blocked: 0,
+          lastFired: null,
+          lastExecuted: null,
+        },
       });
       expect(text).toContain(`auto-capture: ${state}`);
     }
@@ -422,6 +434,7 @@ describe("renderMemoryReport", () => {
         rows: 0,
         blocked: 0,
         lastFired: null,
+        lastExecuted: null,
       },
     });
     expect(mismatch).toContain("auto-capture: switch_mismatch");
@@ -433,9 +446,38 @@ describe("renderMemoryReport", () => {
       status: null,
       store: payload().store,
       blocked: [],
-      capture: { state: "on", rows: 0, blocked: 0, lastFired: null },
+      capture: {
+        state: "on",
+        rows: 0,
+        blocked: 0,
+        lastFired: null,
+        lastExecuted: null,
+      },
     });
     expect(text).toContain("ARMED BUT NEVER FIRED");
+  });
+
+  // #288 F1: a successful capture whose model returned `[]` writes only the
+  // capture_lag completion receipt. That is execution evidence — the status
+  // surface must render it alive with zero rows, not inert.
+  test("auto-capture line: empty successful capture is alive, not ARMED BUT NEVER FIRED", () => {
+    const text = renderMemoryReport({
+      status: null,
+      store: payload().store,
+      blocked: [],
+      capture: {
+        state: "on",
+        rows: 0,
+        blocked: 0,
+        lastFired: null,
+        lastExecuted: new Date(Date.now() - 2 * 3600_000).toISOString(),
+      },
+    });
+    expect(text).not.toContain("ARMED BUT NEVER FIRED");
+    expect(text).toContain("auto-capture: on");
+    expect(text).toContain("last fired 2h ago");
+    expect(text).toContain("0 rows");
+    expect(text).toContain("0 refused");
   });
 
   test("auto-capture line: firing shows last fire, rows, and refusals", () => {
@@ -448,6 +490,7 @@ describe("renderMemoryReport", () => {
         rows: 4,
         blocked: 1,
         lastFired: new Date(Date.now() - 3 * 3600_000).toISOString(),
+        lastExecuted: new Date(Date.now() - 3 * 3600_000).toISOString(),
       },
     });
     expect(text).toContain("auto-capture: on");
@@ -487,6 +530,33 @@ describe("captureHealth (#138)", () => {
     expect(h.state).toBe("on");
     expect(h.rows).toBe(0);
     expect(h.lastFired).toBeNull();
+    expect(h.lastExecuted).toBeNull();
+  });
+
+  // #288 F1: the capture_lag completion receipt is execution evidence even
+  // when the model returned no candidates; a stale receipt is outside the
+  // window and must not clear the inert verdict.
+  test("capture_lag receipt sets lastExecuted without touching rows or lastFired", () => {
+    const recent = new Date(Date.now() - 3600_000).toISOString();
+    const lag = (ts: string, outcome: string) =>
+      formatLine({
+        ev: "capture_lag",
+        ts,
+        session: "ses_x",
+        outcome,
+        model: "fake/model",
+      });
+    const h = captureHealth([hb("on", recent), lag(recent, "empty")]);
+    expect(h.state).toBe("on");
+    expect(h.rows).toBe(0);
+    expect(h.blocked).toBe(0);
+    expect(h.lastFired).toBeNull();
+    expect(h.lastExecuted).toBe(recent);
+
+    const stale = new Date(Date.now() - 90 * 86_400_000).toISOString();
+    expect(
+      captureHealth([hb("on", recent), lag(stale, "empty")]).lastExecuted,
+    ).toBeNull();
   });
 
   test("capture rows move rows/lastFired; refusals count separately", () => {

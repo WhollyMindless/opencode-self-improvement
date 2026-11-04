@@ -164,14 +164,20 @@ export function captureLines(c: CaptureHealth): string[] {
       return [
         "  auto-capture: switch_mismatch — captureOnCompact is on but autoCapture is off; nothing fires",
       ];
-    case "on":
-      if (c.rows === 0 && c.blocked === 0)
+    case "on": {
+      // Inert means NO execution evidence at all: no candidate line and no
+      // `capture_lag` completion receipt. A successful capture whose model
+      // returned `[]` writes only the receipt, and is alive, not inert
+      // (#288 F1).
+      if (!c.lastExecuted && c.rows === 0 && c.blocked === 0)
         return [
-          "  auto-capture: ARMED BUT NEVER FIRED — capture is on, no auto_capture_* lines in the last 30d",
+          "  auto-capture: ARMED BUT NEVER FIRED — capture is on, no auto_capture_* or capture_lag lines in the last 30d",
         ];
+      const fired = c.lastFired ?? c.lastExecuted;
       return [
-        `  auto-capture: on, last fired ${c.lastFired ? ago(c.lastFired) : "now"}, ${c.rows} rows, ${c.blocked} refused`,
+        `  auto-capture: on, last fired ${fired ? ago(fired) : "now"}, ${c.rows} rows, ${c.blocked} refused`,
       ];
+    }
     default:
       return [
         "  auto-capture: unknown — no plugin_load heartbeat in the evidence files (plugin never loaded here?)",
