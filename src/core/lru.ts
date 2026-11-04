@@ -4,7 +4,8 @@
 // recency list owns eviction so the maps are always dropped together: an
 // evicted session simply starts over (no block until its next prompt, then a
 // "first" epoch), which costs one recompute and never serves stale state.
-// Same cap as repokey.ts's session-scope cache.
+// Single shared cap: repokey.ts's session-scope cache imports this constant,
+// so the ledgers cannot drift (#224).
 export const SESSION_CAP = 64;
 
 export class SessionLru {
