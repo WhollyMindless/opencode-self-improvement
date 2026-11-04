@@ -9,13 +9,9 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
-import {
-  resetSessionScopes,
-  resolveRepo,
-  setRepoScope,
-} from "../src/identity/repokey.ts";
+import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
+import { seedPlanRow } from "./helpers/scenario-builders.ts";
 import { resetState } from "../src/core/state.ts";
 
 let root: string;
@@ -60,18 +56,15 @@ const ctx = (sessionID: string) => ({ sessionID, id: "upmeta-proof" });
 describe("memory_update preserves omitted metadata (#154)", () => {
   test("a prose edit keeps import provenance, issue, and keywords", async () => {
     const pa = await plugin(a);
-    const repo = resolveRepo(a);
-    const original = await appendMemory({
-      type: "context",
-      scope: "planning",
-      content: "Plan to prune aged queue entries every evening",
-      status: "open",
-      tags: ["import"],
-      issue: "import-provenance-marker",
-      kw: ["queue retention"],
-      repo: repo.key,
-      repoPath: repo.path,
-    });
+    const original = await seedPlanRow(
+      a,
+      "Plan to prune aged queue entries every evening",
+      {
+        tags: ["import"],
+        issue: "import-provenance-marker",
+        kw: ["queue retention"],
+      },
+    );
     const result = await pa.tools.memory_update.execute(
       {
         type: "context",
@@ -93,16 +86,11 @@ describe("memory_update preserves omitted metadata (#154)", () => {
 
   test("control: explicit kw replaces rather than unions", async () => {
     const pa = await plugin(a);
-    const repo = resolveRepo(a);
-    const original = await appendMemory({
-      type: "context",
-      scope: "planning",
-      content: "Rotate the nginx certificate by hand each quarter",
-      status: "open",
-      kw: ["old alias"],
-      repo: repo.key,
-      repoPath: repo.path,
-    });
+    const original = await seedPlanRow(
+      a,
+      "Rotate the nginx certificate by hand each quarter",
+      { kw: ["old alias"] },
+    );
     const result = await pa.tools.memory_update.execute(
       {
         type: "context",

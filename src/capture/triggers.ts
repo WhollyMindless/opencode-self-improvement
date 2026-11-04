@@ -42,6 +42,18 @@ const ENGAGEMENT_TOOLS = new Set([
 ]);
 
 const RECENT_EVIDENCE_CALLS = 10;
+// #224: the retained call tail. A resident server must not grow one session's
+// ledger without bound; past the cap the OLDEST entries drop. Everything the
+// pipeline needs past the cap is recorded on SessionState as it happens
+// (callsTotal, reDerives, firstCallTs, sawEngagement, sawGateCheck), so
+// telemetry counts, grounding signals and ms_to_tap keep their full-session
+// meaning; attribution (callsFor) sees the retained tail.
+// The cap sits ABOVE the 2,000-call scale pinned by write-evidence.test.ts
+// (#163: the full ledger stays available at that scale), so that contract
+// keeps holding; the bound is the point — a pathological resident session
+// grows this to hundreds of thousands of entries, and 4,096 is where the
+// tail is cut.
+export const CALLS_CAP = 4096;
 // Pending recovery stores IDs only; the full attribution ledger stays in calls.
 function trackPending(s: SessionState, rec: ToolResult): void {
   const pending = s.pendingGate;
@@ -58,6 +70,12 @@ export const MAX_WRITE_EVIDENCE_REFS = RECENT_EVIDENCE_CALLS + 1 + 3 + 2;
 
 function trackCall(s: SessionState, rec: ToolResult): void {
   s.calls.push(rec);
+  s.callsTotal++;
+  if (["grep", "glob", "read"].includes(rec.tool)) s.reDerives++;
+  if (!s.firstCallTs) s.firstCallTs = rec.ts;
+  if (ENGAGEMENT_TOOLS.has(rec.tool)) s.sawEngagement = true;
+  if (rec.gateCheck) s.sawGateCheck = true;
+  if (s.calls.length > CALLS_CAP) s.calls.splice(0, s.calls.length - CALLS_CAP);
   s.writeEvidence ??= { recent: [] };
   const evidence = s.writeEvidence;
   if (ENGAGEMENT_TOOLS.has(rec.tool)) {
@@ -69,9 +87,10 @@ function trackCall(s: SessionState, rec: ToolResult): void {
 
 // True once the session has exercised the codebase (the FAIL->PASS signals use
 // the same whitelist, so engagement == "a tool_result was recorded for a code
-// tool").
+// tool"). Sticky (#224): the CALLS_CAP tail dropping the original engagement
+// call must not un-ground a session that demonstrably engaged.
 export function hasEngagement(sid: string): boolean {
-  return session(sid).calls.some((c) => ENGAGEMENT_TOOLS.has(c.tool));
+  return session(sid).sawEngagement;
 }
 
 const GATE_CMDS: [RegExp, string][] = [
@@ -247,7 +266,7 @@ export async function onCompacting(input: AfterInput): Promise<void> {
     "t2_compaction",
     {
       session: sid,
-      captured_calls: s.calls.length,
+      captured_calls: s.callsTotal,
       pending_gate: s.pendingGate ? s.pendingGate.call : "-",
     },
     false,
@@ -255,8 +274,9 @@ export async function onCompacting(input: AfterInput): Promise<void> {
   await finalizeSession(sid);
 }
 
-// Full IDs for callers that explicitly need the ledger. Production write
-// contexts use writeEvidence so they do not allocate this growing list.
+// IDs for callers that explicitly need the ledger: the retained tail (capped
+// at CALLS_CAP, oldest dropped first — #224). Production write contexts use
+// writeEvidence so they do not allocate this growing list.
 export function evidenceCalls(sid: string): string[] {
   return session(sid).calls.map((c) => c.call);
 }
@@ -277,16 +297,18 @@ export function writeEvidence(sid: string): {
     ...(evidence?.gateCheck !== undefined ? [evidence.gateCheck] : []),
     ...(evidence?.recent ?? []),
   ]);
-  return { evidenceCalls: [...refs], evidenceCallsCount: s.calls.length };
+  return { evidenceCalls: [...refs], evidenceCallsCount: s.callsTotal };
 }
 
-// The full per-session tool ledger, for memory attribution (src/attribution.ts).
+// The per-session tool ledger for memory attribution (src/attribution.ts):
+// the retained tail, capped at CALLS_CAP with the oldest calls dropped first
+// (#224), so a resident server bounds memory instead of holding every call.
 export function callsFor(sid: string): ToolResult[] {
   return session(sid).calls;
 }
 
 export function hasGateCheck(sid: string): boolean {
-  return session(sid).calls.some((c) => c.gateCheck === true);
+  return session(sid).sawGateCheck;
 }
 
 // ---- Session-convergence tracking (time-to-frontier) -----------------------
@@ -321,9 +343,9 @@ export async function finalizeSession(sid: string): Promise<void> {
   const s = session(sid);
   if (s.finalized) return;
   s.finalized = true;
-  if (s.calls.length === 0 && s.turns === 0) return;
+  if (s.callsTotal === 0 && s.turns === 0) return;
   const tap = s.firstTap;
-  const start = s.firstActivityTs ?? s.calls[0]?.ts;
+  const start = s.firstActivityTs ?? s.firstCallTs;
   const ms =
     tap && start
       ? Math.max(0, Date.parse(tap.ts) - Date.parse(start))
@@ -335,11 +357,9 @@ export async function finalizeSession(sid: string): Promise<void> {
       turns: s.turns,
       tap_at: tap ? tap.call : "-",
       turns_to_tap: tap ? tap.turn : undefined,
-      re_derives: s.calls.filter((c) =>
-        ["grep", "glob", "read"].includes(c.tool),
-      ).length,
+      re_derives: s.reDerives,
       ms_to_tap: ms,
-      calls: s.calls.length,
+      calls: s.callsTotal,
     },
     false,
   );

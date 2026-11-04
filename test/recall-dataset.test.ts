@@ -9,7 +9,7 @@ import {
   keywordsFor,
   MEMORIES,
   QUERIES,
-} from "../bench/recall-dataset.ts";
+} from "../bench/fixtures/recall-dataset.ts";
 
 describe("recall dataset integrity", () => {
   test("memory ids are unique", () => {
@@ -56,7 +56,7 @@ describe("recall dataset integrity", () => {
 
 // The `kw` arm is the only place in this benchmark where a human wrote extra
 // text that helps the gold row win, so the authoring rule from
-// bench/recall-dataset.ts is enforced mechanically: keywords are shaped like
+// bench/fixtures/recall-dataset.ts is enforced mechanically: keywords are shaped like
 // write-time aliases, they exist for every gold row, and none of them is the
 // eval's own phrasing copied backwards.
 describe("write-time keyword integrity (#40)", () => {

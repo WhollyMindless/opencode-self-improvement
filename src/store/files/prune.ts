@@ -32,45 +32,79 @@ export async function prune(
   durable: PruneResult = { deleted: [], snapshot: [] },
 ): Promise<PruneResult> {
   const { deleted, snapshot } = durable;
-  for (const file of await memoryFiles()) {
-    await withStoreLock(
-      file,
-      async () => {
-        const since = await fileIdentity(file);
-        const lines = await readLines(file);
-        const kept: string[] = [];
-        const fileDeleted: DeletedMemory[] = [];
-        let changed = false;
-        for (const line of lines) {
-          const parsed = parseLine(line);
-          const m = parsed ? toMemory(parsed, file, 0) : null;
-          // Repo floor: forgetting scope X here must never delete
-          // another repo's row for scope X — same basename collisions are real
-          // (a fork next to its upstream).
-          if (
-            m &&
-            m.scope === scope &&
-            m.type === type &&
-            isVisibleTo(m, reader)
-          ) {
-            fileDeleted.push({ memory: m, reason });
-            await logDeletion(m, reason);
-            changed = true;
-            continue;
+  // #206: a later file failing must not undo the bookkeeping an earlier file
+  // already earned, and no bookkeeping may claim a row the store never let go
+  // of. So the order per file is: publish, then audit; and the tombstone pass
+  // runs over everything committed even when the loop itself threw. Errors are
+  // collected, never swallowed: the primary (loop) error is rethrown with any
+  // secondary (audit/tombstone) failure appended, so pruneMemory's PARTIAL
+  // reply names both.
+  let loopError: unknown;
+  let bookkeepingError: string | undefined;
+  const note = (msg: string) => {
+    bookkeepingError = bookkeepingError ? `${bookkeepingError}; ${msg}` : msg;
+  };
+  try {
+    for (const file of await memoryFiles()) {
+      const fileDeleted: DeletedMemory[] = [];
+      await withStoreLock(
+        file,
+        async () => {
+          const since = await fileIdentity(file);
+          const lines = await readLines(file);
+          const kept: string[] = [];
+          let changed = false;
+          for (const line of lines) {
+            const parsed = parseLine(line);
+            const m = parsed ? toMemory(parsed, file, 0) : null;
+            // Repo floor: forgetting scope X here must never delete
+            // another repo's row for scope X — same basename collisions are real
+            // (a fork next to its upstream).
+            if (
+              m &&
+              m.scope === scope &&
+              m.type === type &&
+              isVisibleTo(m, reader)
+            ) {
+              fileDeleted.push({ memory: m, reason });
+              changed = true;
+              continue;
+            }
+            kept.push(line);
           }
-          kept.push(line);
+          if (!changed) return;
+          snapshot.push(...(await snapshotFiles([file])));
+          await writeAtomic(
+            file,
+            kept.join("\n") + (kept.length ? "\n" : ""),
+            since,
+          );
+          deleted.push(...fileDeleted);
+        },
+        LOCK_WRITE,
+      );
+      // #206 STORE-2: the deletion audit FOLLOWS the publish, as in the viewer's
+      // delete (mutate.ts audits after its locked handover). Auditing inside the
+      // read loop claimed rows as deleted when a snapshot/publish failure left
+      // them live: the viewer's Deleted panel listed a still-live row, its
+      // restore-entry action would duplicate it, and undo's auditedDeletions()
+      // treated the ts as intentionally removed. appendLog needs no store lock
+      // (deletions.logfmt is append-only), so this stays outside the day-file
+      // lock and keeps the one consistent lock order across the codebase. An
+      // audit failure after a committed publish cannot be undone — it is
+      // reported as PARTIAL and recoverable by inspecting the store.
+      for (const d of fileDeleted) {
+        try {
+          await logDeletion(d.memory, d.reason);
+        } catch (err) {
+          note(
+            `deletion audit failed for ${d.memory.ts}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
-        if (!changed) return;
-        snapshot.push(...(await snapshotFiles([file])));
-        await writeAtomic(
-          file,
-          kept.join("\n") + (kept.length ? "\n" : ""),
-          since,
-        );
-        deleted.push(...fileDeleted);
-      },
-      LOCK_WRITE,
-    );
+      }
+    }
+  } catch (err) {
+    loopError = err;
   }
   // #35: tombstone every forgotten VALUE, keyed on content rather than on the
   // row's `ts`, so replaying the source cannot store the fact again.
@@ -82,13 +116,37 @@ export async function prune(
   // loop would nest a second store lock (day file, then rejected.logfmt) inside
   // the first, and one consistent order across the codebase is what keeps the
   // lock manager from having to reason about nesting at all.
-  await tombstoneMany(
-    deleted.map((d) => ({
-      content: d.memory.content,
-      scope: d.memory.scope,
-      type: d.memory.type,
-    })),
-    { reason, source: "forget" },
-  );
+  //
+  // #206 STORE-1: this runs even when the loop threw. The committed rows are
+  // already out of the store, so a retry of the forget will never see them
+  // again — skipping the tombstone here is how a partial forget quietly
+  // reopened the rejection hole #35 closed. If THIS write fails too, the
+  // PARTIAL reply names it: the committed rows are gone and unprotected, and
+  // only a human (the viewer's reject route) can restore the marker — the
+  // agreed recoverable partial-result semantics, pinned by test.
+  if (deleted.length) {
+    try {
+      await tombstoneMany(
+        deleted.map((d) => ({
+          content: d.memory.content,
+          scope: d.memory.scope,
+          type: d.memory.type,
+        })),
+        { reason, source: "forget" },
+      );
+    } catch (err) {
+      note(
+        `rejection tombstones incomplete: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  if (loopError) {
+    if (bookkeepingError)
+      throw new Error(
+        `${loopError instanceof Error ? loopError.message : String(loopError)}; ${bookkeepingError}`,
+      );
+    throw loopError;
+  }
+  if (bookkeepingError) throw new Error(bookkeepingError);
   return { deleted, snapshot };
 }
