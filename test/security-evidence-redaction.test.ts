@@ -25,6 +25,13 @@ import { dateStr } from "../src/core/time.ts";
 import { redactSecrets } from "../src/store/secrets.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
 import { pruneMemory } from "../src/store/prune.ts";
+import {
+  addBlock,
+  blockedEntries,
+  blocklistFile,
+  removeBlock,
+} from "../src/store/blocklist.ts";
+import { blockMemory, unblockMemory } from "../src/viewer/mutate.ts";
 
 const TOKEN = "ghp_" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
 const PEM = [
@@ -145,4 +152,55 @@ test("deletion audit records scrub a credential carried in the reason", async ()
   expect(audit).toContain(ts); // the audit line itself is intact
   expect(audit).not.toContain(TOKEN);
   expect(audit).toContain("[redacted]");
+});
+
+test("blocklist writes scrub token and multiline key reasons while preserving clean reasons and removal", async () => {
+  const blocked = "2026-01-01T00:00:01.000Z";
+  const clean = "2026-01-01T00:00:02.000Z";
+  await addBlock(blocked, `rotated ${TOKEN}\n${PEM}`);
+  await addBlock(clean, "stale build command");
+
+  const raw = readFileSync(blocklistFile(), "utf8");
+  expect(raw).not.toContain(TOKEN);
+  expect(raw).not.toContain("PRIVATE KEY");
+  expect(raw).not.toContain("TUlJRVp4SUJBQUtDQVFFQWZh");
+  expect(raw).toContain("[redacted]");
+  expect(await blockedEntries()).toEqual([
+    {
+      ts: blocked,
+      reason: "rotated [redacted]\n[redacted]",
+      blocked_at: expect.any(String),
+    },
+    {
+      ts: clean,
+      reason: "stale build command",
+      blocked_at: expect.any(String),
+    },
+  ]);
+
+  expect(await removeBlock(blocked)).toBe(true);
+  expect(await removeBlock(blocked)).toBe(false);
+  expect((await blockedEntries()).map((entry) => entry.ts)).toEqual([clean]);
+});
+
+test("viewer block reasons stay redacted on disk and read-back, and unblock still succeeds", async () => {
+  const ts = await appendMemory({
+    type: "context",
+    scope: "secrets-audit",
+    content: "viewer block fixture",
+  });
+  expect(await blockMemory({ ts, reason: `rotated ${TOKEN}` })).toBe(ts);
+
+  expect(readFileSync(blocklistFile(), "utf8")).not.toContain(TOKEN);
+  expect(await blockedEntries()).toEqual([
+    {
+      ts,
+      reason: "rotated [redacted]",
+      blocked_at: expect.any(String),
+    },
+  ]);
+
+  expect(await unblockMemory(ts)).toBe(true);
+  expect(await blockedEntries()).toEqual([]);
+  expect(await unblockMemory(ts)).toBe(false);
 });
