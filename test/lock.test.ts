@@ -1,7 +1,7 @@
 // The lock contract: one writer per file across processes and across async
-// tasks inside one process; a dead holder is recovered by age; waiting past the
-// timeout either fails closed or proceeds; and a holder whose lock was taken
-// over never deletes the new one.
+// tasks inside one process; a dead holder is recovered by age; waiting past
+// the timeout fails closed by default and proceeds only by explicit opt-in
+// (#216); and a holder whose lock was taken over never deletes the new one.
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   existsSync,
@@ -122,7 +122,7 @@ describe("withStoreLock", () => {
     await held;
   });
 
-  test("proceed mode runs the write unlocked and reports it", async () => {
+  test("an explicit proceed opt-in runs the write unlocked and reports it", async () => {
     const file = join(tmp(), "a.logfmt");
     const gate = deferred();
     const held = withStoreLock(file, () => gate.promise);
@@ -130,12 +130,64 @@ describe("withStoreLock", () => {
     const events: string[] = [];
     const outcome = await withStoreLock(file, async () => "written", {
       timeoutMs: 40,
+      onTimeout: "proceed",
       onEvent: (e) => events.push(e),
     });
     expect(outcome).toBe("written");
     expect(events).toEqual(["timeout"]);
     gate.resolve();
     await held;
+  });
+
+  test("the default policy fails closed on contention: no opts never proceeds unlocked (#216)", async () => {
+    const file = join(tmp(), "a.logfmt");
+    const gate = deferred();
+    const held = withStoreLock(file, () => gate.promise);
+    await until(() => existsSync(lockFileFor(file)));
+    const events: string[] = [];
+    let ran = false;
+    await expect(
+      withStoreLock(
+        file,
+        async () => {
+          ran = true;
+          return "nope";
+        },
+        { timeoutMs: 40, onEvent: (e) => events.push(e) },
+      ),
+    ).rejects.toThrow(/busy/);
+    expect(ran).toBe(false);
+    expect(events).toEqual(["timeout"]);
+    gate.resolve();
+    await held;
+  });
+
+  test("the default policy fails closed when the queue hand-off times out (#216)", async () => {
+    const file = join(tmp(), "a.logfmt");
+    const gate = deferred();
+    // A takes the lock file and runs until the gate; B queues behind A's
+    // turn; C queues behind B and gives up its place when A outlives the
+    // budget. The hand-off give-up must fail closed under the default, not
+    // run C while A still holds the file.
+    const a = withStoreLock(file, () => gate.promise);
+    await until(() => existsSync(lockFileFor(file)));
+    const b = withStoreLock(file, async () => "b");
+    const events: string[] = [];
+    let ran = false;
+    await expect(
+      withStoreLock(
+        file,
+        async () => {
+          ran = true;
+          return "c";
+        },
+        { timeoutMs: 40, onEvent: (e) => events.push(e) },
+      ),
+    ).rejects.toThrow(/busy/);
+    expect(ran).toBe(false);
+    expect(events).toEqual(["timeout"]);
+    gate.resolve();
+    await Promise.all([a, b]);
   });
 
   test("a holder whose lock was taken over does not delete it", async () => {
@@ -181,12 +233,13 @@ describe("withStoreLock", () => {
 });
 
 describe("deadline races", () => {
-  test("an ordinary write never dies at the deadline on a just-released lock", async () => {
-    // Regression: when the budget expired right after a failed-create probe
-    // had proven the lock file ENOENT (holder releasing, unlink still in
-    // flight), the expiry path used to rethrow the stale creation error, so
-    // a plain LOCK_WRITE-style call lost its write to contention (pre-fix:
-    // it threw on a measurable slice of deadline hits on both platforms).
+  test("a default write at the deadline on a just-released lock fails closed, never on a stale creation error", async () => {
+    // Regression (#107, re-anchored for the #216 default): when the budget
+    // expired right after a failed-create probe had proven the lock file
+    // ENOENT (holder releasing, unlink still in flight), the expiry path used
+    // to rethrow the stale creation error instead of the policy's outcome.
+    // Under the fail-closed default the honest outcome of contention is the
+    // busy refusal; what must NEVER surface is the stale ENOENT.
     const file = join(tmp(), "release-race.logfmt");
     const lockPath = lockFileFor(file);
     writeFileSync(file, "");
@@ -203,12 +256,12 @@ describe("deadline races", () => {
         await sleep(1);
       }
     })();
-    let threw = 0;
+    const messages: string[] = [];
     for (let i = 0; i < 40; i++) {
       try {
         await withStoreLock(file, async () => "ok", { timeoutMs: 30 });
-      } catch {
-        threw++;
+      } catch (e) {
+        messages.push(String((e as Error).message ?? e));
       }
     }
     cycling = false;
@@ -216,7 +269,7 @@ describe("deadline races", () => {
     try {
       unlinkSync(lockPath);
     } catch {}
-    expect(threw).toBe(0);
+    for (const m of messages) expect(m).toMatch(/busy/);
   });
 });
 

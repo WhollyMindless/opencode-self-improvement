@@ -84,7 +84,7 @@ const errno = (code: string, op: string) =>
   );
 
 describe("absent-strike deadline rethrow (#107)", () => {
-  test("a holder seen earlier and lost at the deadline keeps its write", async () => {
+  test("a holder seen earlier and lost at the deadline keeps its explicit-proceed write", async () => {
     // The issue's consequence 2, built deterministic: iteration 1 finds the
     // holder's file (probe: present); iteration 2's create still fails
     // against it, the holder unlinks between create and probe (strike: 1),
@@ -116,13 +116,14 @@ describe("absent-strike deadline rethrow (#107)", () => {
         ran = true;
         return "written";
       },
-      { onEvent: (e) => events.push(e) },
+      { onTimeout: "proceed", onEvent: (e) => events.push(e) },
       BUDGET,
       now,
     )
       .then((v) => ({ v, threw: false }))
       .catch(() => ({ v: undefined, threw: true }));
-    // The concession path: timeout was audited, the write ran unlocked.
+    // The explicit proceed opt-in (#216: no longer the default): timeout was
+    // audited, the write ran unlocked.
     // Pre-fix: threw the stale creation error and lost the write.
     expect(result.threw).toBe(false);
     expect(result.v).toBe("written");

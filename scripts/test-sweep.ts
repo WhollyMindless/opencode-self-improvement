@@ -484,40 +484,26 @@ export const MUTANTS: Mutant[] = [
     // The main lock had this policy branch duplicated (direct budget path +
     // queue-abandon path); the original single mutant went ambiguous when
     // both landed. Split into two uniquely-anchored mutants.
+    // Re-anchored again for #216: the default IS fail now, so the old
+    // "force fail" mutation became a no-op and its invariant text was the
+    // retired proceed contract. Both mutants now flip the shared policy seam
+    // to proceed — the regression #196 retired — and the fail-closed default
+    // tests in test/lock.test.ts must kill them.
     id: "lock-default-fail",
     file: "src/store/lock.ts",
-    // Re-anchored 2026-10-26: the #107 branch threaded the `now()` seam
-    // through the wait loop, and --validate caught this anchor rot on the
-    // same day it landed (#110's validate earned its keep immediately).
-    // Meaning unchanged: the fail-vs-proceed choice at timeout is forced
-    // to fail for every caller.
-    find: L(
-      `      if (now() - started >= budgetMs) {`,
-      `        opts.onEvent?.("timeout", now() - started);`,
-      `        if (opts.onTimeout === "fail") {`,
-    ),
-    replace: L(
-      `      if (now() - started >= budgetMs) {`,
-      `        opts.onEvent?.("timeout", now() - started);`,
-      `        if (true) {`,
-    ),
-    invariant: "an ordinary write proceeds rather than losing the write",
+    find: `  return opts.onTimeout === "proceed" ? "proceed" : DEFAULT_ON_TIMEOUT;`,
+    replace: `  return opts.onTimeout === "proceed" ? "proceed" : "proceed";`,
+    invariant:
+      "the store-lock timeout policy fails CLOSED by default: an omitted opts never proceeds unlocked",
     class: "D1",
   },
   {
     id: "lock-default-fail-queued",
     file: "src/store/lock.ts",
-    find: L(
-      `      finish();`,
-      `      opts.onEvent?.("timeout", Date.now() - started);`,
-      `      if (opts.onTimeout === "fail") {`,
-    ),
-    replace: L(
-      `      finish();`,
-      `      opts.onEvent?.("timeout", Date.now() - started);`,
-      `      if (true) {`,
-    ),
-    invariant: "a queued ordinary write proceeds rather than losing the write",
+    find: `const DEFAULT_ON_TIMEOUT = "fail";`,
+    replace: `const DEFAULT_ON_TIMEOUT = "proceed";`,
+    invariant:
+      "the fail-closed default constant is the policy seam shared by the budget and queue hand-off paths",
     class: "D1",
   },
   {
