@@ -176,7 +176,9 @@ async function blockedRows(): Promise<Row[]> {
 }
 
 export interface ViewerServer {
-  server: Server<any>;
+  // No websocket routes, so the WebSocketData generic is undefined — the
+  // default Bun.serve infers here. Was `any`, which hid the real shape.
+  server: Server<undefined>;
   url: string;
 }
 
