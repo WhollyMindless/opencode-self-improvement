@@ -170,8 +170,3 @@ export function evidenceVisibleTo(
 export function isVisibleHere(m: Memory): boolean {
   return isVisibleTo(m, readerForAmbient());
 }
-
-// Rows visible to the current process (active filtering stays with callers).
-export function visibleHere(mems: Memory[]): Memory[] {
-  return mems.filter(isVisibleHere);
-}
