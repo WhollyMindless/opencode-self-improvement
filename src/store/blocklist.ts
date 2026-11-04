@@ -76,10 +76,15 @@ export async function removeBlock(ts: string): Promise<boolean> {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
         throw err;
       }
-      const kept = text.split("\n").filter((l) => {
+      const lines = text.split("\n");
+      const kept = lines.filter((l) => {
         const row = parseLine(l);
         return !(row && row.ts === ts);
       });
+      // A no-op must report as a no-op (#209): nothing was filtered, so return
+      // false and skip the rewrite — republishing identical bytes bumps the
+      // file identity for nothing and hands callers a success they did not earn.
+      if (kept.length === lines.length) return false;
       await writeAtomic(
         file,
         kept.join("\n") + (kept.length ? "\n" : ""),

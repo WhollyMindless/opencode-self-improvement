@@ -389,10 +389,15 @@ export async function removeTombstone(ch: string): Promise<boolean> {
         if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
         throw err;
       }
-      const kept = text.split("\n").filter((l) => {
+      const lines = text.split("\n");
+      const kept = lines.filter((l) => {
         const row = parseLine(l);
         return !(row && row.ch === ch);
       });
+      // A no-op must report as a no-op (#209): unknown ch lifts nothing, so
+      // return false and skip the rewrite rather than republishing the file
+      // and reporting a withdrawal that never happened.
+      if (kept.length === lines.length) return false;
       await writeAtomic(
         file,
         kept.join("\n") + (kept.length ? "\n" : ""),
