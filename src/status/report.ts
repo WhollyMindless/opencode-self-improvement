@@ -1,7 +1,12 @@
 // report — split from src/status.ts (#168 domain restructure). Declaration bodies are unchanged.
 import { join } from "node:path";
 import { cacheRate, estTok, fmtBytes, fmtCount, fmtMs } from "./format.ts";
-import { captureLag, ledgerIsYoung, rowsPerDay } from "./metrics.ts";
+import {
+  type CaptureHealth,
+  captureLag,
+  ledgerIsYoung,
+  rowsPerDay,
+} from "./metrics.ts";
 import {
   type BlockedRow,
   type StatusPayload,
@@ -137,6 +142,44 @@ export function attributionLines(p: StatusPayload): string[] {
 }
 
 /**
+ * AUTO-CAPTURE line (#138): the chat-facing answer to "is capture off,
+ * misconfigured, armed-but-inert, or alive?" — the states the evidence file
+ * distinguishes, surfaced so a user never has to read a logfmt file to learn
+ * the pipeline never ran. `unknown` means no heartbeat was found at all, which
+ * is itself the answer the dead-pipeline bug needed.
+ */
+export function captureLines(c: CaptureHealth): string[] {
+  switch (c.state) {
+    case "off":
+      return ["  auto-capture: off (default)"];
+    case "invalid_model":
+      return [
+        "  auto-capture: invalid_model — autoCapture is on but captureModel is malformed; nothing fires",
+      ];
+    case "no_capabilities":
+      return [
+        "  auto-capture: no_capabilities — autoCapture is on but the host lacks event.subscribe/generate.text/session.context",
+      ];
+    case "switch_mismatch":
+      return [
+        "  auto-capture: switch_mismatch — captureOnCompact is on but autoCapture is off; nothing fires",
+      ];
+    case "on":
+      if (c.rows === 0 && c.blocked === 0)
+        return [
+          "  auto-capture: ARMED BUT NEVER FIRED — capture is on, no auto_capture_* lines in the last 30d",
+        ];
+      return [
+        `  auto-capture: on, last fired ${c.lastFired ? ago(c.lastFired) : "now"}, ${c.rows} rows, ${c.blocked} refused`,
+      ];
+    default:
+      return [
+        "  auto-capture: unknown — no plugin_load heartbeat in the evidence files (plugin never loaded here?)",
+      ];
+  }
+}
+
+/**
  * Plain-text rendering shared by the memory_status tool (and any other chat
  * client). Sections match the terminal /memory panel one-for-one.
  */
@@ -145,6 +188,7 @@ export function renderMemoryReport(input: {
   store: StoreCounts;
   blocked: BlockedRow[];
   quarantined?: { ts: string; patterns: string[] }[];
+  capture?: CaptureHealth;
 }): string {
   const { status, store, blocked } = input;
   const out: string[] = ["MEMORY STATUS", ""];
@@ -239,6 +283,13 @@ export function renderMemoryReport(input: {
     );
   }
   if (sizing.length) out.push(`  ${sizing.join(" · ")}`);
+  if (input.capture) {
+    out.push(
+      "",
+      "AUTO-CAPTURE — is it off, misconfigured, armed, or alive?",
+      ...captureLines(input.capture),
+    );
+  }
   out.push(
     "",
     "Terminal (CLI/TUI) users: /memory opens this as a live panel; the footer shows a one-line badge.",

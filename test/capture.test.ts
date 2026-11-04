@@ -24,6 +24,7 @@ import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
 import { resetState } from "../src/core/state.ts";
+import { guarded } from "../src/core/hooks.ts";
 import { resetCaptureCooldowns, resetSessionModels } from "../src/index.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { isActive } from "../src/store/model/predicates.ts";
@@ -1027,6 +1028,56 @@ describe("plugin_load heartbeat (#138)", () => {
     // explicit malformed string is invalid_model (the test above).
     const loaded = await loadCapturePlugin({ autoCapture: true });
     expect(heartbeat()?.capture).toBe("on");
+    await loaded.cleanup();
+  });
+
+  test("switch mismatch: captureOnCompact alone is NOT plain off (#138)", async () => {
+    // captureOnCompact:true with autoCapture absent warns at setup and does
+    // nothing. The evidence file must name that state, or "off (default)" and
+    // "user set the wrong switch" stay one line.
+    const loaded = await loadCapturePlugin({ captureOnCompact: true });
+    expect(heartbeat()?.capture).toBe("switch_mismatch");
+    await loaded.cleanup();
+  });
+});
+
+// ---- swallowed hook failures (#138) -----------------------------------------
+// guarded() is fail-soft by design, but a plugin failing EVERY turn looked
+// identical to a healthy one in every artifact: the console.warn lands in the
+// host log, which the user never reads. setup() installs an evidence-backed
+// reporter so the swallowed failure reaches the same file as the heartbeat —
+// hook name + error class only, never the message (a hook payload can carry
+// conversation content).
+describe("hook_error evidence (#138)", () => {
+  test("a guarded failure lands in the evidence file as hook_error, class only", async () => {
+    const loaded = await loadCapturePlugin({});
+    await guarded("demo-hook", async () => {
+      throw new TypeError("boom: secret transcript fragment");
+    });
+    const line = evidence()
+      .filter((e) => e.ev === "hook_error")
+      .pop();
+    expect(line?.hook).toBe("demo-hook");
+    expect(line?.error).toBe("TypeError");
+    // Never the message: content must not reach the durable log.
+    expect(
+      evidence().some((l) =>
+        Object.values(l).some((v) => String(v).includes("secret transcript")),
+      ),
+    ).toBe(false);
+    await loaded.cleanup();
+  });
+
+  test("a non-Error throw still records, with typeof as the class", async () => {
+    const loaded = await loadCapturePlugin({});
+    await guarded("string-throw-hook", async () => {
+      throw "plain string";
+    });
+    const line = evidence()
+      .filter((e) => e.ev === "hook_error")
+      .pop();
+    expect(line?.hook).toBe("string-throw-hook");
+    expect(line?.error).toBe("string");
     await loaded.cleanup();
   });
 });

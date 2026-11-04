@@ -79,3 +79,78 @@ export async function captureLagLines(days = 30): Promise<string[]> {
   }
   return out;
 }
+
+/**
+ * Capture health (#138): the answer to "is auto-capture off, misconfigured,
+ * armed-but-inert, or alive?" read from the evidence file ALONE — the
+ * `plugin_load` heartbeat names the configured state, `auto_capture_*` lines
+ * name the activity. The newest heartbeat wins (a reload with new options
+ * replaces the old state); activity is counted inside the trailing window.
+ */
+export type CaptureHealthState =
+  | "unknown"
+  | "off"
+  | "switch_mismatch"
+  | "invalid_model"
+  | "no_capabilities"
+  | "on";
+
+export interface CaptureHealth {
+  state: CaptureHealthState;
+  /** Promoted capture rows in the window. */
+  rows: number;
+  /** Blocked / refused / partial capture outcomes in the window. */
+  blocked: number;
+  /** Newest `auto_capture_*` line, or null when nothing fired. */
+  lastFired: string | null;
+}
+
+const CAPTURE_STATES: readonly CaptureHealthState[] = [
+  "off",
+  "switch_mismatch",
+  "invalid_model",
+  "no_capabilities",
+  "on",
+];
+
+export function captureHealth(
+  lines: string[],
+  days = 30,
+  now = Date.now(),
+): CaptureHealth {
+  const cutoff = new Date(now - days * 86_400_000).toISOString();
+  let state: CaptureHealthState = "unknown";
+  let newestHeartbeat = "";
+  let rows = 0;
+  let blocked = 0;
+  let lastFired: string | null = null;
+  for (const line of lines) {
+    const f = parseLine(line);
+    if (!f) continue;
+    const ev = String(f.ev ?? "");
+    const ts = typeof f.ts === "string" ? f.ts : "";
+    if (ev === "plugin_load") {
+      // Newest wins regardless of the order files were read in. A heartbeat
+      // whose capture field is missing or unrecognized names no state.
+      if (ts >= newestHeartbeat) {
+        newestHeartbeat = ts;
+        const c = String(f.capture ?? "");
+        state = (CAPTURE_STATES as readonly string[]).includes(c)
+          ? (c as CaptureHealthState)
+          : "unknown";
+      }
+      continue;
+    }
+    if (!ev.startsWith("auto_capture_")) continue;
+    if (ts && ts < cutoff) continue;
+    if (ev.endsWith("promoted")) rows++;
+    else if (
+      ev.endsWith("blocked") ||
+      ev.endsWith("refused") ||
+      ev.endsWith("partial")
+    )
+      blocked++;
+    if (ts && (!lastFired || ts > lastFired)) lastFired = ts;
+  }
+  return { state, rows, blocked, lastFired };
+}

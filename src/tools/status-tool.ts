@@ -10,7 +10,12 @@ import {
   quarantineReasons,
 } from "../store/quarantine/quarantine.ts";
 import { EmptyArgs, validated } from "./schema.ts";
-import { captureLag, captureLagLines, rowsPerDay } from "../status/metrics.ts";
+import {
+  captureHealth,
+  captureLag,
+  captureLagLines,
+  rowsPerDay,
+} from "../status/metrics.ts";
 import { renderMemoryReport } from "../status/report.ts";
 import { blockedRecent } from "../status/write.ts";
 import { summarizeStore } from "../status/store-summary.ts";
@@ -50,7 +55,8 @@ export const register: ToolRegister = (editor, deps) => {
           ? Math.round(store.bytes / act.length)
           : 0;
         store.rowsPerDay = rowsPerDay(act) ?? undefined;
-        store.captureLag = captureLag(await captureLagLines());
+        const evidenceLines = await captureLagLines();
+        store.captureLag = captureLag(evidenceLines);
         return {
           content: renderMemoryReport({
             status,
@@ -59,6 +65,9 @@ export const register: ToolRegister = (editor, deps) => {
             quarantined: act
               .filter((m) => isVisibleTo(m, reportReader) && isQuarantined(m))
               .map((m) => ({ ts: m.ts, patterns: quarantineReasons(m) })),
+            // #138: capture state read from the same evidence window, so the
+            // chat surface distinguishes off / misconfigured / inert / alive.
+            capture: captureHealth(evidenceLines),
           }),
         };
       },

@@ -8,7 +8,7 @@
 // src/command.ts. The default export `{ id, setup(ctx) }` is checked against
 // the SDK's Plugin type using a type-only import (see the note on `plugin`).
 import { registerHooks } from "./events.ts";
-import { guarded } from "./core/hooks.ts";
+import { guarded, setGuardedFailureReporter } from "./core/hooks.ts";
 import type { PluginCtx } from "./core/host.ts";
 import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { basename, join } from "node:path";
@@ -122,6 +122,23 @@ const impl = {
     // only as the gate's verification tree when no session location is known.
     const setupRoot = ctx?.location?.directory;
     const liveRoot = setupRoot ?? process.cwd();
+    // #138: mirror every swallowed guarded() failure into the evidence file.
+    // Hook name + error class ONLY — never the message, which can carry
+    // conversation content. Fire-and-forget: evidence must not add a failure
+    // to a path that already failed softly.
+    setGuardedFailureReporter((name, err) =>
+      record(
+        "hook_error",
+        {
+          hook: name,
+          error:
+            err instanceof Error
+              ? err.constructor?.name || "Error"
+              : typeof err,
+        },
+        false,
+      ).catch(() => {}),
+    );
     setRepoScope(setupRoot ? resolveRepo(setupRoot) : null);
     // THIS instance's own workspace. The module scope says who loaded last;
     // this says who I am. An unbound session that calls into THIS instance
@@ -285,7 +302,12 @@ const impl = {
         );
       });
       const captureState = !wantCapture
-        ? "off"
+        ? // captureOnCompact alone is a distinct misconfiguration (the
+          // runtime warns about it and stays disabled) — name it, or "off
+          // (default)" and "wrong switch set" share one line (#138).
+          ctx.options?.captureOnCompact === true
+          ? "switch_mismatch"
+          : "off"
         : !modelOk
           ? "invalid_model"
           : capabilities.length < 3
