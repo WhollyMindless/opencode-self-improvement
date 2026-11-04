@@ -5,6 +5,7 @@ import { isInjectable } from "../store/model/predicates.ts";
 import { readerFromSid, visibleTo } from "../store/model/visibility.ts";
 import { record } from "../evidence/record.ts";
 import { frontierBudget } from "../core/config/budgets.ts";
+import { SESSION_CAP, SessionLru } from "../core/lru.ts";
 import { dateStr } from "../core/time.ts";
 import { bracketList } from "../core/logfmt/format.ts";
 import { recentConvergenceSummary } from "../capture/triggers.ts";
@@ -19,6 +20,12 @@ import { type TransformOutput } from "./pull.ts";
 const OPEN_THREAD_LIMIT = 3;
 
 const frontierInjectedSessions = new Set<string>();
+// #224: the "once per process" set is bounded by the shared session cap. An
+// evicted session is shown the frontier block once more on a later prompt —
+// one extra evidence row, never unbounded growth.
+const frontierOrder = new SessionLru(SESSION_CAP, (sid) => {
+  frontierInjectedSessions.delete(sid);
+});
 
 export interface DigestOptions {
   // Rows the caller already loaded for this request (shared with the epoch).
@@ -78,6 +85,7 @@ export async function systemDigest(
 
   if (frontierInjectedSessions.has(sid)) return;
   frontierInjectedSessions.add(sid);
+  frontierOrder.touch(sid);
   const openMems = mems.filter((m) => m.status === "open");
   await record(
     "frontier_injected",

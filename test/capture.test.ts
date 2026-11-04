@@ -968,10 +968,23 @@ describe("capture model inheritance (#139)", () => {
       type: "session.execution.succeeded",
       data: { sessionID: "ses-modeltag" },
     });
+    // Session-scoped wait on the LAST line the capture pass appends: the
+    // evidence log is shared across this file, and the old unscoped match on
+    // auto_capture_promoted could be satisfied by an earlier test's promoted
+    // line before THIS capture's trailing capture_lag line had been appended —
+    // the race that turned CI red at c9193f9 (the lag lookup then saw no
+    // line, model=undefined). capture_lag is written after every candidate
+    // line of its pass (src/capture/runtime.ts), so waiting for this session's
+    // lag line orders both lookups, and the session filter strengthens the
+    // promoted assertion too.
     await waitFor(() =>
-      evidence().some((l) => l.ev === "auto_capture_promoted"),
+      evidence().some(
+        (l) => l.ev === "capture_lag" && l.session === "ses-modeltag",
+      ),
     );
-    const promoted = evidence().find((l) => l.ev === "auto_capture_promoted");
+    const promoted = evidence().find(
+      (l) => l.ev === "auto_capture_promoted" && l.session === "ses-modeltag",
+    );
     expect(String(promoted?.model)).toBe("fake/session-model");
     const lag = evidence().find(
       (l) => l.ev === "capture_lag" && l.session === "ses-modeltag",

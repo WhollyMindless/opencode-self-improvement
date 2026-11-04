@@ -46,7 +46,7 @@ const LONG_QUERY_TOKENS = 3;
 // author-supplied aliases indexed at write time (#40 item 3, the vocabulary
 // bridge for the bench's strict-paraphrase wall). Keywords are indexed, never
 // rendered, so they cannot change what a block costs.
-// Exported for bench/recall-quality.ts — the benchmark measures the shipped
+// Exported for bench/runners/recall-quality.ts — the benchmark measures the shipped
 // matcher.
 //
 // Superseded rows are dropped HERE, not only by the callers. Every model-facing

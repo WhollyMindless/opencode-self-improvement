@@ -41,7 +41,7 @@ import { contextualPull } from "../src/inject/pull.ts";
 import { relevantKnowledge, selectRelevant } from "../src/recall/relevant.ts";
 import { scoreMemories } from "../src/recall/score.ts";
 import { runWriteGate } from "../src/gate/gate.ts";
-import { MEMORIES, QUERIES } from "../bench/recall-dataset.ts";
+import { MEMORIES, QUERIES } from "../bench/fixtures/recall-dataset.ts";
 import {
   CONTROL_ARMS,
   antiNaive,
@@ -51,7 +51,7 @@ import {
   naive,
   prod,
   scoreArm,
-} from "../bench/recall-quality.ts";
+} from "../bench/runners/recall-quality.ts";
 import { loadPlugin } from "./harness.ts";
 
 const REPO = join(import.meta.dir, "..");

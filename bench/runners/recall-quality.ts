@@ -39,16 +39,16 @@
 //   bun bench/recall-quality.ts
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { formatMemory } from "../src/inject/format.ts";
-import { scoreMemories, words } from "../src/recall/score.ts";
-import type { Memory } from "../src/store/model/memory.ts";
+import { formatMemory } from "../../src/inject/format.ts";
+import { scoreMemories, words } from "../../src/recall/score.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
 import {
   buildStore,
   KEYWORDS,
   keywordsFor,
   MEMORIES,
   QUERIES,
-} from "./recall-dataset.ts";
+} from "../fixtures/recall-dataset.ts";
 
 /** Production injection window: the block shows at most this many rows. */
 export const INJECT_K = 3;
@@ -574,5 +574,5 @@ function report(): string {
 if (import.meta.main) {
   const out = report();
   process.stdout.write(out);
-  writeFileSync(join(import.meta.dir, "recall-results.md"), out);
+  writeFileSync(join(import.meta.dir, "..", "recall-results.md"), out);
 }
