@@ -1,6 +1,6 @@
 # Injection cost — measured
 
-Reproduce with `bun bench/inject-cost.ts` (deterministic: fixed-seed LCG,
+Reproduce with `bun bench/runners/inject-cost.ts` (deterministic: fixed-seed LCG,
 synthetic timestamps, no wall clock in the output — reruns are byte-identical).
 The numbers come from the plugin's real injection code (`src/inject.ts`):
 a seeded store of 50 memories, a simulated session of
