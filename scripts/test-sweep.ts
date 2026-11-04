@@ -483,12 +483,14 @@ export const MUTANTS: Mutant[] = [
   {
     // The main lock had this policy branch duplicated (direct budget path +
     // queue-abandon path); the original single mutant went ambiguous when
-    // both landed. Split into two uniquely-anchored mutants.
+    // both landed. Split into uniquely-anchored mutants.
     // Re-anchored again for #216: the default IS fail now, so the old
     // "force fail" mutation became a no-op and its invariant text was the
-    // retired proceed contract. Both mutants now flip the shared policy seam
-    // to proceed — the regression #196 retired — and the fail-closed default
-    // tests in test/lock.test.ts must kill them.
+    // retired proceed contract. The two seam mutants flip the shared policy
+    // to proceed — the regression #196 retired. Because both flip the seam,
+    // neither one reverts a single CALL SITE; the direct-site mutant below
+    // anchors the give-up inside holdFileLock itself, so a revert of that
+    // site alone (explicit-fail check instead of the policy) is caught.
     id: "lock-default-fail",
     file: "src/store/lock.ts",
     find: `  return opts.onTimeout === "proceed" ? "proceed" : DEFAULT_ON_TIMEOUT;`,
@@ -504,6 +506,20 @@ export const MUTANTS: Mutant[] = [
     replace: `const DEFAULT_ON_TIMEOUT = "proceed";`,
     invariant:
       "the fail-closed default constant is the policy seam shared by the budget and queue hand-off paths",
+    class: "D1",
+  },
+  {
+    // Direct-site anchor (#216 rework): reverts ONLY the budget-deadline
+    // give-up inside holdFileLock to the pre-#216 explicit-fail check. The
+    // seam mutants above cannot show this — they flip both sites at once.
+    // Killed by "the default policy fails closed against another process's
+    // lock" in test/lock.test.ts (a fresh foreign lock file, no opts).
+    id: "lock-default-fail-direct",
+    file: "src/store/lock.ts",
+    find: `        if (timeoutPolicy(opts) === "fail") {`,
+    replace: `        if (opts.onTimeout === "fail") {`,
+    invariant:
+      "the direct budget-deadline give-up resolves the fail-closed default, not an explicit-fail-only check",
     class: "D1",
   },
   {

@@ -190,6 +190,30 @@ describe("withStoreLock", () => {
     await Promise.all([a, b]);
   });
 
+  test("the default policy fails closed against another process's lock (#216)", async () => {
+    // The DIRECT cross-process path #196 was about: no in-process queue, so
+    // the give-up happens in holdFileLock's budget loop, not the hand-off.
+    // The two tests above hold the lock in this process and pin only the
+    // queue site; reverting the direct deadline site to an explicit-fail
+    // check (`opts.onTimeout === "fail"`) runs THIS write unlocked.
+    const file = join(tmp(), "a.logfmt");
+    writeFileSync(lockFileFor(file), "other-process"); // fresh, not stale
+    const events: string[] = [];
+    let ran = false;
+    await expect(
+      withStoreLock(
+        file,
+        async () => {
+          ran = true;
+          return "nope";
+        },
+        { timeoutMs: 40, onEvent: (e) => events.push(e) },
+      ),
+    ).rejects.toThrow(/busy/);
+    expect(ran).toBe(false);
+    expect(events).toEqual(["timeout"]);
+  });
+
   test("a holder whose lock was taken over does not delete it", async () => {
     const file = join(tmp(), "a.logfmt");
     const lock = lockFileFor(file);

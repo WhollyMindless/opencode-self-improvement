@@ -166,7 +166,8 @@ export async function holdFileLock<T>(
   // `absentStrikes > 0` only remembers the LAST probe, so a holder that
   // legitimately finished and unlinked just as the budget expired was
   // throwing away ordinary writes instead of taking the contention
-  // concession it describes.
+  // concession it describes. An EEXIST from a failed create counts as such a
+  // sighting too (a create that returns EEXIST saw the file).
   let everSawHolder = false;
   for (;;) {
     try {
@@ -190,6 +191,16 @@ export async function holdFileLock<T>(
       // wait for — our own ability to create files is what is broken, and
       // the original error must surface instead of rotting into a timeout.
       firstErr ??= err;
+      // An EEXIST from the create is a sighting in its own right: on POSIX it
+      // proves the lock file WAS there at the attempt, even if the probe
+      // below then proves the holder unlinked in between (the vanish race).
+      // Without this, that race reached the deadline with everSawHolder false
+      // and surfaced the stale creation error instead of the busy refusal.
+      // Ambiguous labels (the Windows EPERM/EACCES family) stay non-sightings
+      // — blindness is blindness (#107) — and a create-yes/stat-no filesystem
+      // still dies on the strike rule long before the budget.
+      if ((err as NodeJS.ErrnoException).code === "EEXIST")
+        everSawHolder = true;
       const seen = await probeLock(lockPath);
       if (seen === "absent") {
         if (++absentStrikes >= ABSENT_THROW_STRIKES) throw firstErr;

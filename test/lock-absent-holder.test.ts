@@ -166,6 +166,46 @@ describe("absent-strike deadline rethrow (#107)", () => {
     expect(message).toMatch(/EPERM/); // pre-fix: it never threw at all
   });
 
+  test("a holder sighted only by EEXIST still fails closed, never on the stale create error", async () => {
+    // #216 rework of the vanish race: create answers EEXIST (the holder's
+    // file was there), the probe then answers ENOENT (it unlinked in
+    // between), and the scripted clock expires the budget in that same
+    // iteration. The EEXIST is itself a sighting, so the deadline outcome is
+    // the busy refusal — the invariant the lock.test.ts title names — not
+    // the raw creation error. Pre-fix (sighting = probe only): threw EEXIST.
+    const file = join(tmp(), "eexist-vanish.logfmt");
+    const lockPath = lockFileFor(file);
+    scriptedOpen.set(lockPath, async () => {
+      throw Object.assign(new Error("EEXIST: file already exists, open"), {
+        code: "EEXIST",
+      });
+    });
+    scriptedStat.set(lockPath, async () => {
+      throw Object.assign(new Error("ENOENT: no such file or directory"), {
+        code: "ENOENT",
+      });
+    });
+    const now = stepClock([0, 0, BUDGET]); // expires in iteration 1
+    let ran = false;
+    let message = "";
+    try {
+      await holdFileLock(
+        lockPath,
+        file,
+        async () => {
+          ran = true;
+        },
+        {},
+        BUDGET,
+        now,
+      );
+    } catch (e) {
+      message = String((e as Error).message ?? e);
+    }
+    expect(ran).toBe(false);
+    expect(message).toMatch(/busy/); // pre-fix: /EEXIST/
+  });
+
   test("eight proven-absent probes still surface the creation error, clock idle", async () => {
     // Regression pin (green on both sides): probes that prove ENOENT keep the
     // strike rule in charge — it must end the wait long before a budget it
