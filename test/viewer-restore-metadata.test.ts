@@ -242,14 +242,126 @@ test("legacy audit lines without metadata restore unchanged — the documented f
   expect(restored.repo).toBe(scopeA.key);
 });
 
-test("deleted-entry UI surfaces quarantine and the restore round trip carries ts", () => {
+test("restore-entry WITHOUT ts still resolves a known quarantined row — omitting ts is not a laundering path", async () => {
+  // F2: the no-ts request is a legacy REQUEST, not a legacy record. The audit
+  // carries the authoritative metadata for this row, so restoring by
+  // type/scope/content must resolve it — the same outcome as with ts.
+  const ts = await seedQuarantinedRow();
+  const v = await startAdminViewer();
+  expect((await post(v, "/api/delete", { ts, reason: "review" })).status).toBe(
+    200,
+  );
+
+  const res = await post(v, "/api/restore-entry", {
+    type: "context",
+    scope: "customer",
+    content: QUARANTINE_CONTENT,
+  });
+  expect(res.status).toBe(200);
+  const restored = (await loadAll()).filter(isActive).at(-1) as Memory;
+  expect(restored.content).toBe(QUARANTINE_CONTENT);
+  expect(restored.tags).toEqual([
+    "import",
+    "quarantine",
+    "quarantine:instruction_override",
+  ]);
+  expect(restored.kw).toEqual(["leak", "prompt"]);
+  expect(restored.issue).toBe("SEC-05");
+  expect(restored.status).toBe("open");
+  expect(isInjectable(restored)).toBe(false);
+});
+
+test("restore-entry without ts and without any audit record keeps the legacy client-replay fallback", async () => {
+  // A row whose deletion predates the deletion audit: no line can be
+  // resolved, so the #129 client replay of the origin stamp survives —
+  // the documented fallback for legacy RECORDS (not legacy requests).
+  const scopeB = resolveRepo(b);
+  const v = await startAdminViewer();
+  const res = await post(v, "/api/restore-entry", {
+    type: "context",
+    scope: "legacy",
+    content: "Row deleted before the audit existed.",
+    repo: scopeB.key,
+    repoPath: scopeB.path,
+  });
+  expect(res.status).toBe(200);
+  const restored = (await loadAll()).filter(isActive).at(-1) as Memory;
+  expect(restored.content).toBe("Row deleted before the audit existed.");
+  expect(restored.tags).toBeUndefined();
+  expect(restored.repo).toBe(scopeB.key);
+  expect(restored.repoPath).toBe(scopeB.path);
+});
+
+test("deleted-entry UI renders the quarantine badge in the row and the restore round trip carries ts", () => {
+  // F1: assert the RENDERED row markup, not source strings — a badge that is
+  // constructed but never interpolated into the row fails here. Same DOM-stub
+  // harness as test/quarantine.test.ts: eval the shipped scripts, render a
+  // deleted quarantined row, inspect rows.innerHTML.
   const page = readFileSync(
     join(import.meta.dir, "../src/viewer/page.html"),
     "utf8",
   );
-  // A quarantined deleted row gets a visible badge next to its deleted badge.
-  expect(page).toContain('badge("status-quarantined", "quarantined")');
-  expect(page).toContain('kind === "deleted" && m.quarantined');
-  // The restore POST keys the server-side audit lookup by the deleted ts.
-  expect(page).toContain('api("/api/restore-entry", { ts,');
+  const scripts = [...page.matchAll(/<script(?: [^>]*)?>([\s\S]*?)<\/script>/g)]
+    .map((m) => m[1])
+    .join("\n");
+  const nodes = new Map<string, Record<string, unknown>>();
+  const node = (id: string) => {
+    if (!nodes.has(id))
+      nodes.set(id, {
+        value: "",
+        innerHTML: "",
+        textContent: "",
+        style: {},
+        classList: { add() {}, remove() {} },
+        addEventListener() {},
+      });
+    return nodes.get(id)! as {
+      value: string;
+      innerHTML: string;
+      style: Record<string, string>;
+    };
+  };
+  const doc = { getElementById: node, addEventListener() {} };
+  const renderRows = new Function(
+    "document",
+    `${scripts}\nreturn (data) => { DATA = data; render(); };`,
+  )(doc);
+  node("fStatus").value = "deleted";
+  renderRows({
+    memories: [],
+    blocked: [],
+    deleted: [
+      {
+        ts: "2026-11-03T00:00:00.000Z",
+        type: "context",
+        scope: "customer",
+        content: "Quarantined row, deleted.",
+        quarantined: true,
+      },
+    ],
+    snapshots: [],
+    rejections: [],
+  });
+  const html = node("rows").innerHTML;
+  expect(html).toContain("status-deleted");
+  expect(html).toContain("status-quarantined");
+  expect(html).toContain('data-action="restore-deleted"');
+  expect(html).toContain('data-ts="2026-11-03T00:00:00.000Z"');
+  // A deleted row that was never quarantined gets no quarantine badge.
+  renderRows({
+    memories: [],
+    blocked: [],
+    deleted: [
+      {
+        ts: "2026-11-03T00:00:00.000Z",
+        type: "context",
+        scope: "customer",
+        content: "Plain deleted row.",
+      },
+    ],
+    snapshots: [],
+    rejections: [],
+  });
+  expect(node("rows").innerHTML).toContain("status-deleted");
+  expect(node("rows").innerHTML).not.toContain("status-quarantined");
 });

@@ -216,6 +216,28 @@ async function deletionAuditFor(ts: string): Promise<DeletionMeta | undefined> {
   return found;
 }
 
+// Same record, keyed by the deleted row's identity instead of its ts (#207 F2).
+// A restore request that omits ts is a legacy REQUEST, not a legacy record:
+// if the audit carries a matching line, that line is still the authoritative
+// copy of what the row carried, and resolving it here closes the laundering
+// path (omitting ts must not restore a known quarantined row as injectable).
+// Only when NO line matches — a client older than the viewer, or a row whose
+// deletion predates the audit — does the route fall back to client replay.
+async function deletionAuditByRow(
+  type: string,
+  scope: string,
+  content: string,
+): Promise<DeletionMeta | undefined> {
+  let found: DeletionMeta | undefined;
+  for (const line of await readLines(deletionsFile())) {
+    const f = parseLine(line);
+    if (!f || f.type !== type || f.scope !== scope || f.content !== content)
+      continue;
+    found = auditMeta(f);
+  }
+  return found;
+}
+
 // Blocked entries are still on disk but hidden by the blocklist; scan every
 // memory file and keep the ones whose ts is blocked, with their full data.
 async function blockedRows(): Promise<Row[]> {
@@ -435,15 +457,19 @@ async function restoreEntryRoute(
   body: z.infer<typeof RestoreEntryBody>,
 ): Promise<Response> {
   await assertViewerWriteAllowed(body.content);
-  // #207: with the deleted row's ts, every field that controls visibility or
-  // provenance is resolved from the audit line itself — the store's own
-  // record — so a restore cannot silently release quarantine (the quarantine
-  // tags come back with the row; releasing it stays the deliberate,
-  // reason-required release-quarantine action), cannot drop import
-  // provenance, and a client-forged repo stamp loses to the authoritative
-  // one. No ts, or no matching line: the documented legacy path — the #129
-  // client replay of the origin stamp, no metadata, unchanged.
-  const src = body.ts ? await deletionAuditFor(body.ts) : undefined;
+  // #207: every field that controls visibility or provenance is resolved from
+  // the audit line itself — the store's own record — so a restore cannot
+  // silently release quarantine (the quarantine tags come back with the row;
+  // releasing it stays the deliberate, reason-required release-quarantine
+  // action), cannot drop import provenance, and a client-forged repo stamp
+  // loses to the authoritative one. With ts the lookup is by row identity;
+  // without ts it is by type/scope/content, so omitting ts cannot launder a
+  // KNOWN quarantined row back to injectable (F2). The client-replay fallback
+  // (#129 origin stamp, no metadata) survives only for rows the audit does not
+  // carry at all — a legacy record, not a legacy request.
+  const src = body.ts
+    ? await deletionAuditFor(body.ts)
+    : await deletionAuditByRow(body.type, body.scope, body.content);
   const t = await appendMemory({
     type: body.type,
     scope: body.scope,
