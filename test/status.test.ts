@@ -24,6 +24,7 @@ import {
   fmtCount,
 } from "../src/status/format.ts";
 import { type StatusPayload } from "../src/status/payload.ts";
+import { captureHealth } from "../src/status/metrics.ts";
 import {
   attributionLines,
   contextLines,
@@ -388,6 +389,189 @@ describe("renderMemoryReport", () => {
     expect(text).toContain(
       "not computed — no memory was injected this session",
     );
+  });
+
+  // #138: capture off / misconfigured / armed-but-inert must differ on the
+  // chat surface, not only in the evidence file.
+  test("auto-capture line: off is named off", () => {
+    const text = renderMemoryReport({
+      status: null,
+      store: payload().store,
+      blocked: [],
+      capture: {
+        state: "off",
+        rows: 0,
+        blocked: 0,
+        lastFired: null,
+        lastExecuted: null,
+      },
+    });
+    expect(text).toContain("auto-capture: off (default)");
+  });
+
+  test("auto-capture line: misconfiguration is named, not silence", () => {
+    for (const state of ["invalid_model", "no_capabilities"] as const) {
+      const text = renderMemoryReport({
+        status: null,
+        store: payload().store,
+        blocked: [],
+        capture: {
+          state,
+          rows: 0,
+          blocked: 0,
+          lastFired: null,
+          lastExecuted: null,
+        },
+      });
+      expect(text).toContain(`auto-capture: ${state}`);
+    }
+    const mismatch = renderMemoryReport({
+      status: null,
+      store: payload().store,
+      blocked: [],
+      capture: {
+        state: "switch_mismatch",
+        rows: 0,
+        blocked: 0,
+        lastFired: null,
+        lastExecuted: null,
+      },
+    });
+    expect(mismatch).toContain("auto-capture: switch_mismatch");
+    expect(mismatch).toContain("captureOnCompact");
+  });
+
+  test("auto-capture line: armed and inert says ARMED BUT NEVER FIRED", () => {
+    const text = renderMemoryReport({
+      status: null,
+      store: payload().store,
+      blocked: [],
+      capture: {
+        state: "on",
+        rows: 0,
+        blocked: 0,
+        lastFired: null,
+        lastExecuted: null,
+      },
+    });
+    expect(text).toContain("ARMED BUT NEVER FIRED");
+  });
+
+  // #288 F1: a successful capture whose model returned `[]` writes only the
+  // capture_lag completion receipt. That is execution evidence — the status
+  // surface must render it alive with zero rows, not inert.
+  test("auto-capture line: empty successful capture is alive, not ARMED BUT NEVER FIRED", () => {
+    const text = renderMemoryReport({
+      status: null,
+      store: payload().store,
+      blocked: [],
+      capture: {
+        state: "on",
+        rows: 0,
+        blocked: 0,
+        lastFired: null,
+        lastExecuted: new Date(Date.now() - 2 * 3600_000).toISOString(),
+      },
+    });
+    expect(text).not.toContain("ARMED BUT NEVER FIRED");
+    expect(text).toContain("auto-capture: on");
+    expect(text).toContain("last fired 2h ago");
+    expect(text).toContain("0 rows");
+    expect(text).toContain("0 refused");
+  });
+
+  test("auto-capture line: firing shows last fire, rows, and refusals", () => {
+    const text = renderMemoryReport({
+      status: null,
+      store: payload().store,
+      blocked: [],
+      capture: {
+        state: "on",
+        rows: 4,
+        blocked: 1,
+        lastFired: new Date(Date.now() - 3 * 3600_000).toISOString(),
+        lastExecuted: new Date(Date.now() - 3 * 3600_000).toISOString(),
+      },
+    });
+    expect(text).toContain("auto-capture: on");
+    expect(text).toContain("last fired 3h ago");
+    expect(text).toContain("4 rows");
+    expect(text).toContain("1 refused");
+  });
+});
+
+// #138: the metric that reads the evidence file and answers "is capture off,
+// misconfigured, armed-and-inert, or alive?" — the evidence file alone must
+// distinguish the states, so this parses only plugin_load + auto_capture_*.
+describe("captureHealth (#138)", () => {
+  const hb = (capture: string, ts: string) =>
+    formatLine({ ev: "plugin_load", ts, capture });
+  const ac = (action: string, ts: string) =>
+    formatLine({ ev: `auto_capture_${action}`, ts, session: "ses_x" });
+
+  test("no heartbeat line at all is unknown, never off", () => {
+    expect(captureHealth([]).state).toBe("unknown");
+    expect(
+      captureHealth(["ev=write_promoted ts=2026-01-01T00:00:00.000Z"]).state,
+    ).toBe("unknown");
+  });
+
+  test("the newest heartbeat wins", () => {
+    const lines = [
+      hb("on", "2026-01-01T00:00:00.000Z"),
+      hb("off", "2026-01-02T00:00:00.000Z"),
+    ];
+    expect(captureHealth(lines).state).toBe("off");
+    expect(captureHealth([...lines].reverse()).state).toBe("off");
+  });
+
+  test("armed with zero capture rows is inert", () => {
+    const h = captureHealth([hb("on", new Date().toISOString())]);
+    expect(h.state).toBe("on");
+    expect(h.rows).toBe(0);
+    expect(h.lastFired).toBeNull();
+    expect(h.lastExecuted).toBeNull();
+  });
+
+  // #288 F1: the capture_lag completion receipt is execution evidence even
+  // when the model returned no candidates; a stale receipt is outside the
+  // window and must not clear the inert verdict.
+  test("capture_lag receipt sets lastExecuted without touching rows or lastFired", () => {
+    const recent = new Date(Date.now() - 3600_000).toISOString();
+    const lag = (ts: string, outcome: string) =>
+      formatLine({
+        ev: "capture_lag",
+        ts,
+        session: "ses_x",
+        outcome,
+        model: "fake/model",
+      });
+    const h = captureHealth([hb("on", recent), lag(recent, "empty")]);
+    expect(h.state).toBe("on");
+    expect(h.rows).toBe(0);
+    expect(h.blocked).toBe(0);
+    expect(h.lastFired).toBeNull();
+    expect(h.lastExecuted).toBe(recent);
+
+    const stale = new Date(Date.now() - 90 * 86_400_000).toISOString();
+    expect(
+      captureHealth([hb("on", recent), lag(stale, "empty")]).lastExecuted,
+    ).toBeNull();
+  });
+
+  test("capture rows move rows/lastFired; refusals count separately", () => {
+    const old = new Date(Date.now() - 90 * 86_400_000).toISOString();
+    const recent = new Date(Date.now() - 3600_000).toISOString();
+    const h = captureHealth([
+      hb("on", recent),
+      ac("promoted", old), // outside the 30d window: not counted
+      ac("promoted", recent),
+      ac("blocked", recent),
+      ac("refused", recent),
+    ]);
+    expect(h.rows).toBe(1);
+    expect(h.blocked).toBe(2);
+    expect(h.lastFired).toBe(recent);
   });
 });
 

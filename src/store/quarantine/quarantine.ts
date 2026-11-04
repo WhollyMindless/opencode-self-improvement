@@ -41,9 +41,17 @@ export function quarantineReasons(row: { tags?: string[] }): string[] {
 }
 
 export function quarantineCandidate<
-  T extends { content: string; tags?: string[] },
+  T extends { content: string; scope?: string; tags?: string[] },
 >(candidate: T): T {
-  const hits = quarantinePatterns(candidate.content);
+  // #205: scope renders model-facing (inject/format.ts prints it on every
+  // injected line), so the scanner covers it as well as content. Hits are
+  // merged and deduplicated; provenance tags survive untouched.
+  const hits = [
+    ...new Set([
+      ...quarantinePatterns(candidate.content),
+      ...(candidate.scope ? quarantinePatterns(candidate.scope) : []),
+    ]),
+  ];
   if (!hits.length) return candidate;
   return {
     ...candidate,

@@ -17,6 +17,7 @@
 // everywhere — which keeps every upgrade non-breaking.
 import { createHash } from "node:crypto";
 import { lstatSync, realpathSync, statSync } from "node:fs";
+import { SESSION_CAP } from "../core/lru.ts";
 
 export interface RepoScope {
   key: string;
@@ -183,9 +184,10 @@ export function resolveRepo(startDir: string): RepoScope {
 }
 
 // --- per-session identity -----------------------------------------------------
-// Learned from session events (created / execution.started / moved). Bounded:
-// a long-lived server must not grow this with every session ever seen.
-const SESSION_CAP = 64;
+// Learned from session events (created / execution.started / moved). Bounded
+// by the shared session cap imported from core/lru.ts, so the two caps cannot
+// drift (#224): a long-lived server must not grow this with every session
+// ever seen.
 const byDir = new Map<string, RepoScope>();
 const bySession = new Map<string, { dir: string; scope: RepoScope }>();
 

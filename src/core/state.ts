@@ -27,6 +27,14 @@ export interface FirstTap {
 export interface SessionState {
   sid: string;
   calls: ToolResult[];
+  // Lifetime facts that outlive the CALLS_CAP tail (#224): calls keeps only
+  // the most recent CALLS_CAP entries, so counts and ever-seen signals are
+  // recorded as they happen instead of being derived from the array.
+  callsTotal: number;
+  reDerives: number;
+  firstCallTs?: string;
+  sawEngagement: boolean;
+  sawGateCheck: boolean;
   // Last observed status per tool, so a FAIL->PASS transition is visible.
   lastByTool: Map<
     string,
@@ -104,12 +112,25 @@ export function setLastSeenSid(sid: string): void {
 
 const sessions = new Map<string, SessionState>();
 
+// Bounded like every other session-keyed ledger (#224): a resident server must
+// not retain a SessionState for every session it ever saw. An evicted session
+// starts over — its retained call tail and lifetime counters are dropped, the
+// same "starts over" cost lru.ts already accepts for the epoch caches.
+const sessionOrder = new SessionLru(SESSION_CAP, (sid) => {
+  sessions.delete(sid);
+});
+
 export function session(sid: string): SessionState {
+  sessionOrder.touch(sid);
   let s = sessions.get(sid);
   if (!s) {
     s = {
       sid,
       calls: [],
+      callsTotal: 0,
+      reDerives: 0,
+      sawEngagement: false,
+      sawGateCheck: false,
       lastByTool: new Map(),
       pendingGate: null,
       turns: 0,
