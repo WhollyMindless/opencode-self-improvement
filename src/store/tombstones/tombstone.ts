@@ -230,7 +230,7 @@ function moved(a: string[], b: string[]): boolean {
 /**
  * The tombstone set, cached against the file's change token.
  *
- * `findRejection` runs on EVERY gated write, so without this each write pays a
+ * `probeRejection` runs on EVERY gated write, so without this each write pays a
  * full read of every rejection ever recorded — a cost this mechanism introduced
  * into the hot path, and one that shows up badly on Windows, where the CI runner
  * is slow enough for it to matter. `fileIdentity` is the repo's own change token

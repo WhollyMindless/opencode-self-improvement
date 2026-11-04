@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -77,11 +77,14 @@ describe("viewer exposure warning (#13)", () => {
     try {
       // A fresh process reads the startup env, starts a real server, then stops
       // it after an actual HTTP request. Capture stderr rather than replacing console.warn.
+      // #223: an exposed viewer now refuses the unauthenticated request with
+      // 401 instead of serving the page; a loopback-only one still serves it.
+      const expectedStatus = warns ? 401 : 200;
       const result = Bun.spawnSync(
         [
           process.execPath,
           "--eval",
-          'import { startViewer } from "./src/viewer/server.ts"; const viewer = await startViewer(0); try { const response = await fetch("http://127.0.0.1:" + viewer.server.port + "/"); if (response.status !== 200) throw new Error("viewer HTTP status " + response.status); await response.text(); } finally { viewer.server.stop(true); }',
+          `import { startViewer } from "./src/viewer/server.ts"; const viewer = await startViewer(0); try { const response = await fetch("http://127.0.0.1:" + viewer.server.port + "/"); if (response.status !== ${expectedStatus}) throw new Error("viewer HTTP status " + response.status); await response.text(); } finally { viewer.server.stop(true); }`,
         ],
         {
           cwd: join(import.meta.dir, ".."),
@@ -100,10 +103,16 @@ describe("viewer exposure warning (#13)", () => {
       const stderr = result.stderr.toString();
       expect(result.exitCode, stderr).toBe(0);
       expect(stderr.includes("[memory-viewer] WARNING:")).toBe(warns);
+      const tokenFile = join(root, "memory", "viewer.token");
       if (warns) {
         expect(stderr.match(/\[memory-viewer\] WARNING:/g)).toHaveLength(1);
-        expect(stderr).toContain("plain HTTP without authentication");
-        expect(stderr).toContain("read or modify the store");
+        expect(stderr).toContain("refused with 401");
+        expect(stderr).toContain(tokenFile);
+        expect(existsSync(tokenFile)).toBe(true);
+        if (process.platform !== "win32")
+          expect(statSync(tokenFile).mode & 0o777).toBe(0o600);
+      } else {
+        expect(existsSync(tokenFile)).toBe(false);
       }
     } finally {
       rmSync(root, {

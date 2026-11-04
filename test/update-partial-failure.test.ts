@@ -10,13 +10,9 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
-import {
-  resetSessionScopes,
-  resolveRepo,
-  setRepoScope,
-} from "../src/identity/repokey.ts";
+import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
+import { seedPlanRow } from "./helpers/scenario-builders.ts";
 import { resetState } from "../src/core/state.ts";
 import * as evidence from "../src/evidence/record.ts";
 
@@ -57,23 +53,12 @@ async function plugin(dir: string | null) {
   plugins.push(p);
   return p;
 }
-async function seed(dir: string, content: string) {
-  const scope = resolveRepo(dir);
-  return appendMemory({
-    type: "context",
-    scope: "planning",
-    content,
-    status: "open",
-    repo: scope.key,
-    repoPath: scope.path,
-  });
-}
 const ctx = (sessionID: string) => ({ sessionID, id: "uppart-proof" });
 
 describe("memory_update reports post-append failures truthfully (#155)", () => {
   test("a post-append audit failure must not make update claim that nothing was written", async () => {
     const pa = await plugin(a);
-    const original = await seed(
+    const original = await seedPlanRow(
       a,
       "Plan to prune aged queue entries every evening",
     );
@@ -127,7 +112,7 @@ describe("memory_update reports post-append failures truthfully (#155)", () => {
 
   test("control: a genuine pre-mutation failure still writes nothing and says so", async () => {
     const pa = await plugin(a);
-    const original = await seed(
+    const original = await seedPlanRow(
       a,
       "Watermark the nightly export with the HEAD sha",
     );
