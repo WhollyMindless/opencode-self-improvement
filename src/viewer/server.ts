@@ -7,6 +7,7 @@
 // #223: a non-loopback bind or allowed host mints a startup token (0600, in
 // the store root) and every request must present it; loopback stays open.
 import { basename, join } from "node:path";
+import { linkSync, renameSync, rmSync } from "node:fs";
 import { isIP } from "node:net";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { serve, type Server } from "bun";
@@ -116,7 +117,12 @@ function tokenPath(): string {
 
 // Reuse a token already in the file so a restart does not invalidate URLs a
 // human has open (and two viewers sharing a store share one token); mint a
-// fresh one otherwise. The file is claimed 0600 before any content lands.
+// fresh one otherwise. Concurrent first starts — same process or separate
+// processes — must agree on ONE token (F1, #223 review): the claim is an
+// atomic hard-link of a fully-written 0600 temp, so exactly one starter's
+// content lands at the path (link(2) refuses an existing target), and every
+// loser reads back the winner's complete token instead of overwriting the
+// file with its own. A corrupt prior file is replaced atomically.
 async function mintViewerToken(): Promise<string> {
   const path = tokenPath();
   const prior = (
@@ -124,10 +130,23 @@ async function mintViewerToken(): Promise<string> {
       .text()
       .catch(() => "")
   ).trim();
-  preparePrivateFile(path);
   if (TOKEN_SHAPE.test(prior)) return prior;
   const token = randomBytes(32).toString("hex");
-  await Bun.write(path, token);
+  const tmp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  try {
+    preparePrivateFile(tmp);
+    await Bun.write(tmp, token);
+    try {
+      linkSync(tmp, path);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      const winner = (await Bun.file(path).text()).trim();
+      if (TOKEN_SHAPE.test(winner)) return winner;
+      renameSync(tmp, path);
+    }
+  } finally {
+    rmSync(tmp, { force: true });
+  }
   return token;
 }
 
@@ -137,11 +156,15 @@ function tokenMatches(candidate: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+// No decodeURIComponent: the cookie is a fixed-hex token we mint and set
+// verbatim, and decoding junk like `osi-viewer=%` throws URIError on the
+// auth path — a 500 where a malformed credential must simply be refused
+// (N1, #223 review). The raw value cannot match, so it falls through to 401.
 function cookieValue(req: Request, name: string): string | null {
   for (const part of (req.headers.get("cookie") ?? "").split(";")) {
     const eq = part.indexOf("=");
     if (eq !== -1 && part.slice(0, eq).trim() === name)
-      return decodeURIComponent(part.slice(eq + 1));
+      return part.slice(eq + 1).trim();
   }
   return null;
 }
@@ -287,9 +310,15 @@ export async function startViewer(port: number = PORT): Promise<ViewerServer> {
         const cookie = cookieValue(req, TOKEN_COOKIE);
         const bootstrap =
           url.pathname === "/" ? url.searchParams.get("token") : null;
-        const candidate = bearer ?? cookie ?? bootstrap;
-        if (!candidate || !tokenMatches(candidate, viewerToken))
-          return error("viewer authentication required", 401);
+        // Validate every presentation instead of taking the first PRESENT
+        // one (F2, #223 review): a stale cookie from before a supported
+        // token regeneration must not shadow the freshly printed bootstrap
+        // URL. A request with no valid credential is still refused.
+        const accepted =
+          (bearer !== null && tokenMatches(bearer, viewerToken)) ||
+          (cookie !== null && tokenMatches(cookie, viewerToken)) ||
+          (bootstrap !== null && tokenMatches(bootstrap, viewerToken));
+        if (!accepted) return error("viewer authentication required", 401);
       }
       if (url.pathname === "/") {
         const headers: Record<string, string> = {

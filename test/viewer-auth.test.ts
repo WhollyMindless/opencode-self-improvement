@@ -41,14 +41,47 @@ try {
     check("cookie accepted", viaCookie.status === 200);
     const apiQuery = await fetch(base + "/api/data?token=" + token);
     check("query token only on /", apiQuery.status === 401);
+    // F2 (#223 review): a stale cookie must not shadow a valid credential.
+    const stale = "0".repeat(64);
+    const staleOnly = await fetch(base + "/", { headers: { cookie: "osi-viewer=" + stale } });
+    check("stale cookie alone refused", staleOnly.status === 401);
+    const staleBootstrap = await fetch(base + "/?token=" + token, { headers: { cookie: "osi-viewer=" + stale } });
+    check("bootstrap beats stale cookie", staleBootstrap.status === 200);
+    const staleBearer = await fetch(base + "/api/data", { headers: { cookie: "osi-viewer=" + stale, authorization: "Bearer " + token } });
+    check("bearer beats stale cookie", staleBearer.status === 200);
+    // N1 (#223 review): malformed cookie encoding is a bad credential, not a 500.
+    const malformed = await fetch(base + "/api/data", { headers: { cookie: "osi-viewer=%" } });
+    check("malformed cookie refused, not 500", malformed.status === 401);
+    const malformedBearer = await fetch(base + "/api/data", { headers: { cookie: "osi-viewer=%", authorization: "Bearer " + token } });
+    check("malformed cookie does not break bearer", malformedBearer.status === 200);
     const mutate = await fetch(base + "/api/delete", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + token }, body: JSON.stringify({ ts: "2026-01-01T00:00:00.000Z", reason: "auth test" }) });
     check("mutation with token reaches the route", mutate.status !== 401 && mutate.status !== 403);
   }
 } finally { viewer.server.stop(true); }
 `;
 
-function runViewer(env: Record<string, string>, root: string) {
-  return Bun.spawnSync([process.execPath, "--eval", EVAL], {
+// F1 (#223 review): two viewers starting at once against a fresh store must
+// agree on the ONE persisted token — a read/claim/write race made them mint
+// different tokens, so each server accepted only its own.
+const EVAL_CONCURRENT = `
+import { startViewer } from "./src/viewer/server.ts";
+const check = (name, cond) => { if (!cond) throw new Error("FAIL " + name); };
+const [a, b] = await Promise.all([startViewer(0), startViewer(0)]);
+try {
+  check("concurrent starts share one token", a.token === b.token && /^[0-9a-f]{64}$/.test(a.token));
+  const ra = await fetch("http://127.0.0.1:" + a.server.port + "/api/data", { headers: { authorization: "Bearer " + b.token } });
+  check("first server accepts the shared token", ra.status === 200);
+  const rb = await fetch("http://127.0.0.1:" + b.server.port + "/api/data", { headers: { authorization: "Bearer " + a.token } });
+  check("second server accepts the shared token", rb.status === 200);
+} finally { a.server.stop(true); b.server.stop(true); }
+`;
+
+function runViewer(
+  env: Record<string, string>,
+  root: string,
+  evalScript = EVAL,
+) {
+  return Bun.spawnSync([process.execPath, "--eval", evalScript], {
     cwd: join(import.meta.dir, ".."),
     env: {
       ...process.env,
@@ -88,6 +121,28 @@ describe("viewer token auth (#223)", () => {
           OPENCODE_VIEWER_ALLOWED_HOSTS: "192.0.2.10",
         },
         root,
+      );
+      expect(result.exitCode, result.stderr.toString()).toBe(0);
+    } finally {
+      rmSync(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
+    }
+  });
+
+  test("concurrent first starts on a fresh store share one token", () => {
+    const root = mkdtempSync(join(tmpdir(), "osi-viewer-auth-"));
+    try {
+      const result = runViewer(
+        {
+          OPENCODE_VIEWER_HOST: "127.0.0.1",
+          OPENCODE_VIEWER_ALLOWED_HOSTS: "192.0.2.10",
+        },
+        root,
+        EVAL_CONCURRENT,
       );
       expect(result.exitCode, result.stderr.toString()).toBe(0);
     } finally {
