@@ -48,16 +48,16 @@ const store = join(tmp, "memory");
 process.env.OPENCODE_MEMORY_DIR = store;
 delete process.env.OPENCODE_MEMORY_INJECT_BUDGET; // the bench measures the DEFAULT budget
 
-import { injectBudget } from "../src/core/config/budgets.ts";
-import { compactionAnchor } from "../src/inject/anchor.ts";
-import { capToBudget } from "../src/inject/budget.ts";
-import { systemDigest } from "../src/inject/digest.ts";
-import { storeVersion } from "../src/inject/version.ts";
-import { relevantKnowledge } from "../src/recall/relevant.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { type Memory } from "../src/store/model/memory.ts";
-import { isActive } from "../src/store/model/predicates.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
+import { injectBudget } from "../../src/core/config/budgets.ts";
+import { compactionAnchor } from "../../src/inject/anchor.ts";
+import { capToBudget } from "../../src/inject/budget.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
+import { storeVersion } from "../../src/inject/version.ts";
+import { relevantKnowledge } from "../../src/recall/relevant.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { type Memory } from "../../src/store/model/memory.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
 
 // --- deterministic generator -----------------------------------------------------
 
@@ -461,7 +461,7 @@ Compaction anchor (capped at 2500 chars): ${anchor.length} chars,
 pushed once per compaction rather than per turn.
 `;
 
-writeFileSync(join(import.meta.dir, "RESULTS.md"), report);
+writeFileSync(join(import.meta.dir, "..", "RESULTS.md"), report);
 console.log(report);
 
 rmSync(tmp, { recursive: true, force: true });

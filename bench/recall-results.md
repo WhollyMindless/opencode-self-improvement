@@ -1,6 +1,6 @@
 # Recall quality: shipped matcher vs alternatives (zero dependencies, zero models)
 
-Dataset: 52 gold memories, 105 queries; classes assigned by MEASURED token overlap with the gold (>=2 shared content tokens = lexical, 1 = near, 0 = strict paraphrase). k=3 mirrors the production injection limit. BM25 k1=1.2 b=0.75 fixed before the eval. naive = previous shipped matcher; prod = current shipped matcher (query-side stopword abstention, two-concept evidence gate for free-text queries, IDF-weighted ranking, recency tie-break); prod+kw = the same matcher with each row's authored write-time `kw` aliases indexed (bench/recall-dataset.ts records the authoring rule: keywords come from the memory's own content, never from the queries).
+Dataset: 52 gold memories, 105 queries; classes assigned by MEASURED token overlap with the gold (>=2 shared content tokens = lexical, 1 = near, 0 = strict paraphrase). k=3 mirrors the production injection limit. BM25 k1=1.2 b=0.75 fixed before the eval. naive = previous shipped matcher; prod = current shipped matcher (query-side stopword abstention, two-concept evidence gate for free-text queries, IDF-weighted ranking, recency tie-break); prod+kw = the same matcher with each row's authored write-time `kw` aliases indexed (bench/fixtures/recall-dataset.ts records the authoring rule: keywords come from the memory's own content, never from the queries).
 
 ## Store size 50
 
