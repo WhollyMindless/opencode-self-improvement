@@ -3,7 +3,8 @@
 //   - check (default): refuse when the current file has rows added/changed
 //     since the snapshot, listing them; file untouched;
 //   - merge: restore the snapshot AND keep the divergent rows (superset);
-//   - force: exact rollback (the pre-fix behavior, now opt-in);
+//   - force: exact rollback (the pre-fix behavior, now opt-in), minus rows
+//     whose content carries a rejection tombstone (#307, decision #214 A).
 //   - a bare snapshot name (as printed by list) resolves against snapshots/.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
@@ -18,6 +19,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join, sep } from "node:path";
 import { addBlock, blocklistFile } from "../src/store/blocklist.ts";
+import { rejectedFile } from "../src/store/tombstones/rejection.ts";
 import { memoryRoot, snapshotDir } from "../src/core/config/paths.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { prune } from "../src/store/files/prune.ts";
@@ -182,7 +184,7 @@ describe("restoreSnapshot modes", () => {
     expect(lines()).toEqual([]);
   });
 
-  test("merge does not resurrect a forgotten row either; force does", async () => {
+  test("merge does not resurrect a forgotten row either; force omits it (#307)", async () => {
     seed([row(1)]);
     const forgotten = await prune("demo", "learning", "remove leaked secret");
     const forgottenSnapshot = forgotten.snapshot[0];
@@ -201,8 +203,13 @@ describe("restoreSnapshot modes", () => {
       memoryRoot(),
       "force",
     );
+    // #214 A overturned the pre-fix contract ("force does" resurrect): the
+    // prune left a rejection tombstone on the row's content, so force reports
+    // the row in rejectedOmitted and leaves it non-recallable.
     expect(forced.deletedOmitted).toEqual([]);
-    expect(lines()).toEqual([row(1)]);
+    expect(forced.rejectedOmitted).toEqual(["2026-01-01T00:00:01.000Z"]);
+    expect(lines()).toEqual([]);
+    expect(await loadAll()).toHaveLength(0);
   });
 
   test("blocklisted rows stay inactive when a store snapshot restores their raw row", async () => {
@@ -342,5 +349,65 @@ describe("memory_undo tool guidance", () => {
     expect(lines().length).toBe(3);
 
     p.cleanup();
+  });
+});
+
+describe("memory_undo force and rejection tombstones (#307, decision #214 A)", () => {
+  // #35's stated property: no tool lifts a rejection. FORCE is the only mode
+  // that republishes rows deleted since the snapshot, so it alone must consult
+  // the rejection tombstones — a restore that reinstates a tombstoned value
+  // leaves the store holding an active row it also records as rejected.
+  test("force omits a forgotten row instead of reviving it; it stays non-recallable", async () => {
+    seed([row(1)]);
+    const snap = basename(await snapshotOfStore());
+    const p = await loadPlugin(root);
+    try {
+      const forgotten = await p.tools.memory_forget!.execute({
+        type: "learning",
+        scope: "demo",
+        reason: "rejected value",
+      });
+      expect(forgotten.content).toContain("Deleted 1");
+
+      const forced = await p.tools.memory_undo!.execute({
+        snapshot: snap,
+        force: true,
+      });
+      expect(forced.content).toContain("Restored");
+      // The row's content carries a rejection tombstone: force must not
+      // republish it, and the row stays non-recallable.
+      expect(lines()).toEqual([]);
+      expect(await loadAll()).toHaveLength(0);
+      expect(forced.content).toContain("rejected");
+    } finally {
+      await p.cleanup();
+    }
+  });
+
+  test("force reports rejectedOmitted, leaves the tombstone file byte-identical, and still restores ordinary deletions", async () => {
+    const foreignScopeRow =
+      'ts=2026-01-01T00:00:03.000Z type=learning scope=other content="row 3"';
+    seed([row(1), row(2), foreignScopeRow]);
+    const snap = basename(await snapshotOfStore());
+    // Forget rows 1+2 (deletion audit + rejection tombstones), then drop row 3
+    // by ordinary means: no audit, no tombstone — force must restore it.
+    await prune("demo", "learning", "rejected value");
+    seed([]);
+    const tombstonesBefore = readFileSync(rejectedFile());
+
+    const res = await restoreSnapshot(snap, memoryRoot(), "force");
+    expect(res.restored).toBe(true);
+    expect(lines()).toEqual([foreignScopeRow]);
+    expect(res.rejectedOmitted).toEqual([
+      "2026-01-01T00:00:01.000Z",
+      "2026-01-01T00:00:02.000Z",
+    ]);
+    // The restored store holds exactly the ordinarily-deleted row: the two
+    // rejected contents stayed out and are non-recallable.
+    expect((await loadAll()).map((m) => m.ts)).toEqual([
+      "2026-01-01T00:00:03.000Z",
+    ]);
+    // The tombstone evidence itself is never edited or deleted by a restore.
+    expect(readFileSync(rejectedFile())).toEqual(tombstonesBefore);
   });
 });

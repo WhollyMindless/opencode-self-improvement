@@ -9,7 +9,9 @@
 // the caller. The default mode CHECK refuses and lists the divergent rows;
 // MERGE replays them on top of the snapshot; FORCE is the old exact rollback,
 // and additionally snapshots the file it replaces, so the state it drops stays
-// undoable (result.safety).
+// undoable (result.safety). FORCE alone consults the rejection tombstones: a
+// snapshot row whose content was rejected by a human is omitted, never
+// revived (#35, decision #214 A).
 //
 // A day file is shared across REPOSITORIES too, and foreign rows are outside
 // a caller's reach in every sense (#153): no mode revives them from the
@@ -27,6 +29,7 @@
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { deletionsFile, snapshotDir } from "../core/config/paths.ts";
+import { contentHash } from "../evidence/record.ts";
 import { isWithin } from "./containment.ts";
 import { parseLine } from "../core/logfmt/format.ts";
 import {
@@ -37,6 +40,7 @@ import {
 import { readLines } from "../core/logfmt/read.ts";
 import { withStoreLock, LOCK_RESTORE } from "./lock.ts";
 import { snapshotFiles } from "./files/snapshots.ts";
+import { tombstones } from "./tombstones/tombstone.ts";
 import {
   ADMIN_READER,
   lineVisibleTo,
@@ -103,8 +107,16 @@ export interface RestoreResult {
   concurrentAdded: string[];
   concurrentChanged: string[];
   // ts of rows intentionally deleted after this snapshot. CHECK and MERGE
-  // leave them deleted; FORCE is the explicit recovery path.
+  // leave them deleted; FORCE is the explicit recovery path — except for rows
+  // whose content carries a rejection tombstone, which no mode recovers
+  // (rejectedOmitted): a rejection is absolute (#35, decision #214 A).
   deletedOmitted: string[];
+  // ts of snapshot rows FORCE omitted because their content carries a
+  // rejection tombstone. Reporting them separately from deletedOmitted is the
+  // contract: a deliberately-deleted row is force-recoverable, a rejected one
+  // is not — recovery is human (lift the tombstone in the viewer, then
+  // restore). Empty in CHECK and MERGE, which never republish deletions.
+  rejectedOmitted: string[];
   // Live rows owned by other repositories, whose lines are carried over
   // verbatim (appended at the end) in every mode (#153). Admin restores
   // report 0 — there is no foreign reader.
@@ -259,6 +271,17 @@ export async function restoreSnapshot(
       // finished just before this restore is honoured.
       const audited =
         mode !== "force" ? await auditedDeletions() : new Set<string>();
+      // Rejection tombstones are keyed on the VALUE (#35), and a rejection is
+      // absolute (decision #214 A): no tool lifts one. FORCE is the only mode
+      // that republishes rows deleted since the snapshot, so it alone reads
+      // them; CHECK and MERGE leave audited deletions deleted, and a row that
+      // is still live is not being resurrected by this restore. Read inside
+      // the lock, like the deletion audit, so a forget that finished just
+      // before this restore is honoured.
+      const rejected =
+        mode === "force"
+          ? new Set((await tombstones()).map((t) => t.ch))
+          : null;
       // Ownership before anything else (#153): rows a foreign repo owns are
       // excluded from the snapshot side in EVERY mode (never revived, never
       // rewound), excluded from the deletion audit and the divergence
@@ -318,8 +341,27 @@ export async function restoreSnapshot(
           concurrentAdded,
           concurrentChanged,
           deletedOmitted,
+          rejectedOmitted: [],
           foreignPreserved: curForeign.length,
         };
+      }
+
+      // FORCE's "exact rollback" is exact FOR THE CALLER'S REPOSITORY, and
+      // only for content a human has not rejected: a snapshot row whose
+      // content carries a rejection tombstone is omitted here and reported in
+      // rejectedOmitted, so the store never ends up holding an active row it
+      // also records as rejected (#35, decision #214 A). The tombstone file
+      // itself is read-only to a restore — mis-forget recovery stays human.
+      const rejectedOmitted: string[] = [];
+      let pubLines = snapLines;
+      if (rejected && rejected.size > 0) {
+        pubLines = snapLines.filter((line) => {
+          const content = parseLine(line)?.content;
+          if (typeof content !== "string") return true;
+          if (!rejected.has(contentHash(content))) return true;
+          rejectedOmitted.push(rowKey(line));
+          return false;
+        });
       }
 
       // FORCE is the mode that drops rows, so the file it replaces is
@@ -329,7 +371,7 @@ export async function restoreSnapshot(
       const safety =
         mode === "force" ? (await snapshotFiles([target]))[0] : undefined;
 
-      let out = snapLines;
+      let out = pubLines;
       if (mode === "merge") {
         // Keep the CURRENT version of rows the snapshot also has (in-place edits —
         // e.g. a supersede stamp — made after the snapshot win), then append the
@@ -340,11 +382,12 @@ export async function restoreSnapshot(
           .map((l) => curByKey.get(rowKey(l)) ?? l)
           .concat(curOwn.filter((l) => !snapByKey.has(rowKey(l))));
       }
-      // FORCE's "exact rollback" is exact FOR THE CALLER'S REPOSITORY, not
-      // beyond it: foreign live lines rejoin the file verbatim in every mode,
+      // FORCE's rollback re-admits foreign live lines verbatim in every mode,
       // appended at the end — line content preserved, position not (#153).
       // Under the admin reader curForeign is empty and the write is the
-      // historical whole-file restore, byte for byte.
+      // historical whole-file restore, byte for byte — modulo the rejected-row
+      // omission above, which applies to every reader: a rejection is
+      // absolute, not per-repository.
       out = out.concat(curForeign);
       await ensureDir(memoryRootDir);
       await writeAtomic(target, out.length ? out.join("\n") + "\n" : "", since);
@@ -356,6 +399,7 @@ export async function restoreSnapshot(
         concurrentAdded,
         concurrentChanged,
         deletedOmitted,
+        rejectedOmitted,
         foreignPreserved: curForeign.length,
       };
     },
