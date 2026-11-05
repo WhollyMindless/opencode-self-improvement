@@ -4,7 +4,7 @@
 import type { ToolRegister } from "./deps.ts";
 import { proposeConsolidations } from "../consolidate/propose.ts";
 import { renderProposals } from "../consolidate/render.ts";
-import { record } from "../evidence/record.ts";
+import { captureEvidenceContext, record } from "../evidence/record.ts";
 import { readLedger, readReads } from "../hits/ledger.ts";
 import { loadAll } from "../store/files/load.ts";
 import { isInjectable } from "../store/model/predicates.ts";
@@ -21,6 +21,7 @@ export const register: ToolRegister = (editor, deps) => {
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
+        const evidenceContext = captureEvidenceContext(sid);
         const reader = readerFromSid(sid);
         const all = (await loadAll())
           .filter(isInjectable)
@@ -44,6 +45,8 @@ export const register: ToolRegister = (editor, deps) => {
             would_drop: report.rowsBefore - report.rowsAfter,
           },
           false,
+          sid,
+          evidenceContext,
         );
         return { content: out };
       },

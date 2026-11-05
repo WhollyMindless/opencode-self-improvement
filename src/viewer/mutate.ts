@@ -8,7 +8,12 @@
 // All mutations require a reason and write audit + evidence lines.
 import { deletionsFile } from "../core/config/paths.ts";
 import { addBlock, removeBlock } from "../store/blocklist.ts";
-import { record, chainId, contentHash } from "../evidence/record.ts";
+import {
+  record,
+  chainId,
+  contentHash,
+  targetRepoFields,
+} from "../evidence/record.ts";
 import { removeTombstone, tombstone } from "../store/tombstones/tombstone.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { formatLine, parseLine } from "../core/logfmt/format.ts";
@@ -20,7 +25,7 @@ import {
 import { readLines } from "../core/logfmt/read.ts";
 import { withStoreLock, LOCK_WRITE } from "../store/lock.ts";
 import { appendMemory } from "../store/files/append.ts";
-import { loadAll } from "../store/files/load.ts";
+import { loadAll, memoryFiles } from "../store/files/load.ts";
 import { snapshotFiles } from "../store/files/snapshots.ts";
 import { markSuperseded } from "../store/files/supersede.ts";
 import { type Memory } from "../store/model/memory.ts";
@@ -123,6 +128,9 @@ export async function editMemory(input: EditInput): Promise<MutationResult> {
     reason: input.reason,
     snapshot: snapshot[0] ?? "-",
     op: "write",
+    // #305: the line inherits the target's repository, so a repo-B edit is
+    // private to B (and admin), never a global broadcast of the reason.
+    ...targetRepoFields(target),
   });
 
   return {
@@ -175,6 +183,9 @@ export async function deleteMemory(
     snapshot: snapshot[0] ?? "-",
     audit: deletionsFile(),
     tool: "memory_viewer",
+    // #305: same inheritance as viewer_edit — a delete of a private row is
+    // not a globally readable event.
+    ...targetRepoFields(target),
   });
 
   return {
@@ -224,6 +235,29 @@ async function audit(
   );
 }
 
+// F1 on #308: the origin lookup must NOT go through loadAll(). loadAll
+// intentionally hides blocklisted rows, but releaseQuarantine scans the raw
+// day files and acts on them anyway — so a blocked private row released from
+// the viewer resolved to no target, and its evidence line fell back to the
+// unstamped/global reading: the operator's reason leaked to every other
+// repository's memory_evidence. This reads the same raw files the release
+// acts on, and returns ONLY the origin fields, never content.
+async function findTargetOrigin(
+  ts: string,
+): Promise<{ repo?: string; repoPath?: string } | undefined> {
+  for (const file of await memoryFiles()) {
+    for (const line of await readLines(file)) {
+      const f = parseLine(line);
+      if (f && f.ts === ts)
+        return {
+          repo: typeof f.repo === "string" ? f.repo : undefined,
+          repoPath: typeof f.repoPath === "string" ? f.repoPath : undefined,
+        };
+    }
+  }
+  return undefined;
+}
+
 export async function releaseQuarantinedMemory(
   ts: string,
   reason: string,
@@ -235,6 +269,12 @@ export async function releaseQuarantinedMemory(
   // Layered with ReleaseQuarantineBody's trim/min check. Neither layer alone
   // is pinned by the route rejection test; direct callers still need this one.
   requireReason(reason);
+  // Resolve the target's origin BEFORE releasing so the audit line can
+  // inherit it (#305). A not_found noop has no row — no origin exists to
+  // carry, and the line names nothing private, so it stays unstamped. The
+  // lookup is unfiltered (F1 on #308): a blocklisted row is still a row the
+  // release below can act on, and its evidence must carry its repo.
+  const target = await findTargetOrigin(ts);
   const outcome = await releaseQuarantine(ts);
   const result =
     outcome === "released"
@@ -243,7 +283,13 @@ export async function releaseQuarantinedMemory(
   try {
     await record(
       result.released ? "quarantine_released" : "quarantine_release_noop",
-      { mem: ts, reason, outcome, source: "viewer" },
+      {
+        mem: ts,
+        reason,
+        outcome,
+        source: "viewer",
+        ...(target ? targetRepoFields(target) : {}),
+      },
       false,
     );
     return result;

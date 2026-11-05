@@ -5,7 +5,7 @@ import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 import { SESSION_CAP, SessionLru } from "../core/lru.ts";
-import { record } from "../evidence/record.ts";
+import { captureEvidenceContext, record } from "../evidence/record.ts";
 import { capToBudget, injectedRows } from "./budget.ts";
 import { systemDigest } from "./digest.ts";
 import { storeVersion } from "./version.ts";
@@ -186,6 +186,7 @@ export function createInjectionEpochs({
   };
   const refreshEpoch = async (sid: string, rows?: Memory[]): Promise<void> => {
     if (!latestPrompt.has(sid)) return;
+    const evidenceContext = captureEvidenceContext(sid);
     const mems = rows ?? (await injectableRows(sid));
     const version = await storeVersion(mems);
     const cached = epoch.get(sid);
@@ -259,6 +260,8 @@ export function createInjectionEpochs({
         chars: built.block.length,
       },
       false,
+      sid,
+      evidenceContext,
     );
     epochRecomputes++;
     // Ledger: a store_changed recompute of a live epoch is an
