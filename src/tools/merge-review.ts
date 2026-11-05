@@ -7,6 +7,7 @@ import { withStoreLock } from "../store/lock.ts";
 import { loadAll } from "../store/files/load.ts";
 import { clearSuperseded, markSuperseded } from "../store/files/supersede.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
+import { isActive } from "../store/model/predicates.ts";
 import { MergeReviewArgs, validated } from "./schema.ts";
 import { join } from "node:path";
 
@@ -16,7 +17,7 @@ export const register: ToolRegister = (editor, deps) => {
     validated(MergeReviewArgs, {
       name: "memory_merge_review",
       description:
-        "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor, and clear any supersession the survivor itself carries so the canonical row stays recallable. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. A session may merge exactly the rows it may read: global rows are mergeable from anywhere, but a row belonging to another repository is refused in either seat. Refuses before writing when the reason or the survivor id is missing, either id names a missing or blocklisted row, the loser is already superseded or is the survivor itself, or either seat names a foreign repository's row. Later lock or I/O failures can leave partial changes; the reply names the completed retirement and failure.",
+        "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor, and clear any supersession the survivor itself carries so the canonical row stays recallable. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. A session may merge exactly the rows it may read: global rows are mergeable from anywhere, but a row belonging to another repository is refused in either seat. Refuses before writing when the reason or the survivor id is missing, either id names a missing or blocklisted row, the loser is already superseded or is the survivor itself, either seat names a foreign repository's row, or the survivor's supersession was written by a row other than this review's loser (a later update's marker is never erased). Later lock or I/O failures can leave partial changes; the reply names the completed retirement and failure.",
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
@@ -99,6 +100,31 @@ export const register: ToolRegister = (editor, deps) => {
                     "merge_review blocked: the survivor belongs to another repository — this session may not promote or revive it. Nothing was done. No evidence written.",
                 };
               }
+              // Provenance guard (#126): a survivor carrying a supersession
+              // written by anything OTHER than this review — its marker points
+              // at a later row (a memory_update that retired the survivor
+              // after the review was filed), and the marker's reason is not
+              // this review's reason — must not be revived. Clearing that
+              // marker would erase the later supersession and leave the
+              // retired survivor active next to its live replacement. Refuse
+              // BEFORE touching the loser: a half-applied merge is exactly the
+              // state this guard exists to prevent.
+              const later = survivorRow.superseded_by;
+              if (
+                later &&
+                later !== args.loser &&
+                survivorRow.reason !== args.reason
+              ) {
+                const laterRow = all.find((m) => m.ts === later);
+                return {
+                  content:
+                    `merge_review blocked: survivor ${args.survivor} was superseded by ${later}` +
+                    (laterRow && isActive(laterRow)
+                      ? ` — ${later} is the current live row`
+                      : "") +
+                    ` after this review was written; reviving the survivor would erase that supersession. Nothing was done. No evidence written.`,
+                };
+              }
               const ok = await markSuperseded(
                 args.loser,
                 {
@@ -118,8 +144,14 @@ export const register: ToolRegister = (editor, deps) => {
               }
               // The survivor may itself have been superseded earlier (e.g. by
               // a row this very call just made the loser). Declaring it
-              // canonical has to make it recallable, so clear its own marker.
-              const revived = await clearSuperseded(args.survivor);
+              // canonical has to make it recallable, so clear its own marker —
+              // but only the marker this review owns (#126): the guard above
+              // already refused anything else, and this re-check runs under the
+              // file lock against the line as it is at mutation time.
+              const revived = await clearSuperseded(args.survivor, {
+                supersededBy: args.loser,
+                reason: args.reason,
+              });
               // The response has always claimed "Evidence recorded" — now it
               // is true, and it names the session the merge ran FOR (#121's
               // residue on this line). The host tool_result hook covers

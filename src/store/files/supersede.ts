@@ -115,13 +115,37 @@ export async function markManySupersededReport(
   return { marked };
 }
 
+// The #126 provenance guard: which supersession a merge_review may clear.
+export interface ClearProvenance {
+  // The review's loser: a survivor the loser itself superseded first is the
+  // legitimate revival the merge exists for.
+  supersededBy: string;
+  // The review's reason: a marker this very review wrote (a retried apply)
+  // is its own provenance.
+  reason: string;
+}
+
 // Drop a row's supersession markers IN PLACE (snapshot-first), making it active
 // again. Used by memory_merge_review: a declared survivor must be recallable
 // even when an earlier row — now the loser — had superseded it first.
-export async function clearSuperseded(ts: string): Promise<boolean> {
+// #126: with a provenance guard the marker is cleared ONLY when it points at
+// this review's loser or carries the review's reason. A survivor superseded by
+// anything else (e.g. a memory_update that retired it after the review was
+// filed) keeps its marker and the clear reports false — erasing that later
+// supersession would revive the retired row next to its live replacement.
+export async function clearSuperseded(
+  ts: string,
+  provenance?: ClearProvenance,
+): Promise<boolean> {
   for (const file of await memoryFiles()) {
     const outcome = await stampRow(file, ts, (parsed) => {
       if (typeof parsed.superseded_by !== "string") return null;
+      if (
+        provenance &&
+        parsed.superseded_by !== provenance.supersededBy &&
+        parsed.reason !== provenance.reason
+      )
+        return null;
       // These six keys are written only by markSuperseded (drift, canonical,
       // update and merge_review), never by appendMemory, so they are all part of
       // the marker and go with it. Field order round-trips because parseLine
