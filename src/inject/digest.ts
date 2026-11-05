@@ -3,7 +3,7 @@ import { loadAll } from "../store/files/load.ts";
 import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";
 import { readerFromSid, visibleTo } from "../store/model/visibility.ts";
-import { record } from "../evidence/record.ts";
+import { captureEvidenceContext, record } from "../evidence/record.ts";
 import { frontierBudget } from "../core/config/budgets.ts";
 import { SESSION_CAP, SessionLru } from "../core/lru.ts";
 import { dateStr } from "../core/time.ts";
@@ -45,6 +45,9 @@ export async function systemDigest(
     typeof (_input as Record<string, unknown>).sessionID === "string"
       ? String((_input as Record<string, unknown>).sessionID)
       : "?";
+  // Snapshot before any awaits; unresolved callers still need a private sid
+  // on their evidence even when ordinary call metadata is suppressed (#297).
+  const evidenceContext = captureEvidenceContext(sid);
   // Repo-scoped: model-facing reads see the CALLER's repo + global rows, via
   // the sid carried on this flow's input (#127) — never a global re-read
   // after the loadAll await.
@@ -101,5 +104,7 @@ export async function systemDigest(
       ts_since: dateStr(),
     },
     false,
+    sid,
+    evidenceContext,
   );
 }

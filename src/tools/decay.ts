@@ -2,7 +2,7 @@
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
-import { record } from "../evidence/record.ts";
+import { captureEvidenceContext, record } from "../evidence/record.ts";
 import { snapshotFiles } from "../store/files/snapshots.ts";
 import { markManySuperseded } from "../store/files/supersede.ts";
 import { findStaleOpen } from "../portable/decay.ts";
@@ -19,6 +19,7 @@ export const register: ToolRegister = (editor, deps) => {
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
+        const evidenceContext = captureEvidenceContext(sid);
         const days =
           Number(args.olderThanDays) > 0 ? Number(args.olderThanDays) : 14;
         const dryRun = args.dryRun !== false; // only an explicit false mutates
@@ -41,6 +42,8 @@ export const register: ToolRegister = (editor, deps) => {
               mem: stale.map((m) => m.ts).join(","),
             },
             false,
+            sid,
+            evidenceContext,
           );
           return {
             content:
@@ -82,6 +85,8 @@ export const register: ToolRegister = (editor, deps) => {
               error: why,
             },
             false,
+            sid,
+            evidenceContext,
           ).catch((audit) => {
             why += `; audit failed: ${String(audit)}`;
           });
@@ -98,6 +103,8 @@ export const register: ToolRegister = (editor, deps) => {
             snapshot: snapshot.join(",") || "-",
           },
           false,
+          sid,
+          evidenceContext,
         );
         return {
           content:
