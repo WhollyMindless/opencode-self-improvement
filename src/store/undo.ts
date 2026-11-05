@@ -9,9 +9,9 @@
 // the caller. The default mode CHECK refuses and lists the divergent rows;
 // MERGE replays them on top of the snapshot; FORCE is the old exact rollback,
 // and additionally snapshots the file it replaces, so the state it drops stays
-// undoable (result.safety). FORCE alone consults the rejection tombstones: a
-// snapshot row whose content was rejected by a human is omitted, never
-// revived (#35, decision #214 A).
+// undoable (result.safety). Every mode consults the rejection tombstones: a
+// row whose content was rejected by a human is omitted from what it publishes,
+// never revived (#35, decision #214 A).
 //
 // A day file is shared across REPOSITORIES too, and foreign rows are outside
 // a caller's reach in every sense (#153): no mode revives them from the
@@ -111,11 +111,13 @@ export interface RestoreResult {
   // whose content carries a rejection tombstone, which no mode recovers
   // (rejectedOmitted): a rejection is absolute (#35, decision #214 A).
   deletedOmitted: string[];
-  // ts of snapshot rows FORCE omitted because their content carries a
+  // ts of caller-owned rows the restore omitted because their content carries a
   // rejection tombstone. Reporting them separately from deletedOmitted is the
   // contract: a deliberately-deleted row is force-recoverable, a rejected one
   // is not — recovery is human (lift the tombstone in the viewer, then
-  // restore). Empty in CHECK and MERGE, which never republish deletions.
+  // restore). The floor applies to every mode's published rows, not just FORCE:
+  // an older snapshot identity can carry a value a human rejected through a
+  // different row, which the identity-keyed deletion audit cannot catch.
   rejectedOmitted: string[];
   // Live rows owned by other repositories, whose lines are carried over
   // verbatim (appended at the end) in every mode (#153). Admin restores
@@ -272,16 +274,14 @@ export async function restoreSnapshot(
       const audited =
         mode !== "force" ? await auditedDeletions() : new Set<string>();
       // Rejection tombstones are keyed on the VALUE (#35), and a rejection is
-      // absolute (decision #214 A): no tool lifts one. FORCE is the only mode
-      // that republishes rows deleted since the snapshot, so it alone reads
-      // them; CHECK and MERGE leave audited deletions deleted, and a row that
-      // is still live is not being resurrected by this restore. Read inside
-      // the lock, like the deletion audit, so a forget that finished just
-      // before this restore is honoured.
-      const rejected =
-        mode === "force"
-          ? new Set((await tombstones()).map((t) => t.ch))
-          : null;
+      // absolute (decision #214 A): no tool lifts one, so EVERY mode reads them
+      // and applies the content-hash floor to the caller-owned rows it publishes
+      // (see the floor below), not just FORCE. The identity-keyed deletion audit
+      // above cannot catch a rejected value carried by an older snapshot
+      // identity, so the value floor is what closes that route. Read inside the
+      // lock, like the deletion audit, so a forget that finished just before
+      // this restore is honoured.
+      const rejected = new Set((await tombstones()).map((t) => t.ch));
       // Ownership before anything else (#153): rows a foreign repo owns are
       // excluded from the snapshot side in EVERY mode (never revived, never
       // rewound), excluded from the deletion audit and the divergence
@@ -346,16 +346,33 @@ export async function restoreSnapshot(
         };
       }
 
-      // FORCE's "exact rollback" is exact FOR THE CALLER'S REPOSITORY, and
-      // only for content a human has not rejected: a snapshot row whose
-      // content carries a rejection tombstone is omitted here and reported in
-      // rejectedOmitted, so the store never ends up holding an active row it
-      // also records as rejected (#35, decision #214 A). The tombstone file
-      // itself is read-only to a restore — mis-forget recovery stays human.
+      // The caller-owned rows this restore will publish, before the rejection
+      // floor. FORCE and CHECK publish the snapshot's own rows; MERGE is a
+      // deliberate superset — it keeps the CURRENT version of rows the snapshot
+      // also has (in-place edits, e.g. a supersede stamp, win), then appends the
+      // rows the snapshot never saw. Rows the snapshotter wrote after the
+      // snapshot are NOT dropped by MERGE; choose FORCE for that.
+      let pubOwn = snapLines;
+      if (mode === "merge") {
+        pubOwn = snapLines
+          .map((l) => curByKey.get(rowKey(l)) ?? l)
+          .concat(curOwn.filter((l) => !snapByKey.has(rowKey(l))));
+      }
+
+      // Rejection is absolute (#35, decision #214 A): the content-hash floor is
+      // the last gate before publishing, applied to the caller-owned rows of
+      // EVERY mode. A row whose content carries a tombstone is omitted here and
+      // reported in rejectedOmitted, so the store never ends up holding an
+      // active row it also records as rejected. This closes the route the
+      // identity-keyed deletion audit above cannot: an older snapshot identity
+      // carrying a value a human later rejected through a DIFFERENT row (a force
+      // rollback drops the original with no audit, then a later copy is
+      // forgotten). The tombstone file itself is read-only to a restore —
+      // mis-forget recovery stays human. Foreign rows are carried verbatim and
+      // never filtered: they are outside this caller's reach (#153).
       const rejectedOmitted: string[] = [];
-      let pubLines = snapLines;
-      if (rejected && rejected.size > 0) {
-        pubLines = snapLines.filter((line) => {
+      if (rejected.size > 0) {
+        pubOwn = pubOwn.filter((line) => {
           const content = parseLine(line)?.content;
           if (typeof content !== "string") return true;
           if (!rejected.has(contentHash(content))) return true;
@@ -371,24 +388,13 @@ export async function restoreSnapshot(
       const safety =
         mode === "force" ? (await snapshotFiles([target]))[0] : undefined;
 
-      let out = pubLines;
-      if (mode === "merge") {
-        // Keep the CURRENT version of rows the snapshot also has (in-place edits —
-        // e.g. a supersede stamp — made after the snapshot win), then append the
-        // rows the snapshot never saw. Merge is a deliberate superset: rows the
-        // snapshotter wrote after the snapshot are NOT dropped here; choose FORCE
-        // for that.
-        out = snapLines
-          .map((l) => curByKey.get(rowKey(l)) ?? l)
-          .concat(curOwn.filter((l) => !snapByKey.has(rowKey(l))));
-      }
-      // FORCE's rollback re-admits foreign live lines verbatim in every mode,
-      // appended at the end — line content preserved, position not (#153).
-      // Under the admin reader curForeign is empty and the write is the
-      // historical whole-file restore, byte for byte — modulo the rejected-row
-      // omission above, which applies to every reader: a rejection is
-      // absolute, not per-repository.
-      out = out.concat(curForeign);
+      // Foreign live lines are re-admitted verbatim in every mode, appended at
+      // the end — line content preserved, position not (#153). Under the admin
+      // reader curForeign is empty and the write is the historical whole-file
+      // restore, byte for byte — modulo the rejected-row omission above, which
+      // applies to every reader and every mode: a rejection is absolute, not
+      // per-repository.
+      const out = pubOwn.concat(curForeign);
       await ensureDir(memoryRootDir);
       await writeAtomic(target, out.length ? out.join("\n") + "\n" : "", since);
       return {

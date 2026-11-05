@@ -410,4 +410,55 @@ describe("memory_undo force and rejection tombstones (#307, decision #214 A)", (
     // The tombstone evidence itself is never edited or deleted by a restore.
     expect(readFileSync(rejectedFile())).toEqual(tombstonesBefore);
   });
+
+  test("default and merge undo do not resurrect a rejected value through an older identity (#307 F1)", async () => {
+    // The rejection floor is keyed on the VALUE, not the row identity, so it
+    // must hold in every mode. An older snapshot identity can carry a value a
+    // human later rejected through a DIFFERENT row: a force rollback drops the
+    // original with no deletion audit, then a later copy is forgotten. The
+    // identity-keyed deletion audit misses the original, so only the value
+    // floor keeps CHECK and MERGE from reviving it.
+    const t1 =
+      'ts=2026-01-01T00:00:01.000Z type=learning scope=demo content="use the deprecated endpoint for auth"';
+    const t2 =
+      'ts=2026-01-01T00:00:02.000Z type=learning scope=demo content="use the deprecated endpoint for auth"';
+
+    // S0: an empty day file. S1: the value present as row T1.
+    seed([]);
+    const s0 = basename(await snapshotOfStore());
+    seed([t1]);
+    const s1 = basename(await snapshotOfStore());
+
+    // Force-undo S0: T1 disappears through legitimate rollback — no human
+    // deletion audit is written for T1.
+    const rolled = await restoreSnapshot(s0, memoryRoot(), "force");
+    expect(rolled.restored).toBe(true);
+    expect(lines()).toEqual([]);
+
+    // Store a later copy T2 of the same value, then forget it: this audits T2
+    // and tombstones the VALUE. The store is empty; T1 still has no audit.
+    seed([t2]);
+    const forgotten = await prune("demo", "learning", "rejected value");
+    expect(forgotten.deleted).toHaveLength(1);
+    expect(lines()).toEqual([]);
+    const tombstonesBefore = readFileSync(rejectedFile());
+
+    // Undo S1 in default (check) mode: T1 carries the rejected value, so it
+    // stays omitted even though its identity was never audited as deleted.
+    const checked = await restoreSnapshot(s1, memoryRoot());
+    expect(checked.restored).toBe(true);
+    expect(checked.rejectedOmitted).toEqual(["2026-01-01T00:00:01.000Z"]);
+    expect(lines()).toEqual([]);
+    expect(await loadAll()).toHaveLength(0);
+
+    // Undo S1 with merge=true: the same floor on merge's reconciliation.
+    const merged = await restoreSnapshot(s1, memoryRoot(), "merge");
+    expect(merged.restored).toBe(true);
+    expect(merged.rejectedOmitted).toEqual(["2026-01-01T00:00:01.000Z"]);
+    expect(lines()).toEqual([]);
+    expect(await loadAll()).toHaveLength(0);
+
+    // The tombstone evidence is never edited by any of these restores.
+    expect(readFileSync(rejectedFile())).toEqual(tombstonesBefore);
+  });
 });
