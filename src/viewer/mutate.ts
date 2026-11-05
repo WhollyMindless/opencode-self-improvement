@@ -8,7 +8,12 @@
 // All mutations require a reason and write audit + evidence lines.
 import { deletionsFile } from "../core/config/paths.ts";
 import { addBlock, removeBlock } from "../store/blocklist.ts";
-import { record, chainId, contentHash } from "../evidence/record.ts";
+import {
+  record,
+  chainId,
+  contentHash,
+  targetRepoFields,
+} from "../evidence/record.ts";
 import { removeTombstone, tombstone } from "../store/tombstones/tombstone.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { formatLine, parseLine } from "../core/logfmt/format.ts";
@@ -123,6 +128,9 @@ export async function editMemory(input: EditInput): Promise<MutationResult> {
     reason: input.reason,
     snapshot: snapshot[0] ?? "-",
     op: "write",
+    // #305: the line inherits the target's repository, so a repo-B edit is
+    // private to B (and admin), never a global broadcast of the reason.
+    ...targetRepoFields(target),
   });
 
   return {
@@ -175,6 +183,9 @@ export async function deleteMemory(
     snapshot: snapshot[0] ?? "-",
     audit: deletionsFile(),
     tool: "memory_viewer",
+    // #305: same inheritance as viewer_edit — a delete of a private row is
+    // not a globally readable event.
+    ...targetRepoFields(target),
   });
 
   return {
@@ -235,6 +246,10 @@ export async function releaseQuarantinedMemory(
   // Layered with ReleaseQuarantineBody's trim/min check. Neither layer alone
   // is pinned by the route rejection test; direct callers still need this one.
   requireReason(reason);
+  // Resolve the target's origin BEFORE releasing so the audit line can
+  // inherit it (#305). A not_found noop has no row — no origin exists to
+  // carry, and the line names nothing private, so it stays unstamped.
+  const target = (await loadAll()).find((x) => x.ts === ts);
   const outcome = await releaseQuarantine(ts);
   const result =
     outcome === "released"
@@ -243,7 +258,13 @@ export async function releaseQuarantinedMemory(
   try {
     await record(
       result.released ? "quarantine_released" : "quarantine_release_noop",
-      { mem: ts, reason, outcome, source: "viewer" },
+      {
+        mem: ts,
+        reason,
+        outcome,
+        source: "viewer",
+        ...(target ? targetRepoFields(target) : {}),
+      },
       false,
     );
     return result;
