@@ -23,7 +23,12 @@ import {
   contextLines,
   windowLines,
 } from "../status/report.ts";
-import { blockedRecent, readStatus, statusDir } from "../status/write.ts";
+import {
+  blockedReaderFor,
+  blockedRecent,
+  readStatus,
+  statusDir,
+} from "../status/write.ts";
 
 const PANEL = "self-improvement.memory";
 const POLL_MS = 5000;
@@ -80,7 +85,18 @@ export default Plugin.define({
     const refresh = async (sid?: string): Promise<void> => {
       if (sid !== undefined) activeSid = sid;
       setStatus(await readStatus(activeSid));
-      const rows = await blockedRecent(8);
+      // #306: the blocked list follows evidence visibility. The terminal
+      // process owns no session→repo map (the server binds sessions in its
+      // own process), so resolve the active session's repository from its
+      // root — same machine, same resolveRepo hash the server stamped the
+      // line with. Unknown root fails closed to global-only.
+      let rootDir: string | undefined;
+      try {
+        rootDir = activeSid ? context.data.session.root(activeSid) : undefined;
+      } catch {
+        rootDir = undefined; // an unknown session has no repository here
+      }
+      const rows = await blockedRecent(8, blockedReaderFor(rootDir), activeSid);
       setBlocked(rows);
       const keys = new Set(rows.map((r) => `${r.ts}|${r.reason}`));
       if (notifyBlocked && seenBlockKeys) {

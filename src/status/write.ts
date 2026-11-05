@@ -19,6 +19,12 @@ import { evidenceDir, memoryRoot } from "../core/config/paths.ts";
 import { dateStr } from "../core/time.ts";
 import { parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
+import { resolveRepo } from "../identity/repokey.ts";
+import {
+  ADMIN_READER,
+  evidenceVisibleTo,
+  type Reader,
+} from "../store/model/visibility.ts";
 import {
   type BlockedRow,
   SESSION_FILE_CAP,
@@ -100,8 +106,17 @@ export async function readStatus(
 }
 
 // Newest-first last `limit` write_blocked evidence rows, scanning today and
-// yesterday so a block just before midnight stays visible.
-export async function blockedRecent(limit = 6): Promise<BlockedRow[]> {
+// yesterday so a block just before midnight stays visible. #306 (decision #213
+// B): the lines follow the SAME visibility rule as memory_evidence — a row
+// stamped to another repository, or private to a named session, is not this
+// surface's data. The default is the historical unfiltered read (ADMIN_READER)
+// for out-of-plugin callers; every plugin-facing surface must pass its own
+// Reader, exactly like the quarantine list beside it in the same report.
+export async function blockedRecent(
+  limit = 6,
+  reader: Reader = ADMIN_READER,
+  callerSid?: unknown,
+): Promise<BlockedRow[]> {
   try {
     const today = dateStr();
     const yesterday = new Date(Date.now() - 86_400_000)
@@ -114,6 +129,7 @@ export async function blockedRecent(limit = 6): Promise<BlockedRow[]> {
       )) {
         const f = parseLine(line);
         if (!f || f.ev !== "write_blocked") continue;
+        if (!evidenceVisibleTo(f, reader, callerSid)) continue;
         rows.push({
           ts: String(f.ts ?? day),
           sid: String(f.sid ?? "?"),
@@ -124,5 +140,21 @@ export async function blockedRecent(limit = 6): Promise<BlockedRow[]> {
     return rows.slice(-limit).reverse();
   } catch {
     return []; // A refused root is no status data, not an unhandled panel refresh.
+  }
+}
+
+// #306: the Reader for the terminal panel. The TUI process owns no
+// session→repo map (the server binds sessions in its own process), so the
+// panel resolves the ACTIVE session's repository from its root directory —
+// resolveRepo is deterministic for the same path on this machine, hence the
+// same key the server stamped the evidence line with. An absent or
+// unresolvable root fails closed to global-only, exactly like
+// readerForSession: unknown is never everything.
+export function blockedReaderFor(rootDir?: string): Reader {
+  if (!rootDir) return { kind: "global-only" };
+  try {
+    return { kind: "repo", scope: resolveRepo(rootDir) };
+  } catch {
+    return { kind: "global-only" };
   }
 }

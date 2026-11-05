@@ -26,7 +26,7 @@ export const register: ToolRegister = (editor, deps) => {
     validated(EmptyArgs, {
       name: "memory_status",
       description:
-        "Plain-text memory report for chat clients (desktop/web/IDE), same sections as the terminal /memory panel: CONTEXT (this session's injected block, budget use, cumulative ride and abstentions), CACHE (plain-language cache receipts: bust count, and the provider-reported share of prompt tokens served from cache — the proof that memory never mutates your prefix), the block verbatim, recent blocked writes with gate reasons, and store stats. Reads only — no model call.",
+        "Plain-text memory report for chat clients (desktop/web/IDE), same sections as the terminal /memory panel: CONTEXT (this session's injected block, budget use, cumulative ride and abstentions), CACHE (plain-language cache receipts: bust count, and the provider-reported share of prompt tokens served from cache — the proof that memory never mutates your prefix), the block verbatim, recent blocked writes with gate reasons (filtered to this reader's evidence visibility, #306), and store stats. Aggregate STORE counts are machine-wide — they count every repository's rows by decision (#213 B), not this reader's. Reads only — no model call.",
       options: direct,
       async execute(_args, context): Promise<{ content: string }> {
         // In-process truth: the live epoch + ledger, fresher than any file.
@@ -61,7 +61,7 @@ export const register: ToolRegister = (editor, deps) => {
           content: renderMemoryReport({
             status,
             store,
-            blocked: await blockedRecent(6),
+            blocked: await blockedRecent(6, reportReader, sid),
             quarantined: act
               .filter((m) => isVisibleTo(m, reportReader) && isQuarantined(m))
               .map((m) => ({ ts: m.ts, patterns: quarantineReasons(m) })),
