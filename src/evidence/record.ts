@@ -121,14 +121,19 @@ export function captureEvidenceContext(sessionID?: string): EvidenceContext {
 // private stamp is carried verbatim; a global (or legacy unstamped) target
 // becomes an explicit `repo=global` line — same visibility as before, now
 // honest on the line itself. The fields spread last in record(), so they
-// outrank any ambient stamp even in a process that loaded a plugin.
+// outrank any ambient stamp even in a process that loaded a plugin. The
+// global branch returns an EXPLICIT `repoPath: undefined` (N1 on #308): the
+// spread must also clear an ambient repoPath, or a shared process that
+// happens to hold repo B's scope would leave B's path on a globally readable
+// line about a global row. formatLine drops undefined values, so the key
+// never lands on disk — it only cancels the ambient one in the merge.
 export function targetRepoFields(target: {
   repo?: string;
   repoPath?: string;
 }): { repo: string; repoPath?: string } {
   return target.repo && target.repo !== "global"
     ? { repo: target.repo, repoPath: target.repoPath }
-    : { repo: "global" };
+    : { repo: "global", repoPath: undefined };
 }
 
 export async function record(

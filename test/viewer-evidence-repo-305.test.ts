@@ -29,7 +29,8 @@ import { resetCaptureCooldowns } from "../src/index.ts";
 import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
 import { formatLine, parseLine } from "../src/core/logfmt/format.ts";
-import { editMemory } from "../src/viewer/mutate.ts";
+import { editMemory, releaseQuarantinedMemory } from "../src/viewer/mutate.ts";
+import { addBlock } from "../src/store/blocklist.ts";
 import {
   ADMIN_READER,
   evidenceVisibleTo,
@@ -67,7 +68,12 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
-function seed(ts: string, repo?: string, repoPath?: string): void {
+function seed(
+  ts: string,
+  repo?: string,
+  repoPath?: string,
+  tags?: string,
+): void {
   const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
   mkdirSync(dirname(file), { recursive: true });
   appendFileSync(
@@ -79,6 +85,7 @@ function seed(ts: string, repo?: string, repoPath?: string): void {
       content: `seeded row (${repo ?? "unstamped"})`,
       repo,
       repoPath,
+      tags,
     }) + "\n",
   );
 }
@@ -174,4 +181,109 @@ test("viewer edit of a repo=global row still yields a globally visible line (#30
   expect(String((res as { content?: string }).content ?? "")).toContain(
     "GLOBAL_EDIT_REASON_305",
   );
+});
+
+// F1 on #308: a BLOCKLISTED private row is hidden from loadAll(), but
+// releaseQuarantine scans the raw day files and releases it anyway. The origin
+// lookup must be unfiltered too, or the quarantine_released line falls back to
+// unstamped/global and the operator's reason leaks to every other repository's
+// memory_evidence — the residual of the very defect #305 fixes.
+test("release of a BLOCKLISTED repo-B row stamps its evidence with B, not global (#308 F1)", async () => {
+  const scopeA = resolveRepo(a);
+  const scopeB = resolveRepo(b);
+  const T1 = "2026-01-05T00:00:00.000Z";
+  seed(T1, scopeB.key, scopeB.path, "quarantine");
+  await addBlock(T1, "blocked before release");
+
+  const result = await releaseQuarantinedMemory(
+    T1,
+    "BLOCKED_PRIVATE_REASON_308",
+  );
+  expect(result.released).toBe(true);
+
+  const line = evidenceLines("quarantine_released").find((f) =>
+    String(f.reason).includes("BLOCKED_PRIVATE_REASON_308"),
+  );
+  expect(line).toBeDefined();
+  expect(line!.repo).toBe(scopeB.key);
+  expect(line!.repoPath).toBe(scopeB.path);
+  expect(
+    evidenceVisibleTo(line!, { kind: "repo", scope: scopeA }, "ses-a"),
+  ).toBe(false);
+  expect(
+    evidenceVisibleTo(line!, { kind: "repo", scope: scopeB }, "ses-b"),
+  ).toBe(true);
+  expect(evidenceVisibleTo(line!, ADMIN_READER)).toBe(true);
+
+  // Tool level: repo A must not read B's private operator reason.
+  const pa = await loadPlugin(a);
+  const pb = await loadPlugin(b);
+  plugins = [pa, pb];
+  rememberSessionDir("ses-a", a);
+  rememberSessionDir("ses-b", b);
+  const resA = await pa.tools.memory_evidence.execute(
+    { ev: "quarantine_released" },
+    { sessionID: "ses-a", id: "evidence-a" },
+  );
+  expect(String((resA as { content?: string }).content ?? "")).not.toContain(
+    "BLOCKED_PRIVATE_REASON_308",
+  );
+  const resB = await pb.tools.memory_evidence.execute(
+    { ev: "quarantine_released" },
+    { sessionID: "ses-b", id: "evidence-b" },
+  );
+  expect(String((resB as { content?: string }).content ?? "")).toContain(
+    "BLOCKED_PRIVATE_REASON_308",
+  );
+});
+
+// F1 on #308, noop path: a blocklisted row that is not quarantined still
+// exists on disk, so its quarantine_release_noop line must carry its repo
+// too — same leak route as the release path.
+test("noop release of a BLOCKLISTED repo-B row stamps its evidence with B (#308 F1)", async () => {
+  const scopeA = resolveRepo(a);
+  const scopeB = resolveRepo(b);
+  const T1 = "2026-01-05T00:00:00.000Z";
+  seed(T1, scopeB.key, scopeB.path); // no quarantine tag -> noop
+  await addBlock(T1, "blocked, never quarantined");
+
+  const result = await releaseQuarantinedMemory(T1, "BLOCKED_NOOP_REASON_308");
+  expect(result.released).toBe(false);
+  expect(result.reason).toBe("not_quarantined");
+
+  const line = evidenceLines("quarantine_release_noop").find((f) =>
+    String(f.reason).includes("BLOCKED_NOOP_REASON_308"),
+  );
+  expect(line).toBeDefined();
+  expect(line!.repo).toBe(scopeB.key);
+  expect(
+    evidenceVisibleTo(line!, { kind: "repo", scope: scopeA }, "ses-a"),
+  ).toBe(false);
+  expect(evidenceVisibleTo(line!, ADMIN_READER)).toBe(true);
+});
+
+// N1 on #308 (non-blocking finding, fixed with F1): editing a global row in a
+// process that carries an ambient repository must not leave that unrelated
+// repoPath on the globally readable line.
+test("edit of a global row in a repo-B-ambient process leaves no repoB repoPath on the line (#308 N1)", async () => {
+  const scopeB = resolveRepo(b);
+  const T1 = "2026-01-05T00:00:00.000Z";
+  seed(T1, "global");
+  // Not the standalone viewer: a shared process whose process scope is B.
+  setRepoScope(scopeB);
+  await editMemory({
+    ts: T1,
+    type: "learning",
+    scope: "auth",
+    content: "edited global row, B ambient",
+    reason: "AMBIENT_GLOBAL_REASON_308",
+  });
+  const line = evidenceLines("viewer_edit").find((f) =>
+    String(f.reason).includes("AMBIENT_GLOBAL_REASON_308"),
+  );
+  expect(line).toBeDefined();
+  expect(line!.repo).toBe("global");
+  // parseLine only yields keys present on the line: an ambient repoPath
+  // surviving the merge would show up here as B's path.
+  expect(line!.repoPath).toBeUndefined();
 });
