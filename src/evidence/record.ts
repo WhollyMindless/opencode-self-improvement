@@ -111,6 +111,31 @@ export function captureEvidenceContext(sessionID?: string): EvidenceContext {
   });
 }
 
+// #305: evidence ABOUT a specific row inherits the ROW's repository, not the
+// writing process's. The viewer is an admin entry point with no repository of
+// its own, so its ambient context stamps nothing — and evidenceVisibleTo
+// reads an unstamped, sid-less line as GLOBAL. Without this, editing or
+// deleting another repository's private row from the viewer exposed the
+// operator's reason and row ids to every other repository's memory_evidence.
+// Callers that hold the target row spread these fields into record(): a
+// private stamp is carried verbatim; a global (or legacy unstamped) target
+// becomes an explicit `repo=global` line — same visibility as before, now
+// honest on the line itself. The fields spread last in record(), so they
+// outrank any ambient stamp even in a process that loaded a plugin. The
+// global branch returns an EXPLICIT `repoPath: undefined` (N1 on #308): the
+// spread must also clear an ambient repoPath, or a shared process that
+// happens to hold repo B's scope would leave B's path on a globally readable
+// line about a global row. formatLine drops undefined values, so the key
+// never lands on disk — it only cancels the ambient one in the merge.
+export function targetRepoFields(target: {
+  repo?: string;
+  repoPath?: string;
+}): { repo: string; repoPath?: string } {
+  return target.repo && target.repo !== "global"
+    ? { repo: target.repo, repoPath: target.repoPath }
+    : { repo: "global", repoPath: undefined };
+}
+
 export async function record(
   ev: EvidenceEvent,
   fields: Record<string, unknown> = {},
