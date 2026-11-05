@@ -469,11 +469,13 @@ describe("memory_merge_review survivor revival", () => {
       tags: ["bun"],
       status: "settled",
     });
-    const other = await seed(GAMMA);
-    // The state the bug produced: `revive` is hidden behind `other`.
+    // #126 narrowed this pin: the merge may clear only a supersession this
+    // review owns, so the survivor is hidden behind the review's OWN loser.
+    // A survivor superseded by some other (live) row is the stale-merge case
+    // and now refuses — pinned in test/merge-stale-survivor.test.ts.
     expect(
       await markSuperseded(revive, {
-        superseded_by: other,
+        superseded_by: stale,
         reason: "drift",
         symbol: "runner",
         from: "jest",
