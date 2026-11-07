@@ -28,10 +28,20 @@ function roleOf(
   return "";
 }
 
-export function flattenTranscript(msgs: unknown): string {
+interface ParsedTurn {
+  role: string;
+  text: string;
+}
+
+/**
+ * Parse session-context messages into ordered conversation turns. Shared by
+ * `flattenTranscript` and `splitTranscript` so the two can never disagree
+ * about what a message contained. Total: junk yields [], never a throw.
+ */
+function parseTurns(msgs: unknown): ParsedTurn[] {
   try {
-    if (!Array.isArray(msgs)) return "";
-    const lines: string[] = [];
+    if (!Array.isArray(msgs)) return [];
+    const out: ParsedTurn[] = [];
     let userTurns = 0;
     for (const msg of msgs) {
       if (!msg || typeof msg !== "object") continue;
@@ -78,10 +88,43 @@ export function flattenTranscript(msgs: unknown): string {
         userTurns++;
         if (userTurns > TRANSCRIPT_USER_TURN_CAP) break;
       }
-      lines.push(`${role}: ${text.trim()}`);
+      out.push({ role, text: text.trim() });
     }
-    return lines.join("\n");
+    return out;
   } catch {
-    return "";
+    return [];
   }
+}
+
+export function flattenTranscript(msgs: unknown): string {
+  return parseTurns(msgs)
+    .map(({ role, text }) => `${role}: ${text}`)
+    .join("\n");
+}
+
+/**
+ * The same turns, partitioned (#333).
+ *
+ * `work` — every turn that is NOT the user's: what the agent said and what the
+ * tools returned. This is the evidence.
+ * `user` — the user turns, i.e. the task's brief.
+ *
+ * Why partition rather than concatenate: measured on the fixture that
+ * reproduces #329, an undifferentiated block makes the model store the brief
+ * back as a durable `preference`. Work alone stores zero framing rows — and
+ * zero real preferences, because "we use bun here, not npm" lives in the same
+ * prose. So the prose is kept, labelled, in its own block: `buildCapturePrompt`.
+ */
+export interface TranscriptSplit {
+  work: string;
+  user: string;
+}
+
+export function splitTranscript(msgs: unknown): TranscriptSplit {
+  const work: string[] = [];
+  const user: string[] = [];
+  for (const { role, text } of parseTurns(msgs)) {
+    (role === "user" ? user : work).push(`${role}: ${text}`);
+  }
+  return { work: work.join("\n"), user: user.join("\n") };
 }

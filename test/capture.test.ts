@@ -32,7 +32,10 @@ import { setRepoScope } from "../src/identity/repokey.ts";
 import { loadPlugin } from "./harness.ts";
 import { parseCandidates, parseModelRef } from "../src/capture/candidates.ts";
 import { buildCapturePrompt } from "../src/capture/prompt.ts";
-import { flattenTranscript } from "../src/capture/transcript.ts";
+import {
+  flattenTranscript,
+  splitTranscript,
+} from "../src/capture/transcript.ts";
 import { readEvidenceLog as evidence, sleep } from "./helpers/logfmt.ts";
 
 let root: string;
@@ -403,6 +406,91 @@ describe("flattenTranscript", () => {
     expect(out.split("\n").filter((l) => l.startsWith("user:")).length).toBe(
       40,
     );
+  });
+});
+
+// --- splitTranscript / the labelled REQUESTS block (#333) -------------------------
+//
+// The framing rows in #329 were an INPUT fault, not a prompt fault: measured on
+// the reproducing fixture, the shipped prompt stored the brief as a durable
+// preference (1 framing row), the same prompt with the user turns removed
+// stored none — and also lost the one real preference in the prose. Routing
+// beats dropping, so these pin both halves: the partition, and the label that
+// tells the model which block expires.
+
+describe("splitTranscript", () => {
+  test("partitions user from work and keeps source order inside each", () => {
+    const split = splitTranscript([
+      { info: { role: "user" }, parts: [{ text: "only touch src/" }] },
+      { role: "assistant", parts: [{ text: "reading src/pricing.ts" }] },
+      { role: "user", parts: [{ text: "we use bun here, not npm" }] },
+      { role: "assistant", parts: [{ text: "ran bun test ./src" }] },
+    ]);
+    expect(split.work).toBe(
+      "assistant: reading src/pricing.ts\nassistant: ran bun test ./src",
+    );
+    expect(split.user).toBe(
+      "user: only touch src/\nuser: we use bun here, not npm",
+    );
+  });
+
+  test("the live 2.2.5 shape partitions too, non-conversation records included nowhere", () => {
+    const split = splitTranscript([
+      { id: "m1", time: 1, type: "user", text: "fix the tax rate" },
+      {
+        id: "m2",
+        time: 2,
+        type: "assistant",
+        content: [
+          { type: "reasoning", text: "private chain" },
+          { type: "tool", id: "call_1", name: "bash" },
+          { type: "text", text: "tax is 0.0825" },
+        ],
+      },
+      { id: "m3", time: 3, type: "idle" },
+    ]);
+    expect(split.user).toBe("user: fix the tax rate");
+    expect(split.work).toBe("assistant: tax is 0.0825");
+    expect(split.work).not.toInclude("private chain");
+  });
+
+  test("junk yields two empty strings, never a throw", () => {
+    expect(splitTranscript(undefined)).toEqual({ work: "", user: "" });
+    expect(splitTranscript("junk")).toEqual({ work: "", user: "" });
+  });
+});
+
+describe("the labelled REQUESTS block", () => {
+  test("with prose: both blocks are labelled and the expiry rule is present", () => {
+    const p = buildCapturePrompt(
+      "assistant: changed TAX_RATE to 0.0825",
+      3,
+      "user: only touch src/",
+    );
+    expect(p).toInclude("Session work (what the agent did");
+    expect(p).toInclude("REQUESTS (the user's brief for this session");
+    expect(p).toInclude("outlives the task");
+    expect(p).toInclude("only touch src/");
+    // The old single-block header must not also appear.
+    expect(p).not.toInclude("Transcript:");
+  });
+
+  test("without prose: the original single-block shape is unchanged", () => {
+    const p = buildCapturePrompt("user: hello world", 3);
+    expect(p).toInclude("Transcript:");
+    expect(p).not.toInclude("REQUESTS (");
+    expect(p).not.toInclude("outlives the task");
+  });
+
+  test("the brief is redacted like the work, not passed through", () => {
+    const key = "gh" + "p_AbCdEf0123456789AbCdEf0123456789AbCd";
+    const p = buildCapturePrompt(
+      "assistant: done",
+      3,
+      `user: use ${key} for the deploy`,
+    );
+    expect(p).not.toInclude(key);
+    expect(p).toInclude("[redacted]");
   });
 });
 

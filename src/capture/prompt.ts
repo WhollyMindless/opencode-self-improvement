@@ -27,7 +27,18 @@ export const CAPTURE_KEYWORD_CHARS = 48;
 
 // Prompt for the cheap capture model. The output contract is a bare JSON
 // array so parseCandidates can trust it; anything else parses to [].
-export function buildCapturePrompt(transcript: string, max = 3): string {
+//
+// `userProse` keeps the session's brief OUT of the work block. Measured on the
+// fixture that reproduces #329: brief mixed into one undifferentiated block,
+// the model stores it back as a durable `preference`; work block alone, zero
+// framing rows — but also zero real preferences, because "we use bun here, not
+// npm" lives in the same prose. So the prose is kept, labelled for what it is.
+export function buildCapturePrompt(
+  transcript: string,
+  max = 3,
+  userProse = "",
+): string {
+  const prose = redactSecrets(userProse).trim();
   return [
     "You mine one coding-agent session transcript for durable memories worth keeping across future sessions.",
     "",
@@ -42,9 +53,22 @@ export function buildCapturePrompt(transcript: string, max = 3): string {
     "- kw: 3-5 search keywords for how a DIFFERENT session would ask for this — synonyms and alternate names, other verb forms, the literal command or file name. They are indexed for retrieval and never shown to a model. Omit (or []) when the content already uses those words.",
     "- Keep: decisions made, working commands, user preferences, blockers hit, durable context, conventions.",
     "- Skip: anything derivable from the code or git history, small talk, and details that only mattered inside this conversation.",
+    ...(prose
+      ? [
+          // The brief is its own block, so the rule about it is its own too.
+          '- The REQUESTS block is what the user asked for in THIS session. Most of it scopes the current job and expires with it. Mine a `preference` from it ONLY when it names a tool, package, format or convention that outlives the task ("we use bun here", "no semicolons"); never from wording that scopes this job ("only touch src/", "do not create tests").',
+        ]
+      : []),
     "- If nothing is worth remembering, output [ ].",
     "",
-    "Transcript:",
-    redactSecrets(transcript),
+    ...(prose
+      ? [
+          "Session work (what the agent did — this is the evidence):",
+          redactSecrets(transcript),
+          "",
+          "REQUESTS (the user's brief for this session; constraints of THIS task, mostly not durable):",
+          prose,
+        ]
+      : ["Transcript:", redactSecrets(transcript)]),
   ].join("\n");
 }

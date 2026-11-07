@@ -12,7 +12,7 @@ import { parseCandidates, parseModelRef } from "./candidates.ts";
 import { lagSince } from "./lag.ts";
 import { buildCapturePrompt } from "./prompt.ts";
 import { type SessionModelRef, sessionModel } from "./session-model.ts";
-import { flattenTranscript } from "./transcript.ts";
+import { flattenTranscript, splitTranscript } from "./transcript.ts";
 
 interface CaptureHost {
   options?: Record<string, unknown>;
@@ -266,6 +266,15 @@ export function configureAutoCapture(
         // trigger actually mined (the hook payload for compaction, the
         // session context for idle), so both triggers' lag is comparable.
         const lagMs = lagSince(msgs);
+        // #333: partition what was mined, so the user's brief is labelled as
+        // the brief instead of blending into the evidence. Falls back to the
+        // single un-partitioned block when the work lines alone are too thin
+        // (a seeded transcript with no message array behind it), which keeps
+        // the old prompt shape rather than silently dropping the prose.
+        const split = splitTranscript(msgs);
+        const partitioned = split.work.length >= 200;
+        const work = partitioned ? split.work : transcript;
+        const userProse = partitioned ? split.user : "";
         const out = await generateApi.text({
           model,
           // Redact the COMPLETE transcript, THEN apply the character budget
@@ -274,8 +283,9 @@ export function configureAutoCapture(
           // fell off, matches no pattern — buildCapturePrompt's own scrub
           // (kept, defense in depth) cannot recognize a fragment.
           prompt: buildCapturePrompt(
-            redactSecrets(transcript).slice(-8000),
+            redactSecrets(work).slice(-7000),
             captureMax,
+            redactSecrets(userProse).slice(-1500),
           ),
         });
         const text = typeof out === "string" ? out : (out?.text ?? "");
