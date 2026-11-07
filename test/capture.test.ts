@@ -514,6 +514,32 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
     await loaded.cleanup();
   });
 
+  test("a capture that throws is recorded instead of swallowed", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
+    loaded.capture.context.messages = [
+      { role: "user", content: "x".repeat(300) },
+    ];
+    loaded.capture.generate.throws = new Error("capture model exploded");
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-throw" },
+    });
+    await waitFor(() =>
+      evidence().some(
+        (l) => l.ev === "auto_capture_refused" && l.reason === "capture_threw",
+      ),
+    );
+    const line = evidence().find(
+      (l) => l.ev === "auto_capture_refused" && l.reason === "capture_threw",
+    );
+    expect(line?.session).toBe("ses-throw");
+    expect(String(line?.error)).toContain("capture model exploded");
+    await loaded.cleanup();
+  });
+
   test("2.x data envelope calls the capture model and writes evidence", async () => {
     const loaded = await loadCapturePlugin({
       autoCapture: true,

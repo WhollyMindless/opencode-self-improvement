@@ -358,8 +358,24 @@ export function configureAutoCapture(
             if (!captureCooldownPasses("idle", sid, now)) continue; // 5-min cooldown, shared across setups
             try {
               await captureSession(sid, "", "idle");
-            } catch {
-              // fail-closed: a broken capture attempt is invisible to the session
+            } catch (err) {
+              // Fail-closed for the SESSION, never silent in the store: the
+              // same silence that hid the 2.2.5 shape break would make a
+              // throwing capture indistinguishable from one that never ran.
+              await record(
+                "auto_capture_refused",
+                {
+                  session: sid,
+                  trigger: "idle",
+                  reason: "capture_threw",
+                  error: redactSecrets(
+                    String((err as Error)?.message ?? err),
+                  ).slice(0, 200),
+                },
+                true,
+                sid,
+                undefined,
+              );
             }
           }
         } catch {
