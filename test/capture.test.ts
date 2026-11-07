@@ -499,6 +499,9 @@ describe("hint channel in capture (#335)", () => {
     const p = buildCapturePrompt("user: hello world", 5);
     expect(p).toContain('"guided": true');
     expect(p).toContain("user STATED this fact");
+    // #345: the authority claim is what made a WRONG guided row out-rank
+    // correct code — the capture contract must forbid manufacturing it.
+    expect(p).toContain("never claim what hidden tests");
   });
 
   test("parseCandidates keeps a literal guided:true and nothing else", () => {

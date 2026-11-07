@@ -289,6 +289,42 @@ describe("epoch freeze (cache-safe injection)", () => {
     expect(block).toBe("");
   });
 
+  test("hint channel: guided rows put the verify-against-code caveat on the header (#345)", async () => {
+    seed(
+      "context",
+      "pricing",
+      "The repo's sales tax rule is 8.25 percent (0.0825), applied after discounts and rounded to cents at the end.",
+      { tags: ["auto-capture", "user-guided"] },
+    );
+    const loaded = await loadPlugin(liveRoot);
+    const guidedBlock = await deliveredBlock(
+      loaded,
+      "ses-caveat",
+      "identify the injected bug so the hidden suite passes",
+    );
+    const header = guidedBlock.split("\n")[0] ?? "";
+    expect(header).toContain("verify against the current code");
+    // The caveat rides the HEADER: capToBudget drops whole lines and may drop
+    // a standalone caveat, but never the header.
+    expect(header.startsWith("## Relevant durable memory")).toBe(true);
+  });
+
+  test("hint channel: a lexical-only block keeps the plain header (#345)", async () => {
+    seed(
+      "context",
+      "pricing",
+      "The repo's sales tax rule is 8.25 percent (0.0825), applied after discounts and rounded to cents at the end.",
+    );
+    const loaded = await loadPlugin(liveRoot);
+    const plain = await deliveredBlock(
+      loaded,
+      "ses-caveat-plain",
+      "what sales tax rule applies to pricing",
+    );
+    expect(plain).toContain("8.25");
+    expect(plain).not.toContain("verify against the current code");
+  });
+
   test("case 2: a new memory in the store invalidates the epoch and the block changes", async () => {
     seed("pattern", "build", "alpha builds run make all");
     const loaded = await loadPlugin(liveRoot);
