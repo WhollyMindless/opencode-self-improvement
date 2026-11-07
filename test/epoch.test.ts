@@ -1,10 +1,12 @@
 // Contract: the injected "Relevant durable memory" block is FROZEN per
-// epoch. An epoch is invalidated ONLY on the first prompt of a session, when
-// the memory store changed since the epoch was computed, or after a compaction
-// for that session — so the system prefix (and the provider prompt cache)
-// survives ordinary turns. The block is capped to a character budget at
-// whole-line boundaries. Hermetic: temp OPENCODE_MEMORY_DIR /
-// OPENCODE_COMMANDS_DIR, nothing touches the real store.
+// epoch. An epoch is invalidated on the first prompt of a session, when the
+// memory store changed since the epoch was computed, when a new prompt
+// re-scores the block onto DIFFERENT bytes (#335 — same rows, same bytes,
+// no bust), or after a compaction for that session — so the system prefix
+// (and the provider prompt cache) survives ordinary turns. The block is
+// capped to a character budget at whole-line boundaries. Hermetic: temp
+// OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR, nothing touches the real
+// store.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   appendFileSync,
@@ -62,11 +64,16 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
-function seed(type: string, scope: string, content: string): string {
-  const ts = new Date().toISOString();
+function seed(
+  type: string,
+  scope: string,
+  content: string,
+  extra?: Fields,
+): string {
+  const ts = typeof extra?.ts === "string" ? extra.ts : new Date().toISOString();
   const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
   mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, formatLine({ ts, type, scope, content }) + "\n");
+  appendFileSync(file, formatLine({ ts, type, scope, content, ...extra }) + "\n");
   return ts;
 }
 
@@ -193,19 +200,93 @@ describe("epoch freeze (cache-safe injection)", () => {
     // A repeated model request without a new prompt is byte-identical too.
     expect(await deliveredContextBlock(loaded, "ses-frozen")).toBe(first);
 
-    // Same store, no compaction: the epoch stays frozen even though this
-    // prompt text matches nothing — the block must not change.
+    // A NEW prompt that selects the SAME rows re-scores and adopts: the
+    // rendered bytes do not move, so the cache survives and no recompute is
+    // recorded. This is the prompt-reveal half of the #335 contract.
+    const same = await deliveredBlock(
+      loaded,
+      "ses-frozen",
+      "how do I run the unit tests",
+    );
+    expect(same).toBe(first);
+
+    // A new prompt whose vocabulary matches NOTHING abstains (#335, the
+    // epoch-freeze fix): rows frozen at the FIRST topic must not keep riding
+    // a session that has moved on. The block moves, so this DOES recompute.
     const second = await deliveredBlock(
       loaded,
       "ses-frozen",
       "zzz totally unrelated qqq",
     );
-    expect(second).toBe(first);
+    expect(second).toBe("");
 
-    // Exactly one recompute was recorded for this session, reason=first.
+    // Two recomputes: reason=first, then reason=prompt_reveal for the block
+    // that moved when the unrelated prompt arrived.
     const recomputes = epochRecomputes("ses-frozen");
-    expect(recomputes.length).toBe(1);
+    expect(recomputes.length).toBe(2);
     expect(String(recomputes[0].reason)).toBe("first");
+    expect(String(recomputes[1].reason)).toBe("prompt_reveal");
+  });
+
+  test("hint channel: a user-guided row rides a prompt with ZERO vocabulary overlap", async () => {
+    // The bench's t3 fingerprint: the user's stated value ("8.25") shares no
+    // word with the task prompt ("injected bug", "hidden suite"), so lexical
+    // ranking alone can never surface it. Capture tags such rows
+    // `user-guided`; injection rides them regardless of overlap (#335).
+    seed(
+      "context",
+      "pricing",
+      "The repo's sales tax rule is 8.25 percent (0.0825), applied after discounts and rounded to cents at the end.",
+      { tags: ["auto-capture", "user-guided"] },
+    );
+    const loaded = await loadPlugin(liveRoot);
+    const block = await deliveredBlock(
+      loaded,
+      "ses-guided",
+      "identify the injected bug so the hidden suite passes",
+    );
+    expect(block).toContain("8.25");
+  });
+
+  test("hint channel: guided rows are capped newest-first, lexical picks follow", async () => {
+    for (let i = 1; i <= 5; i++) {
+      seed(
+        "context",
+        "pricing",
+        `Guided pricing rule number ${i}: the retry budget is ${i} attempts per queue with backoff`,
+        {
+          tags: ["auto-capture", "user-guided"],
+          ts: `2026-11-07T00:00:0${i}.000Z`,
+        },
+      );
+    }
+    const loaded = await loadPlugin(liveRoot);
+    const block = await deliveredBlock(
+      loaded,
+      "ses-guided-cap",
+      "identify the injected bug so the hidden suite passes",
+    );
+    // Cap is 3: the newest three ride, the two oldest do not.
+    expect(block).toContain("rule number 5");
+    expect(block).toContain("rule number 4");
+    expect(block).toContain("rule number 3");
+    expect(block).not.toContain("rule number 2");
+    expect(block).not.toContain("rule number 1");
+  });
+
+  test("hint channel: an untagged row still needs real overlap to ride", async () => {
+    seed(
+      "context",
+      "pricing",
+      "The repo's sales tax rule is 8.25 percent (0.0825), applied after discounts and rounded to cents at the end.",
+    );
+    const loaded = await loadPlugin(liveRoot);
+    const block = await deliveredBlock(
+      loaded,
+      "ses-unguided",
+      "identify the injected bug so the hidden suite passes",
+    );
+    expect(block).toBe("");
   });
 
   test("case 2: a new memory in the store invalidates the epoch and the block changes", async () => {

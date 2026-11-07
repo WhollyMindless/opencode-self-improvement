@@ -494,6 +494,39 @@ describe("the labelled REQUESTS block", () => {
   });
 });
 
+describe("hint channel in capture (#335)", () => {
+  test("the prompt asks the model to label user-stated facts guided", () => {
+    const p = buildCapturePrompt("user: hello world", 5);
+    expect(p).toContain('"guided": true');
+    expect(p).toContain("user STATED this fact");
+  });
+
+  test("parseCandidates keeps a literal guided:true and nothing else", () => {
+    expect(parseCandidates(JSON.stringify([{ ...GOOD, guided: true }]), 3)).toEqual([
+      { ...GOOD, guided: true },
+    ]);
+    for (const junk of ["true", 1, "yes", null, false, {}]) {
+      expect(
+        parseCandidates(JSON.stringify([{ ...GOOD, guided: junk }]), 3),
+      ).toEqual([GOOD]);
+    }
+  });
+
+  test("known rows ride the prompt as a do-not-repeat list, absent when empty", () => {
+    const p = buildCapturePrompt(
+      "assistant: done",
+      3,
+      "",
+      "- build: run bun test from the repo root",
+    );
+    expect(p).toContain("Already stored for this repo");
+    expect(p).toContain("run bun test from the repo root");
+    expect(buildCapturePrompt("user: hello world", 3)).not.toContain(
+      "Already stored",
+    );
+  });
+});
+
 // --- end-to-end through the harness fake event queue ----------------------------
 
 const DUP_CONTENT =
@@ -795,6 +828,83 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
     expect(loaded.capture.generate.calls.length).toBe(1);
     expect(loaded.capture.context.calls.length).toBe(1);
 
+    await loaded.cleanup();
+  });
+
+  test("a guided candidate is promoted tagged user-guided; an unguided one is not (#335)", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureMax: 3,
+    });
+    await loaded["tool.execute.after"]!(
+      {
+        tool: "read",
+        sessionID: "ses-guided",
+        callID: "C1",
+        args: { filePath: "x.ts" },
+      },
+      { title: "read", output: "content", metadata: {} },
+    );
+    loaded.capture.context.messages = [
+      {
+        role: "user",
+        content:
+          "One thing I know about this repo: the correct sales tax rate is 8.25 percent " +
+          "(0.0825), applied after discounts and rounded to cents at the end. The agent " +
+          "separately discovered the staging API rate limit while probing the importer.",
+      },
+    ];
+    loaded.capture.generate.response = JSON.stringify([
+      {
+        type: "context",
+        scope: "pricing",
+        content:
+          "The repo's sales tax rule is 8.25 percent (0.0825), applied after discounts and rounded to cents at the end.",
+        guided: true,
+      },
+      { type: "learning", scope: "api", content: FRESH_CONTENT },
+    ]);
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-guided" },
+    });
+    await waitFor(
+      () =>
+        evidence().filter((l) => l.ev === "auto_capture_promoted").length === 2,
+    );
+    const rows = (await loadAll()).filter(isActive);
+    const guidedRow = rows.find((r) => r.scope === "pricing");
+    expect(guidedRow?.tags).toContain("user-guided");
+    expect(guidedRow?.tags).toContain("auto-capture");
+    const plain = rows.find((r) => r.content === FRESH_CONTENT);
+    expect(plain?.tags ?? []).toContain("auto-capture");
+    expect(plain?.tags ?? []).not.toContain("user-guided");
+    await loaded.cleanup();
+  });
+
+  test("the capture prompt names what the store already keeps (#335)", async () => {
+    seed("pattern", "build", DUP_CONTENT);
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
+    loaded.capture.context.messages = [
+      {
+        role: "user",
+        content:
+          "We finished the alpha build switch and the importer work. ".repeat(6),
+      },
+    ];
+    loaded.capture.generate.response = "[]";
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-known" },
+    });
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+    const prompt = String(loaded.capture.generate.calls[0].prompt);
+    expect(prompt).toContain("Already stored for this repo");
+    expect(prompt).toContain(DUP_CONTENT.slice(0, 60));
     await loaded.cleanup();
   });
 

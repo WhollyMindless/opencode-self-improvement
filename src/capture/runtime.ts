@@ -13,6 +13,10 @@ import { lagSince } from "./lag.ts";
 import { buildCapturePrompt } from "./prompt.ts";
 import { type SessionModelRef, sessionModel } from "./session-model.ts";
 import { flattenTranscript, splitTranscript } from "./transcript.ts";
+import { USER_GUIDED_TAG } from "../core/tags.ts";
+import { loadAll } from "../store/files/load.ts";
+import { isInjectable } from "../store/model/predicates.ts";
+import { readerFromSid, visibleTo } from "../store/model/visibility.ts";
 
 interface CaptureHost {
   options?: Record<string, unknown>;
@@ -41,6 +45,38 @@ interface CaptureDependencies {
 // this one so decay/status can tell which trigger wrote them — the same
 // distinction the auto_capture_compaction_* evidence lines carry.
 const CAPTURE_COMPACT_TAG = "auto_capture_compaction";
+
+// Capture dedup context (#335): capture re-mined the WHOLE transcript on
+// every trigger and offered the same facts again; the write gate collapsed
+// them, but each retry spent a model call and an evidence line to store
+// nothing. Showing the model what the repo already keeps lets its small
+// budget go to NEW facts. Newest rows first, compactly rendered, bounded so
+// a large store cannot out-grow the capture prompt.
+const KNOWN_ROWS_MAX = 15;
+const KNOWN_ROW_CHARS = 90;
+const KNOWN_TOTAL_CHARS = 1400;
+
+async function knownRowsFor(sid: string | undefined): Promise<string> {
+  try {
+    const rows = visibleTo(await loadAll(), readerFromSid(sid))
+      .filter(isInjectable)
+      .sort((a, b) => (a.ts < b.ts ? 1 : -1))
+      .slice(0, KNOWN_ROWS_MAX);
+    const lines: string[] = [];
+    let total = 0;
+    for (const m of rows) {
+      const line = `- ${m.scope}: ${m.content.slice(0, KNOWN_ROW_CHARS)}`;
+      if (total + line.length > KNOWN_TOTAL_CHARS) break;
+      lines.push(line);
+      total += line.length + 1;
+    }
+    return lines.join("\n");
+  } catch {
+    // A store read failure must not cost the capture itself: the write gate
+    // still dedupes, the model just does not see the list.
+    return "";
+  }
+}
 
 // Auto-capture cooldown, shared by EVERY setup() registration (#108): setup
 // runs for more than one location, and per-closure cooldown maps made those
@@ -286,6 +322,7 @@ export function configureAutoCapture(
             redactSecrets(work).slice(-7000),
             captureMax,
             redactSecrets(userProse).slice(-1500),
+            await knownRowsFor(sid),
           ),
         });
         const text = typeof out === "string" ? out : (out?.text ?? "");
@@ -296,11 +333,18 @@ export function configureAutoCapture(
           try {
             outcome = await runWriteGate(
               quarantineCandidate({
-                ...c,
-                tags:
-                  trigger === "compaction"
-                    ? ["auto-capture", CAPTURE_COMPACT_TAG]
-                    : ["auto-capture"],
+                type: c.type,
+                scope: c.scope,
+                content: c.content,
+                ...(c.status ? { status: c.status } : {}),
+                ...(c.kw ? { kw: c.kw } : {}),
+                tags: [
+                  "auto-capture",
+                  ...(trigger === "compaction" ? [CAPTURE_COMPACT_TAG] : []),
+                  // Hint channel (#335): user-stated guidance keeps its
+                  // provenance into the store; injection rides these rows.
+                  ...(c.guided ? [USER_GUIDED_TAG] : []),
+                ],
               }),
               { ...captureGate, durable },
             );
