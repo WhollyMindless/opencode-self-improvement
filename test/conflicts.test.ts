@@ -283,6 +283,23 @@ describe("injection renders the CONFLICT line (opt-in)", () => {
     expect(block).not.toContain("CONFLICT");
   });
 
+  test("a colliding guided row without klass stays plain; authority is never guessed", async () => {
+    writeSrc("pricing.ts", "export const TAX_RATE = 0.08;\n");
+    seedGuided({ ref: "TAX_RATE", claim: "0.0825" });
+    const loaded = await loadPlugin(repo, { contradictionSurface: true });
+    rememberSessionDir("ses-conf-unclassified", repo);
+    const block = await deliveredBlock(
+      loaded,
+      "ses-conf-unclassified",
+      "Repair the deployment manifest",
+    );
+    expect(block).toContain("8.25");
+    expect(block).not.toContain("CONFLICT");
+    expect(block).toContain("verify against the current code");
+    expect(block).not.toContain("code-checked");
+    await loaded.cleanup();
+  });
+
   test("feature OFF (default): a colliding guided row renders plain", async () => {
     writeSrc("pricing.ts", "export const TAX_RATE = 0.08;\n");
     seedGuided({ ref: "TAX_RATE", claim: "0.0825", klass: "spec" });

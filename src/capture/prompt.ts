@@ -81,6 +81,7 @@ export function buildCapturePrompt(
     // claim and attach the verdict, instead of leaving the model to guess
     // whose word wins (#345: a wrong guided row rewrote correct code).
     '- When guided AND the value names a declared code symbol, also output "ref": that symbol exactly as declared (e.g. "TAX_RATE"), "claim": the user\'s value alone (e.g. "0.0825", at most 32 characters), and "klass": "spec" when the user is the authority on the value (a rate, a requirement) or "behavior" when the row describes how working code behaves. Omit all three when no single declared constant is involved.',
+    '- If it is unclear whether the user is specifying a requirement or describing working code, omit "klass". Never guess authority; an unclassified row remains plain guidance without a conflict verdict.',
     "- Keep: decisions made, working commands, user preferences, blockers hit, durable context, conventions.",
     "- Skip: anything derivable from the code or git history, small talk, and details that only mattered inside this conversation.",
     ...(knownList

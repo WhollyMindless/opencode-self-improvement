@@ -548,6 +548,8 @@ describe("hint channel in capture (#335)", () => {
     expect(p).toContain('"ref"');
     expect(p).toContain("klass");
     expect(p).toContain("the user is the authority");
+    expect(p).toContain('omit "klass"');
+    expect(p).toContain("Never guess authority");
   });
 
   test("known rows ride the prompt as a do-not-repeat list, absent when empty", () => {
