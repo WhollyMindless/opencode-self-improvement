@@ -30,6 +30,12 @@ import { authoredFor } from "../core/state.ts";
 interface InjectionEpochOptions {
   budget: number;
   frontierBudget: number;
+  /**
+   * Contradiction surface (POC): code-check guided rows at render time.
+   * Off by default — the scan is cheap but reads the workspace, so it is an
+   * explicit opt-in (plugin option `contradictionSurface`).
+   */
+  contradictionSurface?: boolean;
   // The host listener records usage. Eviction must still drop it with the
   // epoch and request counters, so no measurement outlives its tracked session.
   measuredTurns: Pick<Map<string, Measured>, "get" | "delete">;
@@ -45,6 +51,7 @@ const GUIDED_INJECT_CAP = 3;
 export function createInjectionEpochs({
   budget,
   frontierBudget: openBudget,
+  contradictionSurface = false,
   measuredTurns,
   noteHits,
 }: InjectionEpochOptions) {
@@ -183,9 +190,18 @@ export function createInjectionEpochs({
       (sid === undefined ? "" : (latestPrompt.get(sid) ?? ""));
     // Widen the candidate pool, then cap: the budget decides what rides.
     // The guided cap (#335) rides user-stated rows ahead of the lexical picks;
-    // the char budget below still bounds the whole block.
+    // the char budget below still bounds the whole block. The conflict check
+    // reads the session's OWN repo directory (its reader's scope) — never an
+    // ambient one (#127's rule applies to code reads too).
+    const reader = readerFromSid(sid);
     const sel = await selectRelevant(prompt, 5, mems, await useSignals(), undefined, {
       guidedCap: GUIDED_INJECT_CAP,
+      ...(contradictionSurface
+        ? {
+            conflictCheck: true,
+            ...(reader.kind === "repo" ? { repoDir: reader.scope.path } : {}),
+          }
+        : {}),
     });
     const block = sel.block ? capToBudget(sel.block, budget) : "";
     // Refs the ACTUALLY-injected rows assert (paths + commands), the join key

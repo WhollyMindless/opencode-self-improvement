@@ -22,6 +22,16 @@ export interface CaptureCandidate {
    * `user-guided` tag, which injection rides regardless of overlap.
    */
   guided?: boolean;
+  /**
+   * Contradiction surface (POC): for guided rows, the declared code symbol
+   * the value is about, the user's value alone, and the authority class
+   * ("spec": the user decides; "behavior": the working code decides).
+   * Injection code-checks ref/claim and renders a flagged CONFLICT line when
+   * they disagree. Parsed only for guided rows; junk drops the fields.
+   */
+  ref?: string;
+  claim?: string;
+  klass?: "spec" | "behavior";
 }
 
 // Keywords are the vocabulary bridge for the strict-paraphrase wall, mined from
@@ -67,6 +77,10 @@ export function buildCapturePrompt(
     // user's value and stop; authority the capture model cannot check must
     // not be manufactured into the store.
     "- A guided row states the user's value or rule and NOTHING more: never claim what hidden tests, graders or suites 'encode' — you cannot see them, and the claim makes the row impossible to check.",
+    // Contradiction surface (POC): the fields let injection code-check the
+    // claim and attach the verdict, instead of leaving the model to guess
+    // whose word wins (#345: a wrong guided row rewrote correct code).
+    '- When guided AND the value names a declared code symbol, also output "ref": that symbol exactly as declared (e.g. "TAX_RATE"), "claim": the user\'s value alone (e.g. "0.0825", at most 32 characters), and "klass": "spec" when the user is the authority on the value (a rate, a requirement) or "behavior" when the row describes how working code behaves. Omit all three when no single declared constant is involved.',
     "- Keep: decisions made, working commands, user preferences, blockers hit, durable context, conventions.",
     "- Skip: anything derivable from the code or git history, small talk, and details that only mattered inside this conversation.",
     ...(knownList

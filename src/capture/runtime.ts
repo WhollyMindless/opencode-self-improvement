@@ -338,6 +338,11 @@ export function configureAutoCapture(
                 content: c.content,
                 ...(c.status ? { status: c.status } : {}),
                 ...(c.kw ? { kw: c.kw } : {}),
+                // Contradiction surface (POC): the gate spreads the candidate
+                // into appendMemory, so the fields ride through untouched.
+                ...(c.ref ? { ref: c.ref } : {}),
+                ...(c.claim ? { claim: c.claim } : {}),
+                ...(c.klass ? { klass: c.klass } : {}),
                 tags: [
                   "auto-capture",
                   ...(trigger === "compaction" ? [CAPTURE_COMPACT_TAG] : []),

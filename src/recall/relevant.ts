@@ -5,6 +5,7 @@ import { isInjectable } from "../store/model/predicates.ts";
 import { readerFromSid, visibleTo } from "../store/model/visibility.ts";
 import { FRAME } from "../inject/budget.ts";
 import { formatMemory } from "../inject/format.ts";
+import { conflictLine, findConstant, valuesAgree } from "./conflicts.ts";
 import { USER_GUIDED_TAG } from "../core/tags.ts";
 import { cmpTs } from "../core/cmp-ts.ts";
 import { scoreMemories } from "./score.ts";
@@ -59,6 +60,18 @@ export interface SelectOptions {
    * and pull leave this off and stay query-driven.
    */
   guidedCap?: number;
+  /**
+   * Contradiction surface (POC): when true, a user-guided row that declares
+   * ref/claim/klass is code-checked at render time. A collision replaces the
+   * row's rendered text with one flagged CONFLICT line whose Action is fixed
+   * by the class. Detection is a bounded file scan — deterministic, no model.
+   */
+  conflictCheck?: boolean;
+  /**
+   * Repo directory the code check reads. Absent (or a non-repo reader) means
+   * no check: rows render plainly, exactly as before the feature.
+   */
+  repoDir?: string;
 }
 
 /** Row carries the hint-channel tag (written by capture for user-stated facts). */
@@ -96,9 +109,24 @@ export async function selectRelevant(
         .sort((a, b) => cmpTs(b.ts, a.ts))
         .slice(0, cap)
     : [];
+  // Contradiction surface: code-check the guided rows that declared a ref.
+  // Only the RENDERED row changes (a shallow copy carries the CONFLICT text);
+  // `selected` keeps the originals, so the use ledger and attribution still
+  // key on stored rows. No collision (or no code found, or a computed value
+  // the regex cannot decide) leaves the row plain — fail-open to the row,
+  // never fail-shut on injection.
+  let shown = guided;
+  if (opts?.conflictCheck && opts.repoDir && guided.length) {
+    shown = guided.map((m) => {
+      if (!m.ref || !m.claim || !m.klass) return m;
+      const fact = findConstant(opts.repoDir!, m.ref);
+      if (!fact || valuesAgree(m.claim, fact.value)) return m;
+      return { ...m, content: conflictLine(m, fact) };
+    });
+  }
   const text = message.trim();
   const top = text ? scoreMemories(text, mems, limit, use) : [];
-  const merged = [...guided, ...top.filter((m) => !guided.includes(m))];
+  const merged = [...shown, ...top.filter((m) => !guided.includes(m))];
   if (!merged.length) return { block: "", selected: [] };
   return {
     block: `## Relevant durable memory${FRAME}${guided.length ? GUIDED_CAVEAT : ""}\n${merged.map(formatMemory).join("\n")}`,

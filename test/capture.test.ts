@@ -515,6 +515,36 @@ describe("hint channel in capture (#335)", () => {
     }
   });
 
+  test("contradiction fields ride guided rows only; junk drops the fields", () => {
+    const full = {
+      ...GOOD,
+      guided: true,
+      ref: "TAX_RATE",
+      claim: "0.0825",
+      klass: "spec" as const,
+    };
+    expect(parseCandidates(JSON.stringify([full]), 3)).toEqual([full]);
+    // Not guided: the fields never attach — the row reads as a plain capture.
+    const { guided: _g, ...unguided } = full;
+    expect(parseCandidates(JSON.stringify([unguided]), 3)).toEqual([GOOD]);
+    // Junk in any field drops THAT field, never the row.
+    expect(
+      parseCandidates(
+        JSON.stringify([
+          { ...full, ref: "not an identifier!", claim: "x".repeat(40), klass: "maybe" },
+        ]),
+        3,
+      ),
+    ).toEqual([{ ...GOOD, guided: true }]);
+  });
+
+  test("the prompt teaches the ref/claim/klass contract", () => {
+    const p = buildCapturePrompt("user: the tax rate is 8.25%", 5);
+    expect(p).toContain('"ref"');
+    expect(p).toContain("klass");
+    expect(p).toContain("the user is the authority");
+  });
+
   test("known rows ride the prompt as a do-not-repeat list, absent when empty", () => {
     const p = buildCapturePrompt(
       "assistant: done",

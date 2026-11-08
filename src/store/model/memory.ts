@@ -1,5 +1,7 @@
 // memory — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
 
+import { flattenMemoryText } from "../sanitize.ts";
+
 export type MemoryStatus = "open" | "settled";
 
 // Hard ceiling on stored content. No entry point may persist a line longer
@@ -41,6 +43,32 @@ export function normalizeKeywords(kw: unknown): string[] | undefined {
   return out.length ? out : undefined;
 }
 
+/** A conflict ref is a code identifier: nothing else can be regex-looked-up. */
+const CONFLICT_REF_RE = /^[A-Za-z_][A-Za-z0-9_]{1,63}$/;
+
+export const MAX_CLAIM_CHARS = 32;
+
+/**
+ * Normalise the contradiction-surface fields of a guided candidate. TOTAL on
+ * purpose, like keywords: a junk ref/claim/klass drops the fields, never the
+ * row — the prose still deserved storage, it just cannot be code-checked.
+ */
+export function normalizeConflictFields(o: {
+  ref?: unknown;
+  claim?: unknown;
+  klass?: unknown;
+}): { ref?: string; claim?: string; klass?: "spec" | "behavior" } {
+  const out: { ref?: string; claim?: string; klass?: "spec" | "behavior" } = {};
+  if (typeof o.ref === "string" && CONFLICT_REF_RE.test(o.ref)) out.ref = o.ref;
+  if (typeof o.claim === "string") {
+    const c = o.claim.trim();
+    if (c && c.length <= MAX_CLAIM_CHARS && flattenMemoryText(c) === c)
+      out.claim = c;
+  }
+  if (o.klass === "spec" || o.klass === "behavior") out.klass = o.klass;
+  return out;
+}
+
 export interface Memory {
   ts: string;
   type: string;
@@ -64,6 +92,15 @@ export interface Memory {
   // in isVisibleHere().
   repo?: string;
   repoPath?: string;
+  // Contradiction surface (POC, bench FINDINGS §4): a user-guided row may
+  // name the code symbol (ref) its value (claim) is about and who holds
+  // authority (klass). Injection reads the code at render time — deterministically,
+  // no model call — and a collision renders one CONFLICT line whose Action is
+  // fixed by the class: behavior class trusts the code, spec class fixes it.
+  // #345 measured the alternative: a wrong guided row rewrote correct code.
+  ref?: string;
+  claim?: string;
+  klass?: "spec" | "behavior";
   file: string;
   index: number;
 }

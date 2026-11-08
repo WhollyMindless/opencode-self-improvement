@@ -13,6 +13,7 @@ import { flattenMemoryText } from "../sanitize.ts";
 import {
   MAX_CONTENT_CHARS,
   type MemoryStatus,
+  normalizeConflictFields,
   normalizeKeywords,
 } from "../model/memory.ts";
 
@@ -25,6 +26,13 @@ export interface AppendMemoryInput {
   /** Retrieval keywords (#40); normalised and capped by appendMemory. */
   kw?: string[];
   status?: MemoryStatus;
+  /**
+   * Contradiction surface (POC): guided row's code symbol / user's value /
+   * authority class. Normalised by appendMemory; junk drops the fields only.
+   */
+  ref?: string;
+  claim?: string;
+  klass?: "spec" | "behavior";
   // "global" for explicit cross-project writes; imports may carry a validated
   // same-repo origin stamp (see portable.ts). Any missing value is resolved by
   // appendMemory against the live repo scope.
@@ -168,6 +176,7 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
         ts = new Date(new Date(ts).getTime() + 1).toISOString();
       }
       const kw = normalizeKeywords(input.kw);
+      const conflict = normalizeConflictFields(input);
       const line = formatLine({
         ts,
         type: input.type,
@@ -177,6 +186,7 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
         tags: input.tags?.length ? input.tags.join(",") : undefined,
         kw: kw?.join(","),
         status: input.status,
+        ...conflict,
         repo,
         repoPath,
       });
