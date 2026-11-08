@@ -49,31 +49,27 @@ export function cacheLines(p: StatusPayload): string[] {
   const inv =
     st.invalidations === 0
       ? [
-          "  cache busts    0 — memory has never rewritten a byte of your past",
-          "                 conversation, so the provider can serve history from cache",
+          "  epochs whose bytes moved  0 — memory-section bytes have not moved this session",
         ]
       : [
-          `  cache busts    ${st.invalidations} this session · last ${
+          `  epochs whose bytes moved  ${st.invalidations} this session · last ${
             st.lastInvalidation
               ? `${st.lastInvalidation.at.slice(11, 19)} (${st.lastInvalidation.reason})`
               : "-"
           }`,
-          "                 a memory YOU saved in this session never costs one — you",
-          "                 already said it (#165). A correction, a removal, or a row",
-          "                 another session wrote costs exactly one, and the prefix",
-          "                 re-warms on the following turn",
+          "                 counts memory-section byte changes, not provider cache misses",
         ];
   const rate = cacheRate(p.measured);
   const receipts = rate
     ? [
         `  receipts       ${fmtCount(rate.read)}/${fmtCount(rate.prompt)} prompt tok served from cache (${rate.pct}%)`,
         rate.pct >= 90
-          ? "                 — memory is cache-invisible: the same bytes ride every turn"
-          : "                 — below ~90% something re-bills the whole history each turn",
+          ? "                 — observed session-wide cache reuse; memory-only cost is not measured"
+          : "                 — lower observed reuse; this receipt does not identify the cause",
       ]
     : [
-        "  receipts       provider reports no cache usage yet — structural proof:",
-        `                 the same block bytes rode ${st.epochRequests} request(s) with ${st.invalidations} busts`,
+        "  receipts       provider reports no cache usage yet — byte history only:",
+        `                 the block rode ${st.epochRequests} request(s) with ${st.invalidations} byte-moving epochs`,
       ];
   return [
     ...inv,
@@ -85,7 +81,7 @@ export function cacheLines(p: StatusPayload): string[] {
 /**
  * CONTEXT WINDOW — the "is memory bloating my context?" answer, built ONLY from
  * numbers we trust: the exact injected block (we wrote those bytes), the
- * provider's own cache receipts, and the memory-caused bust count. No estimated
+ * provider's own cache receipts, and the memory byte-change count. No estimated
  * decomposition of the system prompt or history (we cannot measure those); the
  * one honest share we can state is memory as a slice of what was actually sent.
  */
@@ -105,7 +101,7 @@ export function windowLines(p: StatusPayload): string[] {
     );
     out.push(
       rate
-        ? `  cache served     ${rate.pct}% of that prompt from cache → memory rides free after turn 1`
+        ? `  cache served     ${rate.pct}% of that prompt from cache — provider-reported share, not a memory-only cost estimate`
         : "  cache served     provider has not reported a split yet",
     );
   } else {
@@ -113,9 +109,9 @@ export function windowLines(p: StatusPayload): string[] {
       "  of what you sent  not measured yet — receipts appear after the first assistant turn",
     );
   }
-  const busts = p.stats?.invalidations ?? 0;
+  const moved = p.stats?.invalidations ?? 0;
   out.push(
-    `  memory busts     ${busts} this session${busts ? "" : " — memory never invalidated your cache prefix"}`,
+    `  epochs whose bytes moved  ${moved} this session${moved ? "" : " — memory-section bytes have not moved"}`,
   );
   return out;
 }
