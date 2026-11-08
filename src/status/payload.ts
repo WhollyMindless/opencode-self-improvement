@@ -90,7 +90,7 @@ export interface StatusPayload {
   /** ISO instant of the epoch recompute that produced this snapshot. */
   at: string;
   sessionID: string;
-  reason: "first" | "store_changed";
+  reason: "first" | "store_changed" | "prompt_reveal";
   /** epoch recomputes since the server process started, ALL sessions. */
   recomputes: number;
   /** exact injected block ("" = abstained: no vocabulary overlap). */

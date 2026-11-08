@@ -778,13 +778,26 @@ describe("memory_status tool + epoch wiring", () => {
     expect(s?.block).toContain("run bun test");
     expect(s?.recomputes).toBeGreaterThanOrEqual(1);
 
-    // second prompt with unchanged store: NO recompute (cache-safe epoch)
+    // second prompt with unchanged store AND unchanged text: NO recompute
+    // (cache-safe epoch: the pre-check matches version and prompt).
     const before = (await readStatus())!.recomputes;
+    await p.sessionHooks["prompt"]!({
+      sessionID: "ses_status",
+      prompt: { text: "how do I run bun test" },
+    });
+    expect((await readStatus())!.recomputes).toBe(before);
+
+    // A new prompt that matches nothing re-scores and MOVES the block
+    // (#335): a recompute with reason=prompt_reveal is recorded, because the
+    // bytes the provider caches actually changed.
     await p.sessionHooks["prompt"]!({
       sessionID: "ses_status",
       prompt: { text: "and again" },
     });
-    expect((await readStatus())!.recomputes).toBe(before);
+    const after = await readStatus();
+    expect(after!.recomputes).toBe(before + 1);
+    expect(after!.reason).toBe("prompt_reveal");
+    expect(after!.block).toBe("");
   });
 
   test("injections count at the decision; message.updated lands measured + flush", async () => {
