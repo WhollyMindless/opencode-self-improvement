@@ -27,6 +27,7 @@ import { type StatusPayload } from "../src/status/payload.ts";
 import { captureHealth } from "../src/status/metrics.ts";
 import {
   attributionLines,
+  cacheLines,
   contextLines,
   renderMemoryReport,
   windowLines,
@@ -281,7 +282,7 @@ describe("renderMemoryReport", () => {
       "14 request(s) · 11.4kc ≈ 2850 tok rode · abstained 3",
     );
     expect(text).toContain("CACHE");
-    expect(text).toContain("cache busts    1 this session");
+    expect(text).toContain("epochs whose bytes moved  1 this session");
     expect(text).toContain("1 block builds since server start (all sessions)");
     expect(text).toContain("41.2k/42.9k prompt tok served from cache (96%)");
     expect(text).toContain("3 active · 1 superseded · 1 open · 2 scopes");
@@ -320,7 +321,7 @@ describe("renderMemoryReport", () => {
       blocked: [],
     });
     expect(text).toContain("provider reports no cache usage yet");
-    expect(text).toContain("structural proof");
+    expect(text).toContain("byte history only");
     expect(text).not.toContain("served from cache (0%)");
   });
 
@@ -583,7 +584,7 @@ describe("windowLines / attributionLines", () => {
     // 42900 prompt tok sent, 96% from cache
     expect(lines).toContain("≈ 42.9k prompt tok");
     expect(lines).toContain("96% of that prompt from cache");
-    expect(lines).toContain("memory busts     1 this session");
+    expect(lines).toContain("epochs whose bytes moved  1 this session");
   });
 
   test("no measurement yet degrades honestly, never 0%", () => {
@@ -592,11 +593,22 @@ describe("windowLines / attributionLines", () => {
     expect(lines).not.toContain("0% of it");
   });
 
-  test("zero busts is called out as the good case", () => {
+  test("zero byte changes does not claim provider cache success", () => {
     const noBust = payload();
     noBust.stats = { ...noBust.stats!, invalidations: 0 };
     expect(windowLines(noBust).join("\n")).toContain(
-      "memory never invalidated your cache prefix",
+      "memory-section bytes have not moved",
+    );
+  });
+
+  test("cache wording distinguishes byte-moving epochs from provider cost", () => {
+    const text = cacheLines(payload()).join("\n");
+    expect(text).toContain("epochs whose bytes moved  1 this session");
+    expect(text).toContain("not provider cache misses");
+    expect(text).not.toContain("cache busts");
+    expect(text).not.toContain("re-bills the whole history");
+    expect(cacheLines(payload({ measured: null })).join("\n")).toContain(
+      "byte history only",
     );
   });
 

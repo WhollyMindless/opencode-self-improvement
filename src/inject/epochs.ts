@@ -176,7 +176,18 @@ export function createInjectionEpochs({
       promptOverride ??
       (sid === undefined ? "" : (latestPrompt.get(sid) ?? ""));
     // Widen the candidate pool, then cap: the budget decides what rides.
-    const sel = await selectRelevant(prompt, 5, mems, await useSignals());
+    const sel = await selectRelevant(
+      prompt,
+      5,
+      mems,
+      await useSignals(),
+      undefined,
+      {
+        // The reserved capture provenance rides first, even on unrelated prompts.
+        // capToBudget still bounds all rendered rows together.
+        guidedCap: 3,
+      },
+    );
     const block = sel.block ? capToBudget(sel.block, budget) : "";
     // Refs the ACTUALLY-injected rows assert (paths + commands), the join key
     // for attribution. Derived from the budget-surviving rows, not the wider
