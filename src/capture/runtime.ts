@@ -9,6 +9,12 @@ import { bindSessionProvisional, writeTarget } from "../identity/repokey.ts";
 import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
+import {
+  findGuidedQuotes,
+  mergeGuidedCandidates,
+  normWs,
+  validateGuidedQuotes,
+} from "./guided-rules.ts";
 import { lagSince } from "./lag.ts";
 import { buildCapturePrompt } from "./prompt.ts";
 import { type SessionModelRef, sessionModel } from "./session-model.ts";
@@ -164,6 +170,9 @@ export function configureAutoCapture(
     // the one the user typed is worse than the tax it replaces.
     const omitted = captureModelOpt === undefined;
     const captureMax = Number(ctx.options.captureMax) || 3;
+    // Deterministic guided-candidate pre-pass (POC): default OFF, the bench
+    // picks the default-on arm (FINDINGS 2026-11-08 §4.4).
+    const guidedRules = ctx.options?.captureGuidedRules === true;
     const captureOnCompact = ctx.options?.captureOnCompact !== false;
     const modelRef = omitted ? null : parseModelRef(captureModelOpt);
     if (!omitted && !modelRef) {
@@ -346,23 +355,60 @@ export function configureAutoCapture(
           ),
         });
         const text = typeof out === "string" ? out : (out?.text ?? "");
-        const candidates = parseCandidates(text, captureMax);
-        // Verbatim-quote verification (mystery 2, candidate 4): a guided
-        // "original" must appear in the text the capture model actually saw
-        // (whitespace-normalised — the model may collapse runs of spaces).
-        // The haystack is the pre-slice redacted input, a superset of the
-        // prompt windows. A failed check drops the field, never the row: the
-        // distilled prose still deserved storage, it just cannot be vouched
-        // for as the user's own words.
-        const quoteHay =
-          `${redactSecrets(work)}\n${redactSecrets(userProse)}`.replace(
-            /\s+/g,
-            " ",
+        let candidates = parseCandidates(text, captureMax);
+        // Deterministic guided pre-pass (POC, FINDINGS 2026-11-08 §4, option
+        // `captureGuidedRules`): the user's own lines decide what is guided —
+        // the model phrases it but cannot veto it, and a quote the user never
+        // wrote is refused at the write boundary (retriable, not silent).
+        // The scanned text is the redacted REQUESTS prose plus the transcript
+        // user: lines: assistant output never enters the haystack, so a
+        // stored quote can only be what the user said.
+        if (guidedRules) {
+          const ruleUserText = [
+            redactSecrets(userProse),
+            ...redactSecrets(work)
+              .split("\n")
+              .filter((l) => /^\s*user:/i.test(l)),
+          ].join("\n");
+          const quotes = findGuidedQuotes(ruleUserText);
+          const checked = validateGuidedQuotes(candidates, ruleUserText);
+          candidates = mergeGuidedCandidates(quotes, checked.kept);
+          await record(
+            "auto_capture_rules",
+            {
+              session: sid,
+              trigger,
+              quotes: quotes.length,
+              refused: checked.refused.length,
+              model: modelTag,
+            },
+            false,
+            sid,
+            captureGate.evidenceContext,
           );
+        } else {
+          // Lenient check (default): a guided "original" must appear in the
+          // text the capture model actually saw (whitespace-normalised — the
+          // model may collapse runs of spaces). The haystack is the pre-slice
+          // redacted input, a superset of the prompt windows. A failed check
+          // drops the field, never the row: the distilled prose still
+          // deserved storage, it just cannot be vouched for as the user's
+          // own words.
+          const quoteHay =
+            `${redactSecrets(work)}\n${redactSecrets(userProse)}`.replace(
+              /\s+/g,
+              " ",
+            );
+          for (const c of candidates) {
+            if (
+              c.original !== undefined &&
+              !quoteHay.includes(normWs(c.original))
+            )
+              c.original = undefined;
+          }
+        }
         for (const c of candidates) {
-          const quote = c.original?.replace(/\s+/g, " ").trim();
-          const original =
-            quote && quoteHay.includes(quote) ? quote : undefined;
+          const original = c.original;
           const durable: string[] = [];
           let outcome: Awaited<ReturnType<typeof runWriteGate>>;
           try {

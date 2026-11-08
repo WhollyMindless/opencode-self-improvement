@@ -729,6 +729,188 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
     await loaded.cleanup();
   });
 
+  // Mystery 2: the verbatim quote is only trustworthy because the runtime
+  // checks it against the text the model saw. An exact substring is stored;
+  // a paraphrase is dropped — the row survives, the claim does not.
+  test("guided original survives only as a verbatim substring of the transcript", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureMax: 3,
+    });
+    await loaded["tool.execute.after"](
+      {
+        tool: "read",
+        sessionID: "ses-quote",
+        callID: "C1",
+        args: { filePath: "x.ts" },
+      },
+      { title: "read", output: "content", metadata: {} },
+    );
+    loaded.capture.context.messages = [
+      {
+        role: "user",
+        content:
+          "The tax rate is 8.25 percent. " +
+          "padding for the thin floor. ".repeat(10),
+      },
+    ];
+    loaded.capture.generate.response = JSON.stringify([
+      {
+        type: "context",
+        scope: "billing",
+        content:
+          "Checkout applies a tax rate of 8.25 percent, stated by the user.",
+        guided: true,
+        original: "The tax rate is 8.25 percent",
+      },
+      {
+        type: "context",
+        scope: "shipping",
+        content:
+          "Free shipping applies once the cart reaches one hundred dollars.",
+        guided: true,
+        original: "Shipping is free above $100",
+      },
+    ]);
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-quote" },
+    });
+    await waitFor(
+      () =>
+        evidence().filter((l) => String(l.ev) === "auto_capture_promoted")
+          .length === 2,
+    );
+    const rows = await loadAll();
+    const tax = rows.find((r) => r.scope === "billing");
+    const ship = rows.find((r) => r.scope === "shipping");
+    expect(tax?.original).toBe("The tax rate is 8.25 percent");
+    // Paraphrase: the row lands, the unverifiable quote does not.
+    expect(ship).toBeDefined();
+    expect(ship?.original).toBeUndefined();
+    // Stage telemetry: the promoted line names the row and its guided standing.
+    const lines = evidence().filter((l) =>
+      String(l.ev).startsWith("auto_capture_promoted"),
+    );
+    expect(
+      lines.some(
+        (l) => String(l.guided) === "true" && String(l.orig) === "true",
+      ),
+    ).toBe(true);
+    expect(
+      lines.some(
+        (l) => String(l.guided) === "true" && l.orig === undefined && l.row,
+      ),
+    ).toBe(true);
+    await loaded.cleanup();
+  });
+
+  // POC (FINDINGS 2026-11-08 §4): with captureGuidedRules on, a capture pass
+  // where the model emits NOTHING still stores the user's stated fact as a
+  // guided row with the verbatim quote — emission stops being stochastic.
+  test("captureGuidedRules: model silence cannot lose a stated value", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureGuidedRules: true,
+    });
+    await loaded["tool.execute.after"](
+      {
+        tool: "read",
+        sessionID: "ses-rules",
+        callID: "C1",
+        args: { filePath: "x.ts" },
+      },
+      { title: "read", output: "content", metadata: {} },
+    );
+    loaded.capture.context.messages = [
+      {
+        role: "user",
+        content:
+          "The correct sales tax rate is 8.25% (0.0825), applied after discounts. " +
+          "padding for the thin floor. ".repeat(10),
+      },
+    ];
+    loaded.capture.generate.response = "[]";
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-rules" },
+    });
+    await waitFor(() =>
+      evidence().some((l) => l.ev === "auto_capture_promoted"),
+    );
+    const rows = await loadAll();
+    const guided = rows.filter((r) => r.tags?.includes("user-guided"));
+    expect(guided).toHaveLength(1);
+    expect(guided[0]?.original).toContain("8.25%");
+    expect(guided[0]?.content).toContain("User-stated guidance");
+    const ruleLine = evidence().find((l) => l.ev === "auto_capture_rules");
+    expect(String(ruleLine?.quotes)).toBe("1");
+    expect(String(ruleLine?.refused)).toBe("0");
+    await loaded.cleanup();
+  });
+
+  // The write-path validator: a model-guided row whose quote the user never
+  // wrote is refused; the pre-pass re-offers the fact with the true quote,
+  // so the same pass still stores the guidance — verbatim or not at all.
+  test("captureGuidedRules: a paraphrased guided quote is refused, the fact survives verbatim", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureGuidedRules: true,
+    });
+    await loaded["tool.execute.after"](
+      {
+        tool: "read",
+        sessionID: "ses-rules2",
+        callID: "C1",
+        args: { filePath: "x.ts" },
+      },
+      { title: "read", output: "content", metadata: {} },
+    );
+    loaded.capture.context.messages = [
+      {
+        role: "user",
+        content:
+          "The correct sales tax rate is 8.25% (0.0825), applied after discounts. " +
+          "padding for the thin floor. ".repeat(10),
+      },
+    ];
+    loaded.capture.generate.response = JSON.stringify([
+      {
+        type: "context",
+        scope: "billing",
+        content:
+          "The user says the tax rate equals eight and a quarter percent.",
+        guided: true,
+        original: "the tax rate equals eight and a quarter percent",
+      },
+    ]);
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-rules2" },
+    });
+    await waitFor(() => evidence().some((l) => l.ev === "auto_capture_rules"));
+    const rows = await loadAll();
+    // No row carries the invented quote; the fallback row carries the true one.
+    expect(rows.some((r) => r.original?.includes("eight and a quarter"))).toBe(
+      false,
+    );
+    const ruleLine = evidence().find((l) => l.ev === "auto_capture_rules");
+    expect(String(ruleLine?.refused)).toBe("1");
+    await waitFor(() =>
+      evidence().some((l) => l.ev === "auto_capture_promoted"),
+    );
+    const rows2 = await loadAll();
+    expect(
+      rows2.some(
+        (r) => r.original?.includes("8.25%") && r.tags?.includes("user-guided"),
+      ),
+    ).toBe(true);
+    await loaded.cleanup();
+  });
+
   test("dupe collapses via the gate, fresh candidate lands tagged, cooldown holds", async () => {
     seed("pattern", "build", DUP_CONTENT); // the dupe target, already in the store
     const loaded = await loadCapturePlugin({
