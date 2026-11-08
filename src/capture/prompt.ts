@@ -37,8 +37,10 @@ export function buildCapturePrompt(
   transcript: string,
   max = 3,
   userProse = "",
+  known = "",
 ): string {
   const prose = redactSecrets(userProse).trim();
+  const knownList = redactSecrets(known).trim();
   return [
     "You mine one coding-agent session transcript for durable memories worth keeping across future sessions.",
     "",
@@ -51,8 +53,15 @@ export function buildCapturePrompt(
     '- status: "open" for a live planning thread; otherwise "settled".',
     "- content: one self-contained fact, 20-600 characters, useful in a NEW session.",
     "- kw: 3-5 search keywords for how a DIFFERENT session would ask for this — synonyms and alternate names, other verb forms, the literal command or file name. They are indexed for retrieval and never shown to a model. Omit (or []) when the content already uses those words.",
+    "- A guided row states the user's value or rule and NOTHING more: never claim what hidden tests, graders or suites 'encode' — you cannot see them, and the claim makes the row impossible to check.",
     "- Keep: decisions made, working commands, user preferences, blockers hit, durable context, conventions.",
     "- Skip: anything derivable from the code or git history, small talk, and details that only mattered inside this conversation.",
+    ...(knownList
+      ? [
+          "- Already stored for this repo — do NOT output these or restatements of them:",
+          knownList,
+        ]
+      : []),
     ...(prose
       ? [
           // The brief is its own block, so the rule about it is its own too.
