@@ -50,16 +50,15 @@ export interface StoreCounts {
  * Per-session ledger, incremented at the session.context injection decision
  * (so counts match exactly what was injected — an aborted turn still rode the
  * bytes). Cumulative fields are session-lifetime; epochRequests resets when a
- * new epoch freezes. An invalidation = a recompute (store_changed or
- * prompt_reveal) that moved a live epoch (the first epoch of a session is not
- * one).
+ * new epoch freezes. `invalidations` counts epochs whose bytes moved (the
+ * first epoch is not one), not provider cache misses or re-prefill tokens.
  */
 export interface SessionStats {
   requests: number; // provider requests that injected through session.context
   abstained: number; // requests where the epoch block was empty
   cumChars: number; // lifetime sum of injected block chars
   epochRequests: number; // requests the CURRENT epoch block has ridden
-  invalidations: number; // byte-moving recomputes this session
+  invalidations: number; // epochs whose bytes moved; provider cost is separate
   lastInvalidation: { at: string; reason: string } | null;
 }
 
