@@ -67,6 +67,7 @@ Zero configuration is the default. To tune, use the object form of the plugin en
 | --- | --- | --- |
 | `injectBudget` | `1200` | Character cap on the injected relevance block and each contextual pull; trimmed at whole-memory boundaries. Env fallback: `OPENCODE_MEMORY_INJECT_BUDGET`. |
 | `frontierBudget` | `3 × injectBudget` | Character cap on the session-start open-threads block. A thread longer than the budget is not injected and is reported as omitted. Env fallback: `OPENCODE_MEMORY_FRONTIER_BUDGET`. |
+| `contradictionSurface` | `false` | Experimental: compare guided constant claims with bounded source reads and render a class-specific CONFLICT verdict. See [Contradiction authority policy](#contradiction-authority-policy-experimental-349--351). |
 | `autoCapture` | `false` | Master switch for auto-capture, which is **experimental and has never fired on a verified live store** — see [Auto-capture is experimental](#auto-capture-is-experimental). Off by default, so the install stays zero-token. |
 | `captureModel` | — | `"provider/id"` model used for auto-capture. Required when `autoCapture` is on; missing or invalid disables capture with a startup warning. |
 | `captureMax` | `3` | Maximum candidates proposed per capture pass. |
@@ -117,6 +118,20 @@ Four gates run before anything is stored, and each emits an ordered evidence lin
 4. **GATE-4 — promotion or block.** The row lands, or the call returns the reason.
 
 Nothing is deleted: `memory_update` supersedes the previous row, `memory_forget` records a retirement, and `memory_undo` restores a snapshot. `memory_update` takes a `query` that picks the row — its id, a clock fragment such as `00:11:22.123`, or a unique substring of its text. Omit it to update the newest entry of that scope and type. A `query` that matches nothing, or several rows, writes nothing and says so. A prose edit carries over ordinary tags, issue link, retrieval keywords, open/settled standing, and repository to the new row, while capture-only guidance provenance is removed — updating a `global` row from one machine keeps it global for every other. Naming a row an earlier update already superseded reports the duplicate when the live successor already holds that exact content; when only the metadata you name differs, the update runs against the successor instead of dead-ending. And a failure after the new row is durable is reported as `PARTIAL` — the message names what failed, the replacement stands on disk, and `memory_undo` (merge or force) brings the old row back.
+
+### Contradiction authority policy (experimental, #349 / #351)
+
+`contradictionSurface` remains opt-in and defaults to `false`. Guided capture can attach a declared constant's `ref`, the user's value as `claim`, and an authority `klass`:
+
+| Captured statement | Class | Verdict on a detected conflict |
+| --- | --- | --- |
+| User states the required value for a declared constant | `spec` | The user is the authority; change the constant to the stated requirement. |
+| User describes how working code behaves | `behavior` | Code is the authority; keep the constant and raise the mismatch with the user. |
+| Authority is unclear | Omit `klass` | Keep plain guidance and its staleness caveat; emit no CONFLICT verdict. |
+
+The code check accepts a unique top-level `const` with a literal value. Comments, string examples, local declarations and computed expressions cannot establish an authority verdict. The scan is limited to 300 source files, 256 KiB per file and depth 3, preferring `src/`; it does not follow source links or resolve imports. Ambiguous declarations, unreadable/invalid source, exhausted budgets or an undecidable claim keep the plain guidance and staleness caveat. The JavaScript/TypeScript parser loads only when an opt-in check runs. Use attribution keeps the stored row's identity and prose while coverage counts only references present in the delivered text.
+
+Accepted residual: a user-stated **wrong spec** still classifies as `spec`. Its verdict follows that stated requirement even if it breaks the current tests. The plugin does not infer hidden-suite authority or silently override the user's requirement. Asking an oracle or inventing an extra authority class is outside this contract. Capture classification can be wrong; a code comparison verifies a value mismatch, not the user's intent. The seat-model runs and merged-main confidence gates in #350–#352 are still required before deciding whether to enable this by default.
 
 ## Repo scoping
 

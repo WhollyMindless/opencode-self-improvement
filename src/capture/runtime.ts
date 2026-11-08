@@ -358,6 +358,9 @@ export function configureAutoCapture(
                 content: c.content,
                 ...(c.status ? { status: c.status } : {}),
                 ...(c.kw ? { kw: c.kw } : {}),
+                ...(c.ref ? { ref: c.ref } : {}),
+                ...(c.claim ? { claim: c.claim } : {}),
+                ...(c.klass ? { klass: c.klass } : {}),
                 tags: [
                   AUTO_CAPTURE_TAG,
                   ...(trigger === "compaction" ? [CAPTURE_COMPACT_TAG] : []),
@@ -402,6 +405,16 @@ export function configureAutoCapture(
               reason: outcome.reason ?? "",
               audit_error: outcome.evidenceError,
               model: modelTag,
+              ...(outcome.action === "promoted" && c.guided
+                ? {
+                    conflict:
+                      c.ref && c.claim && c.klass
+                        ? "full"
+                        : c.ref || c.claim || c.klass
+                          ? "partial"
+                          : "absent",
+                  }
+                : {}),
             },
             false,
             sid,

@@ -79,6 +79,15 @@ export function toMemory(
       typeof fields.superseded_by === "string"
         ? fields.superseded_by
         : undefined,
+    ref: typeof fields.ref === "string" && fields.ref ? fields.ref : undefined,
+    claim:
+      typeof fields.claim === "string" && fields.claim
+        ? fields.claim
+        : undefined,
+    klass:
+      fields.klass === "spec" || fields.klass === "behavior"
+        ? fields.klass
+        : undefined,
     reason: typeof fields.reason === "string" ? fields.reason : undefined,
     status:
       fields.status === "open" || fields.status === "settled"
