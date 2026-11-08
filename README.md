@@ -117,6 +117,18 @@ Four gates run before anything is stored, and each emits an ordered evidence lin
 
 Nothing is deleted: `memory_update` supersedes the previous row, `memory_forget` records a retirement, and `memory_undo` restores a snapshot. `memory_update` takes a `query` that picks the row — its id, a clock fragment such as `00:11:22.123`, or a unique substring of its text. Omit it to update the newest entry of that scope and type. A `query` that matches nothing, or several rows, writes nothing and says so. A prose edit changes only the prose: the row's tags, issue link, retrieval keywords, open/settled standing, and repository all carry over to the new row — updating a `global` row from one machine keeps it global for every other. Naming a row an earlier update already superseded reports the duplicate when the live successor already holds that exact content; when only the metadata you name differs, the update runs against the successor instead of dead-ending. And a failure after the new row is durable is reported as `PARTIAL` — the message names what failed, the replacement stands on disk, and `memory_undo` (merge or force) brings the old row back.
 
+### Contradiction authority policy (experimental, #349 / #351)
+
+`contradictionSurface` remains opt-in and defaults to `false`. Guided capture can attach a declared constant's `ref`, the user's value as `claim`, and an authority `klass`:
+
+| Captured statement | Class | Verdict on a detected conflict |
+| --- | --- | --- |
+| User states the required value for a declared constant | `spec` | The user is the authority; change the constant to the stated requirement. |
+| User describes how working code behaves | `behavior` | Code is the authority; keep the constant and raise the mismatch with the user. |
+| Authority is unclear | Omit `klass` | Keep plain guidance and its staleness caveat; emit no CONFLICT verdict. |
+
+Accepted residual: a user-stated **wrong spec** still classifies as `spec`. Its verdict follows that stated requirement even if it breaks the current tests. The plugin does not infer hidden-suite authority or silently override the user's requirement. Asking an oracle or inventing an extra authority class is outside this contract. Capture classification can be wrong; a code comparison verifies a value mismatch, not the user's intent. The seat-model runs and merged-main confidence gates in #350–#352 are still required before deciding whether to enable this by default.
+
 ## Repo scoping
 
 Rows are stamped with your git origin (an id that survives re-clones and moves between machines) or, without an origin, a hash of the normalized directory path. `repoPath` keeps the human-readable path, so rows written before hashing keep matching.
