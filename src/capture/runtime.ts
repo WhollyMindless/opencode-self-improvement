@@ -1,18 +1,18 @@
 // Opt-in capture configuration and dispatch (#168). Cooldowns remain process-wide;
 // subscriptions and dispatch closures belong to one setup instance.
 import type { Cleanup } from "@opencode/plugin/promise/plugin";
-import { runWriteGate, type GateContext } from "../gate/gate.ts";
-import { record, recordCaptureLag } from "../evidence/record.ts";
 import { setCurrent } from "../core/state.ts";
-import { bindSessionProvisional, writeTarget } from "../identity/repokey.ts";
+import { record, recordCaptureLag } from "../evidence/record.ts";
+import { type GateContext, runWriteGate } from "../gate/gate.ts";
 import { captureSessionID } from "../identity/host-events.ts";
+import { bindSessionProvisional, writeTarget } from "../identity/repokey.ts";
 import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
-import { sessionModel, type SessionModelRef } from "./session-model.ts";
 import { lagSince } from "./lag.ts";
 import { buildCapturePrompt } from "./prompt.ts";
-import { flattenTranscript } from "./transcript.ts";
+import { type SessionModelRef, sessionModel } from "./session-model.ts";
+import { flattenTranscript, splitTranscript } from "./transcript.ts";
 
 interface CaptureHost {
   options?: Record<string, unknown>;
@@ -172,18 +172,16 @@ export function configureAutoCapture(
         return null;
       };
 
-      // ONE capture pass, shared by both triggers. `seeded` is a transcript
-      // already in hand — the compaction hook carries the PRE-compaction
-      // messages, which is the whole point (Compaction Cliff: one round
-      // retains 53% of exact-wording rules); when it is absent (older host
-      // shapes) or too thin, the session context is read instead, the same
-      // source the idle trigger mines.
-      async function captureSession(
-        sid: string,
-        seeded: string,
-        trigger: "idle" | "compaction",
-        seededMsgs?: unknown,
-      ): Promise<void> {
+      // Bind the capturing session and freeze its evidence context in ONE sync
+      // step, before the capture's first await. Binding is not enough on its
+      // own: record() resolves a session's repository at CALL time, so a
+      // `session.moved` delivered during the model call moves it, and every
+      // receipt appended after that await carries the NEW repository. The
+      // failure of repo A's capture would then be readable only from repo B
+      // and invisible to the session that actually failed. Callers freeze
+      // here and thread the result through, including into their own failure
+      // receipt.
+      function bindCapture(sid: string): GateContext {
         // Bind the capturing session for the synchronous stretches of this
         // path - but NOT as a promise: the awaits below let another session
         // move current, so the gate context and the persisted rows thread
@@ -196,7 +194,26 @@ export function configureAutoCapture(
         // no-op there). SYNC only: a lookup call here would break the
         // zero-token promise of the capture tests.
         bindSessionProvisional(sid, instanceDir);
-        const captureGate = gateContext(sid);
+        return gateContext(sid);
+      }
+
+      // ONE capture pass, shared by both triggers. `seeded` is a transcript
+      // already in hand — the compaction hook carries the PRE-compaction
+      // messages, which is the whole point (Compaction Cliff: one round
+      // retains 53% of exact-wording rules); when it is absent (older host
+      // shapes) or too thin, the session context is read instead, the same
+      // source the idle trigger mines.
+      async function captureSession(
+        sid: string,
+        seeded: string,
+        trigger: "idle" | "compaction",
+        seededMsgs?: unknown,
+        // Frozen by the trigger before its first await, so a session move
+        // cannot re-stamp this operation's receipts. Optional for direct
+        // callers, which bind here instead.
+        gate?: GateContext,
+      ): Promise<void> {
+        const captureGate = gate ?? bindCapture(sid);
         // #139: resolve the model BEFORE any skip so every capture evidence
         // line below can carry model= (cost attributable to a named model —
         // the real answer to the cost-surprise concern that justified the
@@ -240,12 +257,41 @@ export function configureAutoCapture(
           msgs = await contextFn({ sessionID: sid });
           transcript = flattenTranscript(msgs);
         }
-        if (transcript.length < 200) return; // too thin to mine reliably
+        if (transcript.length < 200) {
+          // This return used to be silent, and that silence is why a dead
+          // auto-capture looked like a working one: "the transcript was too
+          // thin to mine" and "the host never emitted the event" produced
+          // byte-identical stores. Record the skip with its size so the two
+          // are distinguishable from the evidence file alone.
+          await record(
+            "auto_capture_skipped",
+            {
+              session: sid,
+              trigger,
+              reason: "transcript_too_thin",
+              chars: transcript.length,
+              ...(modelTag ? { model: modelTag } : {}),
+            },
+            true,
+            sid,
+            captureGate.evidenceContext,
+          );
+          return; // too thin to mine reliably
+        }
         // #44: how stale is a capture? Distance from the newest message of
         // the mined transcript to this instant - measured on whatever the
         // trigger actually mined (the hook payload for compaction, the
         // session context for idle), so both triggers' lag is comparable.
         const lagMs = lagSince(msgs);
+        // #333: partition what was mined, so the user's brief is labelled as
+        // the brief instead of blending into the evidence. Falls back to the
+        // single un-partitioned block when the work lines alone are too thin
+        // (a seeded transcript with no message array behind it), which keeps
+        // the old prompt shape rather than silently dropping the prose.
+        const split = splitTranscript(msgs);
+        const partitioned = split.work.length >= 200;
+        const work = partitioned ? split.work : transcript;
+        const userProse = partitioned ? split.user : "";
         const out = await generateApi.text({
           model,
           // Redact the COMPLETE transcript, THEN apply the character budget
@@ -254,8 +300,9 @@ export function configureAutoCapture(
           // fell off, matches no pattern — buildCapturePrompt's own scrub
           // (kept, defense in depth) cannot recognize a fragment.
           prompt: buildCapturePrompt(
-            redactSecrets(transcript).slice(-8000),
+            redactSecrets(work).slice(-7000),
             captureMax,
+            redactSecrets(userProse).slice(-1500),
           ),
         });
         const text = typeof out === "string" ? out : (out?.text ?? "");
@@ -336,10 +383,33 @@ export function configureAutoCapture(
             setCurrent({ sessionID: sid });
             const now = Date.now();
             if (!captureCooldownPasses("idle", sid, now)) continue; // 5-min cooldown, shared across setups
+            // Freeze the operation's evidence context before its first await.
+            // The catch below runs after the model call, where a
+            // `session.moved` may already have re-pointed this session at
+            // another repository; resolving it there would stamp the failure
+            // receipt of repo A's capture as repo B's evidence.
+            let opGate: GateContext | undefined;
             try {
-              await captureSession(sid, "", "idle");
-            } catch {
-              // fail-closed: a broken capture attempt is invisible to the session
+              opGate = bindCapture(sid);
+              await captureSession(sid, "", "idle", undefined, opGate);
+            } catch (err) {
+              // Fail-closed for the SESSION, never silent in the store: the
+              // same silence that hid the 2.2.5 shape break would make a
+              // throwing capture indistinguishable from one that never ran.
+              await record(
+                "auto_capture_refused",
+                {
+                  session: sid,
+                  trigger: "idle",
+                  reason: "capture_threw",
+                  error: redactSecrets(
+                    String((err as Error)?.message ?? err),
+                  ).slice(0, 200),
+                },
+                true,
+                sid,
+                opGate?.evidenceContext,
+              );
             }
           }
         } catch {
@@ -359,12 +429,16 @@ export function configureAutoCapture(
           if (controller.signal.aborted) return;
           const now = Date.now();
           if (!captureCooldownPasses("compaction", sid, now)) return; // 5-min cooldown
+          // Same freeze as the idle trigger, and for the same reason: sync,
+          // before guarded() starts awaiting.
+          const opGate = bindCapture(sid);
           void guarded("session.compaction (auto-capture)", () =>
             captureSession(
               sid,
               flattenTranscript(messages),
               "compaction",
               messages,
+              opGate,
             ),
           );
         };

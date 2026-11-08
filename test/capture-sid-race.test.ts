@@ -27,6 +27,7 @@ import {
   rememberSessionDir,
   repoScopeFor,
   resetSessionScopes,
+  sessionScope,
   setRepoScope,
 } from "../src/identity/repokey.ts";
 import { resetState, setCurrent } from "../src/core/state.ts";
@@ -257,5 +258,58 @@ describe("capture repo stamp follows the captured session (#116)", () => {
         expect(e.sid).toBe("ses-capture");
       }
     }
+  });
+
+  test("a capture that throws after its session moved names the repository that failed", async () => {
+    // The refusal receipt is appended AFTER the model call. Resolving the
+    // session's repository at that moment reads the session's NEW home: repo
+    // A's private capture failure becomes repo B's evidence, and a reader in
+    // A — the one that actually failed — sees no evidence at all.
+    rememberSessionDir("ses-move", liveRoot);
+    const a = repoScopeFor("ses-move");
+    const loaded = await loadPlugin(liveRoot, {
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
+    await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+    loaded.capture.context.messages = thickMessages();
+    let release!: () => void;
+    loaded.capture.generate.park = new Promise<void>((r) => {
+      release = r;
+    });
+    loaded.capture.generate.throws = new Error(
+      "private repo-a capture failure",
+    );
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-move" },
+    });
+    await waitFor(() => loaded.capture.generate.calls.length === 1); // parked INSIDE the await
+    // The host's own identity listener re-binds the session mid-capture.
+    loaded.capture.events.push({
+      type: "session.moved",
+      location: { directory: liveRoot },
+      data: { sessionID: "ses-move", location: { directory: otherRoot } },
+    });
+    await waitFor(() => sessionScope("ses-move")?.path === otherRoot);
+    const b = sessionScope("ses-move");
+    expect(a?.key).toBeDefined();
+    expect(b?.key).toBeDefined();
+    expect(a?.key).not.toBe(b?.key); // the move really changed the scope
+    release();
+
+    await waitFor(() =>
+      evidence().some(
+        (e) => e.ev === "auto_capture_refused" && e.reason === "capture_threw",
+      ),
+    );
+    const refused = evidence().find(
+      (e) => e.ev === "auto_capture_refused" && e.reason === "capture_threw",
+    )!;
+    expect(String(refused.error)).toContain("private repo-a capture failure");
+    expect(refused.repo).toBe(a?.key);
+    expect(refused.repo).not.toBe(b?.key);
+    expect(refused.repoPath).toBe(a?.path);
+    await loaded.cleanup();
   });
 });
