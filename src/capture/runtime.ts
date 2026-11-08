@@ -172,18 +172,16 @@ export function configureAutoCapture(
         return null;
       };
 
-      // ONE capture pass, shared by both triggers. `seeded` is a transcript
-      // already in hand — the compaction hook carries the PRE-compaction
-      // messages, which is the whole point (Compaction Cliff: one round
-      // retains 53% of exact-wording rules); when it is absent (older host
-      // shapes) or too thin, the session context is read instead, the same
-      // source the idle trigger mines.
-      async function captureSession(
-        sid: string,
-        seeded: string,
-        trigger: "idle" | "compaction",
-        seededMsgs?: unknown,
-      ): Promise<void> {
+      // Bind the capturing session and freeze its evidence context in ONE sync
+      // step, before the capture's first await. Binding is not enough on its
+      // own: record() resolves a session's repository at CALL time, so a
+      // `session.moved` delivered during the model call moves it, and every
+      // receipt appended after that await carries the NEW repository. The
+      // failure of repo A's capture would then be readable only from repo B
+      // and invisible to the session that actually failed. Callers freeze
+      // here and thread the result through, including into their own failure
+      // receipt.
+      function bindCapture(sid: string): GateContext {
         // Bind the capturing session for the synchronous stretches of this
         // path - but NOT as a promise: the awaits below let another session
         // move current, so the gate context and the persisted rows thread
@@ -196,7 +194,26 @@ export function configureAutoCapture(
         // no-op there). SYNC only: a lookup call here would break the
         // zero-token promise of the capture tests.
         bindSessionProvisional(sid, instanceDir);
-        const captureGate = gateContext(sid);
+        return gateContext(sid);
+      }
+
+      // ONE capture pass, shared by both triggers. `seeded` is a transcript
+      // already in hand — the compaction hook carries the PRE-compaction
+      // messages, which is the whole point (Compaction Cliff: one round
+      // retains 53% of exact-wording rules); when it is absent (older host
+      // shapes) or too thin, the session context is read instead, the same
+      // source the idle trigger mines.
+      async function captureSession(
+        sid: string,
+        seeded: string,
+        trigger: "idle" | "compaction",
+        seededMsgs?: unknown,
+        // Frozen by the trigger before its first await, so a session move
+        // cannot re-stamp this operation's receipts. Optional for direct
+        // callers, which bind here instead.
+        gate?: GateContext,
+      ): Promise<void> {
+        const captureGate = gate ?? bindCapture(sid);
         // #139: resolve the model BEFORE any skip so every capture evidence
         // line below can carry model= (cost attributable to a named model —
         // the real answer to the cost-surprise concern that justified the
@@ -366,8 +383,15 @@ export function configureAutoCapture(
             setCurrent({ sessionID: sid });
             const now = Date.now();
             if (!captureCooldownPasses("idle", sid, now)) continue; // 5-min cooldown, shared across setups
+            // Freeze the operation's evidence context before its first await.
+            // The catch below runs after the model call, where a
+            // `session.moved` may already have re-pointed this session at
+            // another repository; resolving it there would stamp the failure
+            // receipt of repo A's capture as repo B's evidence.
+            let opGate: GateContext | undefined;
             try {
-              await captureSession(sid, "", "idle");
+              opGate = bindCapture(sid);
+              await captureSession(sid, "", "idle", undefined, opGate);
             } catch (err) {
               // Fail-closed for the SESSION, never silent in the store: the
               // same silence that hid the 2.2.5 shape break would make a
@@ -384,7 +408,7 @@ export function configureAutoCapture(
                 },
                 true,
                 sid,
-                undefined,
+                opGate?.evidenceContext,
               );
             }
           }
@@ -405,12 +429,16 @@ export function configureAutoCapture(
           if (controller.signal.aborted) return;
           const now = Date.now();
           if (!captureCooldownPasses("compaction", sid, now)) return; // 5-min cooldown
+          // Same freeze as the idle trigger, and for the same reason: sync,
+          // before guarded() starts awaiting.
+          const opGate = bindCapture(sid);
           void guarded("session.compaction (auto-capture)", () =>
             captureSession(
               sid,
               flattenTranscript(messages),
               "compaction",
               messages,
+              opGate,
             ),
           );
         };
