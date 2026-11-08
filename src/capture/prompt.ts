@@ -21,6 +21,14 @@ export interface CaptureCandidate {
   ref?: string;
   claim?: string;
   klass?: "spec" | "behavior";
+  /**
+   * Verbatim user utterance behind a guided row (bench mystery 2, candidate
+   * 4): the capture model's paraphrase of a hint made the bench's exact-text
+   * needle miss a row that actually rode. The runtime verifies this against
+   * the transcript the model saw — a quote that is not a substring is dropped,
+   * so a stored original is the user's own words.
+   */
+  original?: string;
 }
 
 // Keywords are the vocabulary bridge for the strict-paraphrase wall, mined from
@@ -65,6 +73,13 @@ export function buildCapturePrompt(
     '- Worked example (only when the user actually states this requirement): user says "The constant TAX_RATE in src/pricing.ts must be 0.0825." Emit:',
     '{"type":"context","scope":"pricing","content":"The constant TAX_RATE in src/pricing.ts must be 0.0825.","kw":["TAX_RATE","sales tax"],"guided":true,"ref":"TAX_RATE","claim":"0.0825","klass":"spec"}',
     "- A guided row states the user's value or rule and NOTHING more: never claim what hidden tests, graders or suites 'encode' — you cannot see them, and the claim makes the row impossible to check.",
+    // Mystery 2 (FINDINGS §3): the guided hint reached pass 2 on the wire in
+    // 3 of 4 t3 runs, and the miss could not be attributed — capture may have
+    // paraphrased the hint, so the bench's exact-text needle missed a row that
+    // actually rode. Storing the user's verbatim words makes the needle match
+    // deterministic; the runtime drops any quote that is not a transcript
+    // substring, so this field can only ever carry what the user actually said.
+    '- When guided, also output "original": the user\'s own words for this fact, copied VERBATIM from a user: line or the REQUESTS block — no paraphrase, no reordering, at most 300 characters. Omit original when no single user line states the fact.',
     "- Keep: decisions made, working commands, user preferences, blockers hit, durable context, conventions.",
     "- Skip: anything derivable from the code or git history, small talk, and details that only mattered inside this conversation.",
     ...(knownList

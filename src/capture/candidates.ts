@@ -116,12 +116,25 @@ export function parseCandidates(raw: string, max: number): CaptureCandidate[] {
                 : {}),
             }
           : {};
+      // Verbatim user utterance: shape-checked here, substring-verified by the
+      // runtime against the transcript the model saw. A failed verification
+      // drops the field, never the row.
+      const original =
+        guided && typeof o.original === "string"
+          ? (() => {
+              const s = o.original.trim();
+              return s && s.length <= 300 && flattenMemoryText(s) === s
+                ? s
+                : undefined;
+            })()
+          : undefined;
       out.push({
         ...(status
           ? { type, scope, content, status }
           : { type, scope, content }),
         ...(kw ? { kw } : {}),
         ...(guided ? { guided: true, ...conflict } : {}),
+        ...(original ? { original } : {}),
       });
     }
     return out;

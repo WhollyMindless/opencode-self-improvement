@@ -28,5 +28,12 @@ export function formatMemory(m: Memory): string {
   const type = flattenMemoryText(m.type);
   const scope = flattenMemoryText(m.scope);
   const content = flattenMemoryText(m.content);
-  return `- [${date}]${tag}${src} ${type}/${scope}: ${content}`;
+  // Verbatim user utterance (mystery 2): rendered so the user's exact words
+  // reach the next session's request bytes even when the distilled content
+  // paraphrases them. Stored after a substring check, so this is quotation,
+  // not generation.
+  const quote = m.original
+    ? ` (user said: "${flattenMemoryText(m.original)}")`
+    : "";
+  return `- [${date}]${tag}${src} ${type}/${scope}: ${content}${quote}`;
 }

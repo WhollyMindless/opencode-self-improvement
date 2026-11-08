@@ -48,6 +48,26 @@ const CONFLICT_REF_RE = /^[A-Za-z_][A-Za-z0-9_]{1,63}$/;
 
 export const MAX_CLAIM_CHARS = 32;
 
+/** Cap on the verbatim user utterance a guided row may carry (bench #347 follow-up). */
+export const MAX_ORIGINAL_CHARS = 300;
+
+/**
+ * Normalise the verbatim user utterance stored beside a guided row. TOTAL on
+ * purpose, like the conflict fields: a junk or over-long quote drops the
+ * field, never the row. The value must already be whitespace-flattened; the
+ * capture runtime verifies it is a true substring of what the model saw, so
+ * a stored quote is the user's own words, not the capture model's paraphrase
+ * (FINDINGS mystery 2, candidate 4: a paraphrased hint made the bench's
+ * exact-text needle miss a row that actually rode).
+ */
+export function normalizeOriginal(original: unknown): string | undefined {
+  if (typeof original !== "string") return undefined;
+  const o = original.trim();
+  if (!o || o.length > MAX_ORIGINAL_CHARS) return undefined;
+  if (flattenMemoryText(o) !== o) return undefined;
+  return o;
+}
+
 /**
  * Normalise the contradiction-surface fields of a guided candidate. TOTAL on
  * purpose, like keywords: a junk ref/claim/klass drops the fields, never the
@@ -101,6 +121,11 @@ export interface Memory {
   ref?: string;
   claim?: string;
   klass?: "spec" | "behavior";
+  // Verbatim user utterance behind a guided row, written by capture after a
+  // substring check against the transcript the capture model saw. Injection
+  // renders it, so the user's exact words reach the next session's wire bytes
+  // even when the distilled content paraphrases them.
+  original?: string;
   file: string;
   index: number;
 }

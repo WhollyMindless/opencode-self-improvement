@@ -347,7 +347,22 @@ export function configureAutoCapture(
         });
         const text = typeof out === "string" ? out : (out?.text ?? "");
         const candidates = parseCandidates(text, captureMax);
+        // Verbatim-quote verification (mystery 2, candidate 4): a guided
+        // "original" must appear in the text the capture model actually saw
+        // (whitespace-normalised — the model may collapse runs of spaces).
+        // The haystack is the pre-slice redacted input, a superset of the
+        // prompt windows. A failed check drops the field, never the row: the
+        // distilled prose still deserved storage, it just cannot be vouched
+        // for as the user's own words.
+        const quoteHay =
+          `${redactSecrets(work)}\n${redactSecrets(userProse)}`.replace(
+            /\s+/g,
+            " ",
+          );
         for (const c of candidates) {
+          const quote = c.original?.replace(/\s+/g, " ").trim();
+          const original =
+            quote && quoteHay.includes(quote) ? quote : undefined;
           const durable: string[] = [];
           let outcome: Awaited<ReturnType<typeof runWriteGate>>;
           try {
@@ -361,6 +376,10 @@ export function configureAutoCapture(
                 ...(c.ref ? { ref: c.ref } : {}),
                 ...(c.claim ? { claim: c.claim } : {}),
                 ...(c.klass ? { klass: c.klass } : {}),
+                // Verified verbatim utterance (see quoteHay above): injection
+                // renders it so the user's exact words ride the next session's
+                // request bytes.
+                ...(original ? { original } : {}),
                 tags: [
                   AUTO_CAPTURE_TAG,
                   ...(trigger === "compaction" ? [CAPTURE_COMPACT_TAG] : []),
@@ -415,6 +434,14 @@ export function configureAutoCapture(
                           : "absent",
                   }
                 : {}),
+              // Stage telemetry (mystery 2): the row's identity and guided
+              // standing at the moment of storage, so a later L6h miss can be
+              // joined to the exact row that did or did not enter the hint
+              // channel, and to whether its verbatim quote survived the
+              // substring check.
+              ...(outcome.action === "promoted" ? { row: outcome.ts } : {}),
+              ...(c.guided ? { guided: true } : {}),
+              ...(original ? { orig: true } : {}),
             },
             false,
             sid,
