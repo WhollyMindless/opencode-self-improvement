@@ -15,6 +15,7 @@ import type { Memory } from "../store/model/memory.ts";
 import { UpdateArgs, validated } from "./schema.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { join } from "node:path";
+import { nonCaptureTags } from "../core/guidance.ts";
 
 export const register: ToolRegister = (editor, deps) => {
   const {
@@ -29,7 +30,7 @@ export const register: ToolRegister = (editor, deps) => {
     validated(UpdateArgs, {
       name: "memory_update",
       description:
-        "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing. A prose edit carries over everything the call does not name — tags, issue, keywords, status, and the row's repository. Naming a row that was already updated to exactly this content (metadata included) reports the duplicate; if its live successor holds the prose and only the metadata you name differs, the successor is updated. A failure after the write is reported as PARTIAL: the replacement is durable and memory_undo merge/force restores the old row.",
+        "Update an existing memory (gated like remember; the prior entry is superseded, not erased). `query` selects which row to update: its exact id (ts), a clock fragment (e.g. HH:MM:SS.mmm), or a unique substring of its content. Omitting `query` targets the most recent active row of scope+type. An unmatched or ambiguous `query` fails closed and writes nothing. A prose edit carries over everything the call does not name — ordinary tags, issue, keywords, status, and the row's repository. Capture-only guidance provenance is removed from replacements. Naming a row that was already updated to exactly this content (metadata included) reports the duplicate; if its live successor holds the prose and only the metadata you name differs, the successor is updated. A failure after the write is reported as PARTIAL: the replacement is durable and memory_undo merge/force restores the old row.",
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
@@ -183,7 +184,9 @@ export const register: ToolRegister = (editor, deps) => {
               // "already standing" on a row holding ["old-alias"].
               const requested = {
                 kw: args.kw ?? target.kw,
-                tags: target.tags,
+                // A model-authored successor cannot attest that the user
+                // stated its prose, even when it replaces a captured row.
+                tags: nonCaptureTags(target.tags),
                 issue: target.issue,
                 status: args.status ?? target.status ?? "settled",
                 repo: target.repo ?? "global",

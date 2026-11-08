@@ -12,6 +12,7 @@ import { getCurrent } from "../core/state.ts";
 import { TYPES } from "../core/types.ts";
 import type { WriteCandidate } from "../gate/gate.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
+import { nonCaptureTags } from "../core/guidance.ts";
 import { EXPORT_VERSION, exportHeader, stamp } from "./export.ts";
 
 // --- import -------------------------------------------------------------------
@@ -75,7 +76,9 @@ function parseRow(line: string): WriteCandidate | null {
   };
   if (r.status === "open" || r.status === "settled") c.status = r.status;
   if (Array.isArray(r.tags) && r.tags.every((t) => typeof t === "string"))
-    c.tags = r.tags;
+    c.tags = nonCaptureTags(r.tags);
+  // ref/claim/klass are deliberately absent from this allowlist: a file
+  // (including one carrying our export header) cannot attest user guidance.
   if (kw?.length) c.kw = kw;
   if (typeof r.issue === "string" && r.issue) c.issue = r.issue;
   // Origin stamps survive an export/import hop (repokey.ts): a row written
