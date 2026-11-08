@@ -29,7 +29,6 @@ describe("capture provenance reservation (#342)", () => {
       loaded = await loadPlugin(repo, {
         autoCapture: capture,
         captureModel: "fake/model",
-        contradictionSurface: true,
       });
       await loaded["tool.execute.after"](
         {

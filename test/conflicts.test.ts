@@ -67,17 +67,30 @@ function row(over: Partial<Memory>): Memory {
 }
 
 describe("findConstant (deterministic code read)", () => {
-  test("the default OFF path does not load the source parser", () => {
+  test("explicit opt-out does not load the source parser", () => {
     writeSrc("pricing.ts", "export const TAX_RATE = 0.08;");
-    const result = Bun.spawnSync([
-      process.execPath,
-      join(import.meta.dir, "helpers", "conflict-parser-load.ts"),
-      repo,
-    ]);
+    seedGuided({ ref: "TAX_RATE", claim: "0.0825", klass: "spec" });
+    const result = Bun.spawnSync(
+      [
+        process.execPath,
+        join(import.meta.dir, "helpers", "conflict-parser-load.ts"),
+        repo,
+      ],
+      {
+        cwd: repo,
+        env: {
+          ...process.env,
+          OPENCODE_MEMORY_DIR: join(root, "memory"),
+          OPENCODE_COMMANDS_DIR: join(root, "commands"),
+        },
+      },
+    );
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout.toString())).toEqual({
       states: [false, false, true],
       value: "0.08",
+      conflict: false,
+      plain: true,
     });
   });
   test("reads an exported constant under src/", () => {
@@ -299,8 +312,8 @@ async function deliveredBlock(
     .join("\n");
 }
 
-describe("injection renders the CONFLICT line (opt-in)", () => {
-  test("epochs credit stored prose but attribute only refs actually rendered", async () => {
+describe("injection renders the CONFLICT line", () => {
+  test("epochs default ON, credit stored prose and attribute only rendered refs", async () => {
     writeSrc("pricing.ts", "export const TAX_RATE = 0.08;");
     const prose =
       "The sales tax rate is 8.25%; see legacy/rules.ts for the old guidance.";
@@ -316,7 +329,6 @@ describe("injection renders the CONFLICT line (opt-in)", () => {
     const epochs = createInjectionEpochs({
       budget: 4000,
       frontierBudget: 1000,
-      contradictionSurface: true,
       measuredTurns: new Map(),
       noteHits: async (_sid, rows) => {
         credited = rows;
@@ -404,10 +416,10 @@ describe("injection renders the CONFLICT line (opt-in)", () => {
       expect(selection.block).toContain("verify against the current code");
     }
   });
-  test("collision + spec class: the row renders as a spec CONFLICT", async () => {
+  test("omitted option defaults ON: a spec collision renders a CONFLICT", async () => {
     writeSrc("pricing.ts", "export const TAX_RATE = 0.08;\n");
     seedGuided({ ref: "TAX_RATE", claim: "0.0825", klass: "spec" });
-    const loaded = await loadPlugin(repo, { contradictionSurface: true });
+    const loaded = await loadPlugin(repo);
     rememberSessionDir("ses-conf-spec", repo);
     const block = await deliveredBlock(
       loaded,
@@ -503,10 +515,10 @@ describe("injection renders the CONFLICT line (opt-in)", () => {
     await loaded.cleanup();
   });
 
-  test("feature OFF (default): a colliding guided row renders plain", async () => {
+  test("explicit false opts out: a colliding guided row renders plain", async () => {
     writeSrc("pricing.ts", "export const TAX_RATE = 0.08;\n");
     seedGuided({ ref: "TAX_RATE", claim: "0.0825", klass: "spec" });
-    const loaded = await loadPlugin(repo);
+    const loaded = await loadPlugin(repo, { contradictionSurface: false });
     rememberSessionDir("ses-conf-off", repo);
     const block = await deliveredBlock(
       loaded,

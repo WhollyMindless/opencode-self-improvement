@@ -27,7 +27,7 @@ export interface CodeFact {
   value: string;
 }
 
-// Bounded opt-in scan: cap files, bytes per file, and directory depth. When
+// Bounded source scan: cap files, bytes per file, and directory depth. When
 // a relevant source cannot be decided, keep the row's plain caveat.
 const MAX_FILES = 300;
 const MAX_FILE_BYTES = 256 * 1024;
@@ -66,7 +66,7 @@ function walk(dir: string, depth: number, out: string[]): void {
   }
 }
 
-// Parsing is paid only by opt-in code checks, never by the default OFF path.
+// Load the parser only for an actual code check, never on the opt-out path.
 const require = createRequire(import.meta.url);
 let parser: typeof import("@babel/parser") | undefined;
 const sourceParser = (): typeof import("@babel/parser") =>

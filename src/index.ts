@@ -204,8 +204,8 @@ const impl = {
     const sessions = createInjectionEpochs({
       budget,
       frontierBudget: openBudget,
-      // Contradiction surface (POC): explicit opt-in, reads the workspace.
-      contradictionSurface: ctx.options?.contradictionSurface === true,
+      // Code-check guided claims by default; explicit false opts out.
+      contradictionSurface: ctx.options?.contradictionSurface !== false,
       measuredTurns,
       noteHits: (sid, rows, query) => noteHits("inject", sid, rows, query),
     });

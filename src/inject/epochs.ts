@@ -32,8 +32,7 @@ interface InjectionEpochOptions {
   frontierBudget: number;
   /**
    * Contradiction surface (POC): code-check guided rows at render time.
-   * Off by default — the scan is cheap but reads the workspace, so it is an
-   * explicit opt-in (plugin option `contradictionSurface`).
+   * Enabled by default; `contradictionSurface: false` skips workspace checks.
    */
   contradictionSurface?: boolean;
   // The host listener records usage. Eviction must still drop it with the
@@ -45,7 +44,7 @@ interface InjectionEpochOptions {
 export function createInjectionEpochs({
   budget,
   frontierBudget: openBudget,
-  contradictionSurface = false,
+  contradictionSurface = true,
   measuredTurns,
   noteHits,
 }: InjectionEpochOptions) {

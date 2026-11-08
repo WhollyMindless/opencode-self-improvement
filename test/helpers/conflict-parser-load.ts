@@ -1,8 +1,8 @@
-// Separate process so a prior opt-in test cannot pre-load the parser.
+// Separate process so a prior enabled test cannot pre-load the parser.
 import { createRequire } from "node:module";
-import { selectRelevant } from "../../src/recall/relevant.ts";
 import { findConstant } from "../../src/recall/conflicts.ts";
-import type { Memory } from "../../src/store/model/memory.ts";
+import { rememberSessionDir } from "../../src/identity/repokey.ts";
+import { loadPlugin } from "../harness.ts";
 
 const require = createRequire(import.meta.url);
 const loaded = () =>
@@ -10,28 +10,29 @@ const loaded = () =>
     path.replace(/\\/g, "/").includes("/@babel/parser/"),
   );
 const states = [loaded()];
-await selectRelevant(
-  "",
-  3,
-  [
-    {
-      ts: "2026-11-08T00:00:00.000Z",
-      type: "context",
-      scope: "pricing",
-      content: "The sales tax rate is 8.25 percent.",
-      tags: ["user-guided"],
-      ref: "TAX_RATE",
-      claim: "0.0825",
-      klass: "spec",
-      file: "fixture",
-      index: 0,
-    } satisfies Memory,
-  ],
-  undefined,
-  undefined,
-  { guidedCap: 3 },
-);
+const repo = process.argv[2]!;
+const plugin = await loadPlugin(repo, { contradictionSurface: false });
+const sid = "parser-opt-out";
+rememberSessionDir(sid, repo);
+await plugin.sessionHooks.prompt({
+  sessionID: sid,
+  prompt: { text: "Repair deployment" },
+});
+const delivered = {
+  sessionID: sid,
+  system: [] as Array<{ type: string; text: string }>,
+};
+await plugin.sessionHooks.context(delivered);
+const block = delivered.system.map((part) => part.text).join("\n");
+await plugin.cleanup();
 states.push(loaded());
 const fact = findConstant(process.argv[2]!, "TAX_RATE");
 states.push(loaded());
-console.log(JSON.stringify({ states, value: fact?.value }));
+console.log(
+  JSON.stringify({
+    states,
+    value: fact?.value,
+    conflict: block.includes("CONFLICT (TAX_RATE)"),
+    plain: block.includes("8.25"),
+  }),
+);
