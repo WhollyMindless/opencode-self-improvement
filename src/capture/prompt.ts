@@ -15,6 +15,8 @@ export interface CaptureCandidate {
   status?: "open" | "settled";
   /** Retrieval keywords (#40): indexed by the store, never rendered. */
   kw?: string[];
+  /** Literal true only when the user stated the fact, not agent inference. */
+  guided?: boolean;
 }
 
 // Keywords are the vocabulary bridge for the strict-paraphrase wall, mined from
@@ -45,7 +47,7 @@ export function buildCapturePrompt(
     "You mine one coding-agent session transcript for durable memories worth keeping across future sessions.",
     "",
     `Output ONLY a JSON array of at most ${max} objects (a fenced json block is fine), each:`,
-    '{"type": "...", "scope": "...", "content": "...", "status": "...", "kw": ["...", "..."]}',
+    '{"type": "...", "scope": "...", "content": "...", "status": "...", "kw": ["...", "..."], "guided": true}',
     "",
     "Rules:",
     `- type: one of ${TYPES.join(", ")}.`,
@@ -53,6 +55,7 @@ export function buildCapturePrompt(
     '- status: "open" for a live planning thread; otherwise "settled".',
     "- content: one self-contained fact, 20-600 characters, useful in a NEW session.",
     "- kw: 3-5 search keywords for how a DIFFERENT session would ask for this — synonyms and alternate names, other verb forms, the literal command or file name. They are indexed for retrieval and never shown to a model. Omit (or []) when the content already uses those words.",
+    "- guided: true ONLY when the user STATED this fact in their own words — a value, rate, number, rule or correction that appears in a user: line or the REQUESTS block. Omit guided for anything the agent discovered by itself.",
     "- A guided row states the user's value or rule and NOTHING more: never claim what hidden tests, graders or suites 'encode' — you cannot see them, and the claim makes the row impossible to check.",
     "- Keep: decisions made, working commands, user preferences, blockers hit, durable context, conventions.",
     "- Skip: anything derivable from the code or git history, small talk, and details that only mattered inside this conversation.",

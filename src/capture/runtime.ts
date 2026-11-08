@@ -22,6 +22,7 @@ import {
 } from "../store/model/visibility.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
 import { cmpTs } from "../core/cmp-ts.ts";
+import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
 
 interface CaptureHost {
   options?: Record<string, unknown>;
@@ -352,11 +353,16 @@ export function configureAutoCapture(
           try {
             outcome = await runWriteGate(
               quarantineCandidate({
-                ...c,
-                tags:
-                  trigger === "compaction"
-                    ? ["auto-capture", CAPTURE_COMPACT_TAG]
-                    : ["auto-capture"],
+                type: c.type,
+                scope: c.scope,
+                content: c.content,
+                ...(c.status ? { status: c.status } : {}),
+                ...(c.kw ? { kw: c.kw } : {}),
+                tags: [
+                  AUTO_CAPTURE_TAG,
+                  ...(trigger === "compaction" ? [CAPTURE_COMPACT_TAG] : []),
+                  ...(c.guided ? [USER_GUIDED_TAG] : []),
+                ],
               }),
               { ...captureGate, durable },
             );
