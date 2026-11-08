@@ -32,7 +32,10 @@ import { setRepoScope } from "../src/identity/repokey.ts";
 import { loadPlugin } from "./harness.ts";
 import { parseCandidates, parseModelRef } from "../src/capture/candidates.ts";
 import { buildCapturePrompt } from "../src/capture/prompt.ts";
-import { flattenTranscript } from "../src/capture/transcript.ts";
+import {
+  flattenTranscript,
+  splitTranscript,
+} from "../src/capture/transcript.ts";
 import { readEvidenceLog as evidence, sleep } from "./helpers/logfmt.ts";
 
 let root: string;
@@ -286,6 +289,17 @@ describe("buildCapturePrompt", () => {
     expect(p).toContain("never shown to a model");
   });
 
+  // The line is load-bearing for cost, not precision: dropping it multiplies
+  // reasoning and wall clock on the capture fixture. Pin it so a prompt
+  // refactor cannot silently remove the bound.
+  test("bounds output volume so one fact does not arrive under several scopes", () => {
+    const p = buildCapturePrompt("user: hello world", 3);
+    expect(p).toContain("Few is better than full");
+    expect(p).toContain(
+      "Never emit the same fact twice under different scope names",
+    );
+  });
+
   test("redacts common secrets without treating ordinary code identifiers as secrets", () => {
     // Fixtures are split so secret scanners (GitHub push protection) skip them.
     const secrets = [
@@ -335,6 +349,43 @@ describe("flattenTranscript", () => {
     );
   });
 
+  // Live opencode 2.2.5 recording (test/fixtures/host-session-context-2.2.5.json,
+  // captured from `session.context()` on a real server): the role moved from
+  // `role`/`info.role` into `type`, and the parts moved from `parts` into
+  // `content[]`. Reading only the V1 keys rendered EVERY 2.2.5 session as a
+  // 0-character transcript, and the 200-character floor then skipped capture in
+  // silence — the reason auto-capture had never fired on a live host.
+  test("renders the live 2.2.5 shape: role in `type`, parts in `content[]`", async () => {
+    const msgs = await Bun.file(
+      `${import.meta.dir}/fixtures/host-session-context-2.2.5.json`,
+    ).json();
+    const out = flattenTranscript(msgs);
+    expect(out).toContain("user: ");
+    expect(out).toContain("assistant: ");
+    expect(out).not.toContain("idle:"); // a non-conversation record, not a role
+    // Reasoning stays private even when it arrives under `content`.
+    expect(out).not.toContain("The user is asking me to read src/math.ts");
+  });
+
+  test("2.2.5: a non-conversation record alone renders nothing", () => {
+    expect(flattenTranscript([{ id: "e", type: "idle", outcome: {} }])).toBe(
+      "",
+    );
+    expect(
+      flattenTranscript([
+        { type: "user", text: "run make verify on the build box" },
+        {
+          type: "assistant",
+          content: [
+            { type: "reasoning", text: "private scratch work" },
+            { type: "tool", id: "call_1", name: "bash" },
+            { type: "text", text: "verified" },
+          ],
+        },
+      ]),
+    ).toBe("user: run make verify on the build box\nassistant: verified");
+  });
+
   test("omits reasoning and thinking parts while retaining user and assistant text", () => {
     const msgs = [
       {
@@ -366,6 +417,91 @@ describe("flattenTranscript", () => {
     expect(out.split("\n").filter((l) => l.startsWith("user:")).length).toBe(
       40,
     );
+  });
+});
+
+// --- splitTranscript / the labelled REQUESTS block (#333) -------------------------
+//
+// The framing rows in #329 were an INPUT fault, not a prompt fault: measured on
+// the reproducing fixture, the shipped prompt stored the brief as a durable
+// preference (1 framing row), the same prompt with the user turns removed
+// stored none — and also lost the one real preference in the prose. Routing
+// beats dropping, so these pin both halves: the partition, and the label that
+// tells the model which block expires.
+
+describe("splitTranscript", () => {
+  test("partitions user from work and keeps source order inside each", () => {
+    const split = splitTranscript([
+      { info: { role: "user" }, parts: [{ text: "only touch src/" }] },
+      { role: "assistant", parts: [{ text: "reading src/pricing.ts" }] },
+      { role: "user", parts: [{ text: "we use bun here, not npm" }] },
+      { role: "assistant", parts: [{ text: "ran bun test ./src" }] },
+    ]);
+    expect(split.work).toBe(
+      "assistant: reading src/pricing.ts\nassistant: ran bun test ./src",
+    );
+    expect(split.user).toBe(
+      "user: only touch src/\nuser: we use bun here, not npm",
+    );
+  });
+
+  test("the live 2.2.5 shape partitions too, non-conversation records included nowhere", () => {
+    const split = splitTranscript([
+      { id: "m1", time: 1, type: "user", text: "fix the tax rate" },
+      {
+        id: "m2",
+        time: 2,
+        type: "assistant",
+        content: [
+          { type: "reasoning", text: "private chain" },
+          { type: "tool", id: "call_1", name: "bash" },
+          { type: "text", text: "tax is 0.0825" },
+        ],
+      },
+      { id: "m3", time: 3, type: "idle" },
+    ]);
+    expect(split.user).toBe("user: fix the tax rate");
+    expect(split.work).toBe("assistant: tax is 0.0825");
+    expect(split.work).not.toInclude("private chain");
+  });
+
+  test("junk yields two empty strings, never a throw", () => {
+    expect(splitTranscript(undefined)).toEqual({ work: "", user: "" });
+    expect(splitTranscript("junk")).toEqual({ work: "", user: "" });
+  });
+});
+
+describe("the labelled REQUESTS block", () => {
+  test("with prose: both blocks are labelled and the expiry rule is present", () => {
+    const p = buildCapturePrompt(
+      "assistant: changed TAX_RATE to 0.0825",
+      3,
+      "user: only touch src/",
+    );
+    expect(p).toInclude("Session work (what the agent did");
+    expect(p).toInclude("REQUESTS (the user's brief for this session");
+    expect(p).toInclude("outlives the task");
+    expect(p).toInclude("only touch src/");
+    // The old single-block header must not also appear.
+    expect(p).not.toInclude("Transcript:");
+  });
+
+  test("without prose: the original single-block shape is unchanged", () => {
+    const p = buildCapturePrompt("user: hello world", 3);
+    expect(p).toInclude("Transcript:");
+    expect(p).not.toInclude("REQUESTS (");
+    expect(p).not.toInclude("outlives the task");
+  });
+
+  test("the brief is redacted like the work, not passed through", () => {
+    const key = "gh" + "p_AbCdEf0123456789AbCdEf0123456789AbCd";
+    const p = buildCapturePrompt(
+      "assistant: done",
+      3,
+      `user: use ${key} for the deploy`,
+    );
+    expect(p).not.toInclude(key);
+    expect(p).toInclude("[redacted]");
   });
 });
 
@@ -430,6 +566,76 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
     await waitFor(() => loaded.capture.context.calls.length === 1);
     await sleep(50);
     expect(loaded.capture.generate.calls.length).toBe(0);
+    // The skip must be visible: an unrecorded thin transcript is
+    // indistinguishable from a host that never emitted the trigger, and that
+    // ambiguity is what kept a dead auto-capture looking alive.
+    expect(
+      evidence().some(
+        (l) =>
+          l.ev === "auto_capture_skipped" &&
+          l.reason === "transcript_too_thin" &&
+          l.session === "ses-thin",
+      ),
+    ).toBe(true);
+    await loaded.cleanup();
+  });
+
+  test("the live 2.2.5 context shape reaches the capture model", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
+    await loaded["tool.execute.after"](
+      {
+        tool: "read",
+        sessionID: "ses-225",
+        callID: "C1",
+        args: { filePath: "x.ts" },
+      },
+      { title: "read", output: "content", metadata: {} },
+    );
+    // Recorded from a real 2.2.5 server: role under `type`, parts under
+    // `content[]`, plus a trailing non-conversation `idle` record.
+    loaded.capture.context.messages = await Bun.file(
+      `${import.meta.dir}/fixtures/host-session-context-2.2.5.json`,
+    ).json();
+    loaded.capture.generate.response = "[]";
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-225" },
+    });
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+    const prompt = String(loaded.capture.generate.calls[0].prompt);
+    expect(prompt).toContain("user:");
+    expect(prompt).toContain("assistant:");
+    expect(prompt).not.toContain("idle:");
+    expect(prompt).not.toContain("The user is asking me to read src/math.ts");
+    await loaded.cleanup();
+  });
+
+  test("a capture that throws is recorded instead of swallowed", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+    });
+    loaded.capture.context.messages = [
+      { role: "user", content: "x".repeat(300) },
+    ];
+    loaded.capture.generate.throws = new Error("capture model exploded");
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-throw" },
+    });
+    await waitFor(() =>
+      evidence().some(
+        (l) => l.ev === "auto_capture_refused" && l.reason === "capture_threw",
+      ),
+    );
+    const line = evidence().find(
+      (l) => l.ev === "auto_capture_refused" && l.reason === "capture_threw",
+    );
+    expect(line?.session).toBe("ses-throw");
+    expect(String(line?.error)).toContain("capture model exploded");
     await loaded.cleanup();
   });
 

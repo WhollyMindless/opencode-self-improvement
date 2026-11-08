@@ -3,14 +3,45 @@
 // Render an array of session-context messages of unknown shape into
 // "role: text" lines. Defensive by construction (the API shape varies and is
 // not ours to trust): non-arrays and junk entries are skipped; role comes
-// from info.role | role, text from parts[].text | text | content (strings
-// only); capped at 40 user turns. Never throws.
+// from info.role | role | type, text from parts[].text | content[].text |
+// text | content (strings only); capped at 40 user turns. Never throws.
+//
+// The `type` role source and the `content[]` part array are the 2.2.5 host
+// shape, recorded live: `session.context()` returns
+// `{id, time, type:"user", text}` and `{id, time, type:"assistant", content:
+// [{type:"reasoning"|"tool"|"text", ...}]}` — no `role`, no `parts`. Reading
+// only the old keys rendered EVERY 2.2.5 session as a 0-character transcript,
+// which the 200-character floor then skipped in silence: auto-capture never
+// fired on a live host, and nothing said so.
 const TRANSCRIPT_USER_TURN_CAP = 40;
 
-export function flattenTranscript(msgs: unknown): string {
+// 2.2.5 also puts NON-conversation records in the same array (`type:"idle"`),
+// so only these values are accepted as a role. Anything else renders nothing.
+const CONVERSATION_ROLES: readonly string[] = ["user", "assistant"];
+
+function roleOf(
+  m: Record<string, unknown>,
+  info: Record<string, unknown> | undefined,
+): string {
+  for (const v of [info?.role, m.role, m.type])
+    if (typeof v === "string" && CONVERSATION_ROLES.includes(v)) return v;
+  return "";
+}
+
+interface ParsedTurn {
+  role: string;
+  text: string;
+}
+
+/**
+ * Parse session-context messages into ordered conversation turns. Shared by
+ * `flattenTranscript` and `splitTranscript` so the two can never disagree
+ * about what a message contained. Total: junk yields [], never a throw.
+ */
+function parseTurns(msgs: unknown): ParsedTurn[] {
   try {
-    if (!Array.isArray(msgs)) return "";
-    const lines: string[] = [];
+    if (!Array.isArray(msgs)) return [];
+    const out: ParsedTurn[] = [];
     let userTurns = 0;
     for (const msg of msgs) {
       if (!msg || typeof msg !== "object") continue;
@@ -19,16 +50,17 @@ export function flattenTranscript(msgs: unknown): string {
         m.info && typeof m.info === "object"
           ? (m.info as Record<string, unknown>)
           : undefined;
-      const role =
-        typeof info?.role === "string"
-          ? info.role
-          : typeof m.role === "string"
-            ? m.role
-            : "";
+      const role = roleOf(m, info);
       let text = "";
       let hadPrivatePart = false;
-      if (Array.isArray(m.parts)) {
-        text = m.parts
+      // V1 carried parts under `parts`; 2.2.5 carries them under `content`.
+      const partList = Array.isArray(m.parts)
+        ? m.parts
+        : Array.isArray(m.content)
+          ? m.content
+          : null;
+      if (partList) {
+        text = partList
           .map((p) => {
             if (!p || typeof p !== "object") return undefined;
             const part = p as Record<string, unknown>;
@@ -56,10 +88,43 @@ export function flattenTranscript(msgs: unknown): string {
         userTurns++;
         if (userTurns > TRANSCRIPT_USER_TURN_CAP) break;
       }
-      lines.push(`${role}: ${text.trim()}`);
+      out.push({ role, text: text.trim() });
     }
-    return lines.join("\n");
+    return out;
   } catch {
-    return "";
+    return [];
   }
+}
+
+export function flattenTranscript(msgs: unknown): string {
+  return parseTurns(msgs)
+    .map(({ role, text }) => `${role}: ${text}`)
+    .join("\n");
+}
+
+/**
+ * The same turns, partitioned (#333).
+ *
+ * `work` — every turn that is NOT the user's: what the agent said and what the
+ * tools returned. This is the evidence.
+ * `user` — the user turns, i.e. the task's brief.
+ *
+ * Why partition rather than concatenate: measured on the fixture that
+ * reproduces #329, an undifferentiated block makes the model store the brief
+ * back as a durable `preference`. Work alone stores zero framing rows — and
+ * zero real preferences, because "we use bun here, not npm" lives in the same
+ * prose. So the prose is kept, labelled, in its own block: `buildCapturePrompt`.
+ */
+export interface TranscriptSplit {
+  work: string;
+  user: string;
+}
+
+export function splitTranscript(msgs: unknown): TranscriptSplit {
+  const work: string[] = [];
+  const user: string[] = [];
+  for (const { role, text } of parseTurns(msgs)) {
+    (role === "user" ? user : work).push(`${role}: ${text}`);
+  }
+  return { work: work.join("\n"), user: user.join("\n") };
 }
