@@ -24,7 +24,13 @@ const MAX_FILES = 300;
 const MAX_FILE_BYTES = 256 * 1024;
 const SCAN_DEPTH = 3;
 const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".mjs", ".cjs", ".json"]);
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", ".opencode"]);
+const SKIP_DIRS = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".opencode",
+]);
 
 function walk(dir: string, root: string, depth: number, out: string[]): void {
   if (depth > SCAN_DEPTH || out.length >= MAX_FILES) return;
@@ -41,7 +47,8 @@ function walk(dir: string, root: string, depth: number, out: string[]): void {
         walk(join(dir, e.name), root, depth + 1, out);
     } else {
       const dot = e.name.lastIndexOf(".");
-      if (dot >= 0 && EXTENSIONS.has(e.name.slice(dot))) out.push(join(dir, e.name));
+      if (dot >= 0 && EXTENSIONS.has(e.name.slice(dot)))
+        out.push(join(dir, e.name));
     }
   }
 }
@@ -57,7 +64,9 @@ export function findConstant(dir: string, ref: string): CodeFact | null {
   walk(join(dir, "src"), dir, 0, files);
   if (!files.length) walk(dir, dir, 0, files);
   const ident = ref.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`(?:export\\s+)?const\\s+${ident}\\b[^=\\n]*=\\s*([^;\\n]+)`);
+  const re = new RegExp(
+    `(?:export\\s+)?const\\s+${ident}\\b[^=\\n]*=\\s*([^;\\n]+)`,
+  );
   for (const f of files) {
     let text: string;
     try {

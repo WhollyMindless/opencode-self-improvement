@@ -194,15 +194,22 @@ export function createInjectionEpochs({
     // reads the session's OWN repo directory (its reader's scope) — never an
     // ambient one (#127's rule applies to code reads too).
     const reader = readerFromSid(sid);
-    const sel = await selectRelevant(prompt, 5, mems, await useSignals(), undefined, {
-      guidedCap: GUIDED_INJECT_CAP,
-      ...(contradictionSurface
-        ? {
-            conflictCheck: true,
-            ...(reader.kind === "repo" ? { repoDir: reader.scope.path } : {}),
-          }
-        : {}),
-    });
+    const sel = await selectRelevant(
+      prompt,
+      5,
+      mems,
+      await useSignals(),
+      undefined,
+      {
+        guidedCap: GUIDED_INJECT_CAP,
+        ...(contradictionSurface
+          ? {
+              conflictCheck: true,
+              ...(reader.kind === "repo" ? { repoDir: reader.scope.path } : {}),
+            }
+          : {}),
+      },
+    );
     const block = sel.block ? capToBudget(sel.block, budget) : "";
     // Refs the ACTUALLY-injected rows assert (paths + commands), the join key
     // for attribution. Derived from the budget-surviving rows, not the wider

@@ -97,12 +97,18 @@ describe("valuesAgree", () => {
 describe("conflictLine", () => {
   test("behavior class: trust the code, do not edit", () => {
     const line = conflictLine(
-      row({ ref: "FREE_SHIPPING_THRESHOLD", claim: "$50.00", klass: "behavior" }),
+      row({
+        ref: "FREE_SHIPPING_THRESHOLD",
+        claim: "$50.00",
+        klass: "behavior",
+      }),
       { file: "src/pricing.ts", value: "100" },
     );
     expect(line).toContain("CONFLICT (FREE_SHIPPING_THRESHOLD)");
     expect(line).toContain("user-stated, never verified");
-    expect(line).toContain("FREE_SHIPPING_THRESHOLD = 100 (observed in src/pricing.ts)");
+    expect(line).toContain(
+      "FREE_SHIPPING_THRESHOLD = 100 (observed in src/pricing.ts)",
+    );
     expect(line).toContain("Class: behavior");
     expect(line).toContain("do not edit FREE_SHIPPING_THRESHOLD");
   });
@@ -119,7 +125,11 @@ describe("conflictLine", () => {
 describe("normalizeConflictFields", () => {
   test("keeps a well-formed triple; drops junk fields only, never the row", () => {
     expect(
-      normalizeConflictFields({ ref: "TAX_RATE", claim: "0.0825", klass: "spec" }),
+      normalizeConflictFields({
+        ref: "TAX_RATE",
+        claim: "0.0825",
+        klass: "spec",
+      }),
     ).toEqual({ ref: "TAX_RATE", claim: "0.0825", klass: "spec" });
     expect(
       normalizeConflictFields({

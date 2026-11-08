@@ -505,9 +505,9 @@ describe("hint channel in capture (#335)", () => {
   });
 
   test("parseCandidates keeps a literal guided:true and nothing else", () => {
-    expect(parseCandidates(JSON.stringify([{ ...GOOD, guided: true }]), 3)).toEqual([
-      { ...GOOD, guided: true },
-    ]);
+    expect(
+      parseCandidates(JSON.stringify([{ ...GOOD, guided: true }]), 3),
+    ).toEqual([{ ...GOOD, guided: true }]);
     for (const junk of ["true", 1, "yes", null, false, {}]) {
       expect(
         parseCandidates(JSON.stringify([{ ...GOOD, guided: junk }]), 3),
@@ -531,7 +531,12 @@ describe("hint channel in capture (#335)", () => {
     expect(
       parseCandidates(
         JSON.stringify([
-          { ...full, ref: "not an identifier!", claim: "x".repeat(40), klass: "maybe" },
+          {
+            ...full,
+            ref: "not an identifier!",
+            claim: "x".repeat(40),
+            klass: "maybe",
+          },
         ]),
         3,
       ),
@@ -926,7 +931,9 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
       {
         role: "user",
         content:
-          "We finished the alpha build switch and the importer work. ".repeat(6),
+          "We finished the alpha build switch and the importer work. ".repeat(
+            6,
+          ),
       },
     ];
     loaded.capture.generate.response = "[]";

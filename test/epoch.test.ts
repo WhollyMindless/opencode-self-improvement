@@ -70,10 +70,14 @@ function seed(
   content: string,
   extra?: Fields,
 ): string {
-  const ts = typeof extra?.ts === "string" ? extra.ts : new Date().toISOString();
+  const ts =
+    typeof extra?.ts === "string" ? extra.ts : new Date().toISOString();
   const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
   mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, formatLine({ ts, type, scope, content, ...extra }) + "\n");
+  appendFileSync(
+    file,
+    formatLine({ ts, type, scope, content, ...extra }) + "\n",
+  );
   return ts;
 }
 
