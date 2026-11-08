@@ -140,18 +140,20 @@ Gate-authored evidence and its init/capture lifecycle records capture attributio
 
 **Bench** — deterministic workload (50 memories, 20 prompts, 3 mid-session store writes made *by the measured session*) through the plugin's real injection code. Every column is measured on the full memory section — the bytes a request actually sends — because prompt caching is a property of those bytes:
 
-| Policy | Recomputes | Cache busts | Injected chars (20 turns) | Avg/turn | Worst section |
+| Policy | Recomputes | Epochs whose bytes moved | Injected chars (20 turns) | Avg/turn | Worst section |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | A — recompute per prompt, uncapped (naive) | 20 | 19 | 60996 | 3049.8 | 3404 |
 | B — block frozen on store fingerprint, digest rebuilt per turn | 4 | 3 | 55478 | 2773.9 | 2867 |
 | C — section frozen on rendered bytes | 4 | 3 | 55258 | 2762.9 | 2856 |
 | D — C + riding bytes (shipped) | 1 | 0 | 53500 | 2675.0 | 2675 |
 
-A "cache bust" is a turn whose memory-section bytes differ from the turn before — each one re-bills the entire conversation as fresh input. All three synthetic writes change what the session is shown, so B and C each pay for them; D pays nothing, because the session wrote them itself. What D still pays for is a riding row being corrected, blocklisted or redacted, or another session writing a row — that half of the contract is pinned by `test/epoch.test.ts` rather than by this table, since a benchmark that only writes never exercises it. D also injects 12.3% fewer characters than the naive policy — the denominator here is the whole section, not the relevance block alone, so it is not comparable with the block-only figure this README quoted before. Reproduce (byte-identical output):
+The byte-change counter records epochs whose memory-section bytes differ from the previous epoch; it does not measure provider cache misses or re-prefill cost. All three synthetic writes change B and C's bytes; D records no change for these self-writes. Corrections, removals and writes by another session can still move D's bytes, as pinned by `test/epoch.test.ts`. D also injects 12.3% fewer characters than the naive policy, measured over the whole section. Reproduce this deterministic byte workload:
 
 ```sh
 bun run bench
 ```
+
+**Author-reported provider audit**, not a new measurement here: [#346's six-turn local-seat audit](https://github.com/abogartz/opencode-self-improvement/issues/346#issuecomment-6714172764) compared `ee769ef` with frozen `29268ef`. The changed build used 2,065 additional input tokens over six turns (~344/turn), with one 3,257-input-token spike, and 94.4% cache share versus 97.5%. The block rode late in the system prompt, after a stable prefix; a byte-moving epoch did not re-bill the whole conversation. This run included two guided rows, so it does not isolate prompt rescoring from the hint channel or establish a bound for every provider. The status counter remains a byte-change count; provider receipts report actual cache reuse separately.
 
 ## Recall quality
 

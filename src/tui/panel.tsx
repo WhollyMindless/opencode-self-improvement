@@ -300,7 +300,7 @@ function MemoryPanel(props: {
         </For>
       </Show>
 
-      <Section t="CACHE" />
+      <Section t="CACHE — byte-moving epochs and provider receipts" />
       <Show
         when={s()}
         fallback={
