@@ -17,6 +17,10 @@ export interface CaptureCandidate {
   kw?: string[];
   /** Literal true only when the user stated the fact, not agent inference. */
   guided?: boolean;
+  /** Optional literal comparison metadata, retained only for guided rows. */
+  ref?: string;
+  claim?: string;
+  klass?: "spec" | "behavior";
 }
 
 // Keywords are the vocabulary bridge for the strict-paraphrase wall, mined from
@@ -56,6 +60,10 @@ export function buildCapturePrompt(
     "- content: one self-contained fact, 20-600 characters, useful in a NEW session.",
     "- kw: 3-5 search keywords for how a DIFFERENT session would ask for this — synonyms and alternate names, other verb forms, the literal command or file name. They are indexed for retrieval and never shown to a model. Omit (or []) when the content already uses those words.",
     "- guided: true ONLY when the user STATED this fact in their own words — a value, rate, number, rule or correction that appears in a user: line or the REQUESTS block. Omit guided for anything the agent discovered by itself.",
+    '- When guided AND the value names a declared code symbol, also output "ref": that symbol exactly as declared (e.g. "TAX_RATE"), "claim": the user\'s value alone (e.g. "0.0825", at most 32 characters), and "klass": "spec" when the user is the authority on the value (a rate, a requirement) or "behavior" when the row describes how working code behaves. Omit all three when no single declared constant is involved.',
+    '- If it is unclear whether the user is specifying a requirement or describing working code, omit "klass". Never guess authority; an unclassified row remains plain guidance without a conflict verdict.',
+    '- Worked example (only when the user actually states this requirement): user says "The constant TAX_RATE in src/pricing.ts must be 0.0825." Emit:',
+    '{"type":"context","scope":"pricing","content":"The constant TAX_RATE in src/pricing.ts must be 0.0825.","kw":["TAX_RATE","sales tax"],"guided":true,"ref":"TAX_RATE","claim":"0.0825","klass":"spec"}',
     "- A guided row states the user's value or rule and NOTHING more: never claim what hidden tests, graders or suites 'encode' — you cannot see them, and the claim makes the row impossible to check.",
     "- Keep: decisions made, working commands, user preferences, blockers hit, durable context, conventions.",
     "- Skip: anything derivable from the code or git history, small talk, and details that only mattered inside this conversation.",

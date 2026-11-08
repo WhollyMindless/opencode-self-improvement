@@ -13,6 +13,7 @@ import { lagSince } from "./lag.ts";
 import { buildCapturePrompt } from "./prompt.ts";
 import { type SessionModelRef, sessionModel } from "./session-model.ts";
 import { flattenTranscript, splitTranscript } from "./transcript.ts";
+import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
 import { loadAll } from "../store/files/load.ts";
 import { isInjectable } from "../store/model/predicates.ts";
 import {
@@ -22,7 +23,6 @@ import {
 } from "../store/model/visibility.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
 import { cmpTs } from "../core/cmp-ts.ts";
-import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
 
 interface CaptureHost {
   options?: Record<string, unknown>;
@@ -358,6 +358,9 @@ export function configureAutoCapture(
                 content: c.content,
                 ...(c.status ? { status: c.status } : {}),
                 ...(c.kw ? { kw: c.kw } : {}),
+                ...(c.ref ? { ref: c.ref } : {}),
+                ...(c.claim ? { claim: c.claim } : {}),
+                ...(c.klass ? { klass: c.klass } : {}),
                 tags: [
                   AUTO_CAPTURE_TAG,
                   ...(trigger === "compaction" ? [CAPTURE_COMPACT_TAG] : []),
@@ -402,6 +405,16 @@ export function configureAutoCapture(
               reason: outcome.reason ?? "",
               audit_error: outcome.evidenceError,
               model: modelTag,
+              ...(outcome.action === "promoted" && c.guided
+                ? {
+                    conflict:
+                      c.ref && c.claim && c.klass
+                        ? "full"
+                        : c.ref || c.claim || c.klass
+                          ? "partial"
+                          : "absent",
+                  }
+                : {}),
             },
             false,
             sid,

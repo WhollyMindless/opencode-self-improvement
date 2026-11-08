@@ -30,6 +30,11 @@ import { authoredFor } from "../core/state.ts";
 interface InjectionEpochOptions {
   budget: number;
   frontierBudget: number;
+  /**
+   * Contradiction surface (POC): code-check guided rows at render time.
+   * Enabled by default; `contradictionSurface: false` skips workspace checks.
+   */
+  contradictionSurface?: boolean;
   // The host listener records usage. Eviction must still drop it with the
   // epoch and request counters, so no measurement outlives its tracked session.
   measuredTurns: Pick<Map<string, Measured>, "get" | "delete">;
@@ -39,6 +44,7 @@ interface InjectionEpochOptions {
 export function createInjectionEpochs({
   budget,
   frontierBudget: openBudget,
+  contradictionSurface = true,
   measuredTurns,
   noteHits,
 }: InjectionEpochOptions) {
@@ -176,6 +182,11 @@ export function createInjectionEpochs({
       promptOverride ??
       (sid === undefined ? "" : (latestPrompt.get(sid) ?? ""));
     // Widen the candidate pool, then cap: the budget decides what rides.
+    // The guided cap (#335) rides user-stated rows ahead of the lexical picks;
+    // the char budget below still bounds the whole block. The conflict check
+    // reads the session's OWN repo directory (its reader's scope) — never an
+    // ambient one (#127's rule applies to code reads too).
+    const reader = readerFromSid(sid);
     const sel = await selectRelevant(
       prompt,
       5,
@@ -183,18 +194,30 @@ export function createInjectionEpochs({
       await useSignals(),
       undefined,
       {
-        // The reserved capture provenance rides first, even on unrelated prompts.
-        // capToBudget still bounds all rendered rows together.
         guidedCap: 3,
+        ...(contradictionSurface
+          ? {
+              conflictCheck: true,
+              ...(reader.kind === "repo" ? { repoDir: reader.scope.path } : {}),
+            }
+          : {}),
       },
     );
     const block = sel.block ? capToBudget(sel.block, budget) : "";
     // Refs the ACTUALLY-injected rows assert (paths + commands), the join key
     // for attribution. Derived from the budget-surviving rows, not the wider
     // candidate pool — crediting paths the model never saw would overclaim.
-    const rode = injectedRows(block, sel.selected);
+    const rode = injectedRows(block, sel.selected, sel.rendered);
     const prefix = [...parts, block].join("\u0000");
-    return { parts, block, prefix, rode, refs: deriveMemoryRefs(rode) };
+    // Ledger terms/identities belong to the stored rows, but coverage refs
+    // must describe only the text the model actually received.
+    return {
+      parts,
+      block,
+      prefix,
+      rode,
+      refs: deriveMemoryRefs(rode.map((m) => sel.rendered.get(m) ?? m)),
+    };
   };
   const refreshEpoch = async (sid: string, rows?: Memory[]): Promise<void> => {
     if (!latestPrompt.has(sid)) return;

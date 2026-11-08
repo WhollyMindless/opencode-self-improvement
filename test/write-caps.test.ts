@@ -164,6 +164,32 @@ describe("write-side size + type floors", () => {
     expect(evidence).not.toContain(secret);
   });
 
+  test("conflict metadata cannot persist credentials or leak them into evidence", async () => {
+    const secret = "AKIA" + "ABCD0123456789EF";
+    for (const field of ["ref", "claim"] as const) {
+      const candidate = {
+        type: "context",
+        scope: "pricing",
+        content: "The user specified the pricing constant for future orders.",
+        tags: ["user-guided"],
+        [field]: secret,
+      };
+      const out = await runWriteGate(candidate, gateCtx());
+      expect(out.action).toBe("blocked");
+      expect(out.reason).toBe("credential_in_metadata");
+      await expect(appendMemory(candidate)).rejects.toThrow(
+        /metadata.*credential-shaped/,
+      );
+    }
+    expect(await loadAll()).toHaveLength(0);
+    const evidence = readFileSync(
+      join(evidenceDir(), `${dateStr()}.logfmt`),
+      "utf8",
+    );
+    expect(evidence).not.toContain(secret);
+    expect(evidence.match(/reason=credential_in_metadata/g)).toHaveLength(2);
+  });
+
   test("legacy secrets remain verbatim and credential-shaped scopes work on lookup-only paths", async () => {
     const scope = "sk-" + "abcdef1234567890ABCDEFGH";
     const legacySecret = "gh" + "p_AbCdEf0123456789AbCdEf0123456789AbCd";

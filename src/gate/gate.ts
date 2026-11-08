@@ -55,6 +55,9 @@ export interface WriteCandidate {
   // (trim/lowercase/cap) at promotion, so a caller may hand junk without
   // changing the verdict the prose deserves.
   kw?: string[];
+  ref?: string;
+  claim?: string;
+  klass?: "spec" | "behavior";
   status?: "open" | "settled";
   // "global" = cross-project (memory_remember global:true; imports carry a
   // row's origin stamp). Any other value (including undefined) is resolved by
@@ -407,6 +410,8 @@ export async function runWriteGate(
     candidate.tags?.some(containsSecret) ? "tags" : undefined,
     candidate.kw?.some(containsSecret) ? "kw" : undefined,
     containsSecret(candidate.issue) ? "issue" : undefined,
+    containsSecret(candidate.ref) ? "ref" : undefined,
+    containsSecret(candidate.claim) ? "claim" : undefined,
   ].filter((field): field is string => field !== undefined);
   if (credentialMetadata.length) {
     await recBlocked(

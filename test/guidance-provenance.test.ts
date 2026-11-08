@@ -8,6 +8,7 @@ import { appendMemory } from "../src/store/files/append.ts";
 import { importMemories } from "../src/portable/import.ts";
 import { isActive } from "../src/store/model/predicates.ts";
 import { loadPlugin, withTempStore } from "./harness.ts";
+import { readEvidenceLog } from "./helpers/logfmt.ts";
 
 describe("capture provenance reservation (#342)", () => {
   const store = withTempStore({ prefix: "osi-guidance-provenance-" });
@@ -18,7 +19,7 @@ describe("capture provenance reservation (#342)", () => {
       loaded = undefined;
     });
 
-    async function start() {
+    async function start(capture = false) {
       const repo = join(store.root, "repo");
       mkdirSync(join(repo, "src"), { recursive: true });
       writeFileSync(
@@ -26,9 +27,8 @@ describe("capture provenance reservation (#342)", () => {
         "export const TAX_RATE = 0.08;\n",
       );
       loaded = await loadPlugin(repo, {
-        autoCapture: false,
+        autoCapture: capture,
         captureModel: "fake/model",
-        contradictionSurface: true,
       });
       await loaded["tool.execute.after"](
         {
@@ -114,15 +114,52 @@ describe("capture provenance reservation (#342)", () => {
       );
       const row = (await loadAll()).find(isActive);
       expect(row?.tags).not.toContain("user-guided");
-      expect((row as unknown as Record<string, unknown>)?.ref).toBeUndefined();
-      expect(
-        (row as unknown as Record<string, unknown>)?.claim,
-      ).toBeUndefined();
-      expect(
-        (row as unknown as Record<string, unknown>)?.klass,
-      ).toBeUndefined();
+      expect(row?.ref).toBeUndefined();
+      expect(row?.claim).toBeUndefined();
+      expect(row?.klass).toBeUndefined();
     });
 
+    test("captured guidance retains the triple and rides an unrelated prompt", async () => {
+      const plugin = await start(true);
+      plugin.capture.context.messages = [
+        { role: "user", content: forged.content.repeat(4) },
+      ];
+      plugin.capture.generate.response = JSON.stringify([
+        { ...forged, tags: undefined, guided: true },
+      ]);
+      plugin.capture.events.push({
+        type: "session.execution.succeeded",
+        data: { sessionID: "provenance" },
+      });
+      const deadline = Date.now() + 4000;
+      while (
+        !readEvidenceLog().some(
+          (e) => e.ev === "capture_lag" && e.session === "provenance",
+        )
+      ) {
+        if (Date.now() >= deadline) throw new Error("capture did not finish");
+        await Bun.sleep(10);
+      }
+      const row = (await loadAll()).find(isActive);
+      expect(row).toMatchObject({
+        ref: "TAX_RATE",
+        claim: "0.0825",
+        klass: "spec",
+      });
+      expect(row?.tags).toContain("user-guided");
+      await plugin.sessionHooks.prompt({
+        sessionID: "provenance-reader",
+        prompt: { text: "Repair the deployment manifest" },
+      });
+      const delivered = {
+        sessionID: "provenance-reader",
+        system: [] as Array<{ type: string; text: string }>,
+      };
+      await plugin.sessionHooks.context(delivered);
+      expect(delivered.system.map((p) => p.text).join("\n")).toContain(
+        "CONFLICT (TAX_RATE)",
+      );
+    });
     test("a tool update cannot reuse a captured row's provenance for replacement prose", async () => {
       const plugin = await start();
       const ts = await appendMemory({

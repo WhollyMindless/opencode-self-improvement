@@ -92,13 +92,36 @@ export function parseCandidates(raw: string, max: number): CaptureCandidate[] {
         o.status === "open" || o.status === "settled" ? o.status : undefined;
       // A bad kw list costs the row its keywords, never the row itself.
       const kw = cleanKeywords(o.kw);
+      // Hint channel (#335): only a literal true counts; junk yields an
+      // untagged row, the same shape an agent-derived fact has.
       const guided = o.guided === true;
+      // Contradiction surface (POC): ref/claim/klass ride guided rows only.
+      // Local checks keep this module store-free; appendMemory normalises
+      // again, so this only has to stay junk-proof.
+      const conflict =
+        guided && o && typeof o === "object"
+          ? {
+              ...(typeof o.ref === "string" &&
+              /^[A-Za-z_][A-Za-z0-9_]{1,63}$/.test(o.ref)
+                ? { ref: o.ref }
+                : {}),
+              ...(typeof o.claim === "string" &&
+              o.claim.trim() &&
+              o.claim.trim().length <= 32 &&
+              flattenMemoryText(o.claim.trim()) === o.claim.trim()
+                ? { claim: o.claim.trim() }
+                : {}),
+              ...(o.klass === "spec" || o.klass === "behavior"
+                ? { klass: o.klass as "spec" | "behavior" }
+                : {}),
+            }
+          : {};
       out.push({
         ...(status
           ? { type, scope, content, status }
           : { type, scope, content }),
         ...(kw ? { kw } : {}),
-        ...(guided ? { guided: true } : {}),
+        ...(guided ? { guided: true, ...conflict } : {}),
       });
     }
     return out;
