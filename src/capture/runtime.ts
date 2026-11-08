@@ -14,6 +14,15 @@ import { buildCapturePrompt } from "./prompt.ts";
 import { type SessionModelRef, sessionModel } from "./session-model.ts";
 import { flattenTranscript, splitTranscript } from "./transcript.ts";
 import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
+import { loadAll } from "../store/files/load.ts";
+import { isInjectable } from "../store/model/predicates.ts";
+import {
+  readerFromSid,
+  visibleTo,
+  type Reader,
+} from "../store/model/visibility.ts";
+import { flattenMemoryText } from "../store/sanitize.ts";
+import { cmpTs } from "../core/cmp-ts.ts";
 
 interface CaptureHost {
   options?: Record<string, unknown>;
@@ -42,6 +51,34 @@ interface CaptureDependencies {
 // this one so decay/status can tell which trigger wrote them — the same
 // distinction the auto_capture_compaction_* evidence lines carry.
 const CAPTURE_COMPACT_TAG = "auto_capture_compaction";
+
+async function knownRowsFor(reader: Reader): Promise<string> {
+  try {
+    const rows = visibleTo(await loadAll(), reader)
+      .filter(isInjectable)
+      .sort((a, b) => cmpTs(b.ts, a.ts))
+      .slice(0, 15);
+    const lines: string[] = [];
+    let length = 0;
+    for (const row of rows) {
+      // Scrub complete legacy values before cropping, or a token prefix can
+      // fall outside the window and leave an unrecognizable secret fragment.
+      const scope = flattenMemoryText(redactSecrets(row.scope));
+      const content = flattenMemoryText(redactSecrets(row.content)).slice(
+        0,
+        90,
+      );
+      const line = `- ${scope}: ${content}`;
+      if (length + line.length > 1400) break;
+      lines.push(line);
+      length += line.length + 1;
+    }
+    return lines.join("\n");
+  } catch {
+    // The write gate still deduplicates when this optional context is absent.
+    return "";
+  }
+}
 
 // Auto-capture cooldown, shared by EVERY setup() registration (#108): setup
 // runs for more than one location, and per-closure cooldown maps made those
@@ -215,6 +252,7 @@ export function configureAutoCapture(
         gate?: GateContext,
       ): Promise<void> {
         const captureGate = gate ?? bindCapture(sid);
+        const captureReader = captureGate.reader ?? readerFromSid(sid);
         // #139: resolve the model BEFORE any skip so every capture evidence
         // line below can carry model= (cost attributable to a named model —
         // the real answer to the cost-surprise concern that justified the
@@ -304,6 +342,7 @@ export function configureAutoCapture(
             redactSecrets(work).slice(-7000),
             captureMax,
             redactSecrets(userProse).slice(-1500),
+            await knownRowsFor(captureReader),
           ),
         });
         const text = typeof out === "string" ? out : (out?.text ?? "");
