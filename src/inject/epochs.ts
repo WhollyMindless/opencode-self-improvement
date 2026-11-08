@@ -45,7 +45,8 @@ export function createInjectionEpochs({
   // Per-session frozen injection epochs: the whole memory section (digest +
   // frontier + relevance) plus the store fingerprint it was rendered from.
   // Recomputed on the first prompt of a tracked session, when injectable rows
-  // change, or after a compaction (see the prompt/context/compaction hooks).
+  // change, when a new prompt re-scores the block (#335), or after a
+  // compaction (see the prompt/context/compaction hooks).
   // The RENDERED BYTES, not the fingerprint, decide whether the epoch moved
   // (issue #162): a write that changes nothing the model is shown must not
   // cost the next request a full re-prefill. And a pure addition the session
@@ -77,7 +78,7 @@ export function createInjectionEpochs({
        */
       prompt: string;
       at: string;
-      reason: "first" | "store_changed";
+      reason: "first" | "store_changed" | "prompt_reveal";
       refs: MemoryRefs;
     }
   >();
@@ -190,17 +191,26 @@ export function createInjectionEpochs({
     const mems = rows ?? (await injectableRows(sid));
     const version = await storeVersion(mems);
     const cached = epoch.get(sid);
-    // Cheap pre-check: no injectable row moved, so the frozen bytes still
-    // stand. Skips re-scoring and the use-ledger write on ordinary turns.
-    if (cached?.version === version) return;
+    const prompt = latestPrompt.get(sid) ?? "";
+    // Cheap pre-check: no injectable row moved AND the frozen bytes were
+    // already scored against THIS prompt. Skips re-scoring and the use-ledger
+    // write on ordinary turns and on every tool-loop request within a turn.
+    // A new prompt does re-score (#335, the epoch-freeze flaw): a block
+    // frozen at the first request carried the first topic's rows for the
+    // whole session and never picked up the rows a later prompt genuinely
+    // matches. Cache is still safe — the epoch only MOVES when the rendered
+    // bytes actually change, and a prompt change that keeps the same rows
+    // adopts silently below.
+    if (cached?.version === version && cached.prompt === prompt) return;
     const built = await buildMemorySection(sid, mems);
-    // The store moved. A write that changes nothing RENDERED — a row that is
-    // not relevant to this prompt, supersession elsewhere, a scope the reader
-    // never sees rendered identically — must not cost this session a prompt
-    // cache. Adopt the new fingerprint, keep riding the same bytes, emit
-    // nothing: an invalidation has to mean bytes actually moved.
+    // The store and/or the prompt moved. A change that alters nothing
+    // RENDERED — a row that is not relevant to this prompt, supersession
+    // elsewhere, a scope the reader never sees rendered identically — must
+    // not cost this session a prompt cache. Adopt the new fingerprint and
+    // prompt, keep riding the same bytes, emit nothing: an invalidation has
+    // to mean bytes actually moved.
     if (cached && cached.prefix === built.prefix) {
-      epoch.set(sid, { ...cached, version });
+      epoch.set(sid, { ...cached, version, prompt });
       return;
     }
     // Riding bytes (#165): a pure addition this session wrote itself is
@@ -229,15 +239,18 @@ export function createInjectionEpochs({
         }
       }
     }
-    const prompt = latestPrompt.get(sid) ?? "";
     // Use ledger (#42): the rows that actually rode the block, credited with
     // the terms the prompt and those rows shared (never the prompt itself).
     // Only once the build is ADOPTED — a discarded rebuild must not credit
     // rows that were already offered under the frozen epoch.
     await noteHits(sid, built.rode, prompt);
     const at = new Date().toISOString();
-    const reason: "first" | "store_changed" = cached
-      ? "store_changed"
+    // Which input moved decides the reason: the store outranks the prompt, so
+    // a turn that did both is accounted as the (cache-critical) store change.
+    const reason: "first" | "store_changed" | "prompt_reveal" = cached
+      ? cached.version !== version
+        ? "store_changed"
+        : "prompt_reveal"
       : "first";
     epoch.set(sid, {
       version,
@@ -264,12 +277,13 @@ export function createInjectionEpochs({
       evidenceContext,
     );
     epochRecomputes++;
-    // Ledger: a store_changed recompute of a live epoch is an
-    // invalidation (the first epoch of a session busts nothing). The
-    // epoch request count restarts with the new block.
+    // Ledger: any recompute of a live epoch that MOVED the bytes is an
+    // invalidation (the first epoch of a session busts nothing; a re-score
+    // that kept the bytes never reaches this line). The epoch request count
+    // restarts with the new block.
     const st = statsFor(sid);
     st.epochRequests = 0;
-    if (reason === "store_changed") {
+    if (reason !== "first") {
       st.invalidations++;
       st.lastInvalidation = { at, reason };
     }
