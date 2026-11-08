@@ -40,7 +40,7 @@ describe("capture contradiction emission (#350)", () => {
       const retained: Record<string, unknown> = { ...valid };
       if (expected === undefined) delete retained[field];
       else retained[field] = expected;
-    expect<unknown>(parsed[0]).toEqual(retained);
+      expect<unknown>(parsed[0]).toEqual(retained);
     },
   );
   describe("promoted evidence", () => {
