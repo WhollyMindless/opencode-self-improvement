@@ -205,6 +205,26 @@ describe("injection renders the CONFLICT line (opt-in)", () => {
     expect(block).toContain("TAX_RATE = 0.08 (observed in");
     expect(block).toContain("Class: spec");
     expect(block).toContain("fix TAX_RATE to 0.0825");
+    // Arm F run 2.1: the plain caveat let a neighboring "trust the code" row
+    // swallow the verdict. With a code-checked CONFLICT riding, the HEADER
+    // states the check is done and the Action governs.
+    const header = block.split("\n")[0] ?? "";
+    expect(header).toContain("code-checked");
+    expect(header).toContain("follow their Action");
+  });
+
+  test("plain guided rows keep the staleness caveat, not the CONFLICT one", async () => {
+    seedGuided({});
+    const loaded = await loadPlugin(repo, { contradictionSurface: true });
+    rememberSessionDir("ses-conf-plain-head", repo);
+    const block = await deliveredBlock(
+      loaded,
+      "ses-conf-plain-head",
+      "identify the injected bug so the hidden suite passes",
+    );
+    const header = block.split("\n")[0] ?? "";
+    expect(header).toContain("verify against the current code");
+    expect(header).not.toContain("code-checked");
   });
 
   test("collision + behavior class: the row renders as a do-not-edit CONFLICT", async () => {

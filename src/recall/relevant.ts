@@ -89,6 +89,15 @@ export function isUserGuided(m: Memory): boolean {
 const GUIDED_CAVEAT =
   "; user-stated guidance may be stale — verify against the current code before changing behavior it contradicts";
 
+// Measured (arm F run 2.1): with a code-checked CONFLICT row riding, the
+// plain caveat plus a captured "trust code over docs" row pushed the agent
+// to file the CONFLICT row with the stale-doc decoys — the blanket rule beat
+// the specific verdict. When a CONFLICT row rides, the header states the
+// verification is ALREADY done and its Action governs; the staleness warning
+// stays for everything else.
+const CONFLICT_CAVEAT =
+  "; CONFLICT rows were code-checked against this repo's current source — follow their Action; other user-stated guidance may be stale, verify against the current code before changing behavior it contradicts";
+
 export async function selectRelevant(
   message: string,
   limit = 3,
@@ -128,8 +137,9 @@ export async function selectRelevant(
   const top = text ? scoreMemories(text, mems, limit, use) : [];
   const merged = [...shown, ...top.filter((m) => !guided.includes(m))];
   if (!merged.length) return { block: "", selected: [] };
+  const hasConflict = shown.some((m) => m.content.startsWith("CONFLICT ("));
   return {
-    block: `## Relevant durable memory${FRAME}${guided.length ? GUIDED_CAVEAT : ""}\n${merged.map(formatMemory).join("\n")}`,
+    block: `## Relevant durable memory${FRAME}${guided.length ? (hasConflict ? CONFLICT_CAVEAT : GUIDED_CAVEAT) : ""}\n${merged.map(formatMemory).join("\n")}`,
     selected: merged,
   };
 }
