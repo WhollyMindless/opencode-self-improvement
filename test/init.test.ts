@@ -1,17 +1,15 @@
 // Init phase: memory_init tool behavior. Hermetic — the fixture dir is a plain
 // (non-git) temp tree. Graph indexing is opt-in (#323): by default no graph
-// spawn occurs at all; with OPENCODE_MEMORY_GRAPH=1 the OPENCODE_CBM_BIN
-// fixture (a marker script that exits nonzero) proves the spawn path is
-// reached and degrades to `unavailable`.
+// spawn occurs at all; with OPENCODE_MEMORY_GRAPH=1 the spawn path is proven
+// with a narrowly scoped Bun.spawn spy (#323 review F1: an extensionless
+// #!/bin/sh fixture never executes on Windows, so a real-script fixture could
+// neither fail loudly there nor prove the success path). The spy records
+// argv and returns canned exit codes, so the default no-spawn assertion and
+// the opt-in positive control both hold on every platform. Bun.spawnSync
+// (git probing) is untouched.
 // Scope = directory basename ("repo"), matching the repo-name convention.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
-  existsSync,
-} from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin } from "./harness.ts";
@@ -56,6 +54,31 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 });
 
+// Narrowly scoped Bun.spawn spy: replaces only Bun.spawn (the graph path) for
+// the duration of one test. `handler` sees the argv and how many spawns
+// preceded, and returns the canned exit code plus stdout the fake binary
+// would print. Restore runs even if the assertion throws.
+function withGraphSpy(
+  handler: (
+    cmd: string[],
+    priorCalls: number,
+  ) => { exit: number; stdout?: string },
+): { calls: string[][]; restore: () => void } {
+  const calls: string[][] = [];
+  const original = Bun.spawn;
+  Bun.spawn = ((cmd: string[]) => {
+    const prior = calls.length;
+    calls.push([...cmd]);
+    const r = handler([...cmd], prior);
+    return {
+      stdout: r.stdout ?? "",
+      stderr: "",
+      exited: Promise.resolve(r.exit),
+    };
+  }) as unknown as typeof Bun.spawn;
+  return { calls, restore: () => (Bun.spawn = original) };
+}
+
 describe("memory_init", () => {
   test("writes script pattern memories + an init stamp", async () => {
     const out = await init.execute({});
@@ -78,28 +101,67 @@ describe("memory_init", () => {
   });
 
   test("default: no graph spawn occurs (#323)", async () => {
-    const marker = join(root, "spawned.marker");
-    const fake = join(root, "fake-cbm");
-    writeFileSync(fake, `#!/bin/sh\necho x >> "${marker}"\nexit 3\n`, {
-      mode: 0o755,
-    });
-    process.env.OPENCODE_CBM_BIN = fake;
-    const out = await init.execute({});
-    expect(out).toContain("Graph: disabled");
-    expect(existsSync(marker)).toBe(false);
+    // Point the binary at a fake that would answer every call successfully:
+    // the spy proves nothing is spawned anyway, on every platform.
+    process.env.OPENCODE_CBM_BIN = join(root, "fake-cbm");
+    const spy = withGraphSpy(() => ({ exit: 0 }));
+    try {
+      const out = await init.execute({});
+      expect(out).toContain("Graph: disabled");
+      expect(spy.calls.length).toBe(0);
+    } finally {
+      spy.restore();
+    }
   });
 
   test("opt-in: OPENCODE_MEMORY_GRAPH=1 reaches the graph binary (#323)", async () => {
-    const marker = join(root, "spawned.marker");
+    // Positive control with a SUCCESSFUL index: `Graph: indexed` can only
+    // happen if the run reached the binary, indexed, and re-listed the
+    // project. `Graph: unavailable` alone could not tell a launch failure
+    // from a reached-and-failed fixture (#323 review F1).
     const fake = join(root, "fake-cbm");
-    writeFileSync(fake, `#!/bin/sh\necho x >> "${marker}"\nexit 3\n`, {
-      mode: 0o755,
-    });
     process.env.OPENCODE_CBM_BIN = fake;
     process.env.OPENCODE_MEMORY_GRAPH = "1";
-    const out = await init.execute({});
-    expect(out).toContain("Graph: unavailable");
-    expect(existsSync(marker)).toBe(true);
+    let indexed = false;
+    const spy = withGraphSpy((cmd) => {
+      if (cmd.includes("index_repository")) {
+        indexed = true;
+        return { exit: 0 };
+      }
+      // list_projects: the fixture root appears only after indexing.
+      return {
+        exit: 0,
+        stdout: JSON.stringify({
+          projects: indexed ? [{ name: "repo", root_path: fixture }] : [],
+        }),
+      };
+    });
+    try {
+      const out = await init.execute({});
+      expect(out).toContain("Graph: indexed (repo)");
+      const indexCall = spy.calls.find((c) => c.includes("index_repository"));
+      expect(indexCall?.[0]).toBe(fake);
+      expect(indexCall?.[indexCall.indexOf("--repo-path") + 1]).toBe(fixture);
+      expect(indexCall?.[indexCall.indexOf("--mode") + 1]).toBe("moderate");
+    } finally {
+      spy.restore();
+    }
+  });
+
+  test("opt-in: a failing graph binary degrades to unavailable (#323)", async () => {
+    const fake = join(root, "fake-cbm");
+    process.env.OPENCODE_CBM_BIN = fake;
+    process.env.OPENCODE_MEMORY_GRAPH = "1";
+    const spy = withGraphSpy(() => ({ exit: 3 }));
+    try {
+      const out = await init.execute({});
+      expect(out).toContain("Graph: unavailable");
+      // The spawn was really attempted against the configured binary.
+      expect(spy.calls.length).toBeGreaterThan(0);
+      expect(spy.calls[0][0]).toBe(fake);
+    } finally {
+      spy.restore();
+    }
   });
 
   test("idempotent: second run is a no-op, no duplicate memories", async () => {
