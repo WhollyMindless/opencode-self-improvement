@@ -959,6 +959,7 @@ describe("turn-end trigger vocabulary (#136)", () => {
 
   async function modelCallsAfter(
     event: Record<string, unknown>,
+    shouldCapture = false,
   ): Promise<number> {
     const loaded = await loadCapturePlugin(armed);
     await waitFor(() => loaded.capture.events.subscribeCalls === 2);
@@ -967,7 +968,17 @@ describe("turn-end trigger vocabulary (#136)", () => {
     ];
     loaded.capture.generate.response = "[]";
     loaded.capture.events.push(event);
-    await sleep(120);
+    if (shouldCapture) {
+      const data = event.data as { sessionID?: string } | undefined;
+      await waitFor(() =>
+        evidence().some(
+          (line) =>
+            line.ev === "capture_lag" && line.session === data?.sessionID,
+        ),
+      );
+    } else {
+      await sleep(120);
+    }
     const calls = loaded.capture.generate.calls.length;
     await loaded.cleanup();
     return calls;
@@ -975,19 +986,25 @@ describe("turn-end trigger vocabulary (#136)", () => {
 
   test("session.execution.succeeded fires the capture model", async () => {
     expect(
-      await modelCallsAfter({
-        type: "session.execution.succeeded",
-        data: { sessionID: "ses-t1" },
-      }),
+      await modelCallsAfter(
+        {
+          type: "session.execution.succeeded",
+          data: { sessionID: "ses-t1" },
+        },
+        true,
+      ),
     ).toBe(1);
   });
 
   test("session.execution.interrupted fires too — the context is ending either way", async () => {
     expect(
-      await modelCallsAfter({
-        type: "session.execution.interrupted",
-        data: { sessionID: "ses-t2" },
-      }),
+      await modelCallsAfter(
+        {
+          type: "session.execution.interrupted",
+          data: { sessionID: "ses-t2" },
+        },
+        true,
+      ),
     ).toBe(1);
   });
 
