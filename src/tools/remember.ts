@@ -5,6 +5,7 @@ import type { ToolRegister } from "./deps.ts";
 import { auditCaveat, runWriteGate } from "../gate/gate.ts";
 import type { WriteCandidate } from "../gate/gate.ts";
 import { RememberArgs, validated } from "./schema.ts";
+import { nonCaptureTags } from "../core/guidance.ts";
 
 export const register: ToolRegister = (editor, deps) => {
   const {
@@ -28,7 +29,7 @@ export const register: ToolRegister = (editor, deps) => {
           scope: args.scope,
           content: args.content,
           issue: args.issue,
-          tags: args.tags,
+          tags: nonCaptureTags(args.tags),
           kw: args.kw,
           status: args.status,
           repo: args.global ? "global" : undefined,
