@@ -911,6 +911,70 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
     await loaded.cleanup();
   });
 
+  // Fix A (FINDINGS 2026-11-08 §4b): bench run 5 lost the hint lane because
+  // the guided row was promoted 9 minutes AFTER another session froze its
+  // bytes, and the epoch only moved on a request that happened to notice.
+  // Promotion now recomputes tracked epochs: the lane-entry evidence exists
+  // WITHOUT a further request from the observer.
+  test("a guided promotion moves a frozen epoch of another session", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureGuidedRules: true,
+    });
+    // Observer session: prompts against the empty store, freezing an epoch.
+    await loaded.sessionHooks!.prompt!({
+      sessionID: "ses-obs",
+      prompt: { text: "unrelated topic" },
+    });
+    // Ground + run the capture for a DIFFERENT session; the tax hint is
+    // promoted guided after the observer's epoch exists.
+    await loaded["tool.execute.after"](
+      {
+        tool: "read",
+        sessionID: "ses-late",
+        callID: "C1",
+        args: { filePath: "x.ts" },
+      },
+      { title: "read", output: "content", metadata: {} },
+    );
+    loaded.capture.context.messages = [
+      {
+        role: "user",
+        content:
+          "The correct sales tax rate is 8.25% (0.0825), applied after discounts. " +
+          "padding for the thin floor. ".repeat(10),
+      },
+    ];
+    loaded.capture.generate.response = "[]";
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-late" },
+    });
+    await waitFor(() =>
+      evidence().some((l) => l.ev === "auto_capture_promoted"),
+    );
+    // The observer's epoch moved WITHOUT any further observer request.
+    await waitFor(() =>
+      evidence().some(
+        (l) =>
+          l.ev === "epoch_recompute" &&
+          l.session === "ses-obs" &&
+          String(l.guidedSeen) === "1",
+      ),
+    );
+    const moved = evidence().find(
+      (l) =>
+        l.ev === "epoch_recompute" &&
+        l.session === "ses-obs" &&
+        String(l.guidedSeen) === "1",
+    );
+    expect(String(moved?.reason)).toBe("store_changed");
+    expect(String(moved?.guided)).toBeTruthy();
+    expect(String(moved?.guidedRode)).toBeTruthy();
+    await loaded.cleanup();
+  });
+
   test("dupe collapses via the gate, fresh candidate lands tagged, cooldown holds", async () => {
     seed("pattern", "build", DUP_CONTENT); // the dupe target, already in the store
     const loaded = await loadCapturePlugin({

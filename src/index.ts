@@ -263,6 +263,12 @@ const impl = {
       instanceDir,
       gateContext,
       guarded,
+      // Fix A (FINDINGS 2026-11-08 §4b): guided promotion moves every tracked
+      // epoch, so a late guided row enters the hint lane on each session's
+      // next request instead of waiting for a request that happens to notice.
+      onGuidedPromoted: async () => {
+        await sessions.refreshAll();
+      },
     });
     onCompactCapture = capture.onCompactCapture;
     const captureCleanup = capture.cleanup;

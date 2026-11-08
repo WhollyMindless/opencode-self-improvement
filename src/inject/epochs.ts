@@ -408,6 +408,18 @@ export function createInjectionEpochs({
       latestPrompt.set(sid, text);
       await refreshEpoch(sid);
     },
+    // Fix A (FINDINGS 2026-11-08 §4b): a guided row promoted AFTER a session
+    // froze its bytes could never enter the hint lane — the bench's run 5
+    // lost the lane to a capture that landed 9 minutes into pass 2, and the
+    // epoch only moves on a request that happens to notice. Recompute every
+    // tracked epoch on guided promotion so the NEXT request of every session
+    // carries the row and the epoch_recompute line records it. Bounded:
+    // guided rows are rare (cap 3), the refresh pre-check early-returns for
+    // any session whose visible rows did not move, and an untracked session
+    // is a map miss.
+    refreshAll(): Promise<void[]> {
+      return Promise.all([...epoch.keys()].map((sid) => refreshEpoch(sid)));
+    },
     deliver,
     invalidate(sid: string): void {
       epoch.delete(sid);

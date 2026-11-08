@@ -50,6 +50,13 @@ interface CaptureDependencies {
   instanceDir: string | undefined;
   gateContext: (sid?: string) => GateContext;
   guarded: (name: string, fn: () => Promise<void>) => Promise<void>;
+  /**
+   * Fix A (FINDINGS 2026-11-08 §4b): called after a guided row is promoted,
+   * so every tracked session recomputes its epoch and the NEXT request of
+   * each session carries the row. Absent (or failing) changes nothing: the
+   * row is stored either way and a later request re-reads the store.
+   */
+  onGuidedPromoted?: (sid: string) => void | Promise<void>;
 }
 
 // Tag on store rows captured by the COMPACTION trigger (issue #41). Rows keep
@@ -154,7 +161,7 @@ export function captureTriggerFor(event: unknown): boolean {
 
 export function configureAutoCapture(
   ctx: CaptureHost,
-  { instanceDir, gateContext, guarded }: CaptureDependencies,
+  { instanceDir, gateContext, guarded, onGuidedPromoted }: CaptureDependencies,
 ) {
   let onCompactCapture: ((sid: string, messages: unknown) => void) | undefined;
   let captureCleanup: Cleanup | undefined;
@@ -493,6 +500,19 @@ export function configureAutoCapture(
             sid,
             captureGate.evidenceContext,
           );
+          // Fix A (FINDINGS 2026-11-08 §4b): a guided row promoted after a
+          // session froze its bytes could never enter the hint lane (bench
+          // run 5: capture landed 9 min into pass 2, epoch never moved).
+          // Recompute every tracked epoch now, so the next request of each
+          // session carries the row. Fail-soft: the row is stored either way,
+          // and a later request re-reads the store on its own.
+          if (c.guided && outcome.action === "promoted" && onGuidedPromoted) {
+            try {
+              await onGuidedPromoted(sid);
+            } catch {
+              /* fail-soft — see above */
+            }
+          }
         }
         await recordCaptureLag(
           sid,
