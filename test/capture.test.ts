@@ -670,7 +670,9 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
       data: { sessionID: "ses-data" },
     });
     await waitFor(() =>
-      evidence().some((l) => String(l.ev).startsWith("auto_capture_")),
+      evidence().some(
+        (l) => l.ev === "capture_lag" && l.session === "ses-data",
+      ),
     );
 
     expect(loaded.capture.generate.calls.length).toBe(1);
@@ -716,7 +718,9 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
       data: { sessionID: "ses-kwcap" },
     });
     await waitFor(() =>
-      evidence().some((l) => String(l.ev).startsWith("auto_capture_")),
+      evidence().some(
+        (l) => l.ev === "capture_lag" && l.session === "ses-kwcap",
+      ),
     );
 
     const rows = await loadAll();
