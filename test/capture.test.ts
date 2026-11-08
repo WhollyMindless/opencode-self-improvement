@@ -289,6 +289,17 @@ describe("buildCapturePrompt", () => {
     expect(p).toContain("never shown to a model");
   });
 
+  // The line is load-bearing for cost, not precision: dropping it multiplies
+  // reasoning and wall clock on the capture fixture. Pin it so a prompt
+  // refactor cannot silently remove the bound.
+  test("bounds output volume so one fact does not arrive under several scopes", () => {
+    const p = buildCapturePrompt("user: hello world", 3);
+    expect(p).toContain("Few is better than full");
+    expect(p).toContain(
+      "Never emit the same fact twice under different scope names",
+    );
+  });
+
   test("redacts common secrets without treating ordinary code identifiers as secrets", () => {
     // Fixtures are split so secret scanners (GitHub push protection) skip them.
     const secrets = [

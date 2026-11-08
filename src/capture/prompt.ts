@@ -59,6 +59,13 @@ export function buildCapturePrompt(
           '- The REQUESTS block is what the user asked for in THIS session. Most of it scopes the current job and expires with it. Mine a `preference` from it ONLY when it names a tool, package, format or convention that outlives the task ("we use bun here", "no semicolons"); never from wording that scopes this job ("only touch src/", "do not create tests").',
         ]
       : []),
+    // Permission to emit fewer rows is what bounds deliberation. On the
+    // reproducing fixture the same seat went 1,095 -> 3,084 completion tokens
+    // and 19.7s -> 63.2s with this line removed, and the same rows out. It
+    // also stops one instruction arriving as the same fact under three scope
+    // names, which the store's 0.9 overlap floor does not see once the
+    // wording differs.
+    "- Few is better than full. If two candidates say the same thing about the same area, keep the one carrying the specific number, path, or command and drop the other. Never emit the same fact twice under different scope names.",
     "- If nothing is worth remembering, output [ ].",
     "",
     ...(prose
