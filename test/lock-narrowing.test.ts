@@ -10,14 +10,15 @@
 // still sweep the remaining files until they have SEEN the row. That is what
 // these tests pin, in both directions: one lock on the normal path, and the old
 // behaviour preserved for a store that breaks the mapping.
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { memoryRoot } from "../src/core/config/paths.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
 import { resetState } from "../src/core/state.ts";
 import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
+import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll, memoryFiles } from "../src/store/files/load.ts";
 import { prune } from "../src/store/files/prune.ts";
 import {
@@ -240,6 +241,78 @@ test("contention on the containing day file still refuses the supersede", async 
     await holder;
   }
 }, 30_000);
+
+// The narrowing addresses a row by the day its own ts names, so it is only ever
+// as safe as the claim that a plugin-written row lives in the file its ts names
+// (#373 review). appendMemory picked the file from the clock and bumped a
+// colliding ts inside the lock, which made the claim false at UTC midnight: two
+// files could hold the same ts, and a retirement that stopped at the first copy
+// reported success while leaving the second live.
+test("appendMemory never stores a ts under another day's file", async () => {
+  setSystemTime(new Date("2026-01-05T23:59:59.999Z"));
+  const first = await appendMemory({
+    type: "learning",
+    scope: "edge-a",
+    content: "first row written at the day boundary, twice in one millisecond",
+    repo: "global",
+  });
+  const second = await appendMemory({
+    type: "learning",
+    scope: "edge-b",
+    content: "second row in the same millisecond, so its ts is bumped forward",
+    repo: "global",
+  });
+  setSystemTime(new Date("2026-01-06T00:00:00.000Z"));
+  const third = await appendMemory({
+    type: "learning",
+    scope: "edge-c",
+    content: "third row one millisecond later, in the next day's file",
+    repo: "global",
+  });
+  setSystemTime();
+
+  const homes = new Map<string, string[]>();
+  for (const file of await memoryFiles()) {
+    const text = await Bun.file(file).text();
+    for (const ts of [first, second, third]) {
+      if (!text.includes(`ts=${ts}`)) continue;
+      homes.set(ts, [...(homes.get(ts) ?? []), basename(file)]);
+    }
+  }
+  expect(homes.get(first)).toEqual(["2026-01-05.logfmt"]);
+  // The bumped ts says 01-06, so 01-06 is where it must live.
+  expect(homes.get(second)).toEqual(["2026-01-06.logfmt"]);
+  expect(homes.get(third)).toEqual(["2026-01-06.logfmt"]);
+});
+
+test("a ts duplicated across two day files retires in BOTH copies", async () => {
+  // What the boundary bug left behind, planted directly: the same ts in the day
+  // it names and in the day before it.
+  seedStore(30, 10);
+  const dup = "2026-01-15T23:59:59.999Z";
+  for (const day of ["2026-01-15", "2026-01-14"]) {
+    appendFileSync(
+      join(memoryRoot(), `${day}.logfmt`),
+      `${formatLine({
+        ts: dup,
+        type: "learning",
+        scope: `dup-${day}`,
+        content: `a copy of the same identity in ${day}, from the boundary collision`,
+      })}\n`,
+    );
+  }
+
+  const marked = await markSuperseded(dup, {
+    superseded_by: "2026-02-01T00:00:00.000Z",
+    reason: "retire every copy",
+  });
+
+  expect(marked).toBe(true);
+  const live = (await loadAll()).filter(
+    (m) => m.ts === dup && !m.superseded_by,
+  );
+  expect(live).toEqual([]);
+});
 
 test("a supersede of a row that does not exist locks nothing extra and marks nothing", async () => {
   seedStore(30, 10);

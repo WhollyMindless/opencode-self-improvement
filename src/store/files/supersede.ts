@@ -1,12 +1,17 @@
 // supersede — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
-import { join } from "node:path";
-import { formatLine, parseLine } from "../../core/logfmt/format.ts";
+
+import { basename } from "node:path";
+import {
+  type Fields,
+  formatLine,
+  parseLine,
+} from "../../core/logfmt/format.ts";
 import { fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts";
 import { readLines } from "../../core/logfmt/read.ts";
 import { LOCK_WRITE, withStoreLock } from "../lock.ts";
 import { redactSecrets } from "../secrets.ts";
 import { appendMemory } from "./append.ts";
-import { filesOrderedFor } from "./load.ts";
+import { filesHoldingTs, filesOrderedFor, memoryFiles } from "./load.ts";
 import { snapshotBefore, stampRow } from "./snapshots.ts";
 
 export interface SupersedeFields {
@@ -63,67 +68,79 @@ export async function markManySupersededReport(
   const wanted = new Map<string, SupersedeFields>();
   for (const e of entries) if (!wanted.has(e.ts)) wanted.set(e.ts, e.fields);
   const marked: string[] = [];
-  // #215: walk the day files the batch's own ts values name FIRST, and stop as
-  // soon as every target has been SEEN (present, whether or not already
-  // retired). A one-row supersede then costs one lock instead of one per day of
-  // store age. A target that is never seen — a store edited outside the plugin,
-  // or a ts whose file was renamed — keeps the walk going over the remaining
-  // files, which is the sweep this replaced.
   const seen = new Set<string>();
-  for (const file of await filesOrderedFor([...wanted.keys()])) {
-    marked.push(
-      ...(await withStoreLock(
-        file,
-        async () => {
-          // #106: identity BEFORE the read, like every other whole-file
-          // read-modify-write (#89's contract) - the publish below may retry a
-          // Windows handover only while the destination still matches this.
-          const since = await fileIdentity(file);
-          const lines = await readLines(file);
-          const ids: string[] = [];
-          for (let i = 0; i < lines.length; i++) {
-            const parsed = parseLine(lines[i]);
-            if (!parsed) continue;
-            if (typeof parsed.ts === "string" && wanted.has(parsed.ts))
-              seen.add(parsed.ts);
-            if (typeof parsed.superseded_by === "string") continue;
-            const fields =
-              typeof parsed.ts === "string" ? wanted.get(parsed.ts) : undefined;
-            if (!fields) continue;
-            // Whole line rewritten, not extended: an old-format line comes out in
-            // the current format with its values unchanged (as markSuperseded did).
-            // The one exception is SECRET SCRUB (#128, review probe 4): the
-            // fields a merge/decay/update copies into the loser's row carry
-            // caller-authored prose (the rotation note "key ghp_... rotated"),
-            // and content already scrubs at this same boundary (appendMemory
-            // redacts content in src/store/files/append.ts). The
-            // durable row must not be the one place a credential survives when
-            // the evidence line beside it was cleaned.
-            const clean: SupersedeFields = { ...fields };
-            for (const k of Object.keys(clean)) {
-              const v = (clean as unknown as Record<string, unknown>)[k];
-              if (typeof v === "string")
-                (clean as unknown as Record<string, unknown>)[k] =
-                  redactSecrets(v);
-            }
-            lines[i] = formatLine({ ...parsed, ...clean });
-            ids.push(parsed.ts as string);
+  const markFile = (file: string) =>
+    withStoreLock(
+      file,
+      async () => {
+        // #106: identity BEFORE the read, like every other whole-file
+        // read-modify-write (#89's contract) - the publish below may retry a
+        // Windows handover only while the destination still matches this.
+        const since = await fileIdentity(file);
+        const lines = await readLines(file);
+        const ids: string[] = [];
+        for (let i = 0; i < lines.length; i++) {
+          const parsed = parseLine(lines[i]);
+          if (!parsed) continue;
+          if (typeof parsed.ts === "string" && wanted.has(parsed.ts))
+            seen.add(parsed.ts);
+          if (typeof parsed.superseded_by === "string") continue;
+          const fields =
+            typeof parsed.ts === "string" ? wanted.get(parsed.ts) : undefined;
+          if (!fields) continue;
+          // Whole line rewritten, not extended: an old-format line comes out in
+          // the current format with its values unchanged (as markSuperseded did).
+          // The one exception is SECRET SCRUB (#128, review probe 4): the
+          // fields a merge/decay/update copies into the loser's row carry
+          // caller-authored prose (the rotation note "key ghp_... rotated"),
+          // and content already scrubs at this same boundary (appendMemory
+          // redacts content in src/store/files/append.ts). The
+          // durable row must not be the one place a credential survives when
+          // the evidence line beside it was cleaned.
+          const clean: SupersedeFields = { ...fields };
+          for (const k of Object.keys(clean)) {
+            const v = (clean as unknown as Record<string, unknown>)[k];
+            if (typeof v === "string")
+              (clean as unknown as Record<string, unknown>)[k] =
+                redactSecrets(v);
           }
-          if (ids.length === 0) return [];
-          await snapshotBefore(file);
-          await writeAtomic(file, lines.join("\n") + "\n", since);
-          durable?.push(...ids);
-          return ids;
-        },
-        LOCK_WRITE,
-      )),
+          lines[i] = formatLine({ ...parsed, ...clean });
+          ids.push(parsed.ts as string);
+        }
+        if (ids.length === 0) return [];
+        await snapshotBefore(file);
+        await writeAtomic(file, lines.join("\n") + "\n", since);
+        durable?.push(...ids);
+        return ids;
+      },
+      LOCK_WRITE,
     );
-    if (seen.size === wanted.size) break;
+
+  // #215 + #373 review: retire every address a row can have, and pay for it.
+  // Pass 1 walks the day files the batch's own ts values name, plus the previous
+  // day's file ONLY where a cheap scan proves a second copy lives there — the
+  // one shape an older `appendMemory` could write at UTC midnight. A one-row
+  // supersede therefore still costs one lock, and a success can never leave a
+  // live copy behind under the same identity.
+  const present = new Set((await memoryFiles()).map((f) => basename(f)));
+  const addressed = new Set<string>();
+  for (const ts of wanted.keys())
+    for (const f of await filesHoldingTs(ts, present)) addressed.add(f);
+  for (const file of addressed) marked.push(...(await markFile(file)));
+  // Pass 2: a target neither address held — a store edited outside the plugin,
+  // or a day file that was renamed — keeps the full sweep this replaced.
+  if (seen.size < wanted.size) {
+    for (const file of await filesOrderedFor([...wanted.keys()])) {
+      if (addressed.has(file)) continue;
+      marked.push(...(await markFile(file)));
+      if (seen.size === wanted.size) break;
+    }
   }
-  // A ts that appears in several files (should not exist - append mints unique
-  // ts) retires in the FIRST file the walk reaches that holds it. Before #215 a
-  // batch retired it in every file; both are conservation-safe, and the duplicate
-  // itself is a store-corruption case the next mutation over that file reaches.
+  // A ts that appears in more than one file retires in EVERY file that holds it
+  // (#373 review): reporting a retirement while a live copy stands would be the
+  // worse bug, so the neighbour-day scan above exists. `appendMemory` now also
+  // refuses to create the collision in the first place; the scan is what keeps a
+  // store written before that fix honest.
   return { marked };
 }
 
@@ -149,34 +166,53 @@ export async function clearSuperseded(
   ts: string,
   provenance?: ClearProvenance,
 ): Promise<boolean> {
-  // #215: the containing day file is tried first, so the common case locks one
-  // file; the walk continues (same behaviour as before) until a file reports it
-  // holds the row.
-  for (const file of await filesOrderedFor([ts])) {
-    const outcome = await stampRow(file, ts, (parsed) => {
-      if (typeof parsed.superseded_by !== "string") return null;
-      if (
-        provenance &&
-        parsed.superseded_by !== provenance.supersededBy &&
-        parsed.reason !== provenance.reason
-      )
-        return null;
-      // These six keys are written only by markSuperseded (drift, canonical,
-      // update and merge_review), never by appendMemory, so they are all part of
-      // the marker and go with it. Field order round-trips because parseLine
-      // inserts keys in source order.
-      for (const key of [
-        "superseded_by",
-        "reason",
-        "symbol",
-        "from",
-        "to",
-        "entity",
-      ]) {
-        delete parsed[key];
-      }
-      return formatLine(parsed);
-    });
+  const clear = (parsed: Fields) => {
+    if (typeof parsed.superseded_by !== "string") return null;
+    if (
+      provenance &&
+      parsed.superseded_by !== provenance.supersededBy &&
+      parsed.reason !== provenance.reason
+    )
+      return null;
+    // These six keys are written only by markSuperseded (drift, canonical,
+    // update and merge_review), never by appendMemory, so they are all part of
+    // the marker and go with it. Field order round-trips because parseLine
+    // inserts keys in source order.
+    for (const key of [
+      "superseded_by",
+      "reason",
+      "symbol",
+      "from",
+      "to",
+      "entity",
+    ]) {
+      delete parsed[key];
+    }
+    return formatLine(parsed);
+  };
+  // #215 + #373 review: revive every copy a row has. The common case is the one
+  // day file the ts names; the previous day's file joins ONLY when a scan finds
+  // the same identity in it, which is what an older midnight-boundary append
+  // could write. Reviving one copy while a duplicate stayed retired would put
+  // the row back in recall with a stale sibling still on disk.
+  const present = new Set((await memoryFiles()).map((f) => basename(f)));
+  const candidates = await filesHoldingTs(ts, present);
+  let found = false;
+  let cleared = false;
+  for (const file of candidates) {
+    const outcome = await stampRow(file, ts, clear);
+    if (outcome === null) continue;
+    found = true;
+    cleared = cleared || outcome;
+  }
+  if (found) return cleared;
+  // Never seen where it should be: the sweep this replaced, unchanged. A store
+  // edited outside the plugin can hold the row under any name, so this one reads
+  // every file rather than trusting the day mapping.
+  const tried = new Set(candidates);
+  for (const file of await memoryFiles()) {
+    if (tried.has(file)) continue;
+    const outcome = await stampRow(file, ts, clear);
     if (outcome !== null) return outcome;
   }
   return false;

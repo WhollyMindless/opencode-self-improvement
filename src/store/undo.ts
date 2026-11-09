@@ -29,8 +29,6 @@
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { deletionsFile, snapshotDir } from "../core/config/paths.ts";
-import { contentHash } from "../evidence/record.ts";
-import { isWithin } from "./containment.ts";
 import { parseLine } from "../core/logfmt/format.ts";
 import {
   ensureDir,
@@ -38,14 +36,16 @@ import {
   writeAtomic,
 } from "../core/logfmt/publish.ts";
 import { readLines } from "../core/logfmt/read.ts";
-import { withStoreLock, LOCK_RESTORE } from "./lock.ts";
+import { contentHash } from "../evidence/record.ts";
+import { isWithin } from "./containment.ts";
 import { snapshotFiles } from "./files/snapshots.ts";
-import { tombstones } from "./tombstones/tombstone.ts";
+import { LOCK_RESTORE, withStoreLock } from "./lock.ts";
 import {
   ADMIN_READER,
   lineVisibleTo,
   type Reader,
 } from "./model/visibility.ts";
+import { tombstones } from "./tombstones/tombstone.ts";
 
 const SNAPSHOT_NAME = /^(\d+)-(\d{4}-\d{2}-\d{2}\.logfmt)$/;
 

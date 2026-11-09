@@ -151,6 +151,53 @@ export async function filesOrderedFor(tsValues: string[]): Promise<string[]> {
   return [...near, ...rest];
 }
 
+/**
+ * The day BEFORE `YYYY-MM-DD`, UTC. Month and year boundaries included: the
+ * only caller uses it to name a file that may hold a row appended a millisecond
+ * before midnight.
+ */
+export function previousDayName(day: string): string {
+  return new Date(new Date(`${day}T12:00:00.000Z`).getTime() - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+/**
+ * The day files that could hold a copy of `ts` — the addresses a single-row
+ * mutation must try before it may report success (#373 review).
+ *
+ * Two files, at most. The one the ts names, plus the previous day's file ONLY
+ * when a text scan finds the identity in it: `appendMemory` used to pick the
+ * file from the clock and bump a colliding ts inside the lock, so a row whose ts
+ * is one millisecond past midnight could be filed under the day before it. That
+ * is the only way the plugin can write a row outside its own day, so the
+ * neighbour scan is complete, and scanning (not locking) keeps the ordinary
+ * single-row mutation at ONE lock.
+ *
+ * Reading without a lock is sound because this only decides what to lock next:
+ * every mutation re-reads under the lock it takes.
+ *
+ * Empty for a ts that is not an ISO instant — the caller then sweeps, as before.
+ */
+export async function filesHoldingTs(
+  ts: string,
+  present?: Set<string>,
+): Promise<string[]> {
+  const name = dayFileName(ts);
+  if (!name) return [];
+  const have =
+    present ?? new Set((await memoryFiles()).map((f) => basename(f)));
+  const out: string[] = [];
+  if (have.has(name)) out.push(join(memoryRoot(), name));
+  const prev = `${previousDayName(name.slice(0, 10))}.logfmt`;
+  if (have.has(prev)) {
+    const file = join(memoryRoot(), prev);
+    const text = await Bun.file(file).text();
+    if (text.includes(`ts=${ts}`)) out.push(file);
+  }
+  return out;
+}
+
 export async function loadAll(): Promise<Memory[]> {
   malformedRows = 0; // per-load telemetry: the most recent read wins
   const blocked = await blockedTs();
