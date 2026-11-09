@@ -20,7 +20,7 @@
 //   fallback row.
 // - All functions are TOTAL like the rest of capture: junk input yields
 //   []/passthrough, never a throw.
-import { type CaptureCandidate } from "./prompt.ts";
+import type { CaptureCandidate } from "./prompt.ts";
 
 /** Same normalisation the runtime quote check uses. */
 export function normWs(s: string): string {
@@ -71,6 +71,51 @@ function numbers(s: string): Set<string> {
   return new Set(s.match(NUMBERS_RE) ?? []);
 }
 
+// The connective prose a guidance sentence is full of. Kept small on purpose:
+// the point is only to stop a sentence's grammar from counting as topical
+// overlap with everything else in the store.
+const WORD_STOP = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "from",
+  "have",
+  "has",
+  "was",
+  "were",
+  "are",
+  "not",
+  "only",
+  "must",
+  "should",
+  "would",
+  "could",
+  "will",
+  "shall",
+  "then",
+  "than",
+  "per",
+  "via",
+  "its",
+]);
+
+/** Content words (length >= 3, letter-initial, so "5.0" never qualifies). */
+function topicWords(s: string): Set<string> {
+  return new Set(
+    (s.toLowerCase().match(/[a-z][a-z0-9_-]{2,}/g) ?? []).filter(
+      (w) => !WORD_STOP.has(w),
+    ),
+  );
+}
+
+function sharesTopic(a: Set<string>, b: Set<string>): boolean {
+  for (const w of a) if (b.has(w)) return true;
+  return false;
+}
+
 /**
  * One row per pre-pass quote. A model candidate that already carries the
  * verbatim quote keeps its phrasing; one that states the same numbers keeps
@@ -86,11 +131,26 @@ export function mergeGuidedCandidates(
   const out = [...candidates];
   for (const quote of quotes) {
     const nums = numbers(quote);
-    const match = out.find(
-      (c) =>
-        (c.original !== undefined && normWs(c.original) === quote) ||
-        (nums.size > 0 && [...numbers(c.content)].some((n) => nums.has(n))),
-    );
+    const topics = topicWords(quote);
+    // Two boundaries the first version lacked (#364 review):
+    // - ONE quote per candidate. Re-matching a candidate that already carries a
+    //   quote overwrote the first fact, so three user sentences all stating
+    //   10.0 stored a single row.
+    // - a shared number plus a shared CONTENT word. A number alone matches a
+    //   version label as happily as a measurement, which marked an unrelated
+    //   "Release 5.0" row with a refill-threshold quote.
+    // The cost is deliberate: a model phrasing that shares no word with the
+    // user's sentence now yields an extra fallback row instead of a merge. The
+    // fact survives either way; a merge that quotes the wrong fact does not.
+    const match = out.find((c) => {
+      if (c.original !== undefined) return normWs(c.original) === quote;
+      if (normWs(c.content) === quote) return true;
+      return (
+        nums.size > 0 &&
+        [...numbers(c.content)].some((n) => nums.has(n)) &&
+        sharesTopic(topicWords(c.content), topics)
+      );
+    });
     if (match) {
       match.guided = true;
       match.original = quote;

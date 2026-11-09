@@ -84,6 +84,34 @@ describe("mergeGuidedCandidates", () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.original).toBe(quote);
   });
+  // #364 review: `out.find` could hand a fallback row to the NEXT quote and
+  // overwrite its text, so three stated facts sharing one number stored one.
+  test("three quotes that state the same number keep three rows", () => {
+    const quotes = [
+      "The maximum upload size must be 10.0 MB.",
+      "The minimum password length must be 10.0 characters.",
+      "The session timeout must be 10.0 minutes.",
+    ];
+    const out = mergeGuidedCandidates(quotes, []);
+    expect(out).toHaveLength(3);
+    expect(out.map((c) => c.original)).toEqual(quotes);
+    expect(out.every((c) => c.guided === true)).toBe(true);
+  });
+  // The other half of the same finding: a shared number alone is not evidence
+  // that two sentences are about the same fact.
+  test("a shared number alone does not attach a quote to an unrelated row", () => {
+    const quote = "The tank refill threshold is 5.0 gallons.";
+    const unrelated: CaptureCandidate = {
+      type: "context",
+      scope: "release",
+      content: "Release 5.0 ships in March with a new installer.",
+    };
+    const out = mergeGuidedCandidates([quote], [unrelated]);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toEqual(unrelated);
+    expect(out[1]?.original).toBe(quote);
+    expect(out[1]?.guided).toBe(true);
+  });
 });
 
 describe("validateGuidedQuotes", () => {
