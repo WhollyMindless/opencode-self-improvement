@@ -365,6 +365,19 @@ Run it when you want to know whether the suite still has teeth — after changin
 
 **Pre-release ritual (decided 2026-11-04, #72):** before pushing a release commit, a human runs `--validate`, then `--selftest`, then `--fail-on-survivors`, and records the mutation score and the survivor list in `bench/RESULTS.md` beside the published evidence. Cadence is pre-release only, run by a person: the sweep is a full suite per mutant and never belongs in CI, where it would cost more than it informs. Survivors become entries on the unpinned-invariant list, not red checks.
 
+### Bench artifacts stay out of git
+
+Raw sweep output is regenerable measurement data, and it was the largest tracked content in the repository. It is not committed (#232). A clone carries the published summaries — `bench/RESULTS.md`, `bench/recall-results.md`, `bench/test-sweep-results.md`, `bench/capture-trigger-results.md` — and the inputs those summaries are rebuilt from. History is not rewritten: the old blobs stay in earlier revisions, so this shrinks new checkouts, not the archive.
+
+| Artifact | How to get it back |
+| --- | --- |
+| `bench/append-publication-198/` | `bun bench/append-cost-198.ts <absolute-source-checkout> <size-MiB> <baseline\|candidate> <round>`, once per size, mode and platform. `bench/runners/append-cost-198.ts` is the runner; the removed `methodology.json` named the baseline sha (`bf9f4d2`) and the aggregation. |
+| A mutation sweep log | `bun scripts/test-sweep.ts --log=<path>`. |
+
+A script that needs a missing artifact names the file and the command that produces it instead of throwing a stack trace.
+
+The `#71` set is the deliberate exception: `bench/test-integrity-71.json`, `bench/test-integrity-71/before.jsonl`, `bench/test-integrity-71/after.jsonl` and `bench/test-integrity-71-verdicts.json` stay tracked. It looks regenerable and is not. `scripts/triage-71.ts` refuses to run unless the verdicts file carries exactly one verdict per CURRENT test file, and the test tree has grown since #71, so the documented rebuild fails on today's tree (`every current test file needs exactly one verdict`, measured on `main` at `f8f42fd`). Deleting the derived JSON would therefore destroy the only copy of a published number.
+
 ## Troubleshooting
 
 | Problem | Fix |
