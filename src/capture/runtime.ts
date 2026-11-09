@@ -1,28 +1,28 @@
 // Opt-in capture configuration and dispatch (#168). Cooldowns remain process-wide;
 // subscriptions and dispatch closures belong to one setup instance.
 import type { Cleanup } from "@opencode/plugin/promise/plugin";
+import { cmpTs } from "../core/cmp-ts.ts";
 import { setCurrent } from "../core/state.ts";
+import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
 import { record, recordCaptureLag } from "../evidence/record.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
 import { captureSessionID } from "../identity/host-events.ts";
 import { bindSessionProvisional, writeTarget } from "../identity/repokey.ts";
+import { loadAll } from "../store/files/load.ts";
+import { isInjectable } from "../store/model/predicates.ts";
+import {
+  type Reader,
+  readerFromSid,
+  visibleTo,
+} from "../store/model/visibility.ts";
 import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
+import { flattenMemoryText } from "../store/sanitize.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
 import { lagSince } from "./lag.ts";
 import { buildCapturePrompt } from "./prompt.ts";
 import { type SessionModelRef, sessionModel } from "./session-model.ts";
 import { flattenTranscript, splitTranscript } from "./transcript.ts";
-import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
-import { loadAll } from "../store/files/load.ts";
-import { isInjectable } from "../store/model/predicates.ts";
-import {
-  readerFromSid,
-  visibleTo,
-  type Reader,
-} from "../store/model/visibility.ts";
-import { flattenMemoryText } from "../store/sanitize.ts";
-import { cmpTs } from "../core/cmp-ts.ts";
 
 interface CaptureHost {
   options?: Record<string, unknown>;
@@ -43,7 +43,11 @@ interface CaptureHost {
 interface CaptureDependencies {
   instanceDir: string | undefined;
   gateContext: (sid?: string) => GateContext;
-  guarded: (name: string, fn: () => Promise<void>) => Promise<void>;
+  guarded: (
+    name: string,
+    fn: () => Promise<void>,
+    reportable?: () => boolean,
+  ) => Promise<void>;
 }
 
 // Tag on store rows captured by the COMPACTION trigger (issue #41). Rows keep
@@ -182,6 +186,39 @@ export function configureAutoCapture(
       );
     } else {
       const controller = new AbortController();
+      // #211 (LIFE-1): passes in flight, tracked so teardown can stop them.
+      // Aborting the subscription is not enough on its own: `generate.text`
+      // does not take the signal, so a pass parked mid-model-call when the
+      // host disposes this instance wakes up afterwards and used to run the
+      // whole write gate against a store its caller had already torn down —
+      // gate receipts, promoted rows, supersession. The contract is bounded
+      // and explicit:
+      //   1. cleanup aborts the subscription, so no NEW pass starts;
+      //   2. every pass checks the signal after the model call and between
+      //      candidates, and stops BEFORE the next gate run — a gate already
+      //      mutating is never cut in half, because a half-applied gate is
+      //      worse than a late one;
+      //   3. cleanup then drains the tracked passes up to DRAIN_LIMIT_MS, so
+      //      a caller that removes the store right after cleanup sees nothing
+      //      straggling. A generate that outlives the bound is covered by (2),
+      //      not by the drain: teardown never waits on the model.
+      const DRAIN_LIMIT_MS = 1000;
+      const inFlight = new Set<Promise<unknown>>();
+      function track<T>(pass: Promise<T>): Promise<T> {
+        const wrapped = pass.finally(() => inFlight.delete(wrapped));
+        inFlight.add(wrapped);
+        return wrapped;
+      }
+      async function drainInFlight(): Promise<void> {
+        if (!inFlight.size) return;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const bound = new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, DRAIN_LIMIT_MS);
+        });
+        await Promise.race([Promise.allSettled([...inFlight]), bound]).finally(
+          () => clearTimeout(timer),
+        );
+      }
       const eventApi = ctx.event;
       const generateApi = ctx.generate;
       // Arrow wrapper: keep the receiver bound. The harness fakes are closures,
@@ -294,6 +331,12 @@ export function configureAutoCapture(
         let msgs = seededMsgs;
         if (transcript.length < 200) {
           msgs = await contextFn({ sessionID: sid });
+          // #211: disposed while the host was answering. The drain in cleanup()
+          // waits a bound, not forever, so this is the normal outcome of a
+          // teardown during a slow context read — and everything below writes:
+          // the thin-transcript receipt below, then the model call. Silent, for
+          // the same reason the post-model check is.
+          if (controller.signal.aborted) return;
           transcript = flattenTranscript(msgs);
         }
         if (transcript.length < 200) {
@@ -331,6 +374,11 @@ export function configureAutoCapture(
         const partitioned = split.work.length >= 200;
         const work = partitioned ? split.work : transcript;
         const userProse = partitioned ? split.user : "";
+        // Hoisted out of the prompt literal so the disposal check below runs
+        // BEFORE the model call: this read is awaited, so it is its own window
+        // into a teardown (#211).
+        const knownRows = await knownRowsFor(captureReader);
+        if (controller.signal.aborted) return;
         const out = await generateApi.text({
           model,
           // Redact the COMPLETE transcript, THEN apply the character budget
@@ -342,12 +390,21 @@ export function configureAutoCapture(
             redactSecrets(work).slice(-7000),
             captureMax,
             redactSecrets(userProse).slice(-1500),
-            await knownRowsFor(captureReader),
+            knownRows,
           ),
         });
         const text = typeof out === "string" ? out : (out?.text ?? "");
+        // #211: disposed while the model call was in flight. Stop here — the
+        // gate, the rows and the receipts below all write to a store the
+        // caller may already have removed. Silent on purpose: a receipt here
+        // is the ENOENT teardown noise this check exists to eliminate, and
+        // the drain in cleanup means the pass is finished, not lost mid-air.
+        if (controller.signal.aborted) return;
         const candidates = parseCandidates(text, captureMax);
         for (const c of candidates) {
+          // Between candidates, never inside a gate run: a supersession that
+          // half-applied is a store the next session cannot trust.
+          if (controller.signal.aborted) return;
           const durable: string[] = [];
           let outcome: Awaited<ReturnType<typeof runWriteGate>>;
           try {
@@ -449,8 +506,12 @@ export function configureAutoCapture(
             let opGate: GateContext | undefined;
             try {
               opGate = bindCapture(sid);
-              await captureSession(sid, "", "idle", undefined, opGate);
+              await track(captureSession(sid, "", "idle", undefined, opGate));
             } catch (err) {
+              // Teardown is not a capture failure: after cleanup the store may
+              // be gone, and a receipt here would be the ENOENT noise #211
+              // reports. The abort check inside captureSession is the signal.
+              if (controller.signal.aborted) return;
               // Fail-closed for the SESSION, never silent in the store: the
               // same silence that hid the 2.2.5 shape break would make a
               // throwing capture indistinguishable from one that never ran.
@@ -474,7 +535,10 @@ export function configureAutoCapture(
           // the subscription itself ended (abort or host error); nothing to do
         }
       })();
-      captureCleanup = () => controller.abort();
+      captureCleanup = async () => {
+        controller.abort();
+        await drainInFlight();
+      };
 
       // The compaction trigger needs no extra subscription: the session
       // compaction hook (registered above) calls through this seam. The
@@ -490,13 +554,24 @@ export function configureAutoCapture(
           // Same freeze as the idle trigger, and for the same reason: sync,
           // before guarded() starts awaiting.
           const opGate = bindCapture(sid);
-          void guarded("session.compaction (auto-capture)", () =>
-            captureSession(
-              sid,
-              flattenTranscript(messages),
-              "compaction",
-              messages,
-              opGate,
+          // Tracked, not just fired: cleanup must be able to drain this pass
+          // (#211), which is the only reason the seam keeps the promise.
+          void track(
+            // The predicate, not just the checks inside the pass: a rejection
+            // from the awaited model call skips every abort check that follows
+            // it and lands in the generic reporter, which would append
+            // `hook_error` to a store cleanup() has already released (#211).
+            guarded(
+              "session.compaction (auto-capture)",
+              () =>
+                captureSession(
+                  sid,
+                  flattenTranscript(messages),
+                  "compaction",
+                  messages,
+                  opGate,
+                ),
+              () => !controller.signal.aborted,
             ),
           );
         };
