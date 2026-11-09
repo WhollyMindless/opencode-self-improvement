@@ -1,6 +1,5 @@
 // GATE-1 resolver. Extracts embedded path/symbol refs from a memory/evidence
-// candidate and re-resolves them against the live source tree (and, when
-// OPENCODE_CBM_BIN is set, the codebase-memory-mcp file graph). Deterministic:
+// candidate and re-resolves them against the live source tree. Deterministic:
 // regex + balanced-paren scanning, no model involvement.
 import { join } from "node:path";
 import { opendir } from "node:fs/promises";

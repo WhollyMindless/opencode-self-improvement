@@ -28,11 +28,7 @@ let root: string, a: string, b: string;
 let plugins: LoadedPlugin[];
 let saved: Record<string, string | undefined>;
 let undoSpy = () => {};
-const keys = [
-  "OPENCODE_MEMORY_DIR",
-  "OPENCODE_COMMANDS_DIR",
-  "OPENCODE_CBM_BIN",
-];
+const keys = ["OPENCODE_MEMORY_DIR", "OPENCODE_COMMANDS_DIR"];
 // The lifecycle hooks await plugin cleanup and the capture tests poll for
 // fire-and-forget evidence; on a busy Windows runner these pass the default
 // 5s budget with real work (green run: 8s on the capture test's hook).
@@ -50,7 +46,6 @@ beforeEach(() => {
   );
   process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
   process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
-  process.env.OPENCODE_CBM_BIN = join(root, "missing-cbm");
   resetState();
   resetSessionScopes();
   resetCaptureCooldowns();

@@ -39,9 +39,6 @@
     "README.md",
     "LICENSE"
   ],
-  "optionalDependencies": {
-    "codebase-memory-mcp": "0.11.0"
-  },
   "devDependencies": {
     "@biomejs/biome": "2.6.2",
     "@opencode/plugin": "2.0.32",
