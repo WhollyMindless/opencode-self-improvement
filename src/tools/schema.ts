@@ -74,10 +74,6 @@ export const InitArgs = z.object({
     .boolean()
     .describe("Re-run even if initialized (refresh after drift)")
     .optional(),
-  mode: z
-    .enum(["fast", "moderate", "full"])
-    .describe("codebase-memory index mode (default moderate)")
-    .optional(),
 });
 
 export const RecallArgs = z.object({

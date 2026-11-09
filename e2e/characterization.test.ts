@@ -605,11 +605,8 @@ describe("Feature: host-facing contract of the nine untested tools (#241)", () =
     expect(run.exit).toBe(0);
     expect(run.errors()).toEqual([]);
     const [first, second] = run.outputs("memory_init");
-    // First run: scripts detected (ship is not a notable key), rows promoted,
-    // a graph line whatever the machine has — the shape is the contract.
+    // First run: scripts detected (ship is not a notable key), rows promoted.
     expect(first).toInclude("Initialized ");
-    // #323 made graph indexing opt-in, so `disabled` is the default state.
-    expect(first).toMatch(/Graph: (disabled|indexed|unavailable|index-failed)/);
     expect(first).toInclude("Scripts (2):");
     expect(first).toInclude("npm run test");
     expect(first).not.toInclude("npm run ship");

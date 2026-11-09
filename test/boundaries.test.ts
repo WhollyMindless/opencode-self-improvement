@@ -80,11 +80,6 @@ const EXPECTED_WIRE = {
         type: "boolean",
         description: "Re-run even if initialized (refresh after drift)",
       },
-      mode: {
-        type: "string",
-        enum: ["fast", "moderate", "full"],
-        description: "codebase-memory index mode (default moderate)",
-      },
     },
     required: [],
     additionalProperties: false,

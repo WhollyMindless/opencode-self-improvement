@@ -4,7 +4,6 @@
 // under $OPENCODE_MEMORY_DIR when set (tests use this for hermetic runs).
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { tightenDirectory } from "../permissions.ts";
 
 export function memoryRoot(): string {
@@ -60,28 +59,4 @@ export const HITS_FILENAME = "hits.logfmt";
 
 export function deletionsFile(): string {
   return join(memoryRoot(), "deletions.logfmt");
-}
-
-// Optional live-graph binary, used ONLY by init's opt-in indexing (#323).
-// No read or gate path consumes the graph: gate1 resolves code refs against
-// the live file tree, and gate evidence is identical with the index present
-// or absent (measured, #317). Indexing therefore defaults OFF; set
-// OPENCODE_MEMORY_GRAPH=1 to have runInit build it.
-// Discovery order: OPENCODE_CBM_BIN override, an already-installed global on
-// PATH (matches a running MCP session's build), then the pinned npm copy
-// (codebase-memory-mcp is an optionalDependency of this package).
-export function graphEnabled(): boolean {
-  return process.env.OPENCODE_MEMORY_GRAPH === "1";
-}
-
-export function cbmBin(): string | undefined {
-  if (process.env.OPENCODE_CBM_BIN) return process.env.OPENCODE_CBM_BIN;
-  if (Bun.which("codebase-memory-mcp")) return undefined;
-  try {
-    const resolved = import.meta.resolve("codebase-memory-mcp/bin.js");
-    if (resolved.startsWith("file://")) return fileURLToPath(resolved);
-  } catch {
-    // optional graph dependency not installed; PATH lookup still applies
-  }
-  return undefined;
 }

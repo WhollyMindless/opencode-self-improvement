@@ -1,12 +1,10 @@
 // run — split from src/init.ts (#168 domain restructure). Declaration bodies are unchanged.
-// Repository init: re-derive build/test command memories through the write
-// gate, and — only when opted in via OPENCODE_MEMORY_GRAPH=1 (#323) — ensure
-// the codebase-memory graph exists for this repo. Deterministic
-// (no model calls): the graph binary is spawned one-shot via `cli`, manifests
-// are parsed locally, and every write goes through the 4-gate pipeline with the
-// `trusted` flag (plugin-authored bookkeeping, not model claims). Degrades
-// gracefully when the binary or git is absent, so install-from-scratch still
-// writes script memories.
+// Repository init: re-derive build/test command memories through the write gate
+// and store an init stamp keyed on git HEAD. Deterministic (no model calls):
+// manifests are parsed locally and every write goes through the 4-gate pipeline
+// with the `trusted` flag (plugin-authored bookkeeping, not model claims).
+// Degrades gracefully when git is absent, so install-from-scratch still writes
+// script memories. The codebase-memory graph integration was removed (#231).
 import { basename } from "node:path";
 import { loadAll } from "../store/files/load.ts";
 import { markSuperseded } from "../store/files/supersede.ts";
@@ -20,13 +18,10 @@ import { captureEvidenceContext, record } from "../evidence/record.ts";
 import { writeEvidence, hasGateCheck } from "../capture/triggers.ts";
 import { writeTarget } from "../identity/repokey.ts";
 import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
-import { graphEnabled } from "../core/config/paths.ts";
 import { getCurrent } from "../core/state.ts";
 import {
-  type GraphStatus,
   type ScriptRecord,
   detectScripts,
-  ensureGraph,
   gitHead,
   gitRootOf,
 } from "./detect.ts";
@@ -34,7 +29,6 @@ import {
 export interface InitArgs {
   liveRoot: string;
   force?: boolean;
-  mode?: string;
   // The calling session (#127): rows this writes are stamped for the CALLER,
   // resolved after runInit's own awaits (git probing) rather than from the
   // ambient current, which a concurrent session may have moved.
@@ -45,7 +39,6 @@ export interface InitSummary {
   scope: string;
   root: string;
   head: string;
-  graph: GraphStatus;
   scripts: ScriptRecord[];
   stampTs?: string;
   skipped: boolean;
@@ -54,23 +47,6 @@ export interface InitSummary {
   blocked: number;
   /** Written rows whose write_promoted audit line fell (#155 review). */
   unaudited?: number;
-}
-
-export async function run(
-  cmd: string[],
-  cwd: string,
-): Promise<{ ok: boolean; out: string }> {
-  try {
-    const p = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-    const [so, se] = await Promise.all([
-      new Response(p.stdout).text(),
-      new Response(p.stderr).text(),
-    ]);
-    const code = await p.exited;
-    return { ok: code === 0, out: (so || se || "").trim() };
-  } catch {
-    return { ok: false, out: "" };
-  }
 }
 
 export interface InitStamp {
@@ -108,7 +84,6 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
   const scope = basename(root) || basename(args.liveRoot);
   const head = await gitHead(root);
   const force = Boolean(args.force);
-  const mode = args.mode ?? "moderate";
 
   const gateCtx: GateContext = {
     liveRoot: root,
@@ -136,11 +111,6 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
       scope,
       root,
       head,
-      // A skipped init reports what THIS build would do, not what the prior
-      // stamp's build did: on a disabled build nothing is indexed (#323).
-      graph: graphEnabled()
-        ? { action: "indexed", mode }
-        : { action: "disabled", mode },
       scripts: [],
       stampTs: prior.ts,
       skipped: true,
@@ -152,19 +122,12 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
 
   await record(
     "init_start",
-    { scope, head, force, mode },
+    { scope, head, force },
     false,
     args.sessionID,
     evidenceContext,
   );
 
-  // Graph indexing is opt-in (#323). Measured on the benchmark: 11.5-26s per
-  // init on the first-write critical path, it failed in 29 of 32 real inits,
-  // and no read or gate path consumes the index (gate evidence is identical
-  // with it present or absent). Skip the spawn unless explicitly requested.
-  const graph: GraphStatus = graphEnabled()
-    ? await ensureGraph(root, mode, force)
-    : { action: "disabled", mode };
   const scripts = await detectScripts(root);
 
   let written = 0;
@@ -196,7 +159,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
     else blocked++;
   }
 
-  const stampContent = `Init stamp: repo=${scope}, head=${head}, graph=${graph.action}, mode=${graph.mode}, scripts=${scripts.length}`;
+  const stampContent = `Init stamp: repo=${scope}, head=${head}, scripts=${scripts.length}`;
   const stampOutcome = await runWriteGate(
     // Same screen as the script rows: the stamp interpolates the directory
     // basename, so an injection-shaped checkout name matches here too. Withheld
@@ -228,8 +191,6 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
       scope,
       head,
       force,
-      mode,
-      graph: graph.action,
       scripts: scripts.length,
       written,
       collapsed,
@@ -246,7 +207,6 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
     scope,
     root,
     head,
-    graph,
     scripts,
     stampTs,
     skipped: false,

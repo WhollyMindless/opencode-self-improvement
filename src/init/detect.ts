@@ -1,29 +1,19 @@
 // detect — split from src/init.ts (#168 domain restructure). Declaration bodies are unchanged.
-// Repository init: ensure the codebase-memory graph exists for this repo and
-// re-derive build/test command memories through the write gate. Deterministic
-// (no model calls): the graph binary is spawned one-shot via `cli`, manifests
-// are parsed locally, and every write goes through the 4-gate pipeline with the
-// `trusted` flag (plugin-authored bookkeeping, not model claims). Degrades
-// gracefully when the binary or git is absent, so install-from-scratch still
-// writes script memories.
+// Repository init: re-derive build/test command memories through the write gate.
+// Deterministic (no model calls): manifests are parsed locally and every write
+// goes through the 4-gate pipeline with the `trusted` flag (plugin-authored
+// bookkeeping, not model claims). Degrades gracefully when git is absent, so
+// install-from-scratch still writes script memories.
+// The codebase-memory graph integration was removed (#231): no read or gate
+// path ever consumed the index, and spawning a pinned third-party binary in
+// the user's repository was a supply-chain surface with no consumer.
 import { join } from "node:path";
 import { existsSync } from "node:fs";
-import { cbmBin } from "../core/config/paths.ts";
-import { run } from "./run.ts";
 
 export interface ScriptRecord {
   key: string;
   cmd: string;
   source: string;
-}
-
-export interface GraphStatus {
-  // "disabled": graph indexing is opt-in (OPENCODE_MEMORY_GRAPH=1) and was
-  // not requested — the default. No spawn occurs and nothing is lost: no
-  // read or gate path consumes the index (see #323).
-  action: "disabled" | "indexed" | "unavailable" | "index-failed";
-  name?: string;
-  mode: string;
 }
 
 const NOTABLE_KEYS = [
@@ -145,63 +135,4 @@ export async function detectScripts(root: string): Promise<ScriptRecord[]> {
   await detectMakeTargets(root, records);
   await detectLangManifests(root, records);
   return records.slice(0, 8);
-}
-
-async function cbmProject(
-  bin: string,
-  root: string,
-): Promise<{ name: string } | null> {
-  const r = await run(
-    [
-      bin,
-      "cli",
-      "--quiet",
-      "list_projects",
-      "--format",
-      "json",
-      "--metadata-only",
-    ],
-    root,
-  );
-  if (!r.ok || !r.out) return null;
-  try {
-    const env = JSON.parse(r.out) as {
-      projects?: { name: string; root_path: string }[];
-    };
-    const hit = env.projects?.find((p) => p.root_path === root);
-    return hit ? { name: hit.name } : null;
-  } catch {
-    return null;
-  }
-}
-
-export async function ensureGraph(
-  root: string,
-  mode: string,
-  force: boolean,
-): Promise<GraphStatus> {
-  const bin = cbmBin() ?? "codebase-memory-mcp";
-  const existing = await cbmProject(bin, root);
-  if (existing && !force)
-    return { action: "indexed", name: existing.name, mode };
-  const r = await run(
-    [
-      bin,
-      "cli",
-      "--quiet",
-      "index_repository",
-      "--repo-path",
-      root,
-      "--mode",
-      mode,
-    ],
-    root,
-  );
-  if (!r.ok) return { action: "unavailable", mode };
-  const after = await cbmProject(bin, root);
-  return {
-    action: after ? "indexed" : "index-failed",
-    name: after?.name,
-    mode,
-  };
 }
