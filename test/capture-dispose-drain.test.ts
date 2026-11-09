@@ -1,0 +1,200 @@
+// Contract (#211, LIFE-1): auto-capture work that is in flight when the host
+// disposes the plugin instance must not keep running the write gate.
+//
+// The reproducer the review ran was throwaway; this is the checked-in version.
+// `generate.text` does not take the abort signal, so before the fix a pass
+// parked mid-model-call woke up after `cleanup()` and ran the whole gate
+// against a store its caller had already torn down — gate_start, ref_stale_scan,
+// write_blocked/auto_capture_*_promoted, capture_lag, all with timestamps AFTER
+// disposal. A passing candidate (or a GATE-2 supersession) mutates the store
+// there, and the same gap produced the `hook failed (ignored): ENOENT
+// .../evidence/<date>.logfmt` noise in security-capture-crop's teardown.
+//
+// The contract, as implemented in src/capture/runtime.ts:
+//   1. cleanup aborts the subscription — no NEW pass starts;
+//   2. a pass checks the signal after the model call and between candidates,
+//      and stops BEFORE the next gate run (a gate already mutating is never
+//      cut in half);
+//   3. cleanup drains the tracked passes up to a bound, so a caller that
+//      removes the store right after cleanup sees nothing straggling.
+// Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { resetState } from "../src/core/state.ts";
+import { resetCaptureCooldowns } from "../src/index.ts";
+import { setRepoScope } from "../src/identity/repokey.ts";
+import { loadAll } from "../src/store/files/load.ts";
+import { isActive } from "../src/store/model/predicates.ts";
+import { loadPlugin, type LoadedPlugin } from "./harness.ts";
+import { readEvidenceLog, sleep } from "./helpers/logfmt.ts";
+
+let root: string;
+let plugin: LoadedPlugin | undefined;
+
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), "osi-211-dispose-"));
+  process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
+  process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
+  mkdirSync(join(root, "repo"), { recursive: true });
+  resetState();
+  resetCaptureCooldowns();
+  setRepoScope(null);
+});
+
+afterEach(async () => {
+  await plugin?.cleanup();
+  plugin = undefined;
+  resetState();
+  resetCaptureCooldowns();
+  setRepoScope(null);
+  delete process.env.OPENCODE_MEMORY_DIR;
+  delete process.env.OPENCODE_COMMANDS_DIR;
+  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+});
+
+async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > timeoutMs) throw new Error("waitFor timed out");
+    await sleep(5);
+  }
+}
+
+/** A generate call the test holds open, then releases after disposal. */
+function parked(): { promise: Promise<void>; release: () => void } {
+  const box = { promise: Promise.resolve(), release: () => {} };
+  box.promise = new Promise<void>((resolve) => {
+    box.release = resolve;
+  });
+  return box;
+}
+
+// Grounded so the canned candidate really would promote: the point of the
+// first test is that NO row lands, which is only evidence when a row was
+// available to land.
+const CANDIDATE = JSON.stringify([
+  {
+    type: "context",
+    scope: "batch",
+    content: "The nightly archive job keeps fourteen days of tarballs.",
+    status: "settled",
+  },
+]);
+
+// A pre-compaction transcript thick enough to mine (>=200 chars).
+function thickMessages(): unknown[] {
+  return [
+    {
+      role: "user",
+      content:
+        "We finished the archive change. Remember that the nightly archive job keeps fourteen " +
+        "days of tarballs, and the batch importer respects the staging rate limit of 120 " +
+        "requests per minute per key as of October 2026, which matters for the importer.",
+    },
+    {
+      role: "assistant",
+      content:
+        "Got it: fourteen days of tarballs in the nightly archive, and I will respect the " +
+        "120 requests per minute staging limit while wiring the batch importer tooling.",
+    },
+  ];
+}
+
+async function ground(loaded: LoadedPlugin, sessionID: string): Promise<void> {
+  await loaded["tool.execute.after"](
+    { tool: "read", sessionID, callID: "C1", args: { filePath: "x.ts" } },
+    { title: "read", output: "content", metadata: {} },
+  );
+}
+
+function capturedRows() {
+  return loadAll().then((rows) =>
+    rows.filter(
+      (r) => isActive(r) && r.tags?.includes("auto-capture") === true,
+    ),
+  );
+}
+
+/** Evidence appended at or after the disposal instant — the leak under test. */
+function evidenceSince(ms: number) {
+  return readEvidenceLog()
+    .filter((l) => Date.parse(String(l.ts)) >= ms)
+    .map((l) => String(l.ev));
+}
+
+test("compaction pass disposed mid-model-call never reaches the write gate (#211)", async () => {
+  const loaded = await loadPlugin(root, {
+    autoCapture: true,
+    captureModel: "fake/model",
+  });
+  plugin = loaded;
+  const sid = "ses-dispose";
+  await ground(loaded, sid);
+  const park = parked();
+  loaded.capture.generate.park = park.promise;
+  loaded.capture.generate.response = CANDIDATE;
+  await loaded.sessionHooks.compaction?.({
+    sessionID: sid,
+    system: [],
+    messages: thickMessages(),
+  });
+  await waitFor(() => loaded.capture.generate.calls.length === 1);
+
+  const disposedAt = Date.now();
+  await loaded.cleanup();
+  park.release(); // the pass wakes AFTER disposal
+  await sleep(100);
+
+  expect(await capturedRows()).toEqual([]);
+  expect(evidenceSince(disposedAt)).toEqual([]);
+});
+
+test("control: the same pass with no disposal does promote (so the check is what stops it)", async () => {
+  const loaded = await loadPlugin(root, {
+    autoCapture: true,
+    captureModel: "fake/model",
+  });
+  plugin = loaded;
+  const sid = "ses-alive";
+  await ground(loaded, sid);
+  loaded.capture.generate.response = CANDIDATE;
+  await loaded.sessionHooks.compaction?.({
+    sessionID: sid,
+    system: [],
+    messages: thickMessages(),
+  });
+  await waitFor(() => loaded.capture.generate.calls.length === 1);
+  await sleep(150); // let the pass run the gate
+
+  const rows = await capturedRows();
+  expect(rows.length).toBe(1);
+  expect(rows[0]?.content).toContain("fourteen days of tarballs");
+});
+
+test("idle pass whose model call fails after disposal writes no failure receipt (#211)", async () => {
+  const loaded = await loadPlugin(root, {
+    autoCapture: true,
+    captureModel: "fake/model",
+  });
+  plugin = loaded;
+  loaded.capture.context.messages = thickMessages();
+  const park = parked();
+  loaded.capture.generate.park = park.promise;
+  loaded.capture.generate.throws = new Error("model gone");
+  await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+  loaded.capture.events.push({
+    type: "session.execution.succeeded",
+    data: { sessionID: "ses-idle-dead" },
+  });
+  await waitFor(() => loaded.capture.generate.calls.length === 1);
+
+  const disposedAt = Date.now();
+  await loaded.cleanup();
+  park.release(); // the parked call throws AFTER disposal
+  await sleep(100);
+
+  // No auto_capture_refused, no capture_lag, nothing at all after cleanup.
+  expect(evidenceSince(disposedAt)).toEqual([]);
+});
