@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { formatLine, parseLine } from "../../core/logfmt/format.ts";
 import { fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts";
 import { readLines } from "../../core/logfmt/read.ts";
-import { withStoreLock, LOCK_WRITE } from "../lock.ts";
+import { LOCK_WRITE, withStoreLock } from "../lock.ts";
 import { redactSecrets } from "../secrets.ts";
 import { appendMemory } from "./append.ts";
-import { memoryFiles } from "./load.ts";
+import { filesOrderedFor } from "./load.ts";
 import { snapshotBefore, stampRow } from "./snapshots.ts";
 
 export interface SupersedeFields {
@@ -63,7 +63,14 @@ export async function markManySupersededReport(
   const wanted = new Map<string, SupersedeFields>();
   for (const e of entries) if (!wanted.has(e.ts)) wanted.set(e.ts, e.fields);
   const marked: string[] = [];
-  for (const file of await memoryFiles()) {
+  // #215: walk the day files the batch's own ts values name FIRST, and stop as
+  // soon as every target has been SEEN (present, whether or not already
+  // retired). A one-row supersede then costs one lock instead of one per day of
+  // store age. A target that is never seen — a store edited outside the plugin,
+  // or a ts whose file was renamed — keeps the walk going over the remaining
+  // files, which is the sweep this replaced.
+  const seen = new Set<string>();
+  for (const file of await filesOrderedFor([...wanted.keys()])) {
     marked.push(
       ...(await withStoreLock(
         file,
@@ -76,7 +83,10 @@ export async function markManySupersededReport(
           const ids: string[] = [];
           for (let i = 0; i < lines.length; i++) {
             const parsed = parseLine(lines[i]);
-            if (!parsed || typeof parsed.superseded_by === "string") continue;
+            if (!parsed) continue;
+            if (typeof parsed.ts === "string" && wanted.has(parsed.ts))
+              seen.add(parsed.ts);
+            if (typeof parsed.superseded_by === "string") continue;
             const fields =
               typeof parsed.ts === "string" ? wanted.get(parsed.ts) : undefined;
             if (!fields) continue;
@@ -108,10 +118,12 @@ export async function markManySupersededReport(
         LOCK_WRITE,
       )),
     );
+    if (seen.size === wanted.size) break;
   }
   // A ts that appears in several files (should not exist - append mints unique
-  // ts) retires in EVERY file here, where the row-by-row loop retired only the
-  // first; both are conservation-safe, this one is the more honest tombstone.
+  // ts) retires in the FIRST file the walk reaches that holds it. Before #215 a
+  // batch retired it in every file; both are conservation-safe, and the duplicate
+  // itself is a store-corruption case the next mutation over that file reaches.
   return { marked };
 }
 
@@ -137,7 +149,10 @@ export async function clearSuperseded(
   ts: string,
   provenance?: ClearProvenance,
 ): Promise<boolean> {
-  for (const file of await memoryFiles()) {
+  // #215: the containing day file is tried first, so the common case locks one
+  // file; the walk continues (same behaviour as before) until a file reports it
+  // holds the row.
+  for (const file of await filesOrderedFor([ts])) {
     const outcome = await stampRow(file, ts, (parsed) => {
       if (typeof parsed.superseded_by !== "string") return null;
       if (

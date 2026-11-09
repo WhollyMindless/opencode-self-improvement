@@ -5,7 +5,7 @@
 // needs: supersession markers, snapshots and audited deletion.
 import { existsSync } from "node:fs";
 import { open } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { HITS_FILENAME, memoryRoot } from "../../core/config/paths.ts";
 import { parseLine } from "../../core/logfmt/format.ts";
 import { readLines } from "../../core/logfmt/read.ts";
@@ -16,8 +16,8 @@ import {
   malformedWarnedFiles,
 } from "../model/memory.ts";
 import {
-  type Reader,
   isVisibleTo,
+  type Reader,
   readerForAmbient,
 } from "../model/visibility.ts";
 
@@ -112,6 +112,43 @@ export async function memoryFiles(): Promise<string[]> {
     if (!RESERVED.has(f)) files.push(join(root, f));
   }
   return files.sort();
+}
+
+/**
+ * The day file a row's own ts names, as a `YYYY-MM-DD.logfmt` basename, or null
+ * when the string is not an ISO instant. `appendMemory` mints ts at write time
+ * and appends to that same day file, so for every row the plugin wrote the ts
+ * date IS the file date (#215).
+ */
+export function dayFileName(ts: string): string | null {
+  const m = /^(\d{4}-\d{2}-\d{2})T/.exec(ts);
+  return m ? `${m[1]}.logfmt` : null;
+}
+
+/**
+ * Day files ordered so the ones these ts values name come first (#215). A
+ * single-row mutation that stops as soon as it has SEEN the row then locks one
+ * file instead of one per day of store age — the cost that made supersing a row
+ * 25x a full read on a 30-day store.
+ *
+ * The mapping is a hint, never a proof: a store edited outside the plugin can
+ * hold a row in a file its ts does not name. Callers must keep walking the rest
+ * of the list until they find the row, which is the behaviour this replaced.
+ */
+export async function filesOrderedFor(tsValues: string[]): Promise<string[]> {
+  const all = await memoryFiles();
+  const names = new Set<string>();
+  for (const ts of tsValues) {
+    const name = dayFileName(ts);
+    if (name) names.add(name);
+  }
+  if (!names.size) return all;
+  const near: string[] = [];
+  const rest: string[] = [];
+  for (const file of all) {
+    (names.has(basename(file)) ? near : rest).push(file);
+  }
+  return [...near, ...rest];
 }
 
 export async function loadAll(): Promise<Memory[]> {

@@ -1,21 +1,22 @@
 // The memory_update tool, extracted from index.ts (#168). Schema, description
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
-import type { ToolRegister } from "./deps.ts";
+
+import { join } from "node:path";
 import { memoryRoot } from "../core/config/paths.ts";
+import { nonCaptureTags } from "../core/guidance.ts";
 import { record } from "../evidence/record.ts";
 import { auditCaveat, runWriteGate, sameStrList } from "../gate/gate.ts";
-import { withStoreLock } from "../store/lock.ts";
 import { loadAll } from "../store/files/load.ts";
 import { markSuperseded } from "../store/files/supersede.ts";
 import { resolveMemoryTarget } from "../store/files/target.ts";
+import { withStoreLock } from "../store/lock.ts";
+import type { Memory } from "../store/model/memory.ts";
 import { isActive } from "../store/model/predicates.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
-import type { Memory } from "../store/model/memory.ts";
-import { UpdateArgs, validated } from "./schema.ts";
 import { redactSecrets } from "../store/secrets.ts";
-import { join } from "node:path";
-import { nonCaptureTags } from "../core/guidance.ts";
+import type { ToolRegister } from "./deps.ts";
+import { UpdateArgs, validated } from "./schema.ts";
 
 export const register: ToolRegister = (editor, deps) => {
   const {
@@ -221,7 +222,18 @@ export const register: ToolRegister = (editor, deps) => {
                 const partial = (why: string) => ({
                   content:
                     `memory_update PARTIAL: replacement ${replacement} IS on disk (memory_undo merge or force ` +
-                    `restores ${retired}), but ${why}. Re-running this update reports the duplicate.`,
+                    `restores ${retired}), but ${why}. Re-running this update reports the duplicate.` +
+                    // #215 narrowed a single-row supersede to the day file its ts
+                    // names, so a busy file now faults HERE instead of faulting
+                    // somewhere in the gate's sweep. The gate may still have
+                    // retired OTHER rows at GATE-2 (drift, canonical) before that
+                    // fault — those tombstones are on disk, and a PARTIAL that
+                    // omits them reads as "only the target was touched".
+                    (gateDurable.length > 0
+                      ? ` This call had ALREADY retired ${gateDurable.length} other row(s) (${gateDurable.join(
+                          ", ",
+                        )}): those retirements ARE on disk; reconcile with memory_evidence.`
+                      : ""),
                 });
                 let retiredNow = false;
                 try {
