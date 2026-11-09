@@ -166,15 +166,20 @@ export async function exportMemories(
   // stored before the write-side redaction existed (#74 slice 1). Redaction is
   // applied to the value being serialised, never to the row: export stays a
   // read path, and the store remains the byte-of-record for memory_undo.
+  // #300 extends the same rule to the metadata fields: `scope`, `tags` and `kw`
+  // are free prose a row can carry, and a legacy or hand-edited row can hold a
+  // credential in them even though new writes refuse it. `repo`/`repoPath` stay
+  // as stored — they are derived stamps, not prose, and rewriting them would
+  // break the import-side validation that keeps a portable file honest.
   const lines = mems.map((m) =>
     JSON.stringify({
       ts: m.ts,
       type: m.type,
-      scope: m.scope,
+      scope: redactSecrets(m.scope),
       content: redactSecrets(m.content),
       status: m.status,
-      tags: m.tags,
-      kw: m.kw,
+      tags: m.tags?.map(redactSecrets),
+      kw: m.kw?.map(redactSecrets),
       issue: m.issue === undefined ? m.issue : redactSecrets(m.issue),
       // Origin stamps ride along so a same-repo machine hop can retain them.
       // Import validates them against its current repo before promotion.

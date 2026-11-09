@@ -250,7 +250,7 @@ Limits worth knowing:
 - It can miss hex-only secrets, low-diversity passwords, and credentials written in prose without an assignment.
 - Credential-shaped `scope`, `tags` or `issue` metadata is rejected rather than silently rewritten.
 - `memory_remember` still replies `Remembered` when content was redacted, so the stored text can differ from what was sent.
-- Redaction is forward-only: existing stores are not scrubbed, and `memory_export` writes what is already stored verbatim.
+- Redaction is forward-only: existing stores are not scrubbed. `memory_export` scrubs credentials out of `content`, `issue`, `scope`, `tags` and `kw` as it serialises, so the file that leaves the machine carries `[redacted]` where a stored row still holds a token; the store itself is untouched, and origin stamps (`repo`, `repoPath`) are written as stored. The scrubber is a best-effort sweep over known token families and high-entropy credential-shaped values — an exotic credential can survive it, so an export is still a file you hand out deliberately.
 
 ## Export and move between machines
 

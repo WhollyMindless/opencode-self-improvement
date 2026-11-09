@@ -126,4 +126,36 @@ describe("memory_export redacts stored credentials (#74 slice 1)", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].content).toContain(SK_TOKEN);
   });
+
+  // #300: the same rule has to cover the metadata a row carries. New writes
+  // cannot put a credential in scope/tags/kw (the schema and the write boundary
+  // refuse it), but a row stored before those checks — or hand-edited into the
+  // store — exports into a file meant to leave the machine.
+  test("scope, tags and kw holding an sk- token export [redacted], never the token", async () => {
+    seedLegacy({
+      scope: `deploy-${SK_TOKEN}`,
+      content: "clean content",
+      tags: ["ci", `tok-${SK_TOKEN}`],
+      kw: [`key-${SK_TOKEN}`, "build"],
+    });
+    const res = await exportMemories({ file: "redact-meta.jsonl" });
+    const text = readFileSync(res.path, "utf8");
+    expect(text).not.toContain(SK_TOKEN);
+    const row = JSON.parse(text.split("\n")[1]);
+    expect(row.scope).toBe("deploy-[redacted]");
+    expect(row.tags).toEqual(["ci", "tok-[redacted]"]);
+    expect(row.kw).toEqual(["key-[redacted]", "build"]);
+  });
+
+  test("scrubbing metadata still leaves the store byte-unchanged", async () => {
+    seedLegacy({
+      scope: `deploy-${SK_TOKEN}`,
+      content: "clean content",
+      tags: [`tok-${SK_TOKEN}`],
+    });
+    const file = join(memoryRoot(), `${dateStr()}.logfmt`);
+    const before = readFileSync(file, "utf8");
+    await exportMemories({ file: "meta-readpath.jsonl" });
+    expect(readFileSync(file, "utf8")).toBe(before);
+  });
 });
