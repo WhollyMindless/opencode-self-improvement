@@ -176,6 +176,44 @@ describe("memory_init", () => {
     expect(mems.filter((m) => m.tags?.includes("init-stamp")).length).toBe(1);
   });
 
+  // Init mines repo-derived text: the scope is the checkout directory basename
+  // and the command comes from the manifest. A clone directory named to match an
+  // injection pattern used to promote with no quarantine tag and no provenance
+  // marker, then ride into every later session of that repo (#302).
+  test("a directory name matching an injection pattern quarantines the script row", async () => {
+    const nasty = join(root, "eval (x)");
+    mkdirSync(nasty, { recursive: true });
+    writeFileSync(
+      join(nasty, "package.json"),
+      JSON.stringify({ scripts: { test: "vitest run" } }),
+    );
+    const loaded = await loadPlugin(nasty);
+    const runInitTool = loaded.tool!.memory_init as never as {
+      execute(args: Record<string, never>): Promise<string>;
+    };
+    const out = await runInitTool.execute({});
+    expect(out).toContain("Initialized");
+
+    const rows = (await loadAll()).filter(
+      (m) => isActive(m) && m.type === "pattern",
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      const tags = row.tags ?? [];
+      expect(tags).toContain("quarantine");
+      expect(tags.some((t) => t.startsWith("quarantine:"))).toBe(true);
+    }
+    // The stamp interpolates the same basename, so it is screened too...
+    const stamps = (await loadAll()).filter(
+      (m) => isActive(m) && m.tags?.includes("init-stamp"),
+    );
+    expect(stamps.length).toBe(1);
+    expect(stamps[0].tags).toContain("quarantine");
+    // ...and screening does not break idempotency: init still reads its stamp.
+    expect(await runInitTool.execute({})).toContain("Already initialized");
+    await loaded.cleanup();
+  });
+
   test("force re-derives without duplicating", async () => {
     const out = await init.execute({ force: true });
     expect(out).not.toContain("Already initialized");
