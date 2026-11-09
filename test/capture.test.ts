@@ -948,6 +948,130 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
     await loaded.cleanup();
   });
 
+  // #364 review round 2 [P2]: the no-user-turn branch logged the skip but left
+  // `candidates` untouched, so a model-supplied guided candidate was stored with
+  // its unverified quote and the user-guided tag. The receipt alone does not
+  // shut the lane.
+  test("captureGuidedRules: with no user turn a model-supplied guided quote is withheld", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureGuidedRules: true,
+    });
+    await loaded["tool.execute.after"](
+      {
+        tool: "read",
+        sessionID: "ses-noguid",
+        callID: "C1",
+        args: { filePath: "x.ts" },
+      },
+      { title: "read", output: "content", metadata: {} },
+    );
+    loaded.capture.context.messages = [
+      {
+        type: "assistant",
+        content: [
+          {
+            type: "text",
+            text:
+              "Reading the pricing module and the tax document side by side: " +
+              "the correct sales tax rate is 7.5%. " +
+              "padding for the thin floor. ".repeat(6),
+          },
+        ],
+      },
+    ];
+    loaded.capture.generate.response = JSON.stringify([
+      {
+        type: "context",
+        scope: "pricing",
+        content: "The correct sales tax rate is 7.5%.",
+        guided: true,
+        original: "The correct sales tax rate is 7.5%.",
+      },
+    ]);
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-noguid" },
+    });
+    await waitFor(() =>
+      evidence().some(
+        (l) => l.ev === "capture_lag" && l.session === "ses-noguid",
+      ),
+    );
+    const rows = await loadAll();
+    expect(rows.filter((r) => r.tags?.includes("user-guided"))).toEqual([]);
+    expect(rows.some((r) => r.original !== undefined)).toBe(false);
+    // The distilled prose is still an ordinary capture row: what the same model
+    // output produces with the option off.
+    expect(rows.some((r) => r.content.includes("7.5%"))).toBe(true);
+    const ruleLine = evidence().find((l) => l.ev === "auto_capture_rules");
+    expect(String(ruleLine?.skipped)).toBe("no_user_turn");
+    expect(String(ruleLine?.withheld)).toBe("1");
+    await loaded.cleanup();
+  });
+
+  // The reviewer's positive control: the same candidate, with a user turn that
+  // really says it, is stored guided.
+  test("captureGuidedRules: the same candidate with a genuine user turn stands guided", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureGuidedRules: true,
+    });
+    await loaded["tool.execute.after"](
+      {
+        tool: "read",
+        sessionID: "ses-guid",
+        callID: "C1",
+        args: { filePath: "x.ts" },
+      },
+      { title: "read", output: "content", metadata: {} },
+    );
+    loaded.capture.context.messages = [
+      {
+        type: "user",
+        text:
+          "The correct sales tax rate is 7.5%. " +
+          "padding for the thin floor. ".repeat(6),
+      },
+      {
+        type: "assistant",
+        content: [
+          {
+            type: "text",
+            text:
+              "Understood, and I checked the pricing module for the constant. " +
+              "padding for the thin floor. ".repeat(6),
+          },
+        ],
+      },
+    ];
+    loaded.capture.generate.response = JSON.stringify([
+      {
+        type: "context",
+        scope: "pricing",
+        content: "The correct sales tax rate is 7.5%.",
+        guided: true,
+        original: "The correct sales tax rate is 7.5%.",
+      },
+    ]);
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-guid" },
+    });
+    await waitFor(() =>
+      evidence().some(
+        (l) => l.ev === "capture_lag" && l.session === "ses-guid",
+      ),
+    );
+    const rows = await loadAll();
+    const guided = rows.filter((r) => r.tags?.includes("user-guided"));
+    expect(guided).toHaveLength(1);
+    expect(guided[0]?.original).toContain("7.5%");
+    await loaded.cleanup();
+  });
+
   // The write-path validator: a model-guided row whose quote the user never
   // wrote is refused; the pre-pass re-offers the fact with the true quote,
   // so the same pass still stores the guidance — verbatim or not at all.

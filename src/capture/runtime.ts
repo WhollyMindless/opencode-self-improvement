@@ -387,6 +387,21 @@ export function configureAutoCapture(
             // array, or a session that has only said nothing). Fail closed: with
             // no roles there is nothing to vouch for, so the lane stays shut
             // rather than minting a row from prose of unknown origin.
+            //
+            // #364 review round 2: the receipt alone does not shut it. A guided
+            // candidate the MODEL supplied would still have been stored with its
+            // unverified quote, so with no user turn nothing is attributable and
+            // the guided flag plus the quote come off. The distilled prose stays:
+            // an ordinary capture row is what the same model output produces with
+            // the option off, and dropping the row would trade a provenance fix
+            // for a recall loss the plugin has no licence to make here.
+            let withheld = 0;
+            for (const c of candidates) {
+              if (c.guided !== true) continue;
+              c.guided = false;
+              c.original = undefined;
+              withheld++;
+            }
             await record(
               "auto_capture_rules",
               {
@@ -394,6 +409,7 @@ export function configureAutoCapture(
                 trigger,
                 quotes: 0,
                 refused: 0,
+                withheld,
                 skipped: "no_user_turn",
                 model: modelTag,
               },
