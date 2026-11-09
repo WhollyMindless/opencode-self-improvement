@@ -4,7 +4,6 @@
 // under $OPENCODE_MEMORY_DIR when set (tests use this for hermetic runs).
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { tightenDirectory } from "../permissions.ts";
 
 export function memoryRoot(): string {
