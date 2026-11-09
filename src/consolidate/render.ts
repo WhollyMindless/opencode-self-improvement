@@ -1,6 +1,7 @@
 // render — split from src/consolidate.ts (#168 domain restructure). Declaration bodies are unchanged.
 
 import { type ProposalReport } from "./propose.ts";
+import { flattenMemoryText } from "../store/sanitize.ts";
 
 /** Human-readable proposal list. Ends with the exact command to resolve one. */
 export function renderProposals(report: ProposalReport): string {
@@ -13,8 +14,13 @@ export function renderProposals(report: ProposalReport): string {
     out.push(
       `${p.id}  ${p.type}/${p.scope}  ${p.losers.length + 1} rows → 1`,
       `  keep   ${p.survivor.ts}`,
-      `    ${p.survivor.content.slice(0, 160)}`,
-      ...p.losers.map((l) => `  absorb ${l.ts}  ${l.content.slice(0, 120)}`),
+      // Row prose is multiline in the store and flattened only here (#299):
+      // one row is one output line, the same rule memory_recall follows.
+      `    ${flattenMemoryText(p.survivor.content.slice(0, 160))}`,
+      ...p.losers.map(
+        (l) =>
+          `  absorb ${l.ts}  ${flattenMemoryText(l.content.slice(0, 120))}`,
+      ),
       `  reads  ${p.reads.length} logged · best member alone ${p.bestMemberBefore} · merged ${p.readsAfter}`,
       `  budget ${p.bytesBefore}c → ${p.bytesAfter}c for this cluster`,
       `  resolve: memory_merge_review(loser="${p.losers[0]!.ts}", survivor="${p.survivor.ts}", reason="consolidate ${p.id}")`,

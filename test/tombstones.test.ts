@@ -146,6 +146,22 @@ describe("rejection survives deletion of the row that held it", () => {
     expect(near).toContain("similar to a value rejected");
   });
 
+  // Row-derived text is flattened ONLY at the render seam (#299): the store keeps
+  // multiline prose, but a refusal hint is one sentence to the model. A forget
+  // reason typed with a newline must not splice a real line break into it.
+  test("a forget reason carrying a newline still renders a single-line hint", async () => {
+    await tombstone(REJECTED, {
+      reason: "wrong call\nre-discuss with the platform team",
+      source: "forget",
+      scope: "http",
+      type: "decision",
+    });
+
+    const hint = (await promote(REJECTED)).hint ?? "";
+    expect(hint).toContain("wrong call re-discuss with the platform team");
+    expect(hint).not.toContain("\n");
+  });
+
   test("the refusal is audited: dedup_rejected then write_blocked, value never logged", async () => {
     await tombstone(REJECTED, { reason: "poisoned", source: "forget" });
     const ev: string[] = [];

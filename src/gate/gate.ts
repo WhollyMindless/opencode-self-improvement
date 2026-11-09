@@ -824,7 +824,8 @@ export async function runWriteGate(
     // on the read path (it covers every consumer, the viewer included), and this
     // is the seam where the value becomes a model-facing sentence.
     const why =
-      redactSecrets(rejection.tombstone.reason) || "no reason recorded";
+      flattenMemoryText(redactSecrets(rejection.tombstone.reason)) ||
+      "no reason recorded";
     const tch = rejection.tombstone.ch;
     // The escape-hatch tail is shared by BOTH kinds. An earlier draft put it
     // only on the near-match branch, which left the COMMON case — a byte-exact

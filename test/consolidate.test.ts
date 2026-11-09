@@ -217,6 +217,31 @@ describe("proposal rendering", () => {
     expect(text).toContain("STORE  2 rows → 1");
   });
 
+  // Row prose is stored multiline and flattened only when rendered (#299), so a
+  // proposal block stays one output line per row however its prose is broken.
+  test("a multi-line row still renders one output line per row", () => {
+    const a = mem({
+      content:
+        "the arm64 build box compiles the flimflam pipeline with bun build\nand no extra flags at all",
+      ts: "2026-06-01T00:00:00.000Z",
+    });
+    const b = mem({
+      content:
+        "the arm64 build box compiles the flimflam pipeline with bun build without extra flags at all",
+      ts: "2026-01-01T00:00:00.000Z",
+    });
+    const report = proposeConsolidations([a, b], new Map(), [
+      { terms: ["arm64", "build", "box"], rows: [a.ts] },
+    ]);
+    expect(report.plans.length).toBe(1);
+    const text = renderProposals(report);
+    const lines = text.split("\n");
+    // The survivor's prose is ONE line of output: joined, not spliced.
+    expect(text).toInclude("bun build and no extra flags at all");
+    // One keep line and one absorb line mention the pipeline, nothing else.
+    expect(lines.filter((l) => l.includes("flimflam")).length).toBe(2);
+  });
+
   test("an empty report says nothing qualified, rather than saying nothing", () => {
     const text = renderProposals({
       plans: [],
