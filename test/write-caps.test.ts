@@ -221,15 +221,23 @@ describe("write-side size + type floors", () => {
       legacySecret,
     );
 
-    // An export is a copy of the store, so it lands inside it (#24).
+    // An export is a copy of the store, so it lands inside it (#24). #300: that
+    // copy scrubs the metadata too. The credential-shaped scope still identifies
+    // the row on the lookup paths above (recall, forget), but it must not ride
+    // out in a file meant to leave the machine.
     const exportFile = join(exportsDir(), "legacy.jsonl");
     expect(
       await loaded.tool.memory_export.execute({ scope, file: exportFile }),
     ).toContain("Exported 1 memories");
-    expect(readFileSync(exportFile, "utf8")).toContain(scope);
+    expect(readFileSync(exportFile, "utf8")).not.toContain(scope);
+    expect(readFileSync(exportFile, "utf8")).toContain('"scope":"[redacted]"');
     expect(readFileSync(exportFile, "utf8")).toContain(
       "[redacted] stays addressable",
     );
+    // Forward-only: scrubbing happens on the way out, never in the store, so
+    // the row stays exactly as a pre-#67 build wrote it.
+    expect(readFileSync(file, "utf8")).toContain(scope);
+    expect(readFileSync(file, "utf8")).toContain(legacySecret);
     expect(
       await loaded.tool.memory_forget.execute({
         scope,
