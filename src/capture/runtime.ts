@@ -22,11 +22,11 @@ import { parseCandidates, parseModelRef } from "./candidates.ts";
 import { lagSince } from "./lag.ts";
 import {
   advanceCaptureCursor,
-  boundaryFingerprint,
   captureCursor,
   captureSignalSince,
   deltaMessages,
   guidedStatementInWindow,
+  prefixFingerprint,
   transcriptReplaced,
 } from "./policy.ts";
 import { buildCapturePrompt } from "./prompt.ts";
@@ -320,6 +320,9 @@ export function configureAutoCapture(
         const turnAtStart = session(sid).turns;
         let transcript = seeded;
         let msgs = seededMsgs;
+        // The array AS READ, before any delta slice: the cursor's fingerprint
+        // covers the consumed prefix of that array, not of the window.
+        let readMsgs = seededMsgs;
         // A seeded compaction payload is the pre-compaction window the hook
         // deliberately handed over (the Compaction Cliff: one round retains 53%
         // of exact-wording rules), so it is mined whole and the cursor is not
@@ -332,6 +335,7 @@ export function configureAutoCapture(
         let deltaRestart = false;
         if (transcript.length < 200) {
           msgs = await contextFn({ sessionID: sid });
+          readMsgs = msgs;
           transcript = flattenTranscript(msgs);
           // Told in BOTH modes. With the delta off the pass mines the whole
           // context anyway, and the guidance window further down has to follow
@@ -520,7 +524,7 @@ export function configureAutoCapture(
             sid,
             total,
             turnAtStart,
-            boundaryFingerprint(msgs),
+            prefixFingerprint(readMsgs, total),
           );
         }
       }

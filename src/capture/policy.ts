@@ -23,41 +23,52 @@ interface Cursor {
   /** Turn index at that capture; the signal window is turns after this. */
   turn: number;
   /**
-   * Identity of the LAST message that capture mined (#366 review). A count says
-   * how many messages were consumed; it cannot say WHICH ones, and a host that
-   * replaces the transcript and then lets it grow again hands back an array
-   * longer than the cursor that shares nothing with it.
+   * Identity of the messages that capture consumed — the flattened prefix, not
+   * its last message (#366 review, round 4). A count says how many messages were
+   * consumed; it cannot say WHICH ones, and a host that replaces the transcript
+   * and then lets it grow again hands back an array longer than the cursor that
+   * shares nothing with it.
    */
   fp?: string;
 }
 
-// FNV-1a, 32-bit, base36. Deterministic across restarts (a cursor is only ever
-// compared with the store of the same process family), allocation-light, and
-// good enough for what it is: an equality test on one message, never a
-// security decision.
-function fnv1a(s: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
+// Two 32-bit accumulators plus the length: FNV-1a and a djb2-style rolling
+// hash. Deterministic across restarts (a cursor is only ever compared with the
+// store of the same process family), allocation-light, and strong enough for
+// what it is: an equality test on the text of messages already read, never a
+// security decision. Length is in the digest so two different-length prefixes
+// can never agree even if both accumulators did.
+function fingerprintOf(text: string): string {
+  let fnv = 0x811c9dc5;
+  let djb = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    fnv = Math.imul(fnv ^ c, 0x01000193);
+    djb = (Math.imul(djb, 33) + c) | 0;
   }
-  return (h >>> 0).toString(36);
+  return `${text.length}:${(fnv >>> 0).toString(36)}:${(djb >>> 0).toString(36)}`;
 }
 
 /**
- * Fingerprint of the message at `index` (-1 = the last one). Undefined when
- * there is nothing to fingerprint: not an array, an out-of-range index, or a
- * record that decodes to no text at all.
+ * Identity of the FIRST `count` messages — everything the cursor claims to have
+ * consumed. Undefined when there is nothing to fingerprint: not an array, a
+ * count this array cannot supply, or messages that decode to no text at all.
+ *
+ * The WHOLE prefix, not its last message (round 4 [P2]): an ordinary assistant
+ * reply repeated at the boundary position makes a replaced transcript look
+ * unchanged, and no hash collision is required for that.
+ *
+ * Cost is one flatten of text the pass has already flattened once, in-process.
+ * What the delta exists to avoid paying is the capture MODEL call, not this.
  */
-export function boundaryFingerprint(
+export function prefixFingerprint(
   msgs: unknown,
-  index = -1,
+  count: number,
 ): string | undefined {
-  if (!Array.isArray(msgs) || msgs.length === 0) return undefined;
-  const at = index < 0 ? msgs[msgs.length + index] : msgs[index];
-  if (at === undefined) return undefined;
-  const text = flattenTranscript([at]);
-  return text ? fnv1a(text) : undefined;
+  if (!Array.isArray(msgs) || count <= 0 || msgs.length < count)
+    return undefined;
+  const text = flattenTranscript(msgs.slice(0, count));
+  return text ? fingerprintOf(text) : undefined;
 }
 
 // Bounded like every other session-keyed ledger, so a resident server cannot
@@ -91,16 +102,18 @@ export function resetCaptureCursors(): void {
  *
  * Two shapes say it is not. SHORTER than the count: compaction replaced the
  * transcript, so `since` names an index that no longer exists — a normal event,
- * not a corrupted store. LONG ENOUGH BUT DIFFERENT: the transcript was replaced
- * and then grew past the old count before the next capture observed the swap,
- * which a length check reads as an ordinary append while the new user rule sits
- * below the cursor at index 0.
+ * not a corrupted store. LONG ENOUGH BUT A DIFFERENT PREFIX: the transcript was
+ * replaced and then grew past the old count before the next capture observed the
+ * swap, which a length check reads as an ordinary append while the new user rule
+ * sits below the cursor at index 0.
  *
- * Told apart from "nothing new was appended" (`since` equal to the length and
- * the boundary message still the one that was mined), which stays an empty
- * window. A cursor with no fingerprint — written before this existed, or left
- * by a pass that mined a payload with no message array behind it — falls back to
- * the length check, so an upgrade never restarts a window on its own.
+ * The prefix, message for message, is the invariant: if the first `msgs` entries
+ * are the ones the last pass mined, then mining from `msgs` is correct, whatever
+ * has been appended after it. Told apart from "nothing new was appended"
+ * (`since` equal to the length and an unchanged prefix), which stays an empty
+ * window. A cursor with no fingerprint — written before this existed, or left by
+ * a pass that mined a payload with no message array behind it — falls back to the
+ * length check, so an upgrade never restarts a window on its own.
  */
 export function transcriptReplaced(
   msgs: unknown,
@@ -110,7 +123,7 @@ export function transcriptReplaced(
   if (cursor.msgs === 0) return false;
   if (msgs.length < cursor.msgs) return true;
   if (cursor.fp === undefined) return false;
-  return boundaryFingerprint(msgs, cursor.msgs - 1) !== cursor.fp;
+  return prefixFingerprint(msgs, cursor.msgs) !== cursor.fp;
 }
 
 /**

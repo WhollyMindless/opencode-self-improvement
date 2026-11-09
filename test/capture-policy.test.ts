@@ -5,11 +5,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   advanceCaptureCursor,
-  boundaryFingerprint,
   captureCursor,
   captureSignalSince,
   deltaMessages,
   guidedStatementInWindow,
+  prefixFingerprint,
   resetCaptureCursors,
   transcriptReplaced,
 } from "../src/capture/policy.ts";
@@ -177,10 +177,10 @@ describe("deltaMessages", () => {
     ];
     const cursor = {
       msgs: 3,
-      fp: boundaryFingerprint(five, 2),
+      fp: prefixFingerprint(five, 3),
     };
     expect(cursor.fp).toBeDefined();
-    // Nothing appended yet: same boundary message.
+    // Nothing appended yet: same consumed prefix.
     expect(transcriptReplaced(five, cursor)).toBe(false);
     // An append keeps it.
     expect(
@@ -189,7 +189,7 @@ describe("deltaMessages", () => {
     // Shorter: replaced by compaction.
     expect(transcriptReplaced(five.slice(0, 2), cursor)).toBe(true);
     // Replaced and then GROWN past the old count: longer than the cursor, and
-    // a different message at the boundary. Length alone calls this an append.
+    // a different consumed prefix. Length alone calls this an append.
     expect(
       transcriptReplaced(
         [
@@ -211,19 +211,52 @@ describe("deltaMessages", () => {
     );
   });
 
-  test("a fingerprint is stable and message-specific", () => {
-    const a = boundaryFingerprint([{ type: "user", text: "alpha detail" }]);
+  test("a fingerprint is stable and content-specific", () => {
+    const a = prefixFingerprint([{ type: "user", text: "alpha detail" }], 1);
     expect(a).toBe(
-      boundaryFingerprint([{ type: "user", text: "alpha detail" }]),
+      prefixFingerprint([{ type: "user", text: "alpha detail" }], 1),
     );
     expect(a).not.toBe(
-      boundaryFingerprint([{ type: "user", text: "beta detail" }]),
+      prefixFingerprint([{ type: "user", text: "beta detail" }], 1),
     );
-    expect(boundaryFingerprint([])).toBeUndefined();
-    expect(boundaryFingerprint(undefined)).toBeUndefined();
+    expect(prefixFingerprint([], 1)).toBeUndefined();
+    expect(prefixFingerprint(undefined, 1)).toBeUndefined();
+    // Asking for more messages than exist is not a prefix of this array.
+    expect(prefixFingerprint([{ type: "user", text: "x" }], 4)).toBeUndefined();
+  });
+
+  // Round 4 [P2]: ONE message cannot prove the consumed prefix is the same
+  // prefix. An ordinary reply repeated at the boundary position is not an FNV
+  // collision — it is a different conversation wearing the same sentence.
+  test("a repeated boundary message does not hide a replaced prefix", () => {
+    const reply = { type: "assistant", text: "Done. The change is committed." };
+    const old = [
+      { type: "user", text: "fix pricing in src/a.ts" },
+      reply,
+      { type: "user", text: "now round the total" },
+      reply,
+      { type: "user", text: "and update the docs" },
+      reply,
+    ];
+    const cursor = { msgs: 6, fp: prefixFingerprint(old, 6) };
+    expect(cursor.fp).toBeDefined();
+    expect(transcriptReplaced(old, cursor)).toBe(false);
+    // Replaced: new guidance at index 0, the SAME reply text at index 5.
+    const next = [
+      { type: "user", text: "shipping must be free at 100.00" },
+      reply,
+      { type: "user", text: "the tax rate is 8.25 percent" },
+      reply,
+      { type: "user", text: "summarise the session" },
+      reply,
+      { type: "user", text: "now the DELTA work" },
+      reply,
+    ];
+    expect(transcriptReplaced(next, cursor)).toBe(true);
+    // An append on top of the SAME prefix stays an append, same reply or not.
     expect(
-      boundaryFingerprint([{ type: "user", text: "x" }], 4),
-    ).toBeUndefined();
+      transcriptReplaced([...old, { type: "user", text: "next" }], cursor),
+    ).toBe(false);
   });
 
   test("a non-array payload passes through untouched", () => {

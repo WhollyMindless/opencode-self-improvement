@@ -1691,14 +1691,15 @@ describe("capture cost policy", () => {
       captureOnCompact: true,
     });
     const sid = "ses-seedcursor";
+    // A reply the host repeats verbatim: the assistant text cannot be what
+    // tells one transcript from the next (round 4 [P2]).
+    const reply = {
+      type: "assistant",
+      text: longText("Done. The change is committed."),
+    };
     loaded.capture.context.messages = [
       { type: "user", text: longText("ALPHA-request fix pricing") },
-      {
-        type: "assistant",
-        content: [
-          { type: "text", text: longText("ALPHA-answer tax is 0.0825") },
-        ],
-      },
+      reply,
     ];
     loaded.capture.generate.response = "[]";
     await loaded.sessionHooks.prompt?.({
@@ -1713,15 +1714,9 @@ describe("capture cost policy", () => {
     // messages were consumed when only four exist.
     const four = [
       { type: "user", text: longText("GAMMA-request one") },
-      {
-        type: "assistant",
-        content: [{ type: "text", text: longText("GAMMA-1") }],
-      },
+      reply,
       { type: "user", text: longText("GAMMA-request two") },
-      {
-        type: "assistant",
-        content: [{ type: "text", text: longText("GAMMA-2") }],
-      },
+      reply,
     ];
     resetCaptureCooldowns();
     await loaded.sessionHooks.compaction?.({
@@ -1752,6 +1747,69 @@ describe("capture cost policy", () => {
     const third = String(loaded.capture.generate.calls[2].prompt);
     expect(third).toInclude("BETA-request");
     expect(third).not.toInclude("GAMMA-request");
+    await loaded.cleanup();
+  });
+
+  // Round 4 [P2]: the boundary message alone is not the boundary. An ordinary
+  // reply repeated at the consumed index makes a replaced transcript look
+  // unchanged, and the new guidance below the cursor is then marked consumed.
+  test("a repeated boundary message does not hide a replaced transcript", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureDelta: true,
+    });
+    const sid = "ses-repeat-boundary";
+    const reply = {
+      type: "assistant",
+      text: longText("Done. The change is committed."),
+    };
+    loaded.capture.context.messages = [
+      { type: "user", text: longText("ALPHA-request-1 fix pricing") },
+      reply,
+      { type: "user", text: longText("ALPHA-request-2 round the total") },
+      reply,
+      { type: "user", text: longText("ALPHA-request-3 update the docs") },
+      reply,
+    ];
+    loaded.capture.generate.response = "[]";
+    await loaded.sessionHooks.prompt?.({
+      sessionID: sid,
+      prompt: { text: longText("ALPHA") },
+    });
+    loaded.capture.events.push(turnEnd(sid));
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+
+    // Replaced, then grown past the old count. Index 5 carries the SAME reply
+    // text the old cursor boundary did; index 0 is guidance never mined.
+    resetCaptureCooldowns();
+    loaded.capture.context.messages = [
+      {
+        type: "user",
+        text: longText("GAMMA-request shipping must be free at 100.00"),
+      },
+      reply,
+      { type: "user", text: longText("GAMMA-request-2 the tax rate is 8.25%") },
+      reply,
+      { type: "user", text: longText("GAMMA-request-3 summarise the session") },
+      reply,
+      { type: "user", text: longText("DELTA-request-4 wire the exporter") },
+      {
+        type: "assistant",
+        content: [
+          { type: "text", text: longText("DELTA-answer exporter done") },
+        ],
+      },
+    ];
+    await loaded.sessionHooks.prompt?.({
+      sessionID: sid,
+      prompt: { text: longText("GAMMA") },
+    });
+    loaded.capture.events.push(turnEnd(sid));
+    await waitFor(() => loaded.capture.generate.calls.length === 2);
+    const second = String(loaded.capture.generate.calls[1].prompt);
+    expect(second).toInclude("GAMMA-request");
+    expect(second).not.toInclude("ALPHA-request");
     await loaded.cleanup();
   });
 
