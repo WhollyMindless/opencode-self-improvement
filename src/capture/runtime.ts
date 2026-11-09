@@ -1,12 +1,22 @@
 // Opt-in capture configuration and dispatch (#168). Cooldowns remain process-wide;
 // subscriptions and dispatch closures belong to one setup instance.
 import type { Cleanup } from "@opencode/plugin/promise/plugin";
+import { cmpTs } from "../core/cmp-ts.ts";
 import { setCurrent } from "../core/state.ts";
+import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
 import { record, recordCaptureLag } from "../evidence/record.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
 import { captureSessionID } from "../identity/host-events.ts";
 import { bindSessionProvisional, writeTarget } from "../identity/repokey.ts";
+import { loadAll } from "../store/files/load.ts";
+import { isInjectable } from "../store/model/predicates.ts";
+import {
+  type Reader,
+  readerFromSid,
+  visibleTo,
+} from "../store/model/visibility.ts";
 import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
+import { flattenMemoryText } from "../store/sanitize.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
 import {
@@ -18,17 +28,11 @@ import {
 import { lagSince } from "./lag.ts";
 import { buildCapturePrompt } from "./prompt.ts";
 import { type SessionModelRef, sessionModel } from "./session-model.ts";
-import { flattenTranscript, splitTranscript } from "./transcript.ts";
-import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
-import { loadAll } from "../store/files/load.ts";
-import { isInjectable } from "../store/model/predicates.ts";
 import {
-  readerFromSid,
-  visibleTo,
-  type Reader,
-} from "../store/model/visibility.ts";
-import { flattenMemoryText } from "../store/sanitize.ts";
-import { cmpTs } from "../core/cmp-ts.ts";
+  flattenTranscript,
+  splitTranscript,
+  userTurnText,
+} from "./transcript.ts";
 
 interface CaptureHost {
   options?: Record<string, unknown>;
@@ -347,6 +351,10 @@ export function configureAutoCapture(
         const partitioned = split.work.length >= 200;
         const work = partitioned ? split.work : transcript;
         const userProse = partitioned ? split.user : "";
+        // The user's turns, decoded from the message array rather than read back
+        // out of rendered text (#364 review). Everything that vouches for "these
+        // are the user's own words" goes through this.
+        const userTurns = userTurnText(msgs);
         const out = await generateApi.text({
           model,
           // Redact the COMPLETE transcript, THEN apply the character budget
@@ -367,45 +375,61 @@ export function configureAutoCapture(
         // `captureGuidedRules`): the user's own lines decide what is guided —
         // the model phrases it but cannot veto it, and a quote the user never
         // wrote is refused at the write boundary (retriable, not silent).
-        // The scanned text is the redacted REQUESTS prose plus the transcript
-        // user: lines: assistant output never enters the haystack, so a
-        // stored quote can only be what the user said.
+        // The scanned text is the structured USER turns and nothing else
+        // (#364 review): assistant output never enters the haystack, so a stored
+        // quote can only be what the user said. Filtering rendered lines by a
+        // `user:` prefix did not do this — it accepted a `user:` label quoted
+        // INSIDE an assistant message as provenance.
         if (guidedRules) {
-          const ruleUserText = [
-            redactSecrets(userProse),
-            ...redactSecrets(work)
-              .split("\n")
-              .filter((l) => /^\s*user:/i.test(l)),
-          ].join("\n");
-          const quotes = findGuidedQuotes(ruleUserText);
-          const checked = validateGuidedQuotes(candidates, ruleUserText);
-          candidates = mergeGuidedCandidates(quotes, checked.kept);
-          await record(
-            "auto_capture_rules",
-            {
-              session: sid,
-              trigger,
-              quotes: quotes.length,
-              refused: checked.refused.length,
-              model: modelTag,
-            },
-            false,
-            sid,
-            captureGate.evidenceContext,
-          );
+          const ruleUserText = redactSecrets(userTurns);
+          if (!ruleUserText.trim()) {
+            // No user turn in what was mined (a seeded transcript with no message
+            // array, or a session that has only said nothing). Fail closed: with
+            // no roles there is nothing to vouch for, so the lane stays shut
+            // rather than minting a row from prose of unknown origin.
+            await record(
+              "auto_capture_rules",
+              {
+                session: sid,
+                trigger,
+                quotes: 0,
+                refused: 0,
+                skipped: "no_user_turn",
+                model: modelTag,
+              },
+              false,
+              sid,
+              captureGate.evidenceContext,
+            );
+          } else {
+            const quotes = findGuidedQuotes(ruleUserText);
+            const checked = validateGuidedQuotes(candidates, ruleUserText);
+            candidates = mergeGuidedCandidates(quotes, checked.kept);
+            await record(
+              "auto_capture_rules",
+              {
+                session: sid,
+                trigger,
+                quotes: quotes.length,
+                refused: checked.refused.length,
+                model: modelTag,
+              },
+              false,
+              sid,
+              captureGate.evidenceContext,
+            );
+          }
         } else {
           // Lenient check (default): a guided "original" must appear in the
-          // text the capture model actually saw (whitespace-normalised — the
-          // model may collapse runs of spaces). The haystack is the pre-slice
-          // redacted input, a superset of the prompt windows. A failed check
+          // user's own turns. The prompt asks for a quote "copied VERBATIM from
+          // a user: line or the REQUESTS block", so the haystack is exactly that
+          // (#364 review: the mined WORK text used to be in here too, which
+          // vouched for a quote lifted out of assistant output). Whitespace is
+          // normalised — the model may collapse runs of spaces. A failed check
           // drops the field, never the row: the distilled prose still
           // deserved storage, it just cannot be vouched for as the user's
           // own words.
-          const quoteHay =
-            `${redactSecrets(work)}\n${redactSecrets(userProse)}`.replace(
-              /\s+/g,
-              " ",
-            );
+          const quoteHay = redactSecrets(userTurns).replace(/\s+/g, " ");
           for (const c of candidates) {
             if (
               c.original !== undefined &&
