@@ -2,20 +2,20 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { memoryRoot } from "../../core/config/paths.ts";
-import { dateStr } from "../../core/time.ts";
-import { writeTarget } from "../../identity/repokey.ts";
-import { getCurrent } from "../../core/state.ts";
 import { formatLine, parseLine } from "../../core/logfmt/format.ts";
 import { fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts";
-import { withStoreLock, LOCK_WRITE } from "../lock.ts";
-import { containsSecret, redactSecrets } from "../secrets.ts";
-import { flattenMemoryText } from "../sanitize.ts";
+import { getCurrent } from "../../core/state.ts";
+import { dateStr } from "../../core/time.ts";
+import { writeTarget } from "../../identity/repokey.ts";
+import { LOCK_WRITE, withStoreLock } from "../lock.ts";
 import {
   MAX_CONTENT_CHARS,
   type MemoryStatus,
   normalizeConflictFields,
   normalizeKeywords,
 } from "../model/memory.ts";
+import { flattenMemoryText } from "../sanitize.ts";
+import { containsSecret, redactSecrets } from "../secrets.ts";
 
 export interface AppendMemoryInput {
   type: string;
@@ -154,55 +154,76 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
       repoPath = target.scope.path;
     }
   }
-  // Day file chosen before the lock (it IS the lock key). A ts bumped across
-  // midnight therefore lands under the previous day's name; readers glob every
-  // file and decay compares ts values, so the grouping is cosmetic.
-  const file = join(memoryRoot(), `${dateStr()}.logfmt`);
-  // Locked end to end: seeding ts from a scan another process can race yields
-  // two rows with the same identity, and an append that lands inside someone
-  // else's whole-file rewrite is simply not there afterwards.
-  return withStoreLock(
-    file,
-    async () => {
-      const since = await fileIdentity(file);
-      let prior = "";
-      try {
-        prior = await readFile(file, "utf8");
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-      }
-      const taken = existingTs(prior);
-      let ts = new Date().toISOString();
-      let guard = 0;
-      while (taken.has(ts) && guard++ < 1000) {
-        ts = new Date(new Date(ts).getTime() + 1).toISOString();
-      }
-      const kw = normalizeKeywords(input.kw);
-      const conflict = normalizeConflictFields(input);
-      const line = formatLine({
-        ts,
-        type: input.type,
-        scope: input.scope,
-        content,
-        issue: input.issue,
-        tags: input.tags?.length ? input.tags.join(",") : undefined,
-        kw: kw?.join(","),
-        status: input.status,
-        ...conflict,
-        repo,
-        repoPath,
-      });
-      // A lock excludes writers, not readers: an O_APPEND read can end mid-row.
-      // Publish the complete day file using the read already needed for IDs.
-      // This costs a whole-file write and can refuse on Windows reader handles;
-      // the old destination remains intact if publication fails (#198).
-      await writeAtomic(
-        file,
-        prior + (prior && !prior.endsWith("\n") ? "\n" : "") + line + "\n",
-        since,
-      );
-      return ts;
-    },
-    LOCK_WRITE,
-  );
+  // The day file is chosen before the lock because it IS the lock key. A
+  // colliding ts is bumped inside that lock, and the bump can cross UTC midnight
+  // — which #215 made more than cosmetic: a supersede addresses a row by the day
+  // its own ts names, so a row filed under another day is a second, unreachable
+  // address for the same identity (two files can then hold the same ts). So when
+  // the bumped ts leaves the day, hand the row to the file it names and take that
+  // file's lock instead. The loop releases before it re-acquires — never two
+  // locks at once — and is bounded only so a pathological store cannot spin.
+  let day = dateStr();
+  let carryTs: string | undefined;
+  for (let attempt = 0; ; attempt++) {
+    const file = join(memoryRoot(), `${day}.logfmt`);
+    // Locked end to end: seeding ts from a scan another process can race yields
+    // two rows with the same identity, and an append that lands inside someone
+    // else's whole-file rewrite is simply not there afterwards.
+    const outcome = await withStoreLock(
+      file,
+      async (): Promise<{
+        moved?: string;
+        bumped?: string;
+        ts?: string;
+      }> => {
+        const since = await fileIdentity(file);
+        let prior = "";
+        try {
+          prior = await readFile(file, "utf8");
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+        }
+        const taken = existingTs(prior);
+        let ts = carryTs ?? new Date().toISOString();
+        let guard = 0;
+        while (taken.has(ts) && guard++ < 1000) {
+          ts = new Date(new Date(ts).getTime() + 1).toISOString();
+        }
+        const ownDay = ts.slice(0, 10);
+        // Carry the bumped identity with the move: re-reading the clock in the
+        // new file would hand back the PREVIOUS day's instant and file it under
+        // the next day — the same lie in the other direction.
+        if (ownDay !== day && attempt < 3) return { moved: ownDay, bumped: ts };
+        const kw = normalizeKeywords(input.kw);
+        const conflict = normalizeConflictFields(input);
+        const line = formatLine({
+          ts,
+          type: input.type,
+          scope: input.scope,
+          content,
+          issue: input.issue,
+          tags: input.tags?.length ? input.tags.join(",") : undefined,
+          kw: kw?.join(","),
+          status: input.status,
+          ...conflict,
+          repo,
+          repoPath,
+        });
+        // A lock excludes writers, not readers: an O_APPEND read can end mid-row.
+        // Publish the complete day file using the read already needed for IDs.
+        // This costs a whole-file write and can refuse on Windows reader handles;
+        // the old destination remains intact if publication fails (#198).
+        await writeAtomic(
+          file,
+          prior + (prior && !prior.endsWith("\n") ? "\n" : "") + line + "\n",
+          since,
+        );
+        return { ts };
+      },
+      LOCK_WRITE,
+    );
+    if (outcome.ts !== undefined) return outcome.ts;
+    day = outcome.moved as string;
+    carryTs = outcome.bumped;
+  }
 }

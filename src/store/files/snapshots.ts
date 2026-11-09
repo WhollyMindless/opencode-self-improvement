@@ -1,15 +1,15 @@
 // snapshots — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
 import { open, readFile } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { basename, join } from "node:path";
 import { snapshotDir } from "../../core/config/paths.ts";
-import { parseLine, type Fields } from "../../core/logfmt/format.ts";
+import { type Fields, parseLine } from "../../core/logfmt/format.ts";
 import {
   ensureDir,
   fileIdentity,
   writeAtomic,
 } from "../../core/logfmt/publish.ts";
 import { readLines } from "../../core/logfmt/read.ts";
-import { withStoreLock, LOCK_WRITE } from "../lock.ts";
+import { LOCK_WRITE, withStoreLock } from "../lock.ts";
 
 // Copy `file` into snapshots/ before a mutation.
 export async function snapshotBefore(file: string): Promise<void> {

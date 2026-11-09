@@ -22,8 +22,8 @@
 // (writeAtomic in logfmt.ts), so a reader always sees a complete store, never
 // the middle of a rewrite.
 import { open, stat, unlink } from "node:fs/promises";
-import { ensureDir } from "../core/logfmt/publish.ts";
 import { basename, dirname } from "node:path";
+import { ensureDir } from "../core/logfmt/publish.ts";
 import { record } from "../evidence/record.ts";
 
 const LOCK_SUFFIX = ".lock";
@@ -147,6 +147,21 @@ async function stealIfStale(lockPath: string, now: number): Promise<boolean> {
  * tests that must land the budget deadline inside a specific probe iteration;
  * production callers never pass it and the real clock is used.
  */
+/**
+ * Test seam (#215): observe how many store files a write path locks.
+ *
+ * The narrowing this ticket asked for is invisible to a functional test — a
+ * supersede that sweeps every day file and one that touches a single file both
+ * leave the same store behind — so the assertion has to be about lock
+ * acquisitions. Production never installs a hook and pays one undefined check
+ * per acquisition; a test sets one, reads the counts, and clears it.
+ */
+let acquiredHook: ((file: string) => void) | undefined;
+
+export function setLockAcquiredHook(hook?: (file: string) => void): void {
+  acquiredHook = hook;
+}
+
 export async function holdFileLock<T>(
   lockPath: string,
   file: string,
@@ -177,6 +192,7 @@ export async function holdFileLock<T>(
       } finally {
         await handle.close();
       }
+      acquiredHook?.(file);
       break;
     } catch (err) {
       // Any creation failure means: wait for the current holder, whatever

@@ -1,6 +1,6 @@
 // predicates — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
 import { isQuarantined } from "../quarantine/quarantine.ts";
-import { type Memory } from "./memory.ts";
+import type { Memory } from "./memory.ts";
 
 export function isActive(m: Memory): boolean {
   return !m.superseded_by;

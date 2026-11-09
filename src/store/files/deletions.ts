@@ -2,8 +2,8 @@
 import { deletionsFile } from "../../core/config/paths.ts";
 import { formatLine } from "../../core/logfmt/format.ts";
 import { appendLog } from "../../core/logfmt/publish.ts";
+import type { Memory } from "../model/memory.ts";
 import { redactSecrets } from "../secrets.ts";
-import { type Memory } from "../model/memory.ts";
 
 export interface DeletedMemory {
   memory: Memory;
