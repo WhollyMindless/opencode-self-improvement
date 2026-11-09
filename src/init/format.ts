@@ -4,15 +4,20 @@
 import { type InitSummary } from "./run.ts";
 
 export function formatInit(s: InitSummary): string {
+  const migrated = s.stampMigrated ? " (stamp migrated from a store row)" : "";
   if (s.skipped) {
-    return `Already initialized for ${s.scope} at head ${s.head} (stamp ${s.stampTs}). Nothing to do.`;
+    return `Already initialized for ${s.scope} at head ${s.head} (stamp ${s.stampTs}). Nothing to do.${migrated}`;
   }
   const scr = s.scripts.map((r) => `- ${r.source}: "${r.cmd}"`).join("\n");
+  const stamp = s.stampError
+    ? `; stamp NOT recorded (${s.stampError}) — init will run again`
+    : `; stamp=${s.stampTs ?? "-"}`;
   return [
     `Initialized ${s.scope} (root ${s.root}, head ${s.head}).`,
     scr ? `Scripts (${s.scripts.length}):\n${scr}` : "Scripts: none detected",
     `Memories: written=${s.written}, collapsed=${s.collapsed}, blocked=${s.blocked}` +
       (s.unaudited ? `, ${s.unaudited} without an audit line` : "") +
-      `; stamp=${s.stampTs ?? "-"}`,
+      stamp +
+      migrated,
   ].join("\n");
 }

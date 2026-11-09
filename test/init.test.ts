@@ -4,14 +4,24 @@
 // binary at all and the suite no longer needs a spawn spy or a fake binary.
 // Scope = directory basename ("repo"), matching the repo-name convention.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin } from "./harness.ts";
 import { resetState } from "../src/core/state.ts";
+import { record } from "../src/evidence/record.ts";
+import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { isActive } from "../src/store/model/predicates.ts";
 import type { InitSummary } from "../src/init/run.ts";
+import { stampDir } from "../src/init/stamp.ts";
 
 let memoryDir: string;
 let fixture: string;
@@ -42,7 +52,7 @@ afterEach(() => {
 });
 
 describe("memory_init", () => {
-  test("writes script pattern memories + an init stamp", async () => {
+  test("writes script pattern memories and a stamp FILE, and no stamp row", async () => {
     const out = await init.execute({});
     expect(out).toContain("Initialized repo");
     expect(out).toContain("npm run test");
@@ -55,10 +65,16 @@ describe("memory_init", () => {
     expect(patterns.length).toBe(2);
     expect(patterns.every((m) => m.tags?.includes("init"))).toBe(true);
 
-    const stamps = mems.filter((m) => m.tags?.includes("init-stamp"));
-    expect(stamps.length).toBe(1);
-    expect(stamps[0].content).toContain("repo=repo");
-    expect(stamps[0].content).toContain("head=-");
+    // #374: the stamp is plugin bookkeeping, not a memory. A row here was
+    // forgeable by any session, so init writes a file under the memory root.
+    expect(mems.some((m) => m.tags?.includes("init-stamp"))).toBe(false);
+    const files = readdirSync(stampDir());
+    expect(files.length).toBe(1);
+    const stamp = JSON.parse(readFileSync(join(stampDir(), files[0]), "utf8"));
+    expect(stamp.scope).toBe("repo");
+    expect(stamp.head).toBe("-");
+    expect(typeof stamp.ts).toBe("string");
+    expect(typeof stamp.key).toBe("string");
   });
 
   test("no external binary is spawned: the graph integration is gone (#231)", async () => {
@@ -88,7 +104,9 @@ describe("memory_init", () => {
     expect(
       mems.filter((m) => m.type === "pattern" && m.scope === "repo").length,
     ).toBe(2);
-    expect(mems.filter((m) => m.tags?.includes("init-stamp")).length).toBe(1);
+    // The stamp is one file per repository (#374), never a row.
+    expect(mems.some((m) => m.tags?.includes("init-stamp"))).toBe(false);
+    expect(readdirSync(stampDir()).length).toBe(1);
   });
 
   // Init mines repo-derived text: the scope is the checkout directory basename
@@ -118,13 +136,8 @@ describe("memory_init", () => {
       expect(tags).toContain("quarantine");
       expect(tags.some((t) => t.startsWith("quarantine:"))).toBe(true);
     }
-    // The stamp interpolates the same basename, so it is screened too...
-    const stamps = (await loadAll()).filter(
-      (m) => isActive(m) && m.tags?.includes("init-stamp"),
-    );
-    expect(stamps.length).toBe(1);
-    expect(stamps[0].tags).toContain("quarantine");
-    // ...and screening does not break idempotency: init still reads its stamp.
+    // #374: the stamp is a file, so the basename screen has no stamp row left to
+    // tag — and screening the rows that ARE written still leaves init idempotent.
     expect(await runInitTool.execute({})).toContain("Already initialized");
     await loaded.cleanup();
   });
@@ -138,8 +151,8 @@ describe("memory_init", () => {
       (m) => m.type === "pattern" && m.scope === "repo",
     );
     expect(patterns.length).toBe(2);
-    const stamps = mems.filter((m) => m.tags?.includes("init-stamp"));
-    expect(stamps.length).toBe(1);
+    expect(mems.some((m) => m.tags?.includes("init-stamp"))).toBe(false);
+    expect(readdirSync(stampDir()).length).toBe(1);
   });
 
   test("force with unchanged HEAD collapses everything", async () => {
@@ -203,5 +216,84 @@ describe("init internals", () => {
     expect(formatInit(s)).toContain("Initialized x");
     const real = await runInit({ liveRoot: fixture, force: true });
     expect(formatInit(real)).toContain("Memories: written=");
+  });
+});
+
+// #374: the stamp used to be a `context` row tagged `init-stamp`. Any session
+// could write one with memory_remember, name the current HEAD, and make every
+// later memory_init answer "Already initialized" for that commit — the store
+// talking to itself through a door a model can knock on. It is a file under the
+// memory root now, read and written only by src/init/.
+describe("init stamp is plugin state, not a memory (#374)", () => {
+  test("a hand-written init-stamp row cannot suppress init", async () => {
+    const ts = await appendMemory({
+      type: "context",
+      scope: "repo",
+      content: "Init stamp: repo=repo, head=-, scripts=2",
+      tags: ["init-stamp"],
+    });
+    expect(ts).toBeTruthy();
+
+    const out = await init.execute({});
+    expect(out).toContain("Initialized repo");
+    expect(out).not.toContain("Already initialized");
+    const mems = (await loadAll()).filter(isActive);
+    expect(
+      mems.filter((m) => m.type === "pattern" && m.scope === "repo").length,
+    ).toBe(2);
+  });
+
+  test("a store row an init audited is honoured once and migrated to the file", async () => {
+    // Exactly what the previous release left behind: the row, plus the
+    // init_complete line naming it. The audit pairing is the provenance a row
+    // cannot supply about itself.
+    const ts = await appendMemory({
+      type: "context",
+      scope: "repo",
+      content: "Init stamp: repo=repo, head=-, scripts=2",
+      tags: ["init-stamp"],
+    });
+    await record(
+      "init_complete",
+      {
+        scope: "repo",
+        head: "-",
+        scripts: 2,
+        written: 2,
+        collapsed: 0,
+        blocked: 0,
+        stamp: ts,
+      },
+      false,
+    );
+
+    const out = await init.execute({});
+    expect(out).toContain("Already initialized");
+    expect(out).toContain("migrated");
+
+    const files = readdirSync(stampDir());
+    expect(files.length).toBe(1);
+    const stamp = JSON.parse(readFileSync(join(stampDir(), files[0]), "utf8"));
+    expect(stamp.ts).toBe(ts);
+    expect(stamp.head).toBe("-");
+
+    // The migration leaves the old row alone, and the file now answers: a third
+    // run is a plain no-op with no second migration.
+    const again = await init.execute({});
+    expect(again).toContain("Already initialized");
+    expect(again).not.toContain("migrated");
+  });
+
+  test("a stamp file that cannot be parsed is no stamp at all", async () => {
+    await init.execute({});
+    const files = readdirSync(stampDir());
+    expect(files.length).toBe(1);
+    writeFileSync(join(stampDir(), files[0]), "{not json", "utf8");
+
+    const out = await init.execute({});
+    expect(out).toContain("Initialized repo");
+    expect(out).not.toContain("Already initialized");
+    // ...and the re-run repaired the file, so the next one is a no-op again.
+    expect(await init.execute({})).toContain("Already initialized");
   });
 });

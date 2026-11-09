@@ -19,7 +19,7 @@ Every figure in this README carries a provenance marker: **measured** (read off 
 
 **2. Restart opencode.** It installs the package and its dependencies at startup, and the plugin installs its own slash commands. On desktop, a later config edit needs `opencode service restart`: relaunching the app leaves the background service — and the plugin options it already parsed — alive.
 
-**3. Run `/repo-init`** in each repo you work in. It stores the test / build / lint / typecheck commands as memories and writes an init stamp tied to the current git head. Rerun `/repo-init force` after a refactor.
+**3. Run `/repo-init`** in each repo you work in. It stores the test / build / lint / typecheck commands as memories and records an init stamp tied to the current git head. The stamp is plugin bookkeeping under `<memory-root>/init-stamps/`, not a memory row, so no session can forge it (#374). Rerun `/repo-init force` after a refactor.
 
 Needs Bun 1.3.0 or newer in the opencode build (the tested floor); older Bun reports a startup warning.
 
