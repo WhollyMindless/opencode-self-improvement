@@ -1523,6 +1523,238 @@ describe("capture cost policy", () => {
     await loaded.cleanup();
   });
 
+  // #366 review [P2]: three cursor cases. A cursor is a claim about WHERE the
+  // next window starts, and a message COUNT cannot express it: a transcript can
+  // be replaced and then grow past the old count, and a turn can land while a
+  // pass is in flight. These pins hold the cursor to what the pass actually
+  // read and actually mined.
+  const sixThick = (marker: string): unknown[] =>
+    [1, 2, 3].flatMap((i) => [
+      { type: "user", text: longText(`${marker}-request-${i} fix pricing`) },
+      {
+        type: "assistant",
+        content: [{ type: "text", text: longText(`${marker}-answer-${i}`) }],
+      },
+    ]);
+
+  test("a replaced context keeps its guidance window with the delta off", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureOnSignal: true,
+    });
+    const sid = "ses-sig-replace";
+    await loaded.sessionHooks.prompt?.({
+      sessionID: sid,
+      prompt: { text: longText("ALPHA") },
+    });
+    await loaded["tool.execute.after"](
+      {
+        tool: "edit",
+        sessionID: sid,
+        callID: "C1",
+        args: { filePath: "src/pricing.ts" },
+      },
+      { title: "edit", output: longText("changed TAX_RATE"), metadata: {} },
+    );
+    loaded.capture.context.messages = sixThick("ALPHA");
+    loaded.capture.generate.response = "[]";
+    loaded.capture.events.push(turnEnd(sid));
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+
+    // Compaction replaces the transcript with two messages and no tool runs
+    // afterwards, so only the guidance in the user's own line can open the
+    // gate. The delta is off: the pass mines the whole context, so the guidance
+    // window has to be the whole context too.
+    resetCaptureCooldowns();
+    loaded.capture.context.messages = [
+      {
+        type: "user",
+        text: longText("GAMMA-request the shipping threshold must be 100.00"),
+      },
+      {
+        type: "assistant",
+        content: [{ type: "text", text: longText("GAMMA-answer") }],
+      },
+    ];
+    await loaded.sessionHooks.prompt?.({
+      sessionID: sid,
+      prompt: { text: longText("GAMMA") },
+    });
+    loaded.capture.events.push(turnEnd(sid));
+    await waitFor(() => loaded.capture.generate.calls.length === 2);
+    expect(String(loaded.capture.generate.calls[1].prompt)).toInclude(
+      "GAMMA-request",
+    );
+    await loaded.cleanup();
+  });
+
+  test("a replaced-then-regrown context is mined from the start", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureDelta: true,
+    });
+    const sid = "ses-regrow";
+    loaded.capture.context.messages = sixThick("ALPHA");
+    loaded.capture.generate.response = "[]";
+    await loaded.sessionHooks.prompt?.({
+      sessionID: sid,
+      prompt: { text: longText("ALPHA") },
+    });
+    loaded.capture.events.push(turnEnd(sid));
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+
+    // Replaced first (two messages), then regrown past the old count before any
+    // capture observes it. Length now looks like an append, and the new rule is
+    // sitting at index 0, below the stale cursor.
+    resetCaptureCooldowns();
+    loaded.capture.context.messages = [
+      {
+        type: "user",
+        text: longText("GAMMA-request the shipping threshold must be 100.00"),
+      },
+      ...sixThick("DELTA"),
+    ];
+    await loaded.sessionHooks.prompt?.({
+      sessionID: sid,
+      prompt: { text: longText("GAMMA") },
+    });
+    loaded.capture.events.push(turnEnd(sid));
+    await waitFor(() => loaded.capture.generate.calls.length === 2);
+    const second = String(loaded.capture.generate.calls[1].prompt);
+    expect(second).toInclude("GAMMA-request");
+    expect(second).not.toInclude("ALPHA-request");
+    await loaded.cleanup();
+  });
+
+  test("a turn that lands during a capture is not marked consumed", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureOnSignal: true,
+    });
+    const sid = "ses-midturn";
+    await loaded.sessionHooks.prompt?.({
+      sessionID: sid,
+      prompt: { text: longText("ALPHA") },
+    });
+    await loaded["tool.execute.after"](
+      {
+        tool: "edit",
+        sessionID: sid,
+        callID: "C1",
+        args: { filePath: "src/a.ts" },
+      },
+      { title: "edit", output: longText("alpha edit"), metadata: {} },
+    );
+    loaded.capture.context.messages = sixThick("ALPHA");
+    loaded.capture.generate.response = "[]";
+    let release = (): void => {};
+    loaded.capture.generate.park = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    loaded.capture.events.push(turnEnd(sid));
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+
+    // Turn 2 lands while the pass is parked: its edit is not in that prompt, so
+    // the pass may not consume the turn it describes.
+    await loaded.sessionHooks.prompt?.({
+      sessionID: sid,
+      prompt: { text: longText("BETA") },
+    });
+    await loaded["tool.execute.after"](
+      {
+        tool: "edit",
+        sessionID: sid,
+        callID: "C2",
+        args: { filePath: "src/b.ts" },
+      },
+      { title: "edit", output: longText("beta edit"), metadata: {} },
+    );
+    release();
+    await sleep(200);
+
+    // Nothing new happens between the two turn ends: the next pass must still
+    // owe the turn-2 edit, because nothing mined it.
+    resetCaptureCooldowns();
+    loaded.capture.events.push(turnEnd(sid));
+    await waitFor(() => loaded.capture.generate.calls.length === 2);
+    await loaded.cleanup();
+  });
+
+  test("a seeded compaction payload counts as the window it mined", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureDelta: true,
+      captureOnCompact: true,
+    });
+    const sid = "ses-seedcursor";
+    loaded.capture.context.messages = [
+      { type: "user", text: longText("ALPHA-request fix pricing") },
+      {
+        type: "assistant",
+        content: [
+          { type: "text", text: longText("ALPHA-answer tax is 0.0825") },
+        ],
+      },
+    ];
+    loaded.capture.generate.response = "[]";
+    await loaded.sessionHooks.prompt?.({
+      sessionID: sid,
+      prompt: { text: longText("ALPHA") },
+    });
+    loaded.capture.events.push(turnEnd(sid));
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+
+    // The hook hands over the pre-compaction window whole: four messages, all
+    // four mined. The cursor becomes 4 — adding the prior 2 to it claims six
+    // messages were consumed when only four exist.
+    const four = [
+      { type: "user", text: longText("GAMMA-request one") },
+      {
+        type: "assistant",
+        content: [{ type: "text", text: longText("GAMMA-1") }],
+      },
+      { type: "user", text: longText("GAMMA-request two") },
+      {
+        type: "assistant",
+        content: [{ type: "text", text: longText("GAMMA-2") }],
+      },
+    ];
+    resetCaptureCooldowns();
+    await loaded.sessionHooks.compaction?.({
+      sessionID: sid,
+      system: [],
+      messages: four,
+    });
+    await waitFor(() => loaded.capture.generate.calls.length === 2);
+
+    // The post-compaction transcript: the four mined messages plus two new ones.
+    resetCaptureCooldowns();
+    loaded.capture.context.messages = [
+      ...four,
+      { type: "user", text: longText("BETA-request fix shipping") },
+      {
+        type: "assistant",
+        content: [
+          { type: "text", text: longText("BETA-answer free at 100.00") },
+        ],
+      },
+    ];
+    await loaded.sessionHooks.prompt?.({
+      sessionID: sid,
+      prompt: { text: longText("BETA") },
+    });
+    loaded.capture.events.push(turnEnd(sid));
+    await waitFor(() => loaded.capture.generate.calls.length === 3);
+    const third = String(loaded.capture.generate.calls[2].prompt);
+    expect(third).toInclude("BETA-request");
+    expect(third).not.toInclude("GAMMA-request");
+    await loaded.cleanup();
+  });
+
   test("without the option, a second capture still sees the whole session", async () => {
     const loaded = await loadCapturePlugin({
       autoCapture: true,

@@ -10,7 +10,7 @@
 // Both are fixable with facts the plugin already holds in-process at zero token
 // cost, so neither gate needs a model call to decide.
 import type { SessionState } from "../core/state.ts";
-import { conversationTurns } from "./transcript.ts";
+import { conversationTurns, flattenTranscript } from "./transcript.ts";
 
 /**
  * How many messages of a session's context a capture has already mined. The
@@ -22,6 +22,42 @@ interface Cursor {
   msgs: number;
   /** Turn index at that capture; the signal window is turns after this. */
   turn: number;
+  /**
+   * Identity of the LAST message that capture mined (#366 review). A count says
+   * how many messages were consumed; it cannot say WHICH ones, and a host that
+   * replaces the transcript and then lets it grow again hands back an array
+   * longer than the cursor that shares nothing with it.
+   */
+  fp?: string;
+}
+
+// FNV-1a, 32-bit, base36. Deterministic across restarts (a cursor is only ever
+// compared with the store of the same process family), allocation-light, and
+// good enough for what it is: an equality test on one message, never a
+// security decision.
+function fnv1a(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/**
+ * Fingerprint of the message at `index` (-1 = the last one). Undefined when
+ * there is nothing to fingerprint: not an array, an out-of-range index, or a
+ * record that decodes to no text at all.
+ */
+export function boundaryFingerprint(
+  msgs: unknown,
+  index = -1,
+): string | undefined {
+  if (!Array.isArray(msgs) || msgs.length === 0) return undefined;
+  const at = index < 0 ? msgs[msgs.length + index] : msgs[index];
+  if (at === undefined) return undefined;
+  const text = flattenTranscript([at]);
+  return text ? fnv1a(text) : undefined;
 }
 
 // Bounded like every other session-keyed ledger, so a resident server cannot
@@ -37,12 +73,13 @@ export function advanceCaptureCursor(
   sid: string,
   msgs: number,
   turn: number,
+  fp?: string,
 ): void {
   if (cursors.size >= MAX_CURSORS && !cursors.has(sid)) {
     const oldest = cursors.keys().next().value;
     if (oldest !== undefined) cursors.delete(oldest);
   }
-  cursors.set(sid, { msgs, turn });
+  cursors.set(sid, { msgs, turn, fp });
 }
 
 export function resetCaptureCursors(): void {
@@ -50,14 +87,30 @@ export function resetCaptureCursors(): void {
 }
 
 /**
- * Has the context SHRUNK past the cursor — i.e. is `since` pointing beyond the
- * end of an array that is simply shorter now (#366 review)? Compaction replaces
- * the transcript rather than appending to it, so this is a normal event, not a
- * corrupted store. Told apart from "nothing new was appended" (`since` equal to
- * the length), which stays an empty window.
+ * Is this array still the transcript the cursor was counting (#366 review)?
+ *
+ * Two shapes say it is not. SHORTER than the count: compaction replaced the
+ * transcript, so `since` names an index that no longer exists — a normal event,
+ * not a corrupted store. LONG ENOUGH BUT DIFFERENT: the transcript was replaced
+ * and then grew past the old count before the next capture observed the swap,
+ * which a length check reads as an ordinary append while the new user rule sits
+ * below the cursor at index 0.
+ *
+ * Told apart from "nothing new was appended" (`since` equal to the length and
+ * the boundary message still the one that was mined), which stays an empty
+ * window. A cursor with no fingerprint — written before this existed, or left
+ * by a pass that mined a payload with no message array behind it — falls back to
+ * the length check, so an upgrade never restarts a window on its own.
  */
-export function contextShrank(msgs: unknown, since: number): boolean {
-  return Array.isArray(msgs) && since > msgs.length;
+export function transcriptReplaced(
+  msgs: unknown,
+  cursor: { msgs: number; fp?: string },
+): boolean {
+  if (!Array.isArray(msgs)) return false;
+  if (cursor.msgs === 0) return false;
+  if (msgs.length < cursor.msgs) return true;
+  if (cursor.fp === undefined) return false;
+  return boundaryFingerprint(msgs, cursor.msgs - 1) !== cursor.fp;
 }
 
 /**

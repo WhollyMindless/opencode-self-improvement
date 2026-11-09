@@ -5,12 +5,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   advanceCaptureCursor,
+  boundaryFingerprint,
   captureCursor,
   captureSignalSince,
-  contextShrank,
   deltaMessages,
   guidedStatementInWindow,
   resetCaptureCursors,
+  transcriptReplaced,
 } from "../src/capture/policy.ts";
 import type { SessionState, ToolResult } from "../src/core/state.ts";
 
@@ -166,11 +167,63 @@ describe("deltaMessages", () => {
     expect(deltaMessages([1, 2], 5)).toEqual([1, 2]);
   });
 
-  test("shrink is told apart from 'nothing new' (#366 review)", () => {
-    expect(contextShrank([1, 2, 3], 3)).toBe(false); // nothing appended yet
-    expect(contextShrank([1, 2], 3)).toBe(true); // replaced by a shorter array
-    expect(contextShrank([1, 2, 3], 2)).toBe(false);
-    expect(contextShrank("seeded payload", 9)).toBe(false);
+  test("a replaced transcript is told apart from an append (#366 review)", () => {
+    const five = [
+      { type: "user", text: "one detail" },
+      { type: "assistant", text: "two detail" },
+      { type: "user", text: "three detail" },
+      { type: "assistant", text: "four detail" },
+      { type: "user", text: "five detail" },
+    ];
+    const cursor = {
+      msgs: 3,
+      fp: boundaryFingerprint(five, 2),
+    };
+    expect(cursor.fp).toBeDefined();
+    // Nothing appended yet: same boundary message.
+    expect(transcriptReplaced(five, cursor)).toBe(false);
+    // An append keeps it.
+    expect(
+      transcriptReplaced([...five, { type: "assistant", text: "six" }], cursor),
+    ).toBe(false);
+    // Shorter: replaced by compaction.
+    expect(transcriptReplaced(five.slice(0, 2), cursor)).toBe(true);
+    // Replaced and then GROWN past the old count: longer than the cursor, and
+    // a different message at the boundary. Length alone calls this an append.
+    expect(
+      transcriptReplaced(
+        [
+          { type: "user", text: "summary of the old transcript" },
+          ...five,
+          { type: "assistant", text: "six detail" },
+        ],
+        cursor,
+      ),
+    ).toBe(true);
+    // A cursor with no fingerprint (written before this existed) trusts length.
+    expect(transcriptReplaced(five, { msgs: 3 })).toBe(false);
+    expect(transcriptReplaced(five.slice(0, 2), { msgs: 3 })).toBe(true);
+    // A zero cursor is "never captured", which is never a replacement.
+    expect(transcriptReplaced(five, { msgs: 0 })).toBe(false);
+    // A seeded payload of unknown shape is not an array to compare.
+    expect(transcriptReplaced("seeded payload", { msgs: 9, fp: "x" })).toBe(
+      false,
+    );
+  });
+
+  test("a fingerprint is stable and message-specific", () => {
+    const a = boundaryFingerprint([{ type: "user", text: "alpha detail" }]);
+    expect(a).toBe(
+      boundaryFingerprint([{ type: "user", text: "alpha detail" }]),
+    );
+    expect(a).not.toBe(
+      boundaryFingerprint([{ type: "user", text: "beta detail" }]),
+    );
+    expect(boundaryFingerprint([])).toBeUndefined();
+    expect(boundaryFingerprint(undefined)).toBeUndefined();
+    expect(
+      boundaryFingerprint([{ type: "user", text: "x" }], 4),
+    ).toBeUndefined();
   });
 
   test("a non-array payload passes through untouched", () => {

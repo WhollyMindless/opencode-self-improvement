@@ -22,11 +22,12 @@ import { parseCandidates, parseModelRef } from "./candidates.ts";
 import { lagSince } from "./lag.ts";
 import {
   advanceCaptureCursor,
+  boundaryFingerprint,
   captureCursor,
   captureSignalSince,
-  contextShrank,
   deltaMessages,
   guidedStatementInWindow,
+  transcriptReplaced,
 } from "./policy.ts";
 import { buildCapturePrompt } from "./prompt.ts";
 import { type SessionModelRef, sessionModel } from "./session-model.ts";
@@ -311,22 +312,32 @@ export function configureAutoCapture(
         // the expensive artifact the gate saves — the capture model call —
         // is still saved.
         const cursor = captureCursor(sid);
+        // The turn this pass DESCRIBES. Completion must advance to this number,
+        // not to whatever the session has reached by then: a turn delivered
+        // while the model call is in flight was never in the prompt, and
+        // consuming it leaves that work unmined with nothing left to ask for it
+        // (#366 review).
+        const turnAtStart = session(sid).turns;
         let transcript = seeded;
         let msgs = seededMsgs;
-        // True when the context came back SHORTER than the cursor (#366 review):
-        // compaction replaced the transcript, so the offset names an array that
-        // no longer exists and the window below is the whole context, mined from
-        // the beginning. The cursor is rewritten to the new length at the end.
+        // A seeded compaction payload is the pre-compaction window the hook
+        // deliberately handed over (the Compaction Cliff: one round retains 53%
+        // of exact-wording rules), so it is mined whole and the cursor is not
+        // consulted — which also means the cursor advances TO its length, never
+        // past it by the old count.
+        const minedWhole = seededMsgs !== undefined;
+        // True when the context is no longer the array the cursor counted
+        // (#366 review): the offset names a transcript that does not exist, so
+        // the window below is the whole context, mined from the beginning.
         let deltaRestart = false;
         if (transcript.length < 200) {
           msgs = await contextFn({ sessionID: sid });
           transcript = flattenTranscript(msgs);
-          // #334: mine only what has not been mined. A seeded compaction
-          // payload is the pre-compaction window the hook deliberately handed
-          // over (the Compaction Cliff: one round retains 53% of exact-wording
-          // rules), so it is mined whole and the cursor is not consulted.
-          if (captureDelta) {
-            deltaRestart = contextShrank(msgs, cursor.msgs);
+          // Told in BOTH modes. With the delta off the pass mines the whole
+          // context anyway, and the guidance window further down has to follow
+          // the same array the pass reads.
+          deltaRestart = transcriptReplaced(msgs, cursor);
+          if (captureDelta && !deltaRestart) {
             const before = msgs;
             msgs = deltaMessages(msgs, cursor.msgs);
             if (msgs !== before) transcript = flattenTranscript(msgs);
@@ -336,7 +347,10 @@ export function configureAutoCapture(
           let verdict = captureSignalSince(session(sid), cursor.turn);
           if (
             !verdict.ok &&
-            guidedStatementInWindow(msgs, captureDelta ? 0 : cursor.msgs)
+            guidedStatementInWindow(
+              msgs,
+              captureDelta || deltaRestart ? 0 : cursor.msgs,
+            )
           )
             verdict = { ok: true, why: "guidedStatement" };
           if (!verdict.ok) {
@@ -494,12 +508,20 @@ export function configureAutoCapture(
         // A skip returns early and leaves the cursor where it was, so the next
         // signal-bearing turn still mines everything since the last real pass.
         if (captureDelta || captureOnSignal) {
-          const total = Array.isArray(msgs)
-            ? captureDelta && cursor.msgs > 0 && !deltaRestart
-              ? cursor.msgs + msgs.length
-              : msgs.length
-            : cursor.msgs;
-          advanceCaptureCursor(sid, total, session(sid).turns);
+          // A window is consumed by the pass that mined it. A seeded payload or
+          // a replaced transcript IS the whole window, so the cursor becomes its
+          // length; an ordinary delta window sits AFTER what was mined before.
+          const total = !Array.isArray(msgs)
+            ? cursor.msgs
+            : minedWhole || deltaRestart || !captureDelta
+              ? msgs.length
+              : cursor.msgs + msgs.length;
+          advanceCaptureCursor(
+            sid,
+            total,
+            turnAtStart,
+            boundaryFingerprint(msgs),
+          );
         }
       }
 
