@@ -102,3 +102,45 @@ describe("capture guidance provenance (#343a)", () => {
     });
   });
 });
+
+// Ported from the retrieval-fix branch (d8ffe27): the verbatim quote field.
+// Mystery 2 (FINDINGS §3): the bench's exact-text needle missed guided rows
+// the capture model had paraphrased. `original` carries the user's words, and
+// only the user's words — the runtime drops any quote that is not a
+// transcript substring.
+describe("verbatim original on guided rows", () => {
+  const GOOD = {
+    type: "learning",
+    scope: "build",
+    content: "Run the full test suite with bun test from the repo root.",
+  };
+
+  test("the prompt asks for a verbatim original on guided rows", () => {
+    const p = buildCapturePrompt("user: the tax rate is 8.25%", 5);
+    expect(p).toContain('"original"');
+    expect(p).toContain("VERBATIM");
+  });
+
+  test("parseCandidates keeps original on guided rows; junk and ungguided drop it", () => {
+    const full = { ...GOOD, guided: true, original: "the tax rate is 8.25%" };
+    expect(parseCandidates(JSON.stringify([full]), 3)).toEqual([full]);
+    // Not guided: original never attaches.
+    const { guided: _g, ...unguided } = full;
+    expect(parseCandidates(JSON.stringify([unguided]), 3)).toEqual([GOOD]);
+    // Over-long or control-character quotes drop the field, never the row.
+    expect(
+      parseCandidates(
+        JSON.stringify([{ ...GOOD, guided: true, original: "x".repeat(301) }]),
+        3,
+      ),
+    ).toEqual([{ ...GOOD, guided: true }]);
+    expect(
+      parseCandidates(
+        JSON.stringify([
+          { ...GOOD, guided: true, original: "line one\nline two" },
+        ]),
+        3,
+      ),
+    ).toEqual([{ ...GOOD, guided: true }]);
+  });
+});

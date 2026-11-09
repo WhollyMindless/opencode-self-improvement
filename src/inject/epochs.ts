@@ -9,7 +9,7 @@ import { captureEvidenceContext, record } from "../evidence/record.ts";
 import { capToBudget, injectedRows } from "./budget.ts";
 import { systemDigest } from "./digest.ts";
 import { storeVersion } from "./version.ts";
-import { selectRelevant } from "../recall/relevant.ts";
+import { isUserGuided, selectRelevant } from "../recall/relevant.ts";
 import {
   attributeSession,
   deriveMemoryRefs,
@@ -171,6 +171,14 @@ export function createInjectionEpochs({
     prefix: string;
     rode: Memory[];
     refs: MemoryRefs;
+    /** Guided rows the selector put in the block (pre-budget), by ts. */
+    guidedIds: string[];
+    /** Guided rows that survived the budget, by ts. */
+    guidedRodeIds: string[];
+    /** Guided rows visible to this reader in the store. */
+    guidedSeen: number;
+    /** A CONFLICT line rendered in this block. */
+    conflict: boolean;
   }> => {
     const parts: string[] = [];
     await systemDigest(
@@ -211,12 +219,24 @@ export function createInjectionEpochs({
     const prefix = [...parts, block].join("\u0000");
     // Ledger terms/identities belong to the stored rows, but coverage refs
     // must describe only the text the model actually received.
+    // Stage telemetry (mystery 2): split the hint channel's journey into the
+    // three links a miss can die at — visible in the store (guidedSeen),
+    // selected into the block (guidedIds), survived the budget (guidedRodeIds)
+    // — so an L6h wire miss joins to exactly one cause from the evidence log.
+    const guidedSeen = mems.filter(isUserGuided).length;
+    const guidedIds = sel.selected.filter(isUserGuided).map((m) => m.ts);
+    const guidedRodeIds = rode.filter(isUserGuided).map((m) => m.ts);
+    const conflict = block.includes("CONFLICT (");
     return {
       parts,
       block,
       prefix,
       rode,
       refs: deriveMemoryRefs(rode.map((m) => sel.rendered.get(m) ?? m)),
+      guidedIds,
+      guidedRodeIds,
+      guidedSeen,
+      conflict,
     };
   };
   const refreshEpoch = async (sid: string, rows?: Memory[]): Promise<void> => {
@@ -305,6 +325,20 @@ export function createInjectionEpochs({
         session: sid,
         reason,
         chars: built.block.length,
+        // Hint-channel attribution (mystery 2): a wire miss is one grep away.
+        // guidedSeen=0 -> capture never wrote the row. guidedSeen>0 with the
+        // id absent from `guided` -> the cap (newest-first, 3) dropped it.
+        // In `guided` but absent from `guidedRode` -> capToBudget dropped it.
+        // In `guidedRode` yet absent from the wire -> render/transport, or a
+        // paraphrased needle (now impossible for rows carrying `orig=true`).
+        ...(built.guidedSeen ? { guidedSeen: built.guidedSeen } : {}),
+        ...(built.guidedIds.length
+          ? { guided: built.guidedIds.join(",") }
+          : {}),
+        ...(built.guidedRodeIds.length
+          ? { guidedRode: built.guidedRodeIds.join(",") }
+          : {}),
+        ...(built.conflict ? { conflict: true } : {}),
       },
       false,
       sid,
@@ -373,6 +407,18 @@ export function createInjectionEpochs({
     async prompt(sid: string, text: string): Promise<void> {
       latestPrompt.set(sid, text);
       await refreshEpoch(sid);
+    },
+    // Fix A (FINDINGS 2026-11-08 §4b): a guided row promoted AFTER a session
+    // froze its bytes could never enter the hint lane — the bench's run 5
+    // lost the lane to a capture that landed 9 minutes into pass 2, and the
+    // epoch only moves on a request that happens to notice. Recompute every
+    // tracked epoch on guided promotion so the NEXT request of every session
+    // carries the row and the epoch_recompute line records it. Bounded:
+    // guided rows are rare (cap 3), the refresh pre-check early-returns for
+    // any session whose visible rows did not move, and an untracked session
+    // is a map miss.
+    refreshAll(): Promise<void[]> {
+      return Promise.all([...epoch.keys()].map((sid) => refreshEpoch(sid)));
     },
     deliver,
     invalidate(sid: string): void {

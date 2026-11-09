@@ -14,11 +14,12 @@
 //   - `capture.generate`: canned generate.text reply + call log.
 //   - `capture.context`: canned session.context messages + call log.
 //   - `cleanup`: whatever setup() returned (no-op when it returned nothing).
-import plugin from "../index.ts";
+
 import { afterEach, beforeEach } from "bun:test";
 import { lstatSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
+import plugin from "../index.ts";
 import { resetState } from "../src/core/state.ts";
 
 /**
@@ -157,6 +158,11 @@ export interface CaptureFakes {
   context: {
     calls: string[];
     messages: unknown;
+    // Interleave seam (#211): when set, session.context() awaits this AFTER
+    // logging the call, so a test can park the plugin mid-context-read and
+    // dispose the plugin while it waits — the shape the pre-model abort check
+    // exists for.
+    park?: Promise<unknown>;
   };
   session: {
     getCalls: string[];
@@ -260,6 +266,7 @@ export async function loadPlugin(
       prompt: async (input: any) => ({ ok: true, input }),
       context: async (input: any) => {
         capture.context.calls.push(String(input?.sessionID ?? ""));
+        if (capture.context.park) await capture.context.park;
         return capture.context.messages;
       },
       get: async (input: any) => {

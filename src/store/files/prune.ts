@@ -1,18 +1,18 @@
 // prune — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
-import { join, basename } from "node:path";
+import { basename, join } from "node:path";
 import { parseLine } from "../../core/logfmt/format.ts";
 import { fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts";
 import { readLines } from "../../core/logfmt/read.ts";
-import { withStoreLock, LOCK_WRITE } from "../lock.ts";
+import { LOCK_WRITE, withStoreLock } from "../lock.ts";
+import {
+  isVisibleTo,
+  type Reader,
+  readerForAmbient,
+} from "../model/visibility.ts";
 import { tombstoneMany } from "../tombstones/tombstone.ts";
 import { type DeletedMemory, logDeletion } from "./deletions.ts";
 import { memoryFiles, toMemory } from "./load.ts";
 import { snapshotFiles } from "./snapshots.ts";
-import {
-  type Reader,
-  isVisibleTo,
-  readerForAmbient,
-} from "../model/visibility.ts";
 
 export interface PruneResult {
   deleted: DeletedMemory[];
@@ -45,6 +45,13 @@ export async function prune(
     bookkeepingError = bookkeepingError ? `${bookkeepingError}; ${msg}` : msg;
   };
   try {
+    // #215 narrowed the ts-addressed write paths (supersede, clearSuperseded,
+    // releaseQuarantine) to the day file the row's own ts names. This one keeps
+    // the full sweep on purpose: a forget is addressed by scope/type, not by ts,
+    // so the only way to know which files match is to look — and a pre-pass that
+    // skipped a file would let a row appended during the forget survive it. The
+    // per-file body re-reads under the lock precisely so "deleted" means deleted;
+    // a forget is a user action, not a per-write path, so it pays the sweep.
     for (const file of await memoryFiles()) {
       const fileDeleted: DeletedMemory[] = [];
       await withStoreLock(

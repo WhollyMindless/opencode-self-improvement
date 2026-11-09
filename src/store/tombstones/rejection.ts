@@ -1,13 +1,13 @@
 // rejection — split from src/tombstones.ts (#168 domain restructure). Declaration bodies are unchanged.
 import { join } from "node:path";
-import { contentHash } from "../../evidence/record.ts";
 import { memoryRoot } from "../../core/config/paths.ts";
+import { contentHash } from "../../evidence/record.ts";
 import {
+  differsIn,
   NEAR_FLOOR,
   NEAR_MIN_SHARED,
-  type Tombstone,
-  differsIn,
   sketchOf,
+  type Tombstone,
   tombstone,
   tombstones,
   valueSigOf,
