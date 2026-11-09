@@ -205,6 +205,62 @@ test("pass disposed during the context read neither receipts nor generates (#211
   expect(evidenceSince(disposedAt)).toEqual([]);
 });
 
+// The same teardown, reached through the OTHER trigger. The idle path catches
+// its own failure and checks the signal there; the compaction path runs through
+// the generic `guarded()` reporter, so a rejection that wakes after cleanup
+// bypassed every abort check and appended a `hook_error` line to a store its
+// caller had already torn down (#211 review, adversarial round).
+test("compaction pass whose model call fails after disposal reports nothing (#211)", async () => {
+  const loaded = await loadPlugin(root, {
+    autoCapture: true,
+    captureModel: "fake/model",
+  });
+  plugin = loaded;
+  const sid = "ses-compact-dead";
+  await ground(loaded, sid);
+  const park = parked();
+  loaded.capture.generate.park = park.promise;
+  loaded.capture.generate.throws = new Error("model gone");
+  await loaded.sessionHooks.compaction?.({
+    sessionID: sid,
+    system: [],
+    messages: thickMessages(),
+  });
+  await waitFor(() => loaded.capture.generate.calls.length === 1);
+
+  const disposedAt = Date.now();
+  await loaded.cleanup();
+  park.release(); // the parked call REJECTS after cleanup returned
+  await sleep(100);
+
+  expect(evidenceSince(disposedAt)).toEqual([]);
+});
+
+// The receipt itself stays: a compaction failure with a live plugin is exactly
+// the invisible-failure class #138 exists for, so suppressing it must be scoped
+// to teardown and nothing else.
+test("control: a compaction failure with no disposal still reports hook_error (#138)", async () => {
+  const loaded = await loadPlugin(root, {
+    autoCapture: true,
+    captureModel: "fake/model",
+  });
+  plugin = loaded;
+  const sid = "ses-compact-alive";
+  await ground(loaded, sid);
+  loaded.capture.generate.throws = new Error("model gone");
+  await loaded.sessionHooks.compaction?.({
+    sessionID: sid,
+    system: [],
+    messages: thickMessages(),
+  });
+  await waitFor(() => loaded.capture.generate.calls.length === 1);
+  await sleep(150);
+
+  const errors = readEvidenceLog().filter((l) => l.ev === "hook_error");
+  expect(errors.length).toBe(1);
+  expect(String(errors[0]?.hook)).toContain("compaction");
+});
+
 test("idle pass whose model call fails after disposal writes no failure receipt (#211)", async () => {
   const loaded = await loadPlugin(root, {
     autoCapture: true,

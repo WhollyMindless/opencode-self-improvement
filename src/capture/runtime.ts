@@ -43,7 +43,11 @@ interface CaptureHost {
 interface CaptureDependencies {
   instanceDir: string | undefined;
   gateContext: (sid?: string) => GateContext;
-  guarded: (name: string, fn: () => Promise<void>) => Promise<void>;
+  guarded: (
+    name: string,
+    fn: () => Promise<void>,
+    reportable?: () => boolean,
+  ) => Promise<void>;
 }
 
 // Tag on store rows captured by the COMPACTION trigger (issue #41). Rows keep
@@ -553,14 +557,21 @@ export function configureAutoCapture(
           // Tracked, not just fired: cleanup must be able to drain this pass
           // (#211), which is the only reason the seam keeps the promise.
           void track(
-            guarded("session.compaction (auto-capture)", () =>
-              captureSession(
-                sid,
-                flattenTranscript(messages),
-                "compaction",
-                messages,
-                opGate,
-              ),
+            // The predicate, not just the checks inside the pass: a rejection
+            // from the awaited model call skips every abort check that follows
+            // it and lands in the generic reporter, which would append
+            // `hook_error` to a store cleanup() has already released (#211).
+            guarded(
+              "session.compaction (auto-capture)",
+              () =>
+                captureSession(
+                  sid,
+                  flattenTranscript(messages),
+                  "compaction",
+                  messages,
+                  opGate,
+                ),
+              () => !controller.signal.aborted,
             ),
           );
         };
