@@ -254,6 +254,32 @@ describe("cache math", () => {
       ),
     ).toBe("unknown");
   });
+
+  // #344: `prompt_reveal` joined the reason values, and the surfaces must not
+  // have to learn new ones. Every reason reaches `/memory` and `memory_status`
+  // by interpolation, so a value a later build adds renders as-is instead of
+  // blanking or being relabelled as something the plugin did not record.
+  test("epoch reason is display-only: known and unknown values render verbatim", () => {
+    const shown = (reason: string) =>
+      [
+        ...contextLines(payload({ reason: reason as StatusPayload["reason"] })),
+        ...cacheLines(
+          payload({
+            stats: {
+              ...payload().stats!,
+              invalidations: 1,
+              lastInvalidation: {
+                at: "2026-10-20T12:30:00.000Z",
+                reason,
+              },
+            },
+          }),
+        ),
+      ].join("\n");
+    for (const reason of ["first", "store_changed", "prompt_reveal"])
+      expect(shown(reason)).toContain(reason);
+    expect(shown("provider_restart")).toContain("provider_restart");
+  });
 });
 
 describe("renderMemoryReport", () => {
