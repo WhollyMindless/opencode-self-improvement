@@ -1,15 +1,15 @@
 // Repository visibility, shared by memory rows, restore lines, and evidence.
 import { createHash } from "node:crypto";
+import { parseLine } from "../../core/logfmt/format.ts";
+import { getCurrent } from "../../core/state.ts";
 import {
   normalizeDirPath,
+  type RepoScope,
   repoScopeFor,
   sessionScope,
-  type RepoScope,
 } from "../../identity/repokey.ts";
-import { getCurrent } from "../../core/state.ts";
-import { parseLine } from "../../core/logfmt/format.ts";
 import { prune } from "../files/prune.ts";
-import { type Memory } from "./memory.ts";
+import type { Memory } from "./memory.ts";
 
 // --- repo visibility ---------------------------------------------------------
 // A READER is an immutable caller identity, resolved once at the entry of a

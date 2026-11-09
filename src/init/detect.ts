@@ -63,6 +63,15 @@ async function readText(root: string, file: string): Promise<string | null> {
   }
 }
 
+// A script key becomes the command a later session is told to run, so it may
+// only be an identifier: no whitespace and no shell metacharacter can survive
+// into `npm run <key>`. `:` and `.` are allowed because `test:ci` and
+// `lint.fix` are ordinary npm keys (this is wider than #301's literal
+// `[A-Za-z0-9_-]+`, which would drop them; the rejection this ticket is about —
+// `test && echo SYNTHETIC` — is rejected either way). Make/Just targets use the
+// narrower class already, and a Make target cannot contain `:` in any case.
+const SCRIPT_KEY = /^[A-Za-z0-9_.:-]+$/;
+
 async function detectPackageScripts(
   root: string,
   records: ScriptRecord[],
@@ -79,6 +88,7 @@ async function detectPackageScripts(
   const seen = new Set<string>();
   for (const name of Object.keys(pkg.scripts as Record<string, unknown>)) {
     if (seen.has(name) || !isNotable(name.toLowerCase())) continue;
+    if (!SCRIPT_KEY.test(name)) continue; // crafted key: skip the record
     seen.add(name);
     records.push({ key: name, cmd: `npm run ${name}`, source: "package.json" });
   }

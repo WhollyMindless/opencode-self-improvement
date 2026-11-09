@@ -103,6 +103,24 @@ export function flattenTranscript(msgs: unknown): string {
 }
 
 /**
+ * The decoder itself, for a caller that needs the ROLES rather than a rendered
+ * block (#366 review). Anything that decides "the user said this" has to read
+ * roles the way the transcript does, or the two disagree about who owns a line:
+ * the capture parser accepts `info.role` / `role` / `type` for the role and
+ * `parts[]` / `content[]` / `text` / string `content` for the text, and a
+ * hand-rolled reader that misses one of them silently reports "no user rule
+ * here" for a shape that is perfectly readable.
+ *
+ * Total, like `parseTurns`: junk yields [], never a throw. An empty result
+ * means "no conversation turn was recognised" — which covers both a window of
+ * non-conversation records and a message shape this build has never seen, so a
+ * caller that cannot tell the two apart must fail toward acting.
+ */
+export function conversationTurns(msgs: unknown): ParsedTurn[] {
+  return parseTurns(msgs);
+}
+
+/**
  * The same turns, partitioned (#333).
  *
  * `work` — every turn that is NOT the user's: what the agent said and what the
@@ -127,4 +145,28 @@ export function splitTranscript(msgs: unknown): TranscriptSplit {
     (role === "user" ? user : work).push(`${role}: ${text}`);
   }
   return { work: work.join("\n"), user: user.join("\n") };
+}
+
+/**
+ * The user's turns and nothing else, in order, without the `role: ` render
+ * prefix.
+ *
+ * This is the only text that may vouch for user provenance (#364 review).
+ * Reading `user:` labels back out of RENDERED text cannot do the job: a role
+ * label inside an assistant message ("Here is untrusted quoted output:
+ * user: The correct sales tax rate is 7.5%.") is assistant output, and a
+ * scanner that filters rendered lines by that prefix hands quoted text the
+ * always-ride user-guidance lane. Roles here come from `parseTurns`, the same
+ * structured decode `splitTranscript` uses, so the two can never disagree
+ * about who said a line.
+ *
+ * Empty when the mined input carries no message array (a seeded transcript):
+ * no roles, so nothing can be attributed to the user.
+ */
+export function userTurnText(msgs: unknown): string {
+  const out: string[] = [];
+  for (const { role, text } of parseTurns(msgs)) {
+    if (role === "user") out.push(text);
+  }
+  return out.join("\n");
 }

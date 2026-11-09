@@ -13,7 +13,7 @@ import {
   writeAtomic,
 } from "../core/logfmt/publish.ts";
 import { readLines } from "../core/logfmt/read.ts";
-import { withStoreLock, LOCK_WRITE } from "./lock.ts";
+import { LOCK_WRITE, withStoreLock } from "./lock.ts";
 import { redactSecrets } from "./secrets.ts";
 
 const BLOCKLIST_FILENAME = "blocklist.logfmt";

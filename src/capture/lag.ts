@@ -9,7 +9,17 @@ export function lagSince(messages: unknown, now = Date.now()): number | null {
   let newest = 0;
   for (const raw of Array.isArray(messages) ? messages : []) {
     const m = raw as Record<string, any>;
-    const at = m?.time?.updated ?? m?.createdAt ?? m?.created ?? m?.timestamp;
+    // The real 2.2.x session context carries time.created/time.completed
+    // (fixtures/host-session-context-2.2.5.json); time.updated was the only
+    // time.* field read, so every live capture_lag line recorded no lag at
+    // all. Read the whole family; the legacy flat names stay for old shapes.
+    const at =
+      m?.time?.updated ??
+      m?.time?.completed ??
+      m?.time?.created ??
+      m?.createdAt ??
+      m?.created ??
+      m?.timestamp;
     const ms =
       typeof at === "number"
         ? at

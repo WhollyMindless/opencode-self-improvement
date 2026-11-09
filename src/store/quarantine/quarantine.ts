@@ -41,15 +41,24 @@ export function quarantineReasons(row: { tags?: string[] }): string[] {
 }
 
 export function quarantineCandidate<
-  T extends { content: string; scope?: string; tags?: string[] },
+  T extends {
+    content: string;
+    scope?: string;
+    original?: string;
+    tags?: string[];
+  },
 >(candidate: T): T {
   // #205: scope renders model-facing (inject/format.ts prints it on every
-  // injected line), so the scanner covers it as well as content. Hits are
-  // merged and deduplicated; provenance tags survive untouched.
+  // injected line), so the scanner covers it as well as content. #364 review:
+  // so does `original`, the verbatim quote the same line prints as
+  // `(user said: "...")` — a benign summary carrying an instruction-shaped
+  // quote reached the prompt untagged. Hits are merged and deduplicated;
+  // provenance tags survive untouched.
   const hits = [
     ...new Set([
       ...quarantinePatterns(candidate.content),
       ...(candidate.scope ? quarantinePatterns(candidate.scope) : []),
+      ...(candidate.original ? quarantinePatterns(candidate.original) : []),
     ]),
   ];
   if (!hits.length) return candidate;
