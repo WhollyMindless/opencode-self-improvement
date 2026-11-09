@@ -19,10 +19,20 @@ import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
+import {
+  findGuidedQuotes,
+  mergeGuidedCandidates,
+  normWs,
+  validateGuidedQuotes,
+} from "./guided-rules.ts";
 import { lagSince } from "./lag.ts";
 import { buildCapturePrompt } from "./prompt.ts";
 import { type SessionModelRef, sessionModel } from "./session-model.ts";
-import { flattenTranscript, splitTranscript } from "./transcript.ts";
+import {
+  flattenTranscript,
+  splitTranscript,
+  userTurnText,
+} from "./transcript.ts";
 
 interface CaptureHost {
   options?: Record<string, unknown>;
@@ -48,6 +58,13 @@ interface CaptureDependencies {
     fn: () => Promise<void>,
     reportable?: () => boolean,
   ) => Promise<void>;
+  /**
+   * Fix A (FINDINGS 2026-11-08 §4b): called after a guided row is promoted,
+   * so every tracked session recomputes its epoch and the NEXT request of
+   * each session carries the row. Absent (or failing) changes nothing: the
+   * row is stored either way and a later request re-reads the store.
+   */
+  onGuidedPromoted?: (sid: string) => void | Promise<void>;
 }
 
 // Tag on store rows captured by the COMPACTION trigger (issue #41). Rows keep
@@ -152,7 +169,7 @@ export function captureTriggerFor(event: unknown): boolean {
 
 export function configureAutoCapture(
   ctx: CaptureHost,
-  { instanceDir, gateContext, guarded }: CaptureDependencies,
+  { instanceDir, gateContext, guarded, onGuidedPromoted }: CaptureDependencies,
 ) {
   let onCompactCapture: ((sid: string, messages: unknown) => void) | undefined;
   let captureCleanup: Cleanup | undefined;
@@ -168,6 +185,9 @@ export function configureAutoCapture(
     // the one the user typed is worse than the tax it replaces.
     const omitted = captureModelOpt === undefined;
     const captureMax = Number(ctx.options.captureMax) || 3;
+    // Deterministic guided-candidate pre-pass (POC): default OFF, the bench
+    // picks the default-on arm (FINDINGS 2026-11-08 §4.4).
+    const guidedRules = ctx.options?.captureGuidedRules === true;
     const captureOnCompact = ctx.options?.captureOnCompact !== false;
     const modelRef = omitted ? null : parseModelRef(captureModelOpt);
     if (!omitted && !modelRef) {
@@ -374,6 +394,10 @@ export function configureAutoCapture(
         const partitioned = split.work.length >= 200;
         const work = partitioned ? split.work : transcript;
         const userProse = partitioned ? split.user : "";
+        // The user's turns, decoded from the message array rather than read back
+        // out of rendered text (#364 review). Everything that vouches for "these
+        // are the user's own words" goes through this.
+        const userTurns = userTurnText(msgs);
         // Hoisted out of the prompt literal so the disposal check below runs
         // BEFORE the model call: this read is awaited, so it is its own window
         // into a teardown (#211).
@@ -400,11 +424,95 @@ export function configureAutoCapture(
         // is the ENOENT teardown noise this check exists to eliminate, and
         // the drain in cleanup means the pass is finished, not lost mid-air.
         if (controller.signal.aborted) return;
-        const candidates = parseCandidates(text, captureMax);
+        let candidates = parseCandidates(text, captureMax);
+        // Deterministic guided pre-pass (POC, FINDINGS 2026-11-08 §4, option
+        // `captureGuidedRules`): the user's own lines decide what is guided —
+        // the model phrases it but cannot veto it, and a quote the user never
+        // wrote is refused at the write boundary (retriable, not silent).
+        // The scanned text is the structured USER turns and nothing else
+        // (#364 review): assistant output never enters the haystack, so a stored
+        // quote can only be what the user said. Filtering rendered lines by a
+        // `user:` prefix did not do this — it accepted a `user:` label quoted
+        // INSIDE an assistant message as provenance.
+        if (guidedRules) {
+          const ruleUserText = redactSecrets(userTurns);
+          if (!ruleUserText.trim()) {
+            // No user turn in what was mined (a seeded transcript with no message
+            // array, or a session that has only said nothing). Fail closed: with
+            // no roles there is nothing to vouch for, so the lane stays shut
+            // rather than minting a row from prose of unknown origin.
+            //
+            // #364 review round 2: the receipt alone does not shut it. A guided
+            // candidate the MODEL supplied would still have been stored with its
+            // unverified quote, so with no user turn nothing is attributable and
+            // the guided flag plus the quote come off. The distilled prose stays:
+            // an ordinary capture row is what the same model output produces with
+            // the option off, and dropping the row would trade a provenance fix
+            // for a recall loss the plugin has no licence to make here.
+            let withheld = 0;
+            for (const c of candidates) {
+              if (c.guided !== true) continue;
+              c.guided = false;
+              c.original = undefined;
+              withheld++;
+            }
+            await record(
+              "auto_capture_rules",
+              {
+                session: sid,
+                trigger,
+                quotes: 0,
+                refused: 0,
+                withheld,
+                skipped: "no_user_turn",
+                model: modelTag,
+              },
+              false,
+              sid,
+              captureGate.evidenceContext,
+            );
+          } else {
+            const quotes = findGuidedQuotes(ruleUserText);
+            const checked = validateGuidedQuotes(candidates, ruleUserText);
+            candidates = mergeGuidedCandidates(quotes, checked.kept);
+            await record(
+              "auto_capture_rules",
+              {
+                session: sid,
+                trigger,
+                quotes: quotes.length,
+                refused: checked.refused.length,
+                model: modelTag,
+              },
+              false,
+              sid,
+              captureGate.evidenceContext,
+            );
+          }
+        } else {
+          // Lenient check (default): a guided "original" must appear in the
+          // user's own turns. The prompt asks for a quote "copied VERBATIM from
+          // a user: line or the REQUESTS block", so the haystack is exactly that
+          // (#364 review: the mined WORK text used to be in here too, which
+          // vouched for a quote lifted out of assistant output). Whitespace is
+          // normalised — the model may collapse runs of spaces. A failed check
+          // drops the field, never the row: the distilled prose still
+          // deserved storage, it just cannot be vouched for as the user's
+          // own words.
+          const quoteHay = redactSecrets(userTurns).replace(/\s+/g, " ");
+          for (const c of candidates) {
+            if (
+              c.original !== undefined &&
+              !quoteHay.includes(normWs(c.original))
+            )
+              c.original = undefined;
+          }
+        }
         for (const c of candidates) {
           // Between candidates, never inside a gate run: a supersession that
           // half-applied is a store the next session cannot trust.
           if (controller.signal.aborted) return;
+          const original = c.original;
           const durable: string[] = [];
           let outcome: Awaited<ReturnType<typeof runWriteGate>>;
           try {
@@ -418,6 +526,10 @@ export function configureAutoCapture(
                 ...(c.ref ? { ref: c.ref } : {}),
                 ...(c.claim ? { claim: c.claim } : {}),
                 ...(c.klass ? { klass: c.klass } : {}),
+                // Verified verbatim utterance (see quoteHay above): injection
+                // renders it so the user's exact words ride the next session's
+                // request bytes.
+                ...(original ? { original } : {}),
                 tags: [
                   AUTO_CAPTURE_TAG,
                   ...(trigger === "compaction" ? [CAPTURE_COMPACT_TAG] : []),
@@ -472,11 +584,32 @@ export function configureAutoCapture(
                           : "absent",
                   }
                 : {}),
+              // Stage telemetry (mystery 2): the row's identity and guided
+              // standing at the moment of storage, so a later L6h miss can be
+              // joined to the exact row that did or did not enter the hint
+              // channel, and to whether its verbatim quote survived the
+              // substring check.
+              ...(outcome.action === "promoted" ? { row: outcome.ts } : {}),
+              ...(c.guided ? { guided: true } : {}),
+              ...(original ? { orig: true } : {}),
             },
             false,
             sid,
             captureGate.evidenceContext,
           );
+          // Fix A (FINDINGS 2026-11-08 §4b): a guided row promoted after a
+          // session froze its bytes could never enter the hint lane (bench
+          // run 5: capture landed 9 min into pass 2, epoch never moved).
+          // Recompute every tracked epoch now, so the next request of each
+          // session carries the row. Fail-soft: the row is stored either way,
+          // and a later request re-reads the store on its own.
+          if (c.guided && outcome.action === "promoted" && onGuidedPromoted) {
+            try {
+              await onGuidedPromoted(sid);
+            } catch {
+              /* fail-soft — see above */
+            }
+          }
         }
         await recordCaptureLag(
           sid,

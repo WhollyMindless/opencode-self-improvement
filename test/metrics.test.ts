@@ -109,6 +109,18 @@ describe("store self-metrics (#44)", () => {
     expect(
       lagSince([{ createdAt: new Date(now - 2_000).toISOString() }], now),
     ).toBe(2_000);
+    // The real 2.2.x context shape (host-session-context-2.2.5.json) carries
+    // time.created/time.completed and NO time.updated — the field the bench
+    // read, which is why every live capture_lag line had no lag= at all.
+    expect(
+      lagSince(
+        [
+          { time: { created: now - 60_000 } },
+          { time: { created: now - 40_000, completed: now - 30_000 } },
+        ],
+        now,
+      ),
+    ).toBe(30_000);
     expect(lagSince([], now)).toBeNull();
     expect(lagSince([{ content: "no timestamp anywhere" }], now)).toBeNull();
     expect(lagSince("not an array", now)).toBeNull();

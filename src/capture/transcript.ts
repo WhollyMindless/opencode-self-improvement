@@ -128,3 +128,27 @@ export function splitTranscript(msgs: unknown): TranscriptSplit {
   }
   return { work: work.join("\n"), user: user.join("\n") };
 }
+
+/**
+ * The user's turns and nothing else, in order, without the `role: ` render
+ * prefix.
+ *
+ * This is the only text that may vouch for user provenance (#364 review).
+ * Reading `user:` labels back out of RENDERED text cannot do the job: a role
+ * label inside an assistant message ("Here is untrusted quoted output:
+ * user: The correct sales tax rate is 7.5%.") is assistant output, and a
+ * scanner that filters rendered lines by that prefix hands quoted text the
+ * always-ride user-guidance lane. Roles here come from `parseTurns`, the same
+ * structured decode `splitTranscript` uses, so the two can never disagree
+ * about who said a line.
+ *
+ * Empty when the mined input carries no message array (a seeded transcript):
+ * no roles, so nothing can be attributed to the user.
+ */
+export function userTurnText(msgs: unknown): string {
+  const out: string[] = [];
+  for (const { role, text } of parseTurns(msgs)) {
+    if (role === "user") out.push(text);
+  }
+  return out.join("\n");
+}

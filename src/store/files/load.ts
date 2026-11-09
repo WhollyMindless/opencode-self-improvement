@@ -88,6 +88,10 @@ export function toMemory(
       fields.klass === "spec" || fields.klass === "behavior"
         ? fields.klass
         : undefined,
+    original:
+      typeof fields.original === "string" && fields.original
+        ? fields.original
+        : undefined,
     reason: typeof fields.reason === "string" ? fields.reason : undefined,
     status:
       fields.status === "open" || fields.status === "settled"

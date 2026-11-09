@@ -66,6 +66,46 @@ describe("injectedRows (attribution must key off what was actually injected)", (
   });
 });
 
+describe("verbatim user quote rendering (mystery 2)", () => {
+  test("formatMemory appends the stored original as a quotation", () => {
+    const m = {
+      ts: "2026-01-01T00:00:00.000Z",
+      type: "context",
+      scope: "billing",
+      content: "Checkout applies a tax rate of 8.25 percent.",
+      tags: ["auto-capture", "user-guided"],
+      original: "The tax rate is 8.25 percent",
+    } as unknown as Memory;
+    const line = formatMemory(m);
+    expect(line).toContain('(user said: "The tax rate is 8.25 percent")');
+    // A row without a stored quote renders exactly as before.
+    const { original: _o, ...plain } = m;
+    expect(formatMemory(plain as unknown as Memory)).not.toContain("user said");
+  });
+
+  test("a guided row's quote reaches the injected block bytes", async () => {
+    const m = {
+      ts: "2026-01-01T00:00:00.000Z",
+      type: "context",
+      scope: "billing",
+      content: "Checkout applies a tax rate of 8.25 percent.",
+      tags: ["auto-capture", "user-guided"],
+      original: "the hidden suite charges 8.25 percent on every order total",
+    } as unknown as Memory;
+    const { block } = await selectRelevant(
+      "unrelated prompt words",
+      3,
+      [m],
+      undefined,
+      undefined,
+      { guidedCap: 3 },
+    );
+    // The bench needle is a substring of the user's words: rendering the
+    // quote makes the exact-text wire check deterministic for guided rows.
+    expect(block).toContain("8.25 percent on every order total");
+  });
+});
+
 describe("relevantKnowledge (memory-first injection)", () => {
   test("selectRelevant returns the matching rows, not just the block (attribution seam)", async () => {
     seed("pattern", "build", "run `bun test` for the suite; see src/gates.ts");
