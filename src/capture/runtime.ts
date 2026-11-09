@@ -2,7 +2,7 @@
 // subscriptions and dispatch closures belong to one setup instance.
 import type { Cleanup } from "@opencode/plugin/promise/plugin";
 import { cmpTs } from "../core/cmp-ts.ts";
-import { setCurrent } from "../core/state.ts";
+import { session, setCurrent } from "../core/state.ts";
 import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
 import { record, recordCaptureLag } from "../evidence/record.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
@@ -26,6 +26,15 @@ import {
   validateGuidedQuotes,
 } from "./guided-rules.ts";
 import { lagSince } from "./lag.ts";
+import {
+  advanceCaptureCursor,
+  captureCursor,
+  captureSignalSince,
+  deltaMessages,
+  guidedStatementInWindow,
+  prefixFingerprint,
+  transcriptReplaced,
+} from "./policy.ts";
 import { buildCapturePrompt } from "./prompt.ts";
 import { type SessionModelRef, sessionModel } from "./session-model.ts";
 import {
@@ -189,6 +198,12 @@ export function configureAutoCapture(
     // picks the default-on arm (FINDINGS 2026-11-08 §4.4).
     const guidedRules = ctx.options?.captureGuidedRules === true;
     const captureOnCompact = ctx.options?.captureOnCompact !== false;
+    // #334: two cost levers, both OFF by default until the benchmark says which
+    // way to set them. `captureOnSignal` skips a capture whose turn produced
+    // nothing durable; `captureDelta` mines only the turns since the last
+    // capture instead of re-reading the whole session every time.
+    const captureOnSignal = ctx.options?.captureOnSignal === true;
+    const captureDelta = ctx.options?.captureDelta === true;
     const modelRef = omitted ? null : parseModelRef(captureModelOpt);
     if (!omitted && !modelRef) {
       // Invalid explicit model: skip registering the whole subscription
@@ -347,8 +362,34 @@ export function configureAutoCapture(
           );
           return;
         }
+        // #334: the signal gate. The PORT moved it AFTER the context read
+        // (the POC ran it before): a user-stated spec with no tool activity
+        // is exactly the hint channel (#339) and must not be skipped, and
+        // detecting it needs the messages. The read is a local host call;
+        // the expensive artifact the gate saves — the capture model call —
+        // is still saved.
+        const cursor = captureCursor(sid);
+        // The turn this pass DESCRIBES. Completion must advance to this number,
+        // not to whatever the session has reached by then: a turn delivered
+        // while the model call is in flight was never in the prompt, and
+        // consuming it leaves that work unmined with nothing left to ask for it
+        // (#366 review).
+        const turnAtStart = session(sid).turns;
         let transcript = seeded;
         let msgs = seededMsgs;
+        // The array AS READ, before any delta slice: the cursor's fingerprint
+        // covers the consumed prefix of that array, not of the window.
+        let readMsgs = seededMsgs;
+        // A seeded compaction payload is the pre-compaction window the hook
+        // deliberately handed over (the Compaction Cliff: one round retains 53%
+        // of exact-wording rules), so it is mined whole and the cursor is not
+        // consulted — which also means the cursor advances TO its length, never
+        // past it by the old count.
+        const minedWhole = seededMsgs !== undefined;
+        // True when the context is no longer the array the cursor counted
+        // (#366 review): the offset names a transcript that does not exist, so
+        // the window below is the whole context, mined from the beginning.
+        let deltaRestart = false;
         if (transcript.length < 200) {
           msgs = await contextFn({ sessionID: sid });
           // #211: disposed while the host was answering. The drain in cleanup()
@@ -357,7 +398,44 @@ export function configureAutoCapture(
           // the thin-transcript receipt below, then the model call. Silent, for
           // the same reason the post-model check is.
           if (controller.signal.aborted) return;
+          readMsgs = msgs;
           transcript = flattenTranscript(msgs);
+          // Told in BOTH modes. With the delta off the pass mines the whole
+          // context anyway, and the guidance window further down has to follow
+          // the same array the pass reads.
+          deltaRestart = transcriptReplaced(msgs, cursor);
+          if (captureDelta && !deltaRestart) {
+            const before = msgs;
+            msgs = deltaMessages(msgs, cursor.msgs);
+            if (msgs !== before) transcript = flattenTranscript(msgs);
+          }
+        }
+        if (captureOnSignal) {
+          let verdict = captureSignalSince(session(sid), cursor.turn);
+          if (
+            !verdict.ok &&
+            guidedStatementInWindow(
+              msgs,
+              captureDelta || deltaRestart ? 0 : cursor.msgs,
+            )
+          )
+            verdict = { ok: true, why: "guidedStatement" };
+          if (!verdict.ok) {
+            await record(
+              "auto_capture_skipped",
+              {
+                session: sid,
+                trigger,
+                reason: verdict.why,
+                since_turn: cursor.turn,
+                ...(modelTag ? { model: modelTag } : {}),
+              },
+              true,
+              sid,
+              captureGate.evidenceContext,
+            );
+            return; // nothing durable this window; the cursor does NOT advance
+          }
         }
         if (transcript.length < 200) {
           // This return used to be silent, and that silence is why a dead
@@ -618,6 +696,27 @@ export function configureAutoCapture(
           captureGate.evidenceContext,
           modelTag,
         );
+        // #334: the window is consumed. Advance when a capture RAN, whatever it
+        // found — zero candidates is an answer, and re-mining an answered
+        // window every turn is precisely the cost this cursor exists to remove.
+        // A skip returns early and leaves the cursor where it was, so the next
+        // signal-bearing turn still mines everything since the last real pass.
+        if (captureDelta || captureOnSignal) {
+          // A window is consumed by the pass that mined it. A seeded payload or
+          // a replaced transcript IS the whole window, so the cursor becomes its
+          // length; an ordinary delta window sits AFTER what was mined before.
+          const total = !Array.isArray(msgs)
+            ? cursor.msgs
+            : minedWhole || deltaRestart || !captureDelta
+              ? msgs.length
+              : cursor.msgs + msgs.length;
+          advanceCaptureCursor(
+            sid,
+            total,
+            turnAtStart,
+            prefixFingerprint(readMsgs, total),
+          );
+        }
       }
 
       void (async () => {

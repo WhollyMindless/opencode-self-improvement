@@ -103,6 +103,24 @@ export function flattenTranscript(msgs: unknown): string {
 }
 
 /**
+ * The decoder itself, for a caller that needs the ROLES rather than a rendered
+ * block (#366 review). Anything that decides "the user said this" has to read
+ * roles the way the transcript does, or the two disagree about who owns a line:
+ * the capture parser accepts `info.role` / `role` / `type` for the role and
+ * `parts[]` / `content[]` / `text` / string `content` for the text, and a
+ * hand-rolled reader that misses one of them silently reports "no user rule
+ * here" for a shape that is perfectly readable.
+ *
+ * Total, like `parseTurns`: junk yields [], never a throw. An empty result
+ * means "no conversation turn was recognised" — which covers both a window of
+ * non-conversation records and a message shape this build has never seen, so a
+ * caller that cannot tell the two apart must fail toward acting.
+ */
+export function conversationTurns(msgs: unknown): ParsedTurn[] {
+  return parseTurns(msgs);
+}
+
+/**
  * The same turns, partitioned (#333).
  *
  * `work` — every turn that is NOT the user's: what the agent said and what the
