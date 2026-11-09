@@ -19,6 +19,7 @@ import { runWriteGate, type GateContext } from "../gate/gate.ts";
 import { captureEvidenceContext, record } from "../evidence/record.ts";
 import { writeEvidence, hasGateCheck } from "../capture/triggers.ts";
 import { writeTarget } from "../identity/repokey.ts";
+import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
 import { graphEnabled } from "../core/config/paths.ts";
 import { getCurrent } from "../core/state.ts";
 import {
@@ -174,8 +175,18 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
   let unaudited = 0;
   for (const s of scripts) {
     const content = `${scope} ${s.key} command: run "${s.cmd}" from the repo root (${s.source}).`;
+    // Auto-capture and import both screen their candidate for injection-shaped
+    // text; init's rows are external text too — the scope is the checkout
+    // directory basename and the command comes from the manifest — so they get
+    // the same scan (#302). A match is still stored, tagged `quarantine`, and
+    // withheld from recall and injection.
     const outcome = await runWriteGate(
-      { type: "pattern", scope, content, tags: ["init", s.source] },
+      quarantineCandidate({
+        type: "pattern",
+        scope,
+        content,
+        tags: ["init", s.source],
+      }),
       gateCtx,
     );
     if (outcome.action === "promoted") {
@@ -187,7 +198,15 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
 
   const stampContent = `Init stamp: repo=${scope}, head=${head}, graph=${graph.action}, mode=${graph.mode}, scripts=${scripts.length}`;
   const stampOutcome = await runWriteGate(
-    { type: "context", scope, content: stampContent, tags: ["init-stamp"] },
+    // Same screen as the script rows: the stamp interpolates the directory
+    // basename, so an injection-shaped checkout name matches here too. Withheld
+    // from recall, still readable by initStamp(), so idempotency is unaffected.
+    quarantineCandidate({
+      type: "context",
+      scope,
+      content: stampContent,
+      tags: ["init-stamp"],
+    }),
     gateCtx,
   );
   const stampTs = stampOutcome.ts ?? prior?.ts;
