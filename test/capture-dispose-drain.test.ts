@@ -12,9 +12,10 @@
 //
 // The contract, as implemented in src/capture/runtime.ts:
 //   1. cleanup aborts the subscription — no NEW pass starts;
-//   2. a pass checks the signal after the model call and between candidates,
-//      and stops BEFORE the next gate run (a gate already mutating is never
-//      cut in half);
+//   2. a pass checks the signal after EACH await that can outlive teardown —
+//      the context read, the known-rows read, the model call — and between
+//      candidates, and stops BEFORE the next gate run (a gate already mutating
+//      is never cut in half);
 //   3. cleanup drains the tracked passes up to a bound, so a caller that
 //      removes the store right after cleanup sees nothing straggling.
 // Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
@@ -23,11 +24,11 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resetState } from "../src/core/state.ts";
-import { resetCaptureCooldowns } from "../src/index.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
+import { resetCaptureCooldowns } from "../src/index.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { isActive } from "../src/store/model/predicates.ts";
-import { loadPlugin, type LoadedPlugin } from "./harness.ts";
+import { type LoadedPlugin, loadPlugin } from "./harness.ts";
 import { readEvidenceLog, sleep } from "./helpers/logfmt.ts";
 
 let root: string;
@@ -171,6 +172,37 @@ test("control: the same pass with no disposal does promote (so the check is what
   const rows = await capturedRows();
   expect(rows.length).toBe(1);
   expect(rows[0]?.content).toContain("fourteen days of tarballs");
+});
+
+// The pre-model path (#211 review): the first abort check sat after the model
+// call, so a pass parked in `session.context` woke up AFTER cleanup() returned
+// (the drain expires at its bound rather than hanging on a call that will never
+// land) and then either appended a skip receipt or started a model call against
+// a store its caller had already torn down.
+test("pass disposed during the context read neither receipts nor generates (#211)", async () => {
+  const loaded = await loadPlugin(root, {
+    autoCapture: true,
+    captureModel: "fake/model",
+  });
+  plugin = loaded;
+  loaded.capture.context.messages = thickMessages();
+  const park = parked();
+  loaded.capture.context.park = park.promise;
+  loaded.capture.generate.response = "[]";
+  await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+  loaded.capture.events.push({
+    type: "session.execution.succeeded",
+    data: { sessionID: "ses-ctx-dead" },
+  });
+  await waitFor(() => loaded.capture.context.calls.length === 1);
+
+  const disposedAt = Date.now();
+  await loaded.cleanup();
+  park.release(); // the context read resolves AFTER disposal
+  await sleep(100);
+
+  expect(loaded.capture.generate.calls.length).toBe(0);
+  expect(evidenceSince(disposedAt)).toEqual([]);
 });
 
 test("idle pass whose model call fails after disposal writes no failure receipt (#211)", async () => {

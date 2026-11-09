@@ -1,28 +1,28 @@
 // Opt-in capture configuration and dispatch (#168). Cooldowns remain process-wide;
 // subscriptions and dispatch closures belong to one setup instance.
 import type { Cleanup } from "@opencode/plugin/promise/plugin";
+import { cmpTs } from "../core/cmp-ts.ts";
 import { setCurrent } from "../core/state.ts";
+import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
 import { record, recordCaptureLag } from "../evidence/record.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
 import { captureSessionID } from "../identity/host-events.ts";
 import { bindSessionProvisional, writeTarget } from "../identity/repokey.ts";
+import { loadAll } from "../store/files/load.ts";
+import { isInjectable } from "../store/model/predicates.ts";
+import {
+  type Reader,
+  readerFromSid,
+  visibleTo,
+} from "../store/model/visibility.ts";
 import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
+import { flattenMemoryText } from "../store/sanitize.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
 import { lagSince } from "./lag.ts";
 import { buildCapturePrompt } from "./prompt.ts";
 import { type SessionModelRef, sessionModel } from "./session-model.ts";
 import { flattenTranscript, splitTranscript } from "./transcript.ts";
-import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
-import { loadAll } from "../store/files/load.ts";
-import { isInjectable } from "../store/model/predicates.ts";
-import {
-  readerFromSid,
-  visibleTo,
-  type Reader,
-} from "../store/model/visibility.ts";
-import { flattenMemoryText } from "../store/sanitize.ts";
-import { cmpTs } from "../core/cmp-ts.ts";
 
 interface CaptureHost {
   options?: Record<string, unknown>;
@@ -327,6 +327,12 @@ export function configureAutoCapture(
         let msgs = seededMsgs;
         if (transcript.length < 200) {
           msgs = await contextFn({ sessionID: sid });
+          // #211: disposed while the host was answering. The drain in cleanup()
+          // waits a bound, not forever, so this is the normal outcome of a
+          // teardown during a slow context read — and everything below writes:
+          // the thin-transcript receipt below, then the model call. Silent, for
+          // the same reason the post-model check is.
+          if (controller.signal.aborted) return;
           transcript = flattenTranscript(msgs);
         }
         if (transcript.length < 200) {
@@ -364,6 +370,11 @@ export function configureAutoCapture(
         const partitioned = split.work.length >= 200;
         const work = partitioned ? split.work : transcript;
         const userProse = partitioned ? split.user : "";
+        // Hoisted out of the prompt literal so the disposal check below runs
+        // BEFORE the model call: this read is awaited, so it is its own window
+        // into a teardown (#211).
+        const knownRows = await knownRowsFor(captureReader);
+        if (controller.signal.aborted) return;
         const out = await generateApi.text({
           model,
           // Redact the COMPLETE transcript, THEN apply the character budget
@@ -375,7 +386,7 @@ export function configureAutoCapture(
             redactSecrets(work).slice(-7000),
             captureMax,
             redactSecrets(userProse).slice(-1500),
-            await knownRowsFor(captureReader),
+            knownRows,
           ),
         });
         const text = typeof out === "string" ? out : (out?.text ?? "");
