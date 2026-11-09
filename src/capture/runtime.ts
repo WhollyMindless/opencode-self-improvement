@@ -1,35 +1,36 @@
 // Opt-in capture configuration and dispatch (#168). Cooldowns remain process-wide;
 // subscriptions and dispatch closures belong to one setup instance.
 import type { Cleanup } from "@opencode/plugin/promise/plugin";
-import { setCurrent, session } from "../core/state.ts";
+import { cmpTs } from "../core/cmp-ts.ts";
+import { session, setCurrent } from "../core/state.ts";
+import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
 import { record, recordCaptureLag } from "../evidence/record.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
 import { captureSessionID } from "../identity/host-events.ts";
 import { bindSessionProvisional, writeTarget } from "../identity/repokey.ts";
-import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
-import { redactSecrets } from "../store/secrets.ts";
-import { parseCandidates, parseModelRef } from "./candidates.ts";
-import { lagSince } from "./lag.ts";
-import { buildCapturePrompt } from "./prompt.ts";
-import { type SessionModelRef, sessionModel } from "./session-model.ts";
-import { flattenTranscript, splitTranscript } from "./transcript.ts";
-import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
 import { loadAll } from "../store/files/load.ts";
 import { isInjectable } from "../store/model/predicates.ts";
 import {
+  type Reader,
   readerFromSid,
   visibleTo,
-  type Reader,
 } from "../store/model/visibility.ts";
+import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
-import { cmpTs } from "../core/cmp-ts.ts";
+import { redactSecrets } from "../store/secrets.ts";
+import { parseCandidates, parseModelRef } from "./candidates.ts";
+import { lagSince } from "./lag.ts";
 import {
   advanceCaptureCursor,
   captureCursor,
   captureSignalSince,
+  contextShrank,
   deltaMessages,
   guidedStatementInWindow,
 } from "./policy.ts";
+import { buildCapturePrompt } from "./prompt.ts";
+import { type SessionModelRef, sessionModel } from "./session-model.ts";
+import { flattenTranscript, splitTranscript } from "./transcript.ts";
 
 interface CaptureHost {
   options?: Record<string, unknown>;
@@ -312,6 +313,11 @@ export function configureAutoCapture(
         const cursor = captureCursor(sid);
         let transcript = seeded;
         let msgs = seededMsgs;
+        // True when the context came back SHORTER than the cursor (#366 review):
+        // compaction replaced the transcript, so the offset names an array that
+        // no longer exists and the window below is the whole context, mined from
+        // the beginning. The cursor is rewritten to the new length at the end.
+        let deltaRestart = false;
         if (transcript.length < 200) {
           msgs = await contextFn({ sessionID: sid });
           transcript = flattenTranscript(msgs);
@@ -320,6 +326,7 @@ export function configureAutoCapture(
           // over (the Compaction Cliff: one round retains 53% of exact-wording
           // rules), so it is mined whole and the cursor is not consulted.
           if (captureDelta) {
+            deltaRestart = contextShrank(msgs, cursor.msgs);
             const before = msgs;
             msgs = deltaMessages(msgs, cursor.msgs);
             if (msgs !== before) transcript = flattenTranscript(msgs);
@@ -488,7 +495,7 @@ export function configureAutoCapture(
         // signal-bearing turn still mines everything since the last real pass.
         if (captureDelta || captureOnSignal) {
           const total = Array.isArray(msgs)
-            ? captureDelta && cursor.msgs > 0
+            ? captureDelta && cursor.msgs > 0 && !deltaRestart
               ? cursor.msgs + msgs.length
               : msgs.length
             : cursor.msgs;

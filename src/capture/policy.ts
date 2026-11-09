@@ -10,6 +10,7 @@
 // Both are fixable with facts the plugin already holds in-process at zero token
 // cost, so neither gate needs a model call to decide.
 import type { SessionState } from "../core/state.ts";
+import { conversationTurns } from "./transcript.ts";
 
 /**
  * How many messages of a session's context a capture has already mined. The
@@ -49,6 +50,17 @@ export function resetCaptureCursors(): void {
 }
 
 /**
+ * Has the context SHRUNK past the cursor — i.e. is `since` pointing beyond the
+ * end of an array that is simply shorter now (#366 review)? Compaction replaces
+ * the transcript rather than appending to it, so this is a normal event, not a
+ * corrupted store. Told apart from "nothing new was appended" (`since` equal to
+ * the length), which stays an empty window.
+ */
+export function contextShrank(msgs: unknown, since: number): boolean {
+  return Array.isArray(msgs) && since > msgs.length;
+}
+
+/**
  * Slice the message array down to what has not been mined yet. Returns the
  * input unchanged when it is not an array (a seeded compaction payload of
  * unknown shape) or when nothing was consumed, so the caller's existing
@@ -56,7 +68,13 @@ export function resetCaptureCursors(): void {
  */
 export function deltaMessages(msgs: unknown, since: number): unknown {
   if (!Array.isArray(msgs) || since <= 0) return msgs;
-  return since >= msgs.length ? [] : msgs.slice(since);
+  // A context that shrank past the cursor is a REPLACED transcript (compaction),
+  // not a window that has been fully mined (#366 review). Mine what is there:
+  // an empty window here was skipped by the thin-check WITHOUT advancing the
+  // cursor, so every later turn was skipped as well until the array grew past
+  // the stale count.
+  if (since > msgs.length) return msgs;
+  return msgs.slice(since);
 }
 
 /**
@@ -78,29 +96,21 @@ export function guidedStatementInWindow(
   sinceMsgs: number,
 ): boolean {
   if (!Array.isArray(msgs)) return true;
-  return msgs.slice(Math.max(0, sinceMsgs)).some((m) => {
-    const msg = m as {
-      role?: unknown;
-      type?: unknown;
-      text?: unknown;
-      content?: unknown;
-    };
-    const isUser = msg.role === "user" || msg.type === "user";
-    if (!isUser) return false;
-    const text =
-      typeof msg.text === "string"
-        ? msg.text
-        : Array.isArray(msg.content)
-          ? msg.content
-              .map((p) =>
-                typeof (p as { text?: unknown }).text === "string"
-                  ? (p as { text: string }).text
-                  : "",
-              )
-              .join(" ")
-          : "";
-    return GUIDED_MARKER.test(text);
-  });
+  const window = msgs.slice(Math.max(0, sinceMsgs));
+  if (window.length === 0) return false;
+  // The SAME decode the transcript uses (#366 review): roles come from
+  // `info.role` / `role` / `type`, text from `parts[]` / `content[]` / `text` /
+  // a string `content`. Reading one narrow shape here meant a genuine user rule
+  // in any other accepted shape got a no-signal skip before generation — the
+  // exact loss this guard exists to prevent.
+  const turns = conversationTurns(window);
+  if (turns.length === 0) {
+    // Nothing in the window decoded to a conversation turn. That is either a
+    // window of non-conversation records or a message shape this build has
+    // never seen, and the two are indistinguishable from here — so it fires.
+    return true;
+  }
+  return turns.some((t) => t.role === "user" && GUIDED_MARKER.test(t.text));
 }
 
 export interface SignalVerdict {

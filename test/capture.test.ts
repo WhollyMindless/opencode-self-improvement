@@ -20,23 +20,23 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { resetState } from "../src/core/state.ts";
-import { guarded } from "../src/core/hooks.ts";
-import { resetCaptureCooldowns, resetSessionModels } from "../src/index.ts";
-import { resetCaptureCursors } from "../src/capture/policy.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { isActive } from "../src/store/model/predicates.ts";
-import { setRepoScope } from "../src/identity/repokey.ts";
-import { loadPlugin } from "./harness.ts";
 import { parseCandidates, parseModelRef } from "../src/capture/candidates.ts";
+import { resetCaptureCursors } from "../src/capture/policy.ts";
 import { buildCapturePrompt } from "../src/capture/prompt.ts";
 import {
   flattenTranscript,
   splitTranscript,
 } from "../src/capture/transcript.ts";
+import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
+import { guarded } from "../src/core/hooks.ts";
+import { formatLine } from "../src/core/logfmt/format.ts";
+import { resetState } from "../src/core/state.ts";
+import { dateStr } from "../src/core/time.ts";
+import { setRepoScope } from "../src/identity/repokey.ts";
+import { resetCaptureCooldowns, resetSessionModels } from "../src/index.ts";
+import { loadAll } from "../src/store/files/load.ts";
+import { isActive } from "../src/store/model/predicates.ts";
+import { loadPlugin } from "./harness.ts";
 import { readEvidenceLog as evidence, sleep } from "./helpers/logfmt.ts";
 
 let root: string;
@@ -1458,6 +1458,67 @@ describe("capture cost policy", () => {
     await waitFor(() => loaded.capture.generate.calls.length === 2);
     const second = String(loaded.capture.generate.calls[1].prompt);
     expect(second).toInclude("BETA-request");
+    expect(second).not.toInclude("ALPHA-request");
+    await loaded.cleanup();
+  });
+
+  // #366 review [P2]: compaction REPLACES the transcript, so the cursor can
+  // point past the end of a shorter array. An empty window was then skipped as
+  // too thin, and a skip does not advance the cursor — so every later turn was
+  // skipped too, until the context grew past the old count.
+  test("a shrunken context is mined, not skipped forever", async () => {
+    const loaded = await loadCapturePlugin({
+      autoCapture: true,
+      captureModel: "fake/model",
+      captureDelta: true,
+    });
+    const first = [
+      { type: "user", text: longText("ALPHA-request fix pricing") },
+      {
+        type: "assistant",
+        content: [{ type: "text", text: longText("ALPHA-answer") }],
+      },
+      { type: "user", text: longText("ALPHA-request-2 fix shipping") },
+      {
+        type: "assistant",
+        content: [{ type: "text", text: longText("ALPHA-answer-2") }],
+      },
+      { type: "user", text: longText("ALPHA-request-3 fix rounding") },
+      {
+        type: "assistant",
+        content: [{ type: "text", text: longText("ALPHA-answer-3") }],
+      },
+    ];
+    loaded.capture.context.messages = first;
+    loaded.capture.generate.response = "[]";
+    await loaded.sessionHooks.prompt?.({
+      sessionID: "ses-shrink",
+      prompt: { text: longText("ALPHA") },
+    });
+    loaded.capture.events.push(turnEnd("ses-shrink"));
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+
+    // Compaction: six messages become two, and one of them is guidance the
+    // plugin has never seen.
+    resetCaptureCooldowns();
+    loaded.capture.context.messages = [
+      {
+        type: "user",
+        text: longText("GAMMA-request the shipping threshold must be 100.00"),
+      },
+      {
+        type: "assistant",
+        content: [{ type: "text", text: longText("GAMMA-answer") }],
+      },
+    ];
+    await loaded.sessionHooks.prompt?.({
+      sessionID: "ses-shrink",
+      prompt: { text: longText("GAMMA") },
+    });
+    loaded.capture.events.push(turnEnd("ses-shrink"));
+    await waitFor(() => loaded.capture.generate.calls.length === 2);
+    const second = String(loaded.capture.generate.calls[1].prompt);
+    expect(second).toInclude("GAMMA-request");
     expect(second).not.toInclude("ALPHA-request");
     await loaded.cleanup();
   });

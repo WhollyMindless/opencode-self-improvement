@@ -7,6 +7,7 @@ import {
   advanceCaptureCursor,
   captureCursor,
   captureSignalSince,
+  contextShrank,
   deltaMessages,
   guidedStatementInWindow,
   resetCaptureCursors,
@@ -156,9 +157,20 @@ describe("deltaMessages", () => {
     expect(deltaMessages(m, 0)).toBe(m);
   });
 
-  test("a fully consumed window is empty, which the thin-check then skips", () => {
+  test("a fully consumed window is empty; a SHRUNK context is mined whole", () => {
     expect(deltaMessages([1, 2], 2)).toEqual([]);
-    expect(deltaMessages([1, 2], 5)).toEqual([]);
+    // #366 review [P2]: compaction replaces the transcript, so `since` can point
+    // past the end of an array that is simply shorter now. An empty window here
+    // skipped EVERY later turn as too thin, because a skip does not advance the
+    // cursor — the session stayed unmined until it grew past the old count.
+    expect(deltaMessages([1, 2], 5)).toEqual([1, 2]);
+  });
+
+  test("shrink is told apart from 'nothing new' (#366 review)", () => {
+    expect(contextShrank([1, 2, 3], 3)).toBe(false); // nothing appended yet
+    expect(contextShrank([1, 2], 3)).toBe(true); // replaced by a shorter array
+    expect(contextShrank([1, 2, 3], 2)).toBe(false);
+    expect(contextShrank("seeded payload", 9)).toBe(false);
   });
 
   test("a non-array payload passes through untouched", () => {
@@ -233,5 +245,42 @@ describe("guidedStatementInWindow (#365 hint-channel guard)", () => {
         1,
       ),
     ).toBe(false);
+  });
+
+  // #366 review [P2]: the guard decoded its own narrow message shape, so genuine
+  // user rules in shapes the capture transcript parser accepts got a no-signal
+  // skip before generation — the exact loss the guard exists to prevent. It now
+  // shares that decoder, so there is one definition of "who said this line".
+  test("every shape the transcript parser accepts is read the same way", () => {
+    const rule = "The constant TAX_RATE must be 0.0825.";
+    for (const msg of [
+      // V1 role + string content.
+      { role: "user", content: rule },
+      // V1 role + parts.
+      { info: { role: "user" }, parts: [{ type: "text", text: rule }] },
+      // 2.2.5 live shape.
+      { id: "m1", time: 1, type: "user", text: rule },
+      // 2.2.5 with the text in a content part.
+      { type: "user", content: [{ type: "text", text: rule }] },
+    ]) {
+      expect(guidedStatementInWindow([msg], 0)).toBe(true);
+    }
+    // The same shapes, said by the assistant: still not the user's rule.
+    for (const msg of [
+      { role: "assistant", content: rule },
+      { info: { role: "assistant" }, parts: [{ type: "text", text: rule }] },
+      { type: "assistant", text: rule },
+    ]) {
+      expect(guidedStatementInWindow([msg], 0)).toBe(false);
+    }
+  });
+
+  test("a window the decoder cannot read at all fires rather than assumes", () => {
+    expect(guidedStatementInWindow([{ weird: "record" }], 0)).toBe(true);
+    // A non-conversation record alone (2.2.5 puts `idle` in the same array)
+    // decodes to no turns, and "no turns" is indistinguishable from "a shape
+    // this build cannot read". Both fire: a wasted capture costs one model call
+    // under a cooldown, a missed rule costs the hint channel for good.
+    expect(guidedStatementInWindow([{ type: "idle" }], 0)).toBe(true);
   });
 });
