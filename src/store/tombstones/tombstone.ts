@@ -42,10 +42,10 @@
 // Not snapshotted. snapshotFiles() walks memoryFiles(), which excludes every
 // RESERVED name, so `memory_undo` cannot resurrect a tombstone any more than
 // it can resurrect a blocklist entry — and conversely cannot erase one.
-import { readFile } from "node:fs/promises";
+
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { contentHash } from "../../evidence/record.ts";
 import { formatLine, parseLine } from "../../core/logfmt/format.ts";
 import {
   appendLog,
@@ -53,19 +53,20 @@ import {
   writeAtomic,
 } from "../../core/logfmt/publish.ts";
 import { readLines } from "../../core/logfmt/read.ts";
-import { withStoreLock, LOCK_WRITE } from "../lock.ts";
-import { redactSecrets } from "../secrets.ts";
 import {
-  STOPWORDS,
-  tokens,
   numericTokens,
   polaritySigns,
+  STOPWORDS,
+  tokens,
 } from "../../core/tokenize.ts";
+import { contentHash } from "../../evidence/record.ts";
+import { LOCK_WRITE, withStoreLock } from "../lock.ts";
+import { redactSecrets } from "../secrets.ts";
 import {
-  type Rejection,
-  type ValueDifference,
   findRejection,
+  type Rejection,
   rejectedFile,
+  type ValueDifference,
 } from "./rejection.ts";
 
 /** How many lowest token-hashes the sketch keeps. */
