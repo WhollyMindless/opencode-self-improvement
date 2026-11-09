@@ -247,6 +247,32 @@ describe("init internals", () => {
     expect(recs.map((r) => r.key).sort()).toEqual(["lint", "test"]);
   });
 
+  // A package.json key is external text: a checkout can ship any string. The
+  // row it produces is tagged init/package.json, so it carries no [via ...]
+  // provenance marker and rides into every later session of the repo — long
+  // after the branch that shipped the key is gone. Make/Just targets were
+  // already restricted; package.json was the detector without a filter (#301).
+  test("a crafted script key is not stored as a command", async () => {
+    const dir = join(root, "crafted");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({
+        scripts: {
+          "test && echo SYNTHETIC": "vitest run",
+          "lint --fix; rm -rf /": "eslint .",
+          "test:ci": "vitest run --mode ci",
+          lint: "eslint .",
+        },
+      }),
+    );
+    const { detectScripts } = await import("../src/init/detect.ts");
+    const recs = await detectScripts(dir);
+    expect(recs.map((r) => r.key).sort()).toEqual(["lint", "test:ci"]);
+    for (const r of recs) expect(r.key).toMatch(/^[A-Za-z0-9._:-]+$/);
+    expect(recs.some((r) => r.cmd.includes("SYNTHETIC"))).toBe(false);
+  });
+
   test("formatInit renders a readable summary; runInit returns one", async () => {
     const { formatInit } = await import("../src/init/format.ts");
     const { runInit } = await import("../src/init/run.ts");
