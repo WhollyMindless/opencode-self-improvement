@@ -28,6 +28,7 @@ import {
 import { lagSince } from "./lag.ts";
 import {
   advanceCaptureCursor,
+  attestedGateFailures,
   captureCursor,
   captureSignalSince,
   deltaMessages,
@@ -481,6 +482,20 @@ export function configureAutoCapture(
         // into a teardown (#211).
         const knownRows = await knownRowsFor(captureReader);
         if (controller.signal.aborted) return;
+        // S1: the ledger's unrecovered gate failures, in the same window the
+        // signal policy just approved. Rendered into the prompt so the model
+        // can cite one, and kept here so the citation can be checked against
+        // the ledger rather than against the model's retelling. `undefined`,
+        // not `[]`, means "this caller does not know about lessons" and leaves
+        // the prompt byte-identical to before; an empty array is a statement
+        // that nothing failed, and the prompt says so.
+        const attested = attestedGateFailures(session(sid), cursor.turn).map(
+          (f) => (f.arg ? `${f.cmd} — ${f.arg}` : f.cmd),
+        );
+        const lessonHay = attested
+          .join("\n")
+          .replace(/\s+/g, " ")
+          .toLowerCase();
         const out = await generateApi.text({
           model,
           // Redact the COMPLETE transcript, THEN apply the character budget
@@ -493,6 +508,7 @@ export function configureAutoCapture(
             captureMax,
             redactSecrets(userProse).slice(-1500),
             knownRows,
+            attested,
           ),
         });
         const text = typeof out === "string" ? out : (out?.text ?? "");
@@ -586,6 +602,47 @@ export function configureAutoCapture(
               c.original = undefined;
           }
         }
+        // S1 (learn-from-failure): a row that CITES a failing command is
+        // claiming to be a lesson, and the claim is checked against the ledger,
+        // not against the model's retelling. ReMe (Findings ACL 2026) found
+        // selective addition beats full addition because one failed trajectory
+        // rarely carries enough context for a correct analysis — so the way
+        // this feature fails is by storing a wrong rule, and a rule about a
+        // failure that never happened (or that the agent already fixed) is the
+        // worst version of it: it rides every later session as an instruction.
+        //
+        // The gate is monotone. Only a row carrying `failure` makes the claim,
+        // so an ordinary `blocker` note — a type this capture path has always
+        // written — is untouched. Refusing every uncited blocker would delete
+        // rows the store has always kept, and a provenance fix does not buy a
+        // recall loss here.
+        let lessonsKept = 0;
+        let lessonsRefused = 0;
+        candidates = candidates.filter((c) => {
+          if (c.failure === undefined) return true;
+          const cite = normWs(c.failure).toLowerCase();
+          if (cite && lessonHay.includes(cite)) {
+            lessonsKept++;
+            return true;
+          }
+          lessonsRefused++;
+          return false;
+        });
+        if (lessonsKept || lessonsRefused)
+          await record(
+            "auto_capture_lessons",
+            {
+              session: sid,
+              trigger,
+              kept: lessonsKept,
+              refused: lessonsRefused,
+              attested: attested.length,
+              ...(modelTag ? { model: modelTag } : {}),
+            },
+            false,
+            sid,
+            captureGate.evidenceContext,
+          );
         for (const c of candidates) {
           // Between candidates, never inside a gate run: a supersession that
           // half-applied is a store the next session cannot trust.
