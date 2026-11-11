@@ -257,7 +257,11 @@ describe("an unattested lesson is refused, not stored", () => {
 
   /** One session: an edit (so capture is worth paying for), a failing test run
    *  when `failing`, then the scripted capture reply. */
-  async function capture(sid: string, failing: boolean) {
+  async function capture(
+    sid: string,
+    failing: boolean,
+    opts: { failingCmd?: string; lesson?: unknown } = {},
+  ) {
     const repo = join(fixture.root, `repo-${sid}`);
     mkdirSync(repo, { recursive: true });
     plugin = await loadPlugin(repo, {
@@ -279,7 +283,7 @@ describe("an unattested lesson is refused, not stored", () => {
           tool: "bash",
           sessionID: sid,
           callID: `${sid}-test`,
-          args: { command: "bun test ./src/cart.test.ts" },
+          args: { command: opts.failingCmd ?? "bun test ./src/cart.test.ts" },
         },
         {
           output: "(fail) cart > total [2ms]\n1 fail\n0 pass",
@@ -295,7 +299,7 @@ describe("an unattested lesson is refused, not stored", () => {
           ),
       },
     ];
-    plugin.capture.generate.response = JSON.stringify([LESSON]);
+    plugin.capture.generate.response = JSON.stringify([opts.lesson ?? LESSON]);
     plugin.capture.events.push({
       type: "session.execution.succeeded",
       data: { sessionID: sid },
@@ -331,6 +335,53 @@ describe("an unattested lesson is refused, not stored", () => {
     );
     expect(receipt).toBeDefined();
     expect(String(receipt?.refused)).toBe("1");
+  });
+
+  test("a substring of a failing command is not the failing command", async () => {
+    // Review #384 finding 2: the only failure was
+    // `bun test --test-name-pattern tsc`; a lesson citing bare `tsc` was
+    // accepted by the joined-haystack includes() although no typecheck ran.
+    // The prompt demands the citation copied EXACTLY; set membership is that
+    // rule.
+    await capture("lesson-substring", true, {
+      failingCmd: "bun test --test-name-pattern tsc",
+      lesson: { ...LESSON, failure: "tsc" },
+    });
+    expect((await loadAll()).find((r) => r.scope === "cart")).toBeUndefined();
+    const receipt = readEvidenceLog().find(
+      (e) =>
+        e.ev === "auto_capture_lessons" && e.session === "lesson-substring",
+    );
+    expect(String(receipt?.refused)).toBe("1");
+    expect(String(receipt?.kept)).toBe("0");
+  });
+
+  test("the exact citation still passes under set membership — no recall loss", async () => {
+    await capture("lesson-exact", true, {
+      failingCmd: "bun test --test-name-pattern tsc",
+      lesson: { ...LESSON, failure: "bun test --test-name-pattern tsc" },
+    });
+    expect((await loadAll()).find((r) => r.scope === "cart")).toBeDefined();
+  });
+
+  test("a credential in a failing command's args never reaches the prompt", async () => {
+    // Review #384 finding 1: attested entries were built from RAW ledger args.
+    // The transcript scrub does not cover this input, so the ATTESTED FAILURES
+    // block carried the token verbatim.
+    const TOKEN = "sk-abcdefghij0123456789";
+    await capture("lesson-redact", true, {
+      failingCmd: `bun test --token=${TOKEN}`,
+      // The honest copy: what the model was shown is the redacted entry, and
+      // the citation check compares against that same representation.
+      lesson: { ...LESSON, failure: "bun test --token=[redacted]" },
+    });
+    const prompt = String(plugin?.capture.generate.calls[0]?.prompt ?? "");
+    expect(prompt).toContain("ATTESTED FAILURES");
+    expect(prompt).not.toContain(TOKEN);
+    expect(prompt).toContain("[redacted]");
+    // The citation is checked against the SAME redacted string the model was
+    // shown, so an honest copy still passes.
+    expect((await loadAll()).find((r) => r.scope === "cart")).toBeDefined();
   });
 
   test("an uncited blocker keeps today's behaviour — no recall loss", async () => {

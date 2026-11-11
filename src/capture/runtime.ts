@@ -490,12 +490,32 @@ export function configureAutoCapture(
         // the prompt byte-identical to before; an empty array is a statement
         // that nothing failed, and the prompt says so.
         const attested = attestedGateFailures(session(sid), cursor.turn).map(
-          (f) => (f.arg ? `${f.cmd} — ${f.arg}` : f.cmd),
+          (f) =>
+            // Review #384 finding 1: ledger args are raw tool input. A failing
+            // `bun test --token=sk-...` put the credential verbatim into the
+            // ATTESTED FAILURES block — the transcript scrub does not cover
+            // this input. Redact at construction, so the prompt renders the
+            // safe string AND the citation check compares against the same
+            // representation the model was shown.
+            redactSecrets(f.arg ? `${f.cmd} — ${f.arg}` : f.cmd),
         );
-        const lessonHay = attested
-          .join("\n")
-          .replace(/\s+/g, " ")
-          .toLowerCase();
+        // Review #384 finding 2: `lessonHay.includes(cite)` accepted a lesson
+        // citing `tsc` when the only failure was `bun test
+        // --test-name-pattern tsc` — substring presence cannot establish that
+        // the cited command ran. The list renders `cmd — arg`; a faithful
+        // citation copies a COMPLETE displayed field, so membership is tested
+        // against each whole entry, its cmd, and its arg — never a fragment.
+        // `tsc` is none of those for that failure and is refused; the cmd-only
+        // citation the prompt's own example uses still passes.
+        const lessonSet = new Set<string>();
+        for (const f of attested) {
+          lessonSet.add(normWs(f).toLowerCase());
+          const sep = f.lastIndexOf(" — ");
+          if (sep > 0) {
+            lessonSet.add(normWs(f.slice(0, sep)).toLowerCase());
+            lessonSet.add(normWs(f.slice(sep + 3)).toLowerCase());
+          }
+        }
         const out = await generateApi.text({
           model,
           // Redact the COMPLETE transcript, THEN apply the character budget
@@ -621,7 +641,7 @@ export function configureAutoCapture(
         candidates = candidates.filter((c) => {
           if (c.failure === undefined) return true;
           const cite = normWs(c.failure).toLowerCase();
-          if (cite && lessonHay.includes(cite)) {
+          if (cite && lessonSet.has(cite)) {
             lessonsKept++;
             return true;
           }
