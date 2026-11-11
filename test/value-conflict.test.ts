@@ -163,6 +163,49 @@ describe("valueConflicts", () => {
     ).toEqual([]);
   });
 
+  test("#400 review round 2: unknown qualifiers (tenants) coexist too", () => {
+    // The counterexample that broke the environment dictionary: both
+    // qualifier sets empty, retirement fired anyway. The residual rule needs
+    // no dictionary — "tenant", "alpha" and "beta" are words one row says
+    // and the other does not.
+    const alpha = mem(
+      "2026-10-01T09:00:00.000Z",
+      "The MAX_RETRIES constant is 3 for tenant Alpha.",
+    );
+    const beta = mem(
+      "2026-10-02T09:00:00.000Z",
+      "The MAX_RETRIES constant is 5 for tenant Beta.",
+    );
+    expect(valueConflicts(beta, [alpha])).toEqual([]);
+    expect(valueConflicts(alpha, [beta])).toEqual([]);
+  });
+
+  test("editorial narration does not block a real correction", () => {
+    // The cost of the residual rule, bounded: words that only narrate the
+    // correction still retire.
+    const old = mem(
+      "2026-10-01T09:00:00.000Z",
+      "The MAX_RETRIES constant is 3 in production.",
+    );
+    const fix = mem(
+      "2026-10-02T09:00:00.000Z",
+      "Corrected: the MAX_RETRIES constant is now 4 in production.",
+    );
+    expect(valueConflicts(fix, [old]).length).toBe(1);
+  });
+
+  test("a version qualifier is not prose glue", () => {
+    const v2 = mem(
+      "2026-10-01T09:00:00.000Z",
+      "The MAX_RETRIES default is 3 on v2.",
+    );
+    const v3 = mem(
+      "2026-10-02T09:00:00.000Z",
+      "The MAX_RETRIES default is 5 on v3.",
+    );
+    expect(valueConflicts(v3, [v2])).toEqual([]);
+  });
+
   test("an inferred write never retires a user-guided row", () => {
     // The user is the stronger claim; a captured inference burying stated
     // guidance is the wrong-direction fix R3 must not ship with.

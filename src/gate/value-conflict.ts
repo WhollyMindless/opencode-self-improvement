@@ -15,31 +15,31 @@
 // fail `isInjectable`. It changes no outcome that timestamp resolution had
 // already settled (R3c: newer wins 10/10); it makes the win structural.
 //
-// The guard is fourfold, because a retirement destroys nothing but hides the
+// The guard is threefold, because a retirement destroys nothing but hides the
 // row from every future session:
 //   1. anchor — both rows must name the SAME symbol token (SCREAMING_CASE or
 //      a dotted member). "max_retries is 3" and "timeout is 30" in one scope
 //      share no anchor and coexist.
 //   2. value — the numbers attached to that anchor must actually disagree
 //      (`valuesAgree === false`); "21.5%" and "2150" are one fact restated.
-//   3. shape — with the numbers stripped, the rows must be the SAME SENTENCE
-//      (jaccard ≥ the CONFLICT floor GATE-3 uses). "VAT_BPS was introduced in
-//      2024" against "VAT_BPS ... is 2150 basis points" measures ~0.07 there
-//      and must NOT retire anything — the misfire class #393 accepted for a
-//      refusal is not accepted for a retirement.
-//   4. context (#400 review, WhollyMindless) — neither row may scope the value
-//      to a DIFFERENT environment. "MAX_RETRIES is 3 in production" and
-//      "...is 5 in staging" pass guards 1–3 (jaccard 0.71) and are two valid
-//      facts, not a correction; retiring the production row hid it from every
-//      later session. Retirement requires the environments to agree: both
-//      unscoped, or naming at least one environment in common. One row scoped
-//      and one bare also coexists — the bare row may be the default, and
-//      hiding a default behind one environment's value is the same defect.
-//      The vocabulary is closed and small; other qualifier classes (regions,
-//      editions, tenants) are NOT detected — the direction of every miss is
-//      coexistence, the pre-#390 state, never a hidden fact.
+//   3. sentence — with the numbers stripped, the two rows must say the SAME
+//      thing (#400 review round 2, WhollyMindless). Every non-numeric word
+//      outside a closed ignore list (prose glue, copulas) must appear in BOTH
+//      rows or in a closed EDITORIAL set — words that narrate the act of
+//      correcting ("corrected", "actually", "supersedes") and nothing about
+//      the fact. One unmatched content word and the rows coexist.
+//      This replaces the old jaccard floor (0.71 let "3 in production" retire
+//      "5 in staging") AND the environment dictionary (empty qualifier sets
+//      let "3 for tenant Alpha" retire "5 for tenant Beta" — a dictionary can
+//      never establish same-context, because the qualifier vocabulary is
+//      open: tenants, regions, editions, customers). Same-context is now
+//      ESTABLISHED, not looked up: a difference the words cannot explain is
+//      a difference in the fact. Retirement requires the correction to be
+//      the only thing that changed; anything coexisting is the pre-#390
+//      state — both rows inject, retrieval prefers the newer — never a
+//      hidden fact.
 import { USER_GUIDED_TAG } from "../core/tags.ts";
-import { jaccard, tokens } from "../core/tokenize.ts";
+import { STOPWORDS, tokens } from "../core/tokenize.ts";
 import type { Memory } from "../store/model/memory.ts";
 import { valuesAgree } from "../recall/conflicts.ts";
 
@@ -57,49 +57,79 @@ export interface ValueConflict {
 // Same window as the capture claim check (#393) on purpose: one rule for
 // "this number belongs to this name".
 const WINDOW = 48;
-// Same floor as GATE-3's CONFLICT_OVERLAP_FLOOR: below it the two rows are
-// different statements that merely share a noun, not one fact restated.
-const SIM_FLOOR = 0.3;
 
-// Environment qualifiers (guard 4). Closed vocabulary, deliberately small:
-// every word here names a deployment environment in ordinary prose. Words
-// that also carry ordinary meanings ("stage", "test", "live" as a verb) stay
-// out — a spurious qualifier only ever coexists rows, so the list errs
-// toward the words whose mismatch is unambiguous.
-const ENV_WORDS: ReadonlySet<string> = new Set([
-  "production",
-  "prod",
-  "staging",
-  "stg",
-  "development",
-  "dev",
-  "testing",
-  "qa",
-  "uat",
-  "sandbox",
-  "local",
-  "localhost",
-  "canary",
-  "preview",
+// Words carrying no qualifying information: prose glue (the shared GATE-3
+// stopword set) plus copulas/auxiliaries, so "was 3" -> "is now 5" stays one
+// correction. "should" stays OUT: desired-vs-actual is a real distinction.
+const IGNORE: ReadonlySet<string> = new Set([
+  ...STOPWORDS,
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "am",
+  "do",
+  "does",
+  "did",
+  "has",
+  "have",
+  "had",
 ]);
 
-/** The environments a row scopes its values to. `tokens()` keeps dots (they
- * carry dotted members), so a sentence-final "staging." arrives with its
- * period — compare on the bare word. */
-function envQualifiers(content: string): Set<string> {
+// Words that narrate the ACT of correcting without qualifying the fact.
+// Closed and small on purpose: every word here says "this replaced something"
+// and nothing about WHICH fact. A qualifier can never hide in this set
+// because the set names no dimension of the world.
+const EDITORIAL: ReadonlySet<string> = new Set([
+  "corrected",
+  "correction",
+  "actually",
+  "now",
+  "updated",
+  "update",
+  "previously",
+  "earlier",
+  "supersedes",
+  "superseded",
+  "fixed",
+  "typo",
+  "wrong",
+  "incorrectly",
+  "mistake",
+  "rather",
+  "instead",
+]);
+
+/**
+ * The qualifying content of a row: every token that is not prose glue and
+ * not a pure number ("2150", "-5", "0.082" — the values guard 2 already
+ * compared). `tokens()` keeps dots, so "points." arrives with its period;
+ * edge dots are stripped before comparison while interior dots keep dotted
+ * members intact. "v2" is NOT a pure number and stays — a version qualifier
+ * is exactly the kind of difference that must block retirement.
+ */
+function residualWords(content: string): Set<string> {
   const out = new Set<string>();
   for (const t of tokens(content)) {
     const bare = t.replace(/^\.+|\.+$/g, "");
-    if (ENV_WORDS.has(bare)) out.add(bare);
+    if (!bare || IGNORE.has(bare)) continue;
+    if (/^[-+]?\d+(?:\.\d+)?$/.test(bare)) continue;
+    out.add(bare);
   }
   return out;
 }
 
-/** Guard 4: retirement needs the environments to agree. */
-function sameEnvironment(a: Set<string>, b: Set<string>): boolean {
-  if (a.size === 0 && b.size === 0) return true;
-  for (const e of a) if (b.has(e)) return true;
-  return false;
+/**
+ * Guard 3: the correction must be the ONLY thing that changed. Every word
+ * one row says and the other does not must be editorial narration; a single
+ * content word unique to one row ("production", "tenant", "alpha", "v2")
+ * means the rows qualify different facts, and nothing retires.
+ */
+function sameSentenceExceptValue(a: Set<string>, b: Set<string>): boolean {
+  for (const t of a) if (!b.has(t) && !EDITORIAL.has(t)) return false;
+  for (const t of b) if (!a.has(t) && !EDITORIAL.has(t)) return false;
+  return true;
 }
 
 /**
@@ -150,8 +180,7 @@ export function valueConflicts(
   const guided = candidate.tags?.includes(USER_GUIDED_TAG) === true;
   const mine = symbolValues(candidate.content);
   if (mine.size === 0) return [];
-  const myShape = tokens(candidate.content).filter((t) => !/\d/.test(t));
-  const myEnv = envQualifiers(candidate.content);
+  const myWords = residualWords(candidate.content);
   const out: ValueConflict[] = [];
   for (const m of live) {
     if (m.superseded_by) continue;
@@ -169,9 +198,7 @@ export function valueConflicts(
       }
     }
     if (!hit) continue;
-    const itsShape = tokens(m.content).filter((t) => !/\d/.test(t));
-    if (jaccard(myShape, itsShape) < SIM_FLOOR) continue;
-    if (!sameEnvironment(myEnv, envQualifiers(m.content))) continue;
+    if (!sameSentenceExceptValue(myWords, residualWords(m.content))) continue;
     out.push({
       ts: m.ts,
       symbol: hit.symbol,
