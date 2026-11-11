@@ -72,6 +72,15 @@ export interface SelectOptions {
    * no check: rows render plainly, exactly as before the feature.
    */
   repoDir?: string;
+  /**
+   * Character budget for the block (#388). Applied to the PRIORITY order —
+   * guided lane first, then score — so pressure drops the least RELEVANT row.
+   * Capping the rendered string instead would let recency decide who rides,
+   * because the rendered order is canonical and not score-derived. Absent
+   * means unbounded, which is what the callers that cap the string themselves
+   * have always had.
+   */
+  budget?: number;
 }
 
 /** Row carries the hint-channel tag (written by capture for user-stated facts). */
@@ -139,11 +148,47 @@ export async function selectRelevant(
   }
   const text = message.trim();
   const top = text ? scoreMemories(text, mems, limit, use) : [];
-  const merged = [...guided, ...top.filter((m) => !guided.includes(m))];
+  const rest = top.filter((m) => !guided.includes(m));
+  const merged = [...guided, ...rest];
   if (!merged.length) return { block: "", selected: [], rendered };
   const hasConflict = rendered.size > 0;
+  const header = `## Relevant durable memory${FRAME}${guided.length ? (hasConflict ? CONFLICT_CAVEAT : GUIDED_CAVEAT) : ""}`;
+  const lines = merged.map((m) => formatMemory(rendered.get(m) ?? m));
+  // PRIORITY decides who rides; CANONICAL order decides how they are shown.
+  // The rendered bytes are the prompt-cache key (src/inject/epochs.ts joins
+  // them onto the system parts), and score order is a function of the live
+  // prompt — so two turns that selected the same rows in a different rank
+  // order re-billed the whole prefix to tell the model what it already knew.
+  // `selected` keeps score order: the use ledger and attribution credit the
+  // ranking, and a miss has to stay diagnosable.
+  let shown = merged.map((_, i) => i);
+  const budget = opts?.budget;
+  if (budget !== undefined) {
+    // Same whole-line discipline capToBudget uses (skip an over-long line,
+    // keep scanning), applied BEFORE the re-order so relevance still decides.
+    // A header that does not fit, or a block left with nothing but its header,
+    // renders as nothing — a dangling "## Relevant durable memory" over zero
+    // memories is noise, not memory.
+    if (header.length > budget) return { block: "", selected: [], rendered };
+    let used = header.length;
+    shown = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? "";
+      if (used + 1 + line.length > budget) continue;
+      shown.push(i);
+      used += 1 + line.length;
+    }
+    if (!shown.length) return { block: "", selected: [], rendered };
+  }
+  shown.sort((a, b) => {
+    const ma = merged[a]!;
+    const mb = merged[b]!;
+    const lane = (m: Memory) => (guided.includes(m) ? 0 : 1);
+    if (lane(ma) !== lane(mb)) return lane(ma) - lane(mb);
+    return cmpTs(mb.ts, ma.ts);
+  });
   return {
-    block: `## Relevant durable memory${FRAME}${guided.length ? (hasConflict ? CONFLICT_CAVEAT : GUIDED_CAVEAT) : ""}\n${merged.map((m) => formatMemory(rendered.get(m) ?? m)).join("\n")}`,
+    block: [header, ...shown.map((i) => lines[i] ?? "")].join("\n"),
     selected: merged,
     rendered,
   };

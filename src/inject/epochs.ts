@@ -203,6 +203,11 @@ export function createInjectionEpochs({
       undefined,
       {
         guidedCap: 3,
+        // #388: budget the RIDING set by priority here, before the block is
+        // rendered in canonical order. Capping the rendered string (the old
+        // path) made recency decide who got dropped, because the newest row is
+        // now always first. capToBudget below stays as a guard.
+        budget,
         ...(contradictionSurface
           ? {
               conflictCheck: true,
