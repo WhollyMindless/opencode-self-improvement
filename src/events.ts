@@ -262,13 +262,15 @@ export async function registerHooks(
           }
           const usage = sessionUsageEvent(raw);
           if (!usage) continue;
-          const { sessionID, input, read, write } = usage;
+          const { sessionID, input, read, write, output, reasoning } = usage;
           sessions.touch(sessionID);
           measuredTurns.set(sessionID, {
             at: new Date().toISOString(),
             input,
             read,
             write,
+            output,
+            reasoning,
           });
           await guarded("status flush (measured)", () =>
             flushStatus(sessionID),

@@ -87,6 +87,16 @@ export interface SessionUsage {
   input: number;
   read: number;
   write: number;
+  /**
+   * Completion tokens the session generated (#387). Absent from the envelope
+   * before this, so the plugin could report what the prompt cache cost but
+   * never what the session itself produced — and `input` is only the UNCACHED
+   * remainder, so the two together understate a session by most of its size.
+   * Zero when the host omits the field, which is why the status surface gates
+   * its generation line on a nonzero rather than printing 0.
+   */
+  output: number;
+  reasoning: number;
 }
 
 /** V2 session usage, or the assistant-message usage emitted by older hosts. */
@@ -111,6 +121,8 @@ export function sessionUsageEvent(raw: unknown): SessionUsage | undefined {
     input: Number(tokens.input) || 0,
     read: Number(cache.read) || 0,
     write: Number(cache.write) || 0,
+    output: Number(tokens.output) || 0,
+    reasoning: Number(tokens.reasoning) || 0,
   };
 }
 
