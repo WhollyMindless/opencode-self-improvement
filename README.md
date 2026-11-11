@@ -371,8 +371,10 @@ Raw sweep output is regenerable measurement data, and it was the largest tracked
 
 | Artifact | How to get it back |
 | --- | --- |
-| `bench/append-publication-198/` | `bun bench/append-cost-198.ts <absolute-source-checkout> <size-MiB> <baseline\|candidate> <round>`, once per size, mode and platform. `bench/runners/append-cost-198.ts` is the runner; the removed `methodology.json` named the baseline sha (`bf9f4d2`) and the aggregation. |
+| `bench/append-publication-198/` | The pinned recipe below. |
 | A mutation sweep log | `bun scripts/test-sweep.ts --log=<path>`. |
+
+Regenerating `bench/append-publication-198/`: the runner is `bench/runners/append-cost-198.ts`, invoked once per size, mode and platform as `bun bench/runners/append-cost-198.ts <absolute-source-checkout> <size-MiB> <baseline|candidate> <round>`. It loads `src/memory.ts`, `src/logfmt.ts` and `src/config.ts` from the source root it is given, so it must point at the two pinned checkouts of the #198 measurement — baseline `bf9f4d2` (0.15.0) and candidate `7c1dfc4` (the atomic-publication commit on that same base) — not at a current tree, where the #168 restructure moved those modules. Install locked dependencies in each checkout; use the current runner for both source roots; every invocation creates and cleans its own synthetic store and prints one JSON line. Sizes 0.1, 1, 10, 50 MiB; 3 rounds; baseline-then-candidate in rounds 1 and 3, reversed in round 2; 12 sequential appends per invocation, first 2 discarded as warmups, 30 samples pooled per mode/size/platform. Aggregation: sort `latencyMs` ascending, median = average of positions 15 and 16, p95 = nearest rank `ceil(0.95×30)` = position 29, max = position 30. Every invocation asserts the original byte prefix is unchanged and the parsed row count equals `seedRows + 12`. The full methodology — including the measurement limitations, which are part of the claim — is one command away: `git show c86379e^:bench/append-publication-198/methodology.json`.
 
 A script that needs a missing artifact names the file and the command that produces it instead of throwing a stack trace.
 
