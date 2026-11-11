@@ -111,6 +111,58 @@ describe("valueConflicts", () => {
     expect(valueConflicts(note, [fact])).toEqual([]);
   });
 
+  test("#400 review: two environments are two facts, not a correction", () => {
+    // The reviewer's pair, verbatim shape: identical sentence, one symbol,
+    // disagreeing numbers, different environment. Guards 1–3 all pass
+    // (jaccard 0.71); guard 4 must stop the retirement in both directions.
+    const prod = mem(
+      "2026-10-01T09:00:00.000Z",
+      "The MAX_RETRIES constant is 3 in production.",
+    );
+    const staging = mem(
+      "2026-10-02T09:00:00.000Z",
+      "The MAX_RETRIES constant is 5 in staging.",
+    );
+    expect(valueConflicts(staging, [prod])).toEqual([]);
+    expect(valueConflicts(prod, [staging])).toEqual([]);
+  });
+
+  test("#400 review: an environment-scoped row does not retire the bare default", () => {
+    // "is 3" may be the default; hiding it behind one environment's value is
+    // the same defect as the pair above, so one-sided scoping coexists too.
+    const bare = mem("2026-10-01T09:00:00.000Z", "The MAX_RETRIES is 3.");
+    const scoped = mem(
+      "2026-10-02T09:00:00.000Z",
+      "The MAX_RETRIES is 5 in staging.",
+    );
+    expect(valueConflicts(scoped, [bare])).toEqual([]);
+    expect(valueConflicts(bare, [scoped])).toEqual([]);
+  });
+
+  test("#400 review cost check: the same environment still corrects", () => {
+    const old = mem(
+      "2026-10-01T09:00:00.000Z",
+      "The MAX_RETRIES constant is 3 in production.",
+    );
+    const fix = mem(
+      "2026-10-02T09:00:00.000Z",
+      "The MAX_RETRIES constant is 4 in production.",
+    );
+    expect(valueConflicts(fix, [old]).length).toBe(1);
+  });
+
+  test("a sign flip is a disagreement, not one fact restated (#399 class)", () => {
+    const pos = mem("2026-10-01T09:00:00.000Z", "The TEMP_OFFSET is 5.");
+    const neg = mem("2026-10-02T09:00:00.000Z", "The TEMP_OFFSET is -5.");
+    expect(valueConflicts(neg, [pos]).length).toBe(1);
+    // And the same signed value restated is still agreement.
+    expect(
+      valueConflicts(mem("2026-10-03T09:00:00.000Z", "TEMP_OFFSET is -5"), [
+        neg,
+      ]),
+    ).toEqual([]);
+  });
+
   test("an inferred write never retires a user-guided row", () => {
     // The user is the stronger claim; a captured inference burying stated
     // guidance is the wrong-direction fix R3 must not ship with.
@@ -189,6 +241,23 @@ describe("the gate retires a corrected row in the data", () => {
     // And the retired row is still there — recoverable, not deleted.
     const rows = await loadAll();
     expect(rows.find((m) => m.ts !== fix.ts)?.content).toContain("2150");
+  });
+
+  test("#400 review: the two-write probe leaves both environments injectable", async () => {
+    const prod = await write("The MAX_RETRIES constant is 3 in production.");
+    expect(prod.action).toBe("promoted");
+    const staging = await write("The MAX_RETRIES constant is 5 in staging.");
+    expect(staging.action).toBe("promoted");
+    const rows = await loadAll();
+    expect(rows.find((m) => m.ts === prod.ts)?.superseded_by).toBeUndefined();
+    // The reviewer's recall probe: a MAX_RETRIES query must not lose the
+    // production fact to the staging write.
+    const block = await relevantKnowledge(
+      "what is the MAX_RETRIES constant value",
+      5,
+    );
+    expect(block).toContain("production");
+    expect(block).toContain("staging");
   });
 
   test("the failed check is auditable: superseded_by names the values", async () => {

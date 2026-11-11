@@ -15,7 +15,7 @@
 // fail `isInjectable`. It changes no outcome that timestamp resolution had
 // already settled (R3c: newer wins 10/10); it makes the win structural.
 //
-// The guard is threefold, because a retirement destroys nothing but hides the
+// The guard is fourfold, because a retirement destroys nothing but hides the
 // row from every future session:
 //   1. anchor — both rows must name the SAME symbol token (SCREAMING_CASE or
 //      a dotted member). "max_retries is 3" and "timeout is 30" in one scope
@@ -27,6 +27,17 @@
 //      2024" against "VAT_BPS ... is 2150 basis points" measures ~0.07 there
 //      and must NOT retire anything — the misfire class #393 accepted for a
 //      refusal is not accepted for a retirement.
+//   4. context (#400 review, WhollyMindless) — neither row may scope the value
+//      to a DIFFERENT environment. "MAX_RETRIES is 3 in production" and
+//      "...is 5 in staging" pass guards 1–3 (jaccard 0.71) and are two valid
+//      facts, not a correction; retiring the production row hid it from every
+//      later session. Retirement requires the environments to agree: both
+//      unscoped, or naming at least one environment in common. One row scoped
+//      and one bare also coexists — the bare row may be the default, and
+//      hiding a default behind one environment's value is the same defect.
+//      The vocabulary is closed and small; other qualifier classes (regions,
+//      editions, tenants) are NOT detected — the direction of every miss is
+//      coexistence, the pre-#390 state, never a hidden fact.
 import { USER_GUIDED_TAG } from "../core/tags.ts";
 import { jaccard, tokens } from "../core/tokenize.ts";
 import type { Memory } from "../store/model/memory.ts";
@@ -50,11 +61,55 @@ const WINDOW = 48;
 // different statements that merely share a noun, not one fact restated.
 const SIM_FLOOR = 0.3;
 
+// Environment qualifiers (guard 4). Closed vocabulary, deliberately small:
+// every word here names a deployment environment in ordinary prose. Words
+// that also carry ordinary meanings ("stage", "test", "live" as a verb) stay
+// out — a spurious qualifier only ever coexists rows, so the list errs
+// toward the words whose mismatch is unambiguous.
+const ENV_WORDS: ReadonlySet<string> = new Set([
+  "production",
+  "prod",
+  "staging",
+  "stg",
+  "development",
+  "dev",
+  "testing",
+  "qa",
+  "uat",
+  "sandbox",
+  "local",
+  "localhost",
+  "canary",
+  "preview",
+]);
+
+/** The environments a row scopes its values to. `tokens()` keeps dots (they
+ * carry dotted members), so a sentence-final "staging." arrives with its
+ * period — compare on the bare word. */
+function envQualifiers(content: string): Set<string> {
+  const out = new Set<string>();
+  for (const t of tokens(content)) {
+    const bare = t.replace(/^\.+|\.+$/g, "");
+    if (ENV_WORDS.has(bare)) out.add(bare);
+  }
+  return out;
+}
+
+/** Guard 4: retirement needs the environments to agree. */
+function sameEnvironment(a: Set<string>, b: Set<string>): boolean {
+  if (a.size === 0 && b.size === 0) return true;
+  for (const e of a) if (b.has(e)) return true;
+  return false;
+}
+
 /**
  * The value each symbol in a row asserts: the first number within WINDOW
  * after the symbol (falling back to the first before it). Built per call —
  * a module-level `g` regex carries `lastIndex` between calls, which made the
  * #393 check depend on which row was checked last.
+ *
+ * The sign is part of the value: "-5" and "5" disagree (#399's class — an
+ * unsigned extractor grants agreement across a sign flip).
  */
 export function symbolValues(content: string): Map<string, string> {
   const out = new Map<string, string>();
@@ -72,7 +127,8 @@ export function symbolValues(content: string): Map<string, string> {
       match.index,
     );
     const num =
-      after.match(/\d+(?:\.\d+)?/)?.[0] ?? before.match(/\d+(?:\.\d+)?/)?.[0];
+      after.match(/[-+]?\d+(?:\.\d+)?/)?.[0] ??
+      before.match(/[-+]?\d+(?:\.\d+)?/)?.[0];
     if (num !== undefined && !out.has(sym)) out.set(sym, num);
     match = SYMBOL.exec(content);
   }
@@ -95,6 +151,7 @@ export function valueConflicts(
   const mine = symbolValues(candidate.content);
   if (mine.size === 0) return [];
   const myShape = tokens(candidate.content).filter((t) => !/\d/.test(t));
+  const myEnv = envQualifiers(candidate.content);
   const out: ValueConflict[] = [];
   for (const m of live) {
     if (m.superseded_by) continue;
@@ -114,6 +171,7 @@ export function valueConflicts(
     if (!hit) continue;
     const itsShape = tokens(m.content).filter((t) => !/\d/.test(t));
     if (jaccard(myShape, itsShape) < SIM_FLOOR) continue;
+    if (!sameEnvironment(myEnv, envQualifiers(m.content))) continue;
     out.push({
       ts: m.ts,
       symbol: hit.symbol,
