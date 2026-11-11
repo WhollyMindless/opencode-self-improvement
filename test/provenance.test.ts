@@ -308,6 +308,35 @@ describe("capture checks an inferred claim before storing it", () => {
     );
   });
 
+  test("a sign survives extraction: -2150 contradicts a tree declaring 2150", () => {
+    // Review finding (PR #399): the unsigned match passed "2150" to valuesAgree
+    // for a row saying "-2150", so an opposite-signed value was positively
+    // labelled [code-checked]. Agreement must be earned by the number the row
+    // actually states.
+    const dir = join(fixture.root, "sign-tree");
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+      join(dir, "src", "config.ts"),
+      "export const VAT_BPS = 2150;\n",
+    );
+    expect(
+      claimVerdictFromContent(
+        dir,
+        "The VAT_BPS constant for this site is -2150 basis points.",
+      ).verdict,
+    ).toBe("contradicts");
+    // Structured control from the review: same verdict through the declared-ref
+    // form, proving the loss was specific to the prose extractor.
+    expect(claimVerdict(dir, "VAT_BPS", "-2150")).toBe("contradicts");
+    // A spaced hyphen is a separator, not a sign.
+    expect(
+      claimVerdictFromContent(
+        dir,
+        "The VAT_BPS constant is 2150 - a later discount aside.",
+      ).verdict,
+    ).toBe("agrees");
+  });
+
   test("the verdict does not depend on which row was checked last", () => {
     // A module-level `g` regex carries lastIndex between calls. The first
     // version of this check had one, and a claim was "undecidable" purely

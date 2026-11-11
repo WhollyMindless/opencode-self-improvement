@@ -85,7 +85,13 @@ export function claimVerdictFromContent(
       );
       // Compare against every number near the symbol: a row may state the value
       // in two units and any one of them agreeing is enough to keep it.
-      const near = tail.match(/\d+(?:\.\d+)?/g) ?? [];
+      // The sign is part of the number (review #399): "-2150" extracted as
+      // "2150" agreed with a tree declaring 2150 and shipped the row labelled
+      // [code-checked] — an opposite-signed value positively vouched for by a
+      // check. `valuesAgree` parses leading [+-] itself, so the extractor must
+      // not drop it. A hyphen separated by spaces stays a separator, not a
+      // sign: "2150 - 300 discount" still compares 2150.
+      const near = tail.match(/[-+]?\d+(?:\.\d+)?/g) ?? [];
       let agreed = false;
       for (const n of near) {
         if (valuesAgree(n, code) === true) {
