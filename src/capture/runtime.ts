@@ -3,7 +3,11 @@
 import type { Cleanup } from "@opencode/plugin/promise/plugin";
 import { cmpTs } from "../core/cmp-ts.ts";
 import { session, setCurrent } from "../core/state.ts";
-import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
+import {
+  AUTO_CAPTURE_TAG,
+  CODE_CHECKED_TAG,
+  USER_GUIDED_TAG,
+} from "../core/tags.ts";
 import { record, recordCaptureLag } from "../evidence/record.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
 import { captureSessionID } from "../identity/host-events.ts";
@@ -19,6 +23,7 @@ import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
+import { claimVerdictFromContent } from "./checked.ts";
 import {
   findGuidedQuotes,
   mergeGuidedCandidates,
@@ -590,6 +595,38 @@ export function configureAutoCapture(
           // Between candidates, never inside a gate run: a supersession that
           // half-applied is a store the next session cannot trust.
           if (controller.signal.aborted) return;
+          // #393 AC 2: a numeric claim capture INFERRED (the user did not state
+          // it) that names a constant the tree also names is checked before it
+          // is stored. Only a contradiction refuses; "undecidable" is the
+          // transport case and keeps the row, labelled.
+          const claim = c.guided
+            ? { verdict: "undecidable" as const }
+            : claimVerdictFromContent(
+                captureReader.kind === "repo"
+                  ? captureReader.scope.path
+                  : undefined,
+                c.content,
+              );
+          const verdict = claim.verdict;
+          if (verdict === "contradicts") {
+            await record(
+              "auto_capture_contradiction",
+              {
+                session: sid,
+                trigger,
+                type: c.type,
+                scope: redactSecrets(c.scope),
+                reason: "claim_contradicts_tree",
+                where: claim.ref ?? "",
+                matched: claim.claim ?? "",
+                ...(modelTag ? { model: modelTag } : {}),
+              },
+              false,
+              sid,
+              captureGate.evidenceContext,
+            );
+            continue;
+          }
           const original = c.original;
           const durable: string[] = [];
           let outcome: Awaited<ReturnType<typeof runWriteGate>>;
@@ -610,6 +647,11 @@ export function configureAutoCapture(
                 ...(original ? { original } : {}),
                 tags: [
                   AUTO_CAPTURE_TAG,
+                  // #393: the ONE case that earns `[code-checked]` — an inferred
+                  // numeric claim that agreed with the tree. Absent everywhere
+                  // else, which is what makes `[unverified]` mean something
+                  // instead of decorate everything.
+                  ...(verdict === "agrees" ? [CODE_CHECKED_TAG] : []),
                   ...(trigger === "compaction" ? [CAPTURE_COMPACT_TAG] : []),
                   ...(c.guided ? [USER_GUIDED_TAG] : []),
                 ],
