@@ -186,6 +186,9 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
       retagged: retag.retagged || undefined,
       retag_blocked: retag.blocked || undefined,
       retag_partial: retag.partial || undefined,
+      retag_failures: retag.failures.length
+        ? retag.failures.join("; ")
+        : undefined,
       retag_remaining: retag.remaining || undefined,
       retag_collateral: retag.collateral.length
         ? retag.collateral.join(",")

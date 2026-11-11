@@ -46,6 +46,12 @@ export interface RetagResult {
   remaining: number;
   /** Rows GATE-2 retired as a side effect of these writes. Never hidden. */
   collateral: string[];
+  /**
+   * Retirement attempts that REJECTED (lock contention) rather than returning
+   * false (#378 review). The replacement is durable; the original is not.
+   * Counted in `partial`, named here.
+   */
+  failures: string[];
 }
 
 export function emptyRetag(): RetagResult {
@@ -57,6 +63,7 @@ export function emptyRetag(): RetagResult {
     unaudited: 0,
     remaining: 0,
     collateral: [],
+    failures: [],
   };
 }
 
@@ -121,25 +128,51 @@ export async function retagQuarantinedRows(
       supersedesTs: row.ts,
       durable,
     });
-    for (const ts of durable)
-      if (!out.collateral.includes(ts)) out.collateral.push(ts);
-    if (outcome.action !== "promoted" || !outcome.ts) {
-      // Blocked or collapsed: the untagged row stays exactly as it was, and the
-      // operator has to hear that rather than read a clean repair.
+    if (outcome.action !== "promoted" && outcome.action !== "collapsed") {
+      // Blocked: the untagged row stays exactly as it was, and the operator
+      // has to hear that rather than read a clean repair.
       out.blocked++;
       continue;
     }
-    const retired = await markSuperseded(
-      row.ts,
-      {
-        superseded_by: outcome.ts,
-        reason: "init",
-        symbol: row.ts,
-        from: row.ts,
-        to: outcome.ts,
-      },
-      durable,
-    );
+    // #378 review (WhollyMindless): two ways the unsafe original survived.
+    // (a) COLLAPSED is not "nothing happened" here — it means a quarantined
+    //     twin from an earlier interrupted repair is already durable, and the
+    //     only missing step is retiring the original. Refusing to act on the
+    //     collapse left the row unquarantined forever (retagged=0, blocked=1
+    //     on every retry). The collapse survivor IS the twin: the re-tagged
+    //     candidate differs from the original only by tags, and the
+    //     supersedesTs carve-out keeps the original from matching as its own
+    //     duplicate, so an exact-content match is the prior replacement.
+    // (b) markSuperseded can REJECT (lock contention), not just return false.
+    //     The twin is durable either way, so the failure lands in `partial`
+    //     with its reason instead of escaping as if nothing was written —
+    //     the #155 lesson, applied to the repair path.
+    const successor =
+      outcome.action === "collapsed" ? outcome.collapsedWith : outcome.ts;
+    if (successor === undefined) {
+      out.blocked++;
+      continue;
+    }
+    let retired = false;
+    try {
+      retired = await markSuperseded(
+        row.ts,
+        {
+          superseded_by: successor,
+          reason: "init",
+          symbol: row.ts,
+          from: row.ts,
+          to: successor,
+        },
+        durable,
+      );
+    } catch (err) {
+      out.failures.push(
+        `${row.ts}: ${err instanceof Error && err.message ? err.message : String(err)}`,
+      );
+    }
+    for (const ts of durable)
+      if (!out.collateral.includes(ts)) out.collateral.push(ts);
     if (!retired) {
       // The replacement IS durable. Name which half did not land, in the shape
       // memory_update uses (#155), instead of counting a clean re-tag.
