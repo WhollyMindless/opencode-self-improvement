@@ -116,6 +116,14 @@ const server = Bun.serve({
               finish_reason: step.tool_calls ? "tool_calls" : "stop",
             },
           ],
+          // #395 characterization: the provider DOES report usage on the final
+          // chunk (openai-compatible shape). Whether it reaches a plugin is the
+          // host's contract, pinned by e2e/generate-receipt.test.ts.
+          usage: {
+            prompt_tokens: 111,
+            completion_tokens: 22,
+            total_tokens: 133,
+          },
         },
       ]);
     }

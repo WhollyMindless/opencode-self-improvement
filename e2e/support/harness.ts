@@ -118,7 +118,11 @@ export interface Guest {
 }
 
 /** Fresh isolated instance dirs + project config pointing at `pluginPath`. */
-export function makeGuest(fake: Fake, pluginPath: string): Guest {
+export function makeGuest(
+  fake: Fake,
+  pluginPath: string,
+  extraPlugins: string[] = [],
+): Guest {
   const root = mkdtempSync(join(tmpdir(), "psi-e2e-"));
   const g = (n: string) => {
     mkdirSync(join(root, n), { recursive: true });
@@ -151,7 +155,10 @@ export function makeGuest(fake: Fake, pluginPath: string): Guest {
           },
         },
         model: "fake/scripted",
-        plugins: [{ package: pluginPath }],
+        plugins: [
+          { package: pluginPath },
+          ...extraPlugins.map((p) => ({ package: p })),
+        ],
       },
       null,
       2,
