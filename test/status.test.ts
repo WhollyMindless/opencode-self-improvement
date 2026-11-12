@@ -259,26 +259,40 @@ describe("cache math", () => {
   // have to learn new ones. Every reason reaches `/memory` and `memory_status`
   // by interpolation, so a value a later build adds renders as-is instead of
   // blanking or being relabelled as something the plugin did not record.
+  // Each surface is asserted on ITS OWN line: the two interpolations are
+  // separate code paths (`contextLines` renders the riding epoch, `cacheLines`
+  // the last byte-moving one), and a joined string lets one of them enumerate
+  // the reasons while the other's interpolation keeps the assertion green.
   test("epoch reason is display-only: known and unknown values render verbatim", () => {
-    const shown = (reason: string) =>
-      [
-        ...contextLines(payload({ reason: reason as StatusPayload["reason"] })),
-        ...cacheLines(
-          payload({
-            stats: {
-              ...payload().stats!,
-              invalidations: 1,
-              lastInvalidation: {
-                at: "2026-10-20T12:30:00.000Z",
-                reason,
-              },
+    const reasons = [
+      "first",
+      "store_changed",
+      "prompt_reveal",
+      // A value no build emits today: the contract is that a later one needs
+      // no surface change.
+      "provider_restart",
+    ];
+    for (const reason of reasons) {
+      const line = contextLines(
+        payload({ reason: reason as StatusPayload["reason"] }),
+      ).find((l) => l.startsWith("  this epoch"));
+      expect(line).toContain(reason);
+    }
+    for (const reason of reasons) {
+      const line = cacheLines(
+        payload({
+          stats: {
+            ...payload().stats!,
+            invalidations: 1,
+            lastInvalidation: {
+              at: "2026-10-20T12:30:00.000Z",
+              reason,
             },
-          }),
-        ),
-      ].join("\n");
-    for (const reason of ["first", "store_changed", "prompt_reveal"])
-      expect(shown(reason)).toContain(reason);
-    expect(shown("provider_restart")).toContain("provider_restart");
+          },
+        }),
+      ).find((l) => l.startsWith("  epochs whose bytes moved"));
+      expect(line).toContain(reason);
+    }
   });
 });
 
