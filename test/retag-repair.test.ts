@@ -55,13 +55,13 @@ function seedAt(ts: string, extra: Record<string, unknown> = {}): void {
   mkdirSync(dirname(file), { recursive: true });
   appendFileSync(
     file,
-    formatLine({
+    `${formatLine({
       ts,
       type: "learning",
       scope: "bootstrap",
       content: POISON,
       ...extra,
-    }) + "\n",
+    })}\n`,
   );
 }
 
@@ -96,11 +96,11 @@ describe("#378 re-tag repair", () => {
     expect(out.blocked).toBe(0);
     expect(out.partial).toBe(0);
     const rows = await loadAll();
-    const original = rows.find((r) => r.ts === "2026-11-01T10:00:00.000Z")!;
-    expect(original.superseded_by).toBeTruthy();
+    const original = rows.find((r) => r.ts === "2026-11-01T10:00:00.000Z");
+    expect(original?.superseded_by).toBeTruthy();
     const active = rows.filter((r) => !r.superseded_by);
     expect(active.length).toBe(1);
-    expect(active[0]!.tags).toContain("quarantine");
+    expect(active[0]?.tags).toContain("quarantine");
   });
 
   test("finding (a): a quarantined twin from an interrupted repair finishes the job", async () => {
@@ -116,11 +116,11 @@ describe("#378 re-tag repair", () => {
     expect(out.retagged).toBe(1);
     expect(out.blocked).toBe(0);
     const rows = await loadAll();
-    const original = rows.find((r) => r.ts === "2026-11-01T10:00:00.000Z")!;
-    expect(original.superseded_by).toBe("2026-11-01T10:00:01.000Z");
+    const original = rows.find((r) => r.ts === "2026-11-01T10:00:00.000Z");
+    expect(original?.superseded_by).toBe("2026-11-01T10:00:01.000Z");
     const active = rows.filter((r) => !r.superseded_by);
     expect(active.length).toBe(1);
-    expect(active[0]!.ts).toBe("2026-11-01T10:00:01.000Z");
+    expect(active[0]?.ts).toBe("2026-11-01T10:00:01.000Z");
   });
 
   test("finding (b): a rejecting retirement reports partial, and the retry finishes", async () => {
@@ -140,8 +140,8 @@ describe("#378 re-tag repair", () => {
     const retry = await retagQuarantinedRows(ctx());
     expect(retry.retagged).toBe(1);
     const rows = await loadAll();
-    const original = rows.find((r) => r.ts === "2026-11-01T10:00:00.000Z")!;
-    expect(original.superseded_by).toBeTruthy();
+    const original = rows.find((r) => r.ts === "2026-11-01T10:00:00.000Z");
+    expect(original?.superseded_by).toBeTruthy();
     expect(rows.filter((r) => !r.superseded_by).length).toBe(1);
   });
 
@@ -153,6 +153,6 @@ describe("#378 re-tag repair", () => {
     expect(out.blocked).toBe(0);
     const rows = await loadAll();
     expect(rows.length).toBe(1);
-    expect(rows[0]!.superseded_by).toBeUndefined();
+    expect(rows[0]?.superseded_by).toBeUndefined();
   });
 });
