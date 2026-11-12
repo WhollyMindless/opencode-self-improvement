@@ -367,6 +367,21 @@ Run it when you want to know whether the suite still has teeth — after changin
 
 **Pre-release ritual (decided 2026-11-04, #72):** before pushing a release commit, a human runs `--validate`, then `--selftest`, then `--fail-on-survivors`, and records the mutation score and the survivor list in `bench/RESULTS.md` beside the published evidence. Cadence is pre-release only, run by a person: the sweep is a full suite per mutant and never belongs in CI, where it would cost more than it informs. Survivors become entries on the unpinned-invariant list, not red checks.
 
+### Bench artifacts stay out of git
+
+Raw sweep output is regenerable measurement data, and it was the largest tracked content in the repository. It is not committed (#232). A clone carries the published summaries — `bench/RESULTS.md`, `bench/recall-results.md`, `bench/test-sweep-results.md`, `bench/capture-trigger-results.md` — and the inputs those summaries are rebuilt from. History is not rewritten: the old blobs stay in earlier revisions, so this shrinks new checkouts, not the archive.
+
+| Artifact | How to get it back |
+| --- | --- |
+| `bench/append-publication-198/` | The pinned recipe below. |
+| A mutation sweep log | `bun scripts/test-sweep.ts --log=<path>`. |
+
+Regenerating `bench/append-publication-198/`: the runner is `bench/runners/append-cost-198.ts`, invoked once per size, mode and platform as `bun bench/runners/append-cost-198.ts <absolute-source-checkout> <size-MiB> <baseline|candidate> <round>`. It loads `src/memory.ts`, `src/logfmt.ts` and `src/config.ts` from the source root it is given, so it must point at the two pinned checkouts of the #198 measurement — baseline `bf9f4d2` (0.15.0) and candidate `7c1dfc4` (the atomic-publication commit on that same base) — not at a current tree, where the #168 restructure moved those modules. Install locked dependencies in each checkout; use the current runner for both source roots; every invocation creates and cleans its own synthetic store and prints one JSON line. Sizes 0.1, 1, 10, 50 MiB; 3 rounds; baseline-then-candidate in rounds 1 and 3, reversed in round 2; 12 sequential appends per invocation, first 2 discarded as warmups, 30 samples pooled per mode/size/platform. Aggregation: sort `latencyMs` ascending, median = average of positions 15 and 16, p95 = nearest rank `ceil(0.95×30)` = position 29, max = position 30. Every invocation asserts the original byte prefix is unchanged and the parsed row count equals `seedRows + 12`. The full methodology — including the measurement limitations, which are part of the claim — is one command away: `git show c86379e^:bench/append-publication-198/methodology.json`.
+
+A script that needs a missing artifact names the file and the command that produces it instead of throwing a stack trace.
+
+The `#71` set is the deliberate exception: `bench/test-integrity-71.json`, `bench/test-integrity-71/before.jsonl`, `bench/test-integrity-71/after.jsonl` and `bench/test-integrity-71-verdicts.json` stay tracked. It looks regenerable and is not. `scripts/triage-71.ts` refuses to run unless the verdicts file carries exactly one verdict per CURRENT test file, and the test tree has grown since #71, so the documented rebuild fails on today's tree (`every current test file needs exactly one verdict`, measured on `main` at `f8f42fd`). Deleting the derived JSON would therefore destroy the only copy of a published number.
+
 ## Troubleshooting
 
 | Problem | Fix |
