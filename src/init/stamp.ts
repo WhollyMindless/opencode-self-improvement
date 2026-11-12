@@ -16,16 +16,20 @@
 // plugin's own record() — no tool hands a session a write path to it — so the
 // pairing says a real init audited that row. A legacy row with no matching audit
 // is ignored, and init re-runs: idempotent, cheap, and the safe answer to a
-// provenance the plugin cannot check.
+// provenance the plugin cannot check. A row that passes the pairing is copied to
+// the file and then retired, and the head it is copied at is the head that
+// evidence line names — never the head the row's own prose claims (#376 review).
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { memoryRoot } from "../core/config/paths.ts";
+import { INIT_STAMP_TAG } from "../core/tags.ts";
 import { preparePrivateFile, tightenDirectory } from "../core/permissions.ts";
 import { parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
 import { evidenceFileFor } from "../evidence/record.ts";
 import { resolveRepo } from "../identity/repokey.ts";
 import { loadAll } from "../store/files/load.ts";
+import { markSuperseded } from "../store/files/supersede.ts";
 import {
   isVisibleTo,
   readerFromSid,
@@ -52,7 +56,15 @@ function stampPath(key: string): string | null {
   return join(stampDir(), `${key}.json`);
 }
 
-function parseStamp(raw: string): InitStamp | null {
+/**
+ * A stamp file's contents, checked against the file it came from.
+ *
+ * `key` must equal the file name: the name is the repository identity, so a file
+ * that landed in the wrong slot (a hand-edited store, a copy from another
+ * checkout) is not this repository's stamp. `scope` and `path` are descriptive
+ * only — nothing here locates state from them — so they are not validated.
+ */
+function parseStamp(raw: string, key: string): InitStamp | null {
   let data: unknown;
   try {
     data = JSON.parse(raw);
@@ -60,9 +72,18 @@ function parseStamp(raw: string): InitStamp | null {
     return null;
   }
   if (typeof data !== "object" || data === null) return null;
-  const { ts, head } = data as { ts?: unknown; head?: unknown };
+  const {
+    ts,
+    head,
+    key: fileKey,
+  } = data as {
+    ts?: unknown;
+    head?: unknown;
+    key?: unknown;
+  };
   if (typeof ts !== "string" || typeof head !== "string") return null;
   if (!ts || !head) return null;
+  if (fileKey !== key) return null;
   return { ts, head };
 }
 
@@ -78,32 +99,62 @@ function readStampFile(key: string): InitStamp | null {
     // trusting a stamp the plugin cannot parse is not.
     return null;
   }
-  return parseStamp(raw);
+  return parseStamp(raw, key);
 }
 
 /**
- * Did a real init audit this row? The pre-#374 run wrote `stamp=<row ts>` into
- * its `init_complete` evidence line, so the pairing is the provenance check the
- * row itself cannot supply. Parsed field-by-field: a value that merely contains
- * the text cannot satisfy it.
+ * The day files an `init_complete` line for this row could live in.
+ *
+ * `appendMemory` stamps the row with the millisecond it mints; `record()` writes
+ * the evidence line to whatever day it is when the line lands. An init that
+ * starts at 23:59:59.999 and finishes after midnight splits the pair across two
+ * day files, so the row's own day is not enough — the following day has to be
+ * read too, or that migration is silently lost every night around midnight
+ * (#376 review).
  */
-async function initAudited(ts: string): Promise<boolean> {
+function auditDays(ts: string): string[] {
   const day = /^(\d{4}-\d{2}-\d{2})T/.exec(ts)?.[1];
-  if (!day) return false;
-  const file = evidenceFileFor(day);
-  if (!file) return false;
-  let lines: string[];
-  try {
-    lines = await readLines(file);
-  } catch {
-    return false;
+  if (!day) return [];
+  const next = new Date(`${day}T12:00:00.000Z`);
+  if (Number.isNaN(next.getTime())) return [day];
+  next.setUTCDate(next.getUTCDate() + 1);
+  return [day, next.toISOString().slice(0, 10)];
+}
+
+/**
+ * Did a real init audit this row, and at which head? The pre-#374 run wrote
+ * `stamp=<row ts>` and `head=<head>` into its `init_complete` evidence line, so
+ * the pairing is the provenance the row itself cannot supply. Parsed
+ * field-by-field: a value that merely contains the text cannot satisfy it.
+ *
+ * The head comes from the EVIDENCE LINE, never from the row's prose (#376
+ * review). `appendMemory` mints `ts` at millisecond resolution and `runInit`
+ * mints its stamp timestamp the same way, so two concurrent writes can land on
+ * the same millisecond — 42 of 480 rows did in the review's probe. Pairing on
+ * `stamp === ts` alone would then let a row that names one head retire a
+ * repository's idempotency at a different head, which is the forgery #374 was
+ * opened to close. Returns null when no line names this ts with a usable head.
+ */
+async function initAuditHead(ts: string): Promise<string | null> {
+  for (const day of auditDays(ts)) {
+    const file = evidenceFileFor(day);
+    if (!file) continue;
+    let lines: string[];
+    try {
+      lines = await readLines(file);
+    } catch {
+      continue;
+    }
+    for (const line of lines) {
+      const fields = parseLine(line);
+      if (!fields) continue;
+      if (fields.ev !== "init_complete" || fields.stamp !== ts) continue;
+      const head = fields.head;
+      if (typeof head !== "string" || !head) continue;
+      return head;
+    }
   }
-  for (const line of lines) {
-    const fields = parseLine(line);
-    if (!fields) continue;
-    if (fields.ev === "init_complete" && fields.stamp === ts) return true;
-  }
-  return false;
+  return null;
 }
 
 /** The pre-#374 stamp: a `context` row in this scope tagged `init-stamp`. */
@@ -116,9 +167,9 @@ async function legacyStampRow(
   );
   for (const m of mems) {
     if (m.type !== "context" || m.scope !== scope) continue;
-    if (!m.tags?.some((t) => t === "init-stamp")) continue;
-    if (!(await initAudited(m.ts))) continue;
-    const head = /head=([^ ,]+)/.exec(m.content)?.[1] ?? "-";
+    if (!m.tags?.some((t) => t === INIT_STAMP_TAG)) continue;
+    const head = await initAuditHead(m.ts);
+    if (head === null) continue;
     return { ts: m.ts, head };
   }
   return null;
@@ -130,6 +181,19 @@ export interface StampRead {
   key: string;
   /** True when a pre-#374 store row was honoured and copied to the file. */
   migrated: boolean;
+  /**
+   * The migration copy could not be written (#376 review). The row was still
+   * honoured, so init stays idempotent for this run, but nothing was recorded:
+   * the caller must report it the way a failed stamp write is reported, or every
+   * later init re-migrates and re-claims success.
+   */
+  stampError?: string;
+  /**
+   * The honoured row is still active (#376 review): its retirement was refused
+   * or threw. The migration is not lost — the file answers the next read — but
+   * the store keeps a row the operator should hear about.
+   */
+  retireError?: string;
 }
 
 /**
@@ -155,8 +219,47 @@ export async function readStamp(
   if (file) return { stamp: file, key, migrated: false };
   const legacy = await legacyStampRow(scope, reader);
   if (!legacy) return { stamp: null, key, migrated: false };
-  writeStampFile(key, scope, root, legacy.head, legacy.ts);
-  return { stamp: legacy, key, migrated: true };
+  const stampError = writeStampFile(key, scope, root, legacy.head, legacy.ts);
+  return {
+    stamp: legacy,
+    key,
+    migrated: true,
+    ...(stampError ? { stampError } : {}),
+    ...(await retireLegacyStampRow(legacy.ts)),
+  };
+}
+
+/**
+ * Retire the row a migration just copied (#376 review). The stamp lives in the
+ * file now, so leaving the row active would keep a piece of plugin bookkeeping in
+ * the store as an ordinary row; `isInjectable` already withholds the tag from
+ * every model-facing read, and this takes it out of the store's active set too.
+ *
+ * A refusal never undoes the migration: the copy above is what makes init
+ * idempotent, and the row is inert either way. The reason is returned for the
+ * caller to report, in the same shape retag.ts uses for a retirement that did
+ * not land — the operator hears which half failed instead of reading a clean
+ * migration.
+ */
+async function retireLegacyStampRow(
+  ts: string,
+): Promise<{ retireError?: string }> {
+  try {
+    const retired = await markSuperseded(ts, {
+      superseded_by: "init-stamp-file",
+      reason: "init",
+    });
+    if (retired) return {};
+    // Idempotence means the row was already retired out of band, or it is gone.
+    // Either way the store did not take the retirement this run asked for.
+    return { retireError: `${ts}: retirement did not land` };
+  } catch (err) {
+    return {
+      retireError: `${ts}: ${
+        err instanceof Error && err.message ? err.message : String(err)
+      }`,
+    };
+  }
 }
 
 /**

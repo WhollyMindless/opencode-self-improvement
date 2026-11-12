@@ -3,8 +3,16 @@
 // (#231): nothing in src read the index back, so /repo-init spawns no external
 // binary at all and the suite no longer needs a spawn spy or a fake binary.
 // Scope = directory basename ("repo"), matching the repo-name convention.
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  setSystemTime,
+  test,
+} from "bun:test";
+import {
+  chmodSync,
   mkdtempSync,
   mkdirSync,
   readdirSync,
@@ -15,18 +23,22 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin } from "./harness.ts";
+import { memoryRoot } from "../src/core/config/paths.ts";
 import { resetState } from "../src/core/state.ts";
 import { record } from "../src/evidence/record.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
-import { isActive } from "../src/store/model/predicates.ts";
-import type { InitSummary } from "../src/init/run.ts";
+import { isActive, isInjectable } from "../src/store/model/predicates.ts";
+import { selectRelevant } from "../src/recall/relevant.ts";
+import { formatInit } from "../src/init/format.ts";
+import { type InitSummary, runInit } from "../src/init/run.ts";
 import { stampDir } from "../src/init/stamp.ts";
 
 let memoryDir: string;
 let fixture: string;
 let root: string;
 let init: { execute(args: { force?: boolean }): Promise<string> };
+let recall: { execute(args: { query?: string }): Promise<string> };
 
 beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), "osi-init-"));
@@ -44,7 +56,10 @@ beforeEach(async () => {
   );
   resetState();
   const hooks = await loadPlugin(fixture);
-  init = hooks.tool!.memory_init as never;
+  // One assertion for both handles: the harness always registers its tools.
+  const tools = hooks.tool!;
+  init = tools.memory_init as never;
+  recall = tools.memory_recall as never;
 });
 
 afterEach(() => {
@@ -277,8 +292,8 @@ describe("init stamp is plugin state, not a memory (#374)", () => {
     expect(stamp.ts).toBe(ts);
     expect(stamp.head).toBe("-");
 
-    // The migration leaves the old row alone, and the file now answers: a third
-    // run is a plain no-op with no second migration.
+    // The file answers from here on, so a third run is a plain no-op with no
+    // second migration.
     const again = await init.execute({});
     expect(again).toContain("Already initialized");
     expect(again).not.toContain("migrated");
@@ -295,6 +310,277 @@ describe("init stamp is plugin state, not a memory (#374)", () => {
     expect(out).not.toContain("Already initialized");
     // ...and the re-run repaired the file, so the next one is a no-op again.
     expect(await init.execute({})).toContain("Already initialized");
+  });
+
+  // #376 review: a stamp file whose `key` names a different repository is not
+  // this repository's stamp. The file name is the identity, and the header
+  // comment promises that a component the plugin did not mint is not authority,
+  // so the field has to be checked and not merely written.
+  test("a stamp file naming a different key is no stamp at all", async () => {
+    await init.execute({});
+    const files = readdirSync(stampDir());
+    expect(files.length).toBe(1);
+    const path = join(stampDir(), files[0]);
+    const stamp = JSON.parse(readFileSync(path, "utf8"));
+    writeFileSync(
+      path,
+      JSON.stringify({ ...stamp, key: "000000000000" }),
+      "utf8",
+    );
+
+    const out = await init.execute({});
+    expect(out).toContain("Initialized repo");
+    expect(out).not.toContain("Already initialized");
+    // The re-run rewrote the file under the right key, so init is idempotent
+    // again from here.
+    expect(await init.execute({})).toContain("Already initialized");
+  });
+});
+
+// #376 review of this migration. Three things were wrong: the honoured row kept
+// riding the prompt until the migration retired it (and never, in a store whose
+// audit line is gone); a stamp file that could not be written still reported a
+// successful migration; and the audit pairing took the HEAD from the row's own
+// prose, so a row landing on the same millisecond as a real init's stamp could
+// suppress init for a head no init ever stamped at. These are the pins.
+describe("legacy init-stamp rows are inert, and a migration reports what it did (#376)", () => {
+  /**
+   * A row exactly as the pre-#374 release left it, plus the `init_complete` line
+   * that audited it. `evidenceHead` is what the AUDIT says; the row's prose says
+   * whatever the caller passes, which is the seam the head test needs.
+   */
+  async function legacyStamp(
+    content: string,
+    evidenceHead = "-",
+  ): Promise<string> {
+    const ts = await appendMemory({
+      type: "context",
+      scope: "repo",
+      content,
+      tags: ["init-stamp"],
+    });
+    await record(
+      "init_complete",
+      {
+        scope: "repo",
+        head: evidenceHead,
+        scripts: 2,
+        written: 2,
+        collapsed: 0,
+        blocked: 0,
+        stamp: ts,
+      },
+      false,
+    );
+    return ts;
+  }
+
+  /**
+   * True when the deliberately-unwritable stamp directory still took a write:
+   * this environment ignores the mode, so the fault under test cannot be
+   * produced here and the test that needs it must say so rather than pass.
+   */
+  function stampDirWritable(): boolean {
+    try {
+      writeFileSync(join(stampDir(), "probe"), "x");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Same probe for the store root: true when this environment ignores 0500. */
+  function storeRootWritable(): boolean {
+    try {
+      writeFileSync(join(memoryRoot(), "probe.logfmt"), "x\n");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  test("a legacy stamp row cannot ride the injection block or recall", async () => {
+    const ts = await appendMemory({
+      type: "context",
+      scope: "repo",
+      content: "Init stamp: repo=repo, head=abc1234, scripts=2",
+      tags: ["init-stamp"],
+    });
+    // A row a real fact shares the store with, so a recall that returns the fact
+    // proves the tool ran and simply did not return the stamp row.
+    await appendMemory({
+      type: "learning",
+      scope: "repo",
+      content: "the init stamp docs live in the README",
+    });
+
+    const row = (await loadAll()).find((m) => m.ts === ts);
+    // Withheld from the model, not hidden from the store: it is still an active
+    // row a human read (the viewer, memory_forget, memory_undo) can see.
+    expect(row && isActive(row)).toBe(true);
+    expect(row ? isInjectable(row) : null).toBe(false);
+
+    // selectRelevant is the one sink the injection block is rendered from
+    // (src/inject/epochs.ts builds the request section out of it).
+    for (const prompt of ["run /repo-init again", "what is the init sta"]) {
+      const sel = await selectRelevant(prompt, 3);
+      expect(sel.selected.some((m) => m.ts === ts)).toBe(false);
+      expect(sel.block).not.toContain("Init stamp");
+    }
+    const found = await recall.execute({ query: "init stamp" });
+    expect(found).toContain("the init stamp docs live in the README");
+    expect(found).not.toContain("Init stamp: repo=repo");
+  });
+
+  test("the migration retires the audited row and still writes the file", async () => {
+    const ts = await legacyStamp("Init stamp: repo=repo, head=-, scripts=2");
+
+    const out = await init.execute({});
+    expect(out).toContain("Already initialized");
+    expect(out).toContain("migrated");
+
+    const files = readdirSync(stampDir());
+    expect(files.length).toBe(1);
+    const stamp = JSON.parse(readFileSync(join(stampDir(), files[0]), "utf8"));
+    expect(stamp.ts).toBe(ts);
+
+    // The row is bookkeeping the file replaced: retired, on disk, recoverable.
+    const row = (await loadAll()).find((m) => m.ts === ts);
+    expect(row && !isActive(row)).toBe(true);
+    expect(row?.superseded_by).toBe("init-stamp-file");
+  });
+
+  test("a row naming a head the audit line does not name does not suppress init", async () => {
+    // The row names the CURRENT head ("-" — the fixture is not a git repo); the
+    // audit line names another. Pairing on the millisecond alone let that row
+    // answer "Already initialized" for a head no init ever stamped at.
+    await legacyStamp("Init stamp: repo=repo, head=-, scripts=2", "deadbee");
+
+    const out = await init.execute({});
+    expect(out).toContain("Initialized repo");
+    expect(out).not.toContain("Already initialized");
+    // And the head the row claimed never became plugin state: the file records
+    // the head this init actually saw.
+    const files = readdirSync(stampDir());
+    const stamp = JSON.parse(readFileSync(join(stampDir(), files[0]), "utf8"));
+    expect(stamp.head).toBe("-");
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "a migration whose file write fails is reported, not claimed",
+    async () => {
+      await legacyStamp("Init stamp: repo=repo, head=-, scripts=2");
+      mkdirSync(stampDir(), { recursive: true });
+      chmodSync(stampDir(), 0o500);
+      try {
+        // Establish the fault before asserting the report. Where the mode is
+        // ignored (running as root) the write succeeds and there is nothing to
+        // report — but a MISSING report where the write really did fail is the
+        // bug, so the test must not treat a silent summary as "skipped".
+        if (stampDirWritable()) return;
+        const s = await runInit({ liveRoot: fixture });
+        // The row is still honoured, so this run stays idempotent — but nothing
+        // was copied, and the reply has to say so instead of claiming a
+        // migration (#376 review).
+        expect(s.stampError).toBeTruthy();
+        expect(s.skipped).toBe(true);
+        expect(readdirSync(stampDir())).toEqual([]);
+        const out = formatInit(s);
+        expect(out).toInclude("stamp NOT recorded");
+        expect(out).toContain("the copy to the stamp file failed");
+        expect(out).toContain("the migration will be retried");
+        expect(out).not.toContain("stamp migrated from a store row");
+      } finally {
+        chmodSync(stampDir(), 0o700);
+      }
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "a retirement that does not land is reported, and the migration survives",
+    async () => {
+      // The store root holds the day files and the store lock, so refusing
+      // writes there fails `markSuperseded` while leaving the stamp directory
+      // (already created, and a sibling) writable — exactly the half-fault this
+      // path has to name.
+      const ts = await legacyStamp("Init stamp: repo=repo, head=-, scripts=2");
+      mkdirSync(stampDir(), { recursive: true });
+      chmodSync(memoryRoot(), 0o500);
+      try {
+        if (storeRootWritable()) return; // environment ignores the mode
+        const s = await runInit({ liveRoot: fixture });
+        expect(s.stampRetireError).toBeTruthy();
+        // The migration is not lost: the copy landed before the retirement was
+        // attempted, so init is still idempotent and says nothing about a stamp
+        // fault of its own.
+        expect(s.skipped).toBe(true);
+        expect(s.stampError).toBeUndefined();
+        expect(readdirSync(stampDir()).length).toBe(1);
+        const out = formatInit(s);
+        expect(out).toContain("Already initialized");
+        expect(out).toContain("Legacy stamp row NOT retired");
+        expect(out).toContain(ts);
+      } finally {
+        chmodSync(memoryRoot(), 0o700);
+      }
+    },
+  );
+
+  test.skipIf(process.platform === "win32")(
+    "a stamp write failure on the run path is reported (#374 claim 6)",
+    async () => {
+      mkdirSync(stampDir(), { recursive: true });
+      chmodSync(stampDir(), 0o500);
+      try {
+        if (stampDirWritable()) return; // see the note above
+        const s = await runInit({ liveRoot: fixture });
+        expect(s.stampError).toBeTruthy();
+        expect(s.skipped).toBe(false);
+        expect(s.written).toBe(2);
+        const out = formatInit(s);
+        expect(out).toInclude("stamp NOT recorded");
+        expect(out).toContain("init will run again");
+      } finally {
+        chmodSync(stampDir(), 0o700);
+      }
+    },
+  );
+
+  test("an audit line that lands after midnight still migrates the row", async () => {
+    // The row is stamped at the last millisecond of one UTC day and the evidence
+    // line is written to the next one. Deriving the evidence file from the row's
+    // day alone lost that migration for the whole of the following day.
+    setSystemTime(new Date("2026-11-01T23:59:59.999Z"));
+    let ts = "";
+    try {
+      ts = await appendMemory({
+        type: "context",
+        scope: "repo",
+        content: "Init stamp: repo=repo, head=-, scripts=2",
+        tags: ["init-stamp"],
+      });
+      expect(ts.startsWith("2026-11-01")).toBe(true);
+      setSystemTime(new Date("2026-11-02T00:00:00.500Z"));
+      await record(
+        "init_complete",
+        {
+          scope: "repo",
+          head: "-",
+          scripts: 2,
+          written: 2,
+          collapsed: 0,
+          blocked: 0,
+          stamp: ts,
+        },
+        false,
+      );
+      const out = await init.execute({});
+      expect(out).toContain("Already initialized");
+      expect(out).toContain("migrated");
+    } finally {
+      setSystemTime();
+    }
+    expect(ts).toBeTruthy();
   });
 });
 

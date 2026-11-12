@@ -49,6 +49,12 @@ export interface InitSummary {
   stampError?: string;
   /** True when a pre-#374 store row was honoured and copied to the file. */
   stampMigrated?: boolean;
+  /**
+   * A honoured pre-#374 row is still active: its retirement did not land
+   * (#376 review). The migration itself is durable; the row is inert either
+   * way, and the operator hears about it instead of reading a clean migration.
+   */
+  stampRetireError?: string;
   /** Pre-#372 rows re-tagged by the injection screen (#375). */
   retag?: RetagResult;
 }
@@ -92,6 +98,8 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
     stamp: prior,
     key: stampKey,
     migrated,
+    stampError: migrateStampError,
+    retireError,
   } = await readStamp(scope, root, stampKeyHint, args.sessionID, reader);
   if (prior && !force && prior.head === head) {
     await record(
@@ -101,6 +109,12 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
         head,
         since: prior.ts,
         migrated: migrated || undefined,
+        // #376 review: a migration that honoured the row but could not write the
+        // file, or could not retire it, is a fault the skip line has to carry.
+        // Without it every later init re-migrates and re-claims success with no
+        // audit trail saying the file was never there.
+        stamp_error: migrateStampError,
+        stamp_retire_error: retireError,
         retagged: retag.retagged || undefined,
         retag_blocked: retag.blocked || undefined,
       },
@@ -118,7 +132,9 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
       written: 0,
       collapsed: 0,
       blocked: 0,
+      stampError: migrateStampError,
       stampMigrated: migrated || undefined,
+      stampRetireError: retireError,
       retag,
     };
   }
@@ -182,6 +198,8 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
       unaudited,
       stamp: stampError ? "-" : stampTs,
       stamp_error: stampError,
+      // A migration that copied the row but could not retire it (#376 review).
+      stamp_retire_error: retireError,
       migrated: migrated || undefined,
       retagged: retag.retagged || undefined,
       retag_blocked: retag.blocked || undefined,
@@ -207,6 +225,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
     stampTs: stampError ? (prior?.ts ?? undefined) : stampTs,
     stampError,
     stampMigrated: migrated || undefined,
+    stampRetireError: retireError,
     skipped: false,
     written,
     collapsed,
