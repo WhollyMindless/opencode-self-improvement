@@ -153,7 +153,7 @@ Two results. Only two are quoted, each with its `n` and the seat it ran on, beca
 | Result | n | Seat | What was measured |
 | --- | --- | --- | --- |
 | **Transport.** A fact learned in one session reaches a later session that provably cannot obtain it any other way | 5 per arm, with the empty-store floor verified first | `evo/Qwen3.8-Flash-Next-UD-Q4_K_XL`, local seat behind a recording proxy | empty store **0/5** (every failure: the artifact was never written), the same store seeded **5/5**. The fixture is leak-checked: no form of the answer is in any file the agent sees, including its own documentation |
-| **Reuse.** A memory reduces the work on a task the agent already passes | 6 pairs | same seat | median L2/L0 **0.98×**, higher in 2 of 6 — **no measurable effect at 20% resolution**. A memory about an unrelated task: **0.88×** |
+| **Reuse.** A memory reduces the work on a task the agent already passes | 6 pairs | same seat | median of the six per-pair L2/L0 work ratios — sorted 0.54, 0.79, 0.84, 0.98, 1.06, 1.23, middle two averaged — **0.91×**, higher in 2 of 6, inside the pre-registered 0.80–1.25 band: **no measurable effect at 20% resolution**. A memory about an unrelated task: **0.99×**, same estimator, higher in 3 of 6 |
 
 **What is not claimed here.** No token saving. No dollar figure. The seat above is a local box with no cache price; on a hosted provider a cache miss costs roughly 0.1× read and 1.25× write, which is a different claim and cannot be quoted from these numbers.
 
@@ -162,6 +162,7 @@ Two results. Only two are quoted, each with its `n` and the seat it ran on, beca
 - No cost claim below **n=6 pairs per arm**. A ratio at `6 ≤ n < 21` is labelled **"20% resolution"**.
 - A **seat** and a **metric** are named on the same line as the number.
 - The word "cheaper" does not appear without those.
+- An issue or PR body making a cost claim owes the same n, seat and metric. CI reads only this file, so that half is enforced by review.
 - Nothing reproduces at n=1: the same arm on the same fixture, both runs passing, differed by more than 2× in tokens.
 - Cache state is reported, never assumed. Two runs that start from different cache states are not a saving.
 
