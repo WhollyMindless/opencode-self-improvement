@@ -21,6 +21,7 @@ import {
   gitHead,
   gitRootOf,
 } from "./detect.ts";
+import { type RetagResult, retagQuarantinedRows } from "./retag.ts";
 import { readStamp, writeStampFile } from "./stamp.ts";
 
 export interface InitArgs {
@@ -48,6 +49,8 @@ export interface InitSummary {
   stampError?: string;
   /** True when a pre-#374 store row was honoured and copied to the file. */
   stampMigrated?: boolean;
+  /** Pre-#372 rows re-tagged by the injection screen (#375). */
+  retag?: RetagResult;
 }
 
 export async function runInit(args: InitArgs): Promise<InitSummary> {
@@ -72,6 +75,13 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
     trusted: true,
   };
 
+  // #375: repair rows written before #372 screened init's output. This runs
+  // BEFORE the stamp check on purpose — the common poisoned store belongs to a
+  // repository init has already stamped, and returning early would leave the
+  // poisoned row live forever. The scan is one store read and five regexes per
+  // row; writes happen only on a hit.
+  const retag = await retagQuarantinedRows(gateCtx);
+
   // The stamp is read from (and written to) a file named for the repository
   // identity key, never from a row a model could write (#374). The write target
   // already holds that identity, so the common path spends no git probes here.
@@ -86,7 +96,14 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
   if (prior && !force && prior.head === head) {
     await record(
       "init_skip",
-      { scope, head, since: prior.ts, migrated: migrated || undefined },
+      {
+        scope,
+        head,
+        since: prior.ts,
+        migrated: migrated || undefined,
+        retagged: retag.retagged || undefined,
+        retag_blocked: retag.blocked || undefined,
+      },
       false,
       args.sessionID,
       evidenceContext,
@@ -102,6 +119,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
       collapsed: 0,
       blocked: 0,
       stampMigrated: migrated || undefined,
+      retag,
     };
   }
 
@@ -165,6 +183,16 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
       stamp: stampError ? "-" : stampTs,
       stamp_error: stampError,
       migrated: migrated || undefined,
+      retagged: retag.retagged || undefined,
+      retag_blocked: retag.blocked || undefined,
+      retag_partial: retag.partial || undefined,
+      retag_failures: retag.failures.length
+        ? retag.failures.join("; ")
+        : undefined,
+      retag_remaining: retag.remaining || undefined,
+      retag_collateral: retag.collateral.length
+        ? retag.collateral.join(",")
+        : undefined,
     },
     false,
     args.sessionID,
@@ -184,5 +212,6 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
     collapsed,
     blocked,
     unaudited,
+    retag,
   };
 }

@@ -5,10 +5,23 @@ import { type InitSummary } from "./run.ts";
 
 export function formatInit(s: InitSummary): string {
   const migrated = s.stampMigrated ? " (stamp migrated from a store row)" : "";
+  // #375: a repair that did something, or could not finish, is reported. A quiet
+  // "Nothing to do." over a store that still holds a live poisoned row is the
+  // failure this ticket exists to remove.
+  const r = s.retag;
+  const repair =
+    r && (r.retagged || r.blocked || r.partial || r.remaining || r.unaudited)
+      ? `\nInjection screen: re-tagged=${r.retagged}, blocked=${r.blocked}, partial=${r.partial}` +
+        (r.unaudited ? `, ${r.unaudited} without an audit line` : "") +
+        (r.remaining ? `, ${r.remaining} left (run init again)` : "") +
+        (r.collateral.length
+          ? `, ${r.collateral.length} retired by GATE-2 while re-tagging`
+          : "")
+      : "";
   if (s.skipped) {
-    return `Already initialized for ${s.scope} at head ${s.head} (stamp ${s.stampTs}). Nothing to do.${migrated}`;
+    return `Already initialized for ${s.scope} at head ${s.head} (stamp ${s.stampTs}). Nothing to do.${migrated}${repair}`;
   }
-  const scr = s.scripts.map((r) => `- ${r.source}: "${r.cmd}"`).join("\n");
+  const scr = s.scripts.map((r2) => `- ${r2.source}: "${r2.cmd}"`).join("\n");
   const stamp = s.stampError
     ? `; stamp NOT recorded (${s.stampError}) — init will run again`
     : `; stamp=${s.stampTs ?? "-"}`;
@@ -19,5 +32,8 @@ export function formatInit(s: InitSummary): string {
       (s.unaudited ? `, ${s.unaudited} without an audit line` : "") +
       stamp +
       migrated,
-  ].join("\n");
+    repair.trimStart(),
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
 }
