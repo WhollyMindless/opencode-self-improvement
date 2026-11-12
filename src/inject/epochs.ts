@@ -38,6 +38,8 @@ interface InjectionEpochOptions {
   // The host listener records usage. Eviction must still drop it with the
   // epoch and request counters, so no measurement outlives its tracked session.
   measuredTurns: Pick<Map<string, Measured>, "get" | "delete">;
+  /** Evict the per-message usage ledger (#394) with the session. */
+  forgetUsage?: (sid: string) => void;
   noteHits: (sid: string, rows: Memory[], query: string) => Promise<void>;
 }
 
@@ -46,6 +48,7 @@ export function createInjectionEpochs({
   frontierBudget: openBudget,
   contradictionSurface = true,
   measuredTurns,
+  forgetUsage,
   noteHits,
 }: InjectionEpochOptions) {
   // Per-session frozen injection epochs: the whole memory section (digest +
@@ -106,6 +109,7 @@ export function createInjectionEpochs({
     latestPrompt.delete(sid);
     sessionStats.delete(sid);
     measuredTurns.delete(sid);
+    forgetUsage?.(sid);
   });
   const statsFor = (sid: string): SessionStats => {
     let st = sessionStats.get(sid);
