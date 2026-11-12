@@ -23,13 +23,13 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryRoot } from "../src/core/config/paths.ts";
-import { formatLine, type Fields } from "../src/core/logfmt/format.ts";
+import { type Fields, formatLine } from "../src/core/logfmt/format.ts";
 import { resetState } from "../src/core/state.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
 import { injectedRows } from "../src/inject/budget.ts";
 import { formatMemory } from "../src/inject/format.ts";
-import { type Memory } from "../src/store/model/memory.ts";
 import { selectRelevant } from "../src/recall/relevant.ts";
+import type { Memory } from "../src/store/model/memory.ts";
 import { loadPlugin } from "./harness.ts";
 import { readEvidenceLog as evidence } from "./helpers/logfmt.ts";
 
