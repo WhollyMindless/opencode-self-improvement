@@ -3,7 +3,11 @@
 import type { Cleanup } from "@opencode/plugin/promise/plugin";
 import { cmpTs } from "../core/cmp-ts.ts";
 import { session, setCurrent } from "../core/state.ts";
-import { AUTO_CAPTURE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
+import {
+  AUTO_CAPTURE_TAG,
+  CODE_CHECKED_TAG,
+  USER_GUIDED_TAG,
+} from "../core/tags.ts";
 import { record, recordCaptureLag } from "../evidence/record.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
 import { captureSessionID } from "../identity/host-events.ts";
@@ -19,6 +23,7 @@ import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
+import { claimVerdictFromContent } from "./checked.ts";
 import {
   findGuidedQuotes,
   mergeGuidedCandidates,
@@ -28,6 +33,7 @@ import {
 import { lagSince } from "./lag.ts";
 import {
   advanceCaptureCursor,
+  attestedGateFailures,
   captureCursor,
   captureSignalSince,
   deltaMessages,
@@ -481,19 +487,57 @@ export function configureAutoCapture(
         // into a teardown (#211).
         const knownRows = await knownRowsFor(captureReader);
         if (controller.signal.aborted) return;
+        // S1: the ledger's unrecovered gate failures, in the same window the
+        // signal policy just approved. Rendered into the prompt so the model
+        // can cite one, and kept here so the citation can be checked against
+        // the ledger rather than against the model's retelling. `undefined`,
+        // not `[]`, means "this caller does not know about lessons" and leaves
+        // the prompt byte-identical to before; an empty array is a statement
+        // that nothing failed, and the prompt says so.
+        const attested = attestedGateFailures(session(sid), cursor.turn).map(
+          (f) =>
+            // Review #384 finding 1: ledger args are raw tool input. A failing
+            // `bun test --token=sk-...` put the credential verbatim into the
+            // ATTESTED FAILURES block — the transcript scrub does not cover
+            // this input. Redact at construction, so the prompt renders the
+            // safe string AND the citation check compares against the same
+            // representation the model was shown.
+            redactSecrets(f.arg ? `${f.cmd} — ${f.arg}` : f.cmd),
+        );
+        // Review #384 finding 2: `lessonHay.includes(cite)` accepted a lesson
+        // citing `tsc` when the only failure was `bun test
+        // --test-name-pattern tsc` — substring presence cannot establish that
+        // the cited command ran. The list renders `cmd — arg`; a faithful
+        // citation copies a COMPLETE displayed field, so membership is tested
+        // against each whole entry, its cmd, and its arg — never a fragment.
+        // `tsc` is none of those for that failure and is refused; the cmd-only
+        // citation the prompt's own example uses still passes.
+        const lessonSet = new Set<string>();
+        for (const f of attested) {
+          lessonSet.add(normWs(f).toLowerCase());
+          const sep = f.lastIndexOf(" — ");
+          if (sep > 0) {
+            lessonSet.add(normWs(f.slice(0, sep)).toLowerCase());
+            lessonSet.add(normWs(f.slice(sep + 3)).toLowerCase());
+          }
+        }
+        // Hoisted so its length can be billed below.
+        // Redact the COMPLETE transcript, THEN apply the character budget
+        // (#132). Cropping first can start the window INSIDE a credential:
+        // a PEM body whose BEGIN marker fell off, or a token whose prefix
+        // fell off, matches no pattern — buildCapturePrompt's own scrub
+        // (kept, defense in depth) cannot recognize a fragment.
+        const capturePrompt = buildCapturePrompt(
+          redactSecrets(work).slice(-7000),
+          captureMax,
+          redactSecrets(userProse).slice(-1500),
+          knownRows,
+          attested,
+        );
+        const promptChars = capturePrompt.length;
         const out = await generateApi.text({
           model,
-          // Redact the COMPLETE transcript, THEN apply the character budget
-          // (#132). Cropping first can start the window INSIDE a credential:
-          // a PEM body whose BEGIN marker fell off, or a token whose prefix
-          // fell off, matches no pattern — buildCapturePrompt's own scrub
-          // (kept, defense in depth) cannot recognize a fragment.
-          prompt: buildCapturePrompt(
-            redactSecrets(work).slice(-7000),
-            captureMax,
-            redactSecrets(userProse).slice(-1500),
-            knownRows,
-          ),
+          prompt: capturePrompt,
         });
         const text = typeof out === "string" ? out : (out?.text ?? "");
         // #211: disposed while the model call was in flight. Stop here — the
@@ -502,6 +546,32 @@ export function configureAutoCapture(
         // is the ENOENT teardown noise this check exists to eliminate, and
         // the drain in cleanup means the pass is finished, not lost mid-air.
         if (controller.signal.aborted) return;
+        // #387: bill our own call. `generate.text` resolves to `{ text }` and
+        // nothing else — no `usage`, no `tokens` (probed against the running
+        // host) — and capture is not part of any session's event stream, so a
+        // meter reading the session reports zero for it. chars/4 is an
+        // estimate and the line says `receipt=none` so it can never be quoted
+        // as a provider number.
+        //
+        // Deliberately AFTER the teardown check above: a disposed pass has no
+        // store left to write to. Its tokens therefore go unbilled here, which
+        // undercounts by one call at teardown rather than throwing ENOENT out
+        // of a receipt path that must never break a session.
+        await record(
+          "capture_cost",
+          {
+            session: sid,
+            trigger,
+            prompt_chars: promptChars,
+            text_chars: text.length,
+            est_tokens: Math.ceil((promptChars + text.length) / 4),
+            receipt: "none",
+            ...(modelTag ? { model: modelTag } : {}),
+          },
+          true,
+          sid,
+          captureGate.evidenceContext,
+        );
         let candidates = parseCandidates(text, captureMax);
         // Deterministic guided pre-pass (POC, FINDINGS 2026-11-08 §4, option
         // `captureGuidedRules`): the user's own lines decide what is guided —
@@ -586,10 +656,83 @@ export function configureAutoCapture(
               c.original = undefined;
           }
         }
+        // S1 (learn-from-failure): a row that CITES a failing command is
+        // claiming to be a lesson, and the claim is checked against the ledger,
+        // not against the model's retelling. ReMe (Findings ACL 2026) found
+        // selective addition beats full addition because one failed trajectory
+        // rarely carries enough context for a correct analysis — so the way
+        // this feature fails is by storing a wrong rule, and a rule about a
+        // failure that never happened (or that the agent already fixed) is the
+        // worst version of it: it rides every later session as an instruction.
+        //
+        // The gate is monotone. Only a row carrying `failure` makes the claim,
+        // so an ordinary `blocker` note — a type this capture path has always
+        // written — is untouched. Refusing every uncited blocker would delete
+        // rows the store has always kept, and a provenance fix does not buy a
+        // recall loss here.
+        let lessonsKept = 0;
+        let lessonsRefused = 0;
+        candidates = candidates.filter((c) => {
+          if (c.failure === undefined) return true;
+          const cite = normWs(c.failure).toLowerCase();
+          if (cite && lessonSet.has(cite)) {
+            lessonsKept++;
+            return true;
+          }
+          lessonsRefused++;
+          return false;
+        });
+        if (lessonsKept || lessonsRefused)
+          await record(
+            "auto_capture_lessons",
+            {
+              session: sid,
+              trigger,
+              kept: lessonsKept,
+              refused: lessonsRefused,
+              attested: attested.length,
+              ...(modelTag ? { model: modelTag } : {}),
+            },
+            false,
+            sid,
+            captureGate.evidenceContext,
+          );
         for (const c of candidates) {
           // Between candidates, never inside a gate run: a supersession that
           // half-applied is a store the next session cannot trust.
           if (controller.signal.aborted) return;
+          // #393 AC 2: a numeric claim capture INFERRED (the user did not state
+          // it) that names a constant the tree also names is checked before it
+          // is stored. Only a contradiction refuses; "undecidable" is the
+          // transport case and keeps the row, labelled.
+          const claim = c.guided
+            ? { verdict: "undecidable" as const }
+            : claimVerdictFromContent(
+                captureReader.kind === "repo"
+                  ? captureReader.scope.path
+                  : undefined,
+                c.content,
+              );
+          const verdict = claim.verdict;
+          if (verdict === "contradicts") {
+            await record(
+              "auto_capture_contradiction",
+              {
+                session: sid,
+                trigger,
+                type: c.type,
+                scope: redactSecrets(c.scope),
+                reason: "claim_contradicts_tree",
+                where: claim.ref ?? "",
+                matched: claim.claim ?? "",
+                ...(modelTag ? { model: modelTag } : {}),
+              },
+              false,
+              sid,
+              captureGate.evidenceContext,
+            );
+            continue;
+          }
           const original = c.original;
           const durable: string[] = [];
           let outcome: Awaited<ReturnType<typeof runWriteGate>>;
@@ -610,6 +753,11 @@ export function configureAutoCapture(
                 ...(original ? { original } : {}),
                 tags: [
                   AUTO_CAPTURE_TAG,
+                  // #393: the ONE case that earns `[code-checked]` — an inferred
+                  // numeric claim that agreed with the tree. Absent everywhere
+                  // else, which is what makes `[unverified]` mean something
+                  // instead of decorate everything.
+                  ...(verdict === "agrees" ? [CODE_CHECKED_TAG] : []),
                   ...(trigger === "compaction" ? [CAPTURE_COMPACT_TAG] : []),
                   ...(c.guided ? [USER_GUIDED_TAG] : []),
                 ],
