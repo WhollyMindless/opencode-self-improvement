@@ -206,6 +206,36 @@ describe("valueConflicts", () => {
     expect(valueConflicts(v3, [v2])).toEqual([]);
   });
 
+  test("#400 review round 3: numeric qualifiers are context, not noise", () => {
+    // The residual matcher dropped EVERY pure number, so "tenant 101" and
+    // "tenant 202" differed only in digits the comparison never saw — and
+    // tenant 101 retired. Only the two compared values may drop out.
+    const t101 = mem(
+      "2026-10-01T09:00:00.000Z",
+      "The MAX_RETRIES constant is 3 for tenant 101.",
+    );
+    const t202 = mem(
+      "2026-10-02T09:00:00.000Z",
+      "The MAX_RETRIES constant is 5 for tenant 202.",
+    );
+    expect(valueConflicts(t202, [t101])).toEqual([]);
+    expect(valueConflicts(t101, [t202])).toEqual([]);
+  });
+
+  test("a correction quoting the old value still retires", () => {
+    // Both compared values are skipped on both sides, so R3's shape of
+    // correction — naming the number it replaces — keeps working.
+    const old = mem(
+      "2026-10-01T09:00:00.000Z",
+      "The VAT_BPS constant is 2150 basis points.",
+    );
+    const fix = mem(
+      "2026-10-02T09:00:00.000Z",
+      "Corrected: the VAT_BPS constant is 1900 basis points, was 2150.",
+    );
+    expect(valueConflicts(fix, [old]).length).toBe(1);
+  });
+
   test("an inferred write never retires a user-guided row", () => {
     // The user is the stronger claim; a captured inference burying stated
     // guidance is the wrong-direction fix R3 must not ship with.

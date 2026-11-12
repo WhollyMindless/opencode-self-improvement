@@ -102,19 +102,20 @@ const EDITORIAL: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The qualifying content of a row: every token that is not prose glue and
- * not a pure number ("2150", "-5", "0.082" — the values guard 2 already
- * compared). `tokens()` keeps dots, so "points." arrives with its period;
- * edge dots are stripped before comparison while interior dots keep dotted
- * members intact. "v2" is NOT a pure number and stays — a version qualifier
- * is exactly the kind of difference that must block retirement.
+ * The qualifying content of a row: every token that is not prose glue.
+ * `tokens()` keeps dots, so "points." arrives with its period; edge dots are
+ * stripped before comparison while interior dots keep dotted members intact.
+ * Numbers STAY (#400 review round 3, WhollyMindless): "tenant 101" and
+ * "tenant 202" are distinguished only by their digits, and discarding every
+ * number before the comparison erased exactly the context that proved the
+ * rows were different facts. The corrected value itself is excluded later,
+ * per pair, in sameSentenceExceptValues.
  */
 function residualWords(content: string): Set<string> {
   const out = new Set<string>();
   for (const t of tokens(content)) {
     const bare = t.replace(/^\.+|\.+$/g, "");
     if (!bare || IGNORE.has(bare)) continue;
-    if (/^[-+]?\d+(?:\.\d+)?$/.test(bare)) continue;
     out.add(bare);
   }
   return out;
@@ -123,12 +124,30 @@ function residualWords(content: string): Set<string> {
 /**
  * Guard 3: the correction must be the ONLY thing that changed. Every word
  * one row says and the other does not must be editorial narration; a single
- * content word unique to one row ("production", "tenant", "alpha", "v2")
- * means the rows qualify different facts, and nothing retires.
+ * content word unique to one row ("production", "tenant", "alpha", "v2",
+ * "101") means the rows qualify different facts, and nothing retires.
+ *
+ * The two compared values are skipped on BOTH sides: they are the change
+ * being sanctioned, and skipping the candidate's value on the target's side
+ * too lets a correction that quotes the old number ("...is 1900, was 2150")
+ * still retire. `tokens()` strips the sign ("−5" arrives as "5"), so the
+ * skip set drops signs; a sign flip therefore still retires through the
+ * value guard, never through a residual mismatch.
  */
-function sameSentenceExceptValue(a: Set<string>, b: Set<string>): boolean {
-  for (const t of a) if (!b.has(t) && !EDITORIAL.has(t)) return false;
-  for (const t of b) if (!a.has(t) && !EDITORIAL.has(t)) return false;
+function sameSentenceExceptValues(
+  a: Set<string>,
+  b: Set<string>,
+  valueA: string,
+  valueB: string,
+): boolean {
+  const skip = new Set([
+    valueA.replace(/^[-+]/, ""),
+    valueB.replace(/^[-+]/, ""),
+  ]);
+  for (const t of a)
+    if (!skip.has(t) && !b.has(t) && !EDITORIAL.has(t)) return false;
+  for (const t of b)
+    if (!skip.has(t) && !a.has(t) && !EDITORIAL.has(t)) return false;
   return true;
 }
 
@@ -198,7 +217,15 @@ export function valueConflicts(
       }
     }
     if (!hit) continue;
-    if (!sameSentenceExceptValue(myWords, residualWords(m.content))) continue;
+    if (
+      !sameSentenceExceptValues(
+        myWords,
+        residualWords(m.content),
+        mine.get(hit.symbol) ?? "",
+        hit.from,
+      )
+    )
+      continue;
     out.push({
       ts: m.ts,
       symbol: hit.symbol,
