@@ -144,6 +144,28 @@ Injection, recall, the frontier block, compaction, `memory_forget` and decay onl
 
 Gate-authored evidence and its init/capture lifecycle records capture attribution at operation entry: if a session moves repositories while the operation runs, its audit lines remain in the starting repository's partition and can be read with `memory_evidence` from a session bound there. Init start/complete/skip, capture outcomes/refusals, and capture lag share that captured owner. A captured named session with no resolved repository keeps a session-private `sid` label even on lifecycle records that suppress call metadata; otherwise an unstamped line would appear global. Viewer audit attribution and cancellation of in-flight capture are separate boundaries.
 
+## What memory is worth, measured
+
+Two results. Only two are quoted, each with its `n` and the seat it ran on, because the direction of an early finding flipped when the metric was corrected — see [#385](https://github.com/abogartz/opencode-self-improvement/issues/385) and [#392](https://github.com/abogartz/opencode-self-improvement/issues/392).
+
+**The metric.** `work = session generation + capture generation`, with cache read and cache write reported separately and never folded into a total. Capture is a separate model call made after the turn, so it appears in no session's usage: a meter that reads session numbers alone reports this plugin's own cost as exactly zero. On the seat below `input` is only the **uncached remainder** — one run reported 13,393 of 187,856 tokens that actually moved, 7%.
+
+| Result | n | Seat | What was measured |
+| --- | --- | --- | --- |
+| **Transport.** A fact learned in one session reaches a later session that provably cannot obtain it any other way | 5 per arm, with the empty-store floor verified first | `evo/Qwen3.8-Flash-Next-UD-Q4_K_XL`, local seat behind a recording proxy | empty store **0/5** (every failure: the artifact was never written), the same store seeded **5/5**. The fixture is leak-checked: no form of the answer is in any file the agent sees, including its own documentation |
+| **Reuse.** A memory reduces the work on a task the agent already passes | 6 pairs | same seat | median of the six per-pair L2/L0 work ratios — sorted 0.54, 0.79, 0.84, 0.98, 1.06, 1.23, middle two averaged — **0.91×**, higher in 2 of 6, inside the pre-registered 0.80–1.25 band: **no measurable effect at 20% resolution**. A memory about an unrelated task: **0.99×**, same estimator, higher in 3 of 6 |
+
+**What is not claimed here.** No token saving. No dollar figure. The seat above is a local box with no cache price; on a hosted provider a cache miss costs roughly 0.1× read and 1.25× write, which is a different claim and cannot be quoted from these numbers.
+
+**Rules for any cost claim in this repository** — enforced by `test/claims.test.ts`, which runs in CI:
+
+- No cost claim below **n=6 pairs per arm**. A ratio at `6 ≤ n < 21` is labelled **"20% resolution"**.
+- A **seat** and a **metric** are named on the same line as the number.
+- The word "cheaper" does not appear without those.
+- An issue or PR body making a cost claim owes the same n, seat and metric. CI reads only this file, so that half is enforced by review.
+- Nothing reproduces at n=1: the same arm on the same fixture, both runs passing, differed by more than 2× in tokens.
+- Cache state is reported, never assumed. Two runs that start from different cache states are not a saving.
+
 ## Token cost and caching
 
 - **Section-frozen injection.** The whole memory section — standing digest, open-thread frontier, relevance block — is computed once per epoch and delivered byte-identically until something the model actually needs changes. The epoch's authority is the **rendered bytes**, not the store fingerprint: a promoted row that changes nothing visible costs no cache bust.
@@ -166,13 +188,13 @@ Gate-authored evidence and its init/capture lifecycle records capture attributio
 | C — section frozen on rendered bytes | 4 | 3 | 55258 | 2762.9 | 2856 |
 | D — C + riding bytes (shipped) | 1 | 0 | 53500 | 2675.0 | 2675 |
 
-The invalidation counter counts **byte-moving recomputes**: epochs whose memory-section bytes differ from the previous epoch. It is not a provider cache-miss or re-prefill count, and no status surface claims it is. All three synthetic writes change B and C's bytes; D records no change for these self-writes. Corrections, removals and writes by another session can still move D's bytes, as pinned by `test/epoch.test.ts`. The workload re-scores only when the store fingerprint moves, so its 20 prompts never re-rank one shared set — D's `0` is not evidence about the same-set re-ranking above. D also injects 12.3% fewer characters than the naive policy, measured over the whole section. Reproduce this deterministic byte workload:
+The invalidation counter counts **byte-moving recomputes**: epochs whose memory-section bytes differ from the previous epoch. It is not a provider cache-miss or re-prefill count, and no status surface claims it is. All three synthetic writes change B and C's bytes; D records no change for these self-writes. Corrections, removals and writes by another session can still move D's bytes, as pinned by `test/epoch.test.ts`. The workload re-scores only when the store fingerprint moves, so its 20 prompts never re-rank one shared set — D's `0` is not evidence about the same-set re-ranking above. D also injects 12.3% fewer **characters** than the naive policy, measured over the whole section — bytes on a deterministic workload, not tokens and not a provider bill. Reproduce this deterministic byte workload:
 
 ```sh
 bun run bench
 ```
 
-**Author-reported provider audit**, not a new measurement here: [#346's six-turn local-seat audit](https://github.com/abogartz/opencode-self-improvement/issues/346#issuecomment-6714172764) compared `ee769ef` with frozen `29268ef`. The changed build used 2,065 additional input tokens over six turns (~344/turn), with one 3,257-input-token spike, and 94.4% cache share versus 97.5%. The block rode late in the system prompt, after a stable prefix; a byte-moving epoch did not re-bill the whole conversation. This run included two guided rows, so it does not isolate prompt rescoring from the hint channel or establish a bound for every provider. The status counter remains a byte-change count; provider receipts report actual cache reuse separately.
+**Author-reported provider audit**, not a new measurement here, and **input tokens only** (on that provider `input` is the uncached remainder, so this is not a total and not a saving): [#346's six-turn local-seat audit](https://github.com/abogartz/opencode-self-improvement/issues/346#issuecomment-6714172764) compared `ee769ef` with frozen `29268ef`. The changed build used 2,065 additional input tokens over six turns (~344/turn), with one 3,257-input-token spike, and 94.4% cache share versus 97.5%. The block rode late in the system prompt, after a stable prefix; a byte-moving epoch did not re-bill the whole conversation. This run included two guided rows, so it does not isolate prompt rescoring from the hint channel or establish a bound for every provider. The status counter remains a byte-change count; provider receipts report actual cache reuse separately.
 
 ## Recall quality
 
@@ -366,7 +388,7 @@ bun run sweep:test
 
 The output is a canonical mutation score — killed over total, with equivalent mutants and load errors excluded from the denominator — plus the survivors, the unpinned invariants. Survivors are the audit's output, not a scandal: some mutants are expected to survive and become entries on the unpinned list rather than red CI.
 
-Run it when you want to know whether the suite still has teeth — after changing tests or coverage, or as a pre-release gate with `bun scripts/test-sweep.ts --fail-on-survivors`, which exits 4 when anything survives. Two cheaper checks come first: `bun scripts/test-sweep.ts --validate` confirms every mutation pattern still lands on exactly one source site without running the suite, and `bun scripts/test-sweep.ts --selftest` plants a mutation in a trivially-tested pure function and fails unless the suite kills it — proof the instrument itself can go red.
+Run it when you want to know whether the suite still has teeth — after changing tests or coverage, or as a pre-release gate with `bun scripts/test-sweep.ts --fail-on-survivors`, which exits 4 when anything survives. Two lighter checks come first: `bun scripts/test-sweep.ts --validate` confirms every mutation pattern still lands on exactly one source site without running the suite, and `bun scripts/test-sweep.ts --selftest` plants a mutation in a trivially-tested pure function and fails unless the suite kills it — proof the instrument itself can go red.
 
 **Pre-release ritual (decided 2026-11-04, #72):** before pushing a release commit, a human runs `--validate`, then `--selftest`, then `--fail-on-survivors`, and records the mutation score and the survivor list in `bench/RESULTS.md` beside the published evidence. Cadence is pre-release only, run by a person: the sweep is a full suite per mutant and never belongs in CI, where it would cost more than it informs. Survivors become entries on the unpinned-invariant list, not red checks.
 
