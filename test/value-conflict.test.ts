@@ -236,6 +236,40 @@ describe("valueConflicts", () => {
     expect(valueConflicts(fix, [old]).length).toBe(1);
   });
 
+  test("#400 review round 4: a qualifier repeating the value survives", () => {
+    // The literal skip deleted every token equal to a compared value, so
+    // "tenant 3" vanished with the asserted 3 and the tenants coexisted no
+    // more. The excision is positional: only the number next to the symbol
+    // is the corrected value.
+    const t3 = mem(
+      "2026-10-01T09:00:00.000Z",
+      "The MAX_RETRIES constant is 3 for tenant 3.",
+    );
+    const t5 = mem(
+      "2026-10-02T09:00:00.000Z",
+      "The MAX_RETRIES constant is 5 for tenant 5.",
+    );
+    expect(valueConflicts(t5, [t3])).toEqual([]);
+    expect(valueConflicts(t3, [t5])).toEqual([]);
+  });
+
+  test("a swapped qualifier pair coexists: qualifiers are not citations", () => {
+    // Each row's extra number equals the OTHER row's value, so a literal
+    // "cites the old value" reading would retire both ways. The citation is
+    // only excused when its preceding word is not a content word: "tenant"
+    // qualifies, "was" cites.
+    const a = mem(
+      "2026-10-01T09:00:00.000Z",
+      "The MAX_RETRIES constant is 3 for tenant 5.",
+    );
+    const b = mem(
+      "2026-10-02T09:00:00.000Z",
+      "The MAX_RETRIES constant is 5 for tenant 3.",
+    );
+    expect(valueConflicts(b, [a])).toEqual([]);
+    expect(valueConflicts(a, [b])).toEqual([]);
+  });
+
   test("an inferred write never retires a user-guided row", () => {
     // The user is the stronger claim; a captured inference burying stated
     // guidance is the wrong-direction fix R3 must not ship with.

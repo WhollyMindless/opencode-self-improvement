@@ -102,23 +102,33 @@ const EDITORIAL: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The qualifying content of a row: every token that is not prose glue.
- * `tokens()` keeps dots, so "points." arrives with its period; edge dots are
- * stripped before comparison while interior dots keep dotted members intact.
- * Numbers STAY (#400 review round 3, WhollyMindless): "tenant 101" and
- * "tenant 202" are distinguished only by their digits, and discarding every
- * number before the comparison erased exactly the context that proved the
- * rows were different facts. The corrected value itself is excluded later,
- * per pair, in sameSentenceExceptValues.
+ * The qualifying content of a row with ONE occurrence removed: the number
+ * the given symbol asserts, excised by POSITION before tokenizing. Numbers
+ * otherwise STAY (#400 review rounds 3 and 4, WhollyMindless): "tenant 101"
+ * and "tenant 202" are distinguished only by digits, and a literal skip of
+ * the compared value also skipped a qualifier carrying the same literal —
+ * "is 3 for tenant 3" lost its tenant when the 3 was skipped globally.
+ * Position is the only distinction between "the value being corrected" and
+ * "a qualifier that happens to repeat it": the asserted number is the first
+ * within WINDOW after the symbol (falling back to before), exactly what
+ * symbolValues reads.
  */
-function residualWords(content: string): Set<string> {
-  const out = new Set<string>();
-  for (const t of tokens(content)) {
+function residualTokens(
+  content: string,
+  excise: readonly [number, number] | undefined,
+): { set: Set<string>; list: string[]; full: string[] } {
+  const cut = excise
+    ? `${content.slice(0, excise[0])} ${content.slice(excise[1])}`
+    : content;
+  const full: string[] = [];
+  const list: string[] = [];
+  for (const t of tokens(cut)) {
     const bare = t.replace(/^\.+|\.+$/g, "");
-    if (!bare || IGNORE.has(bare)) continue;
-    out.add(bare);
+    if (!bare) continue;
+    full.push(bare);
+    if (!IGNORE.has(bare)) list.push(bare);
   }
-  return out;
+  return { set: new Set(list), list, full };
 }
 
 /**
@@ -127,28 +137,77 @@ function residualWords(content: string): Set<string> {
  * content word unique to one row ("production", "tenant", "alpha", "v2",
  * "101") means the rows qualify different facts, and nothing retires.
  *
- * The two compared values are skipped on BOTH sides: they are the change
- * being sanctioned, and skipping the candidate's value on the target's side
- * too lets a correction that quotes the old number ("...is 1900, was 2150")
- * still retire. `tokens()` strips the sign ("−5" arrives as "5"), so the
- * skip set drops signs; a sign flip therefore still retires through the
- * value guard, never through a residual mismatch.
+ * A unique NUMBER is additionally excused when it reads as a citation of
+ * the other row's value: it equals the other side's asserted value (sign
+ * dropped — tokens() strips signs, so a sign flip retires through the value
+ * guard, never here) AND its preceding word is not a content word. "was
+ * 2150" cites; "tenant 5" qualifies. That keeps R3's correction shape
+ * ("...is 1900 basis points, was 2150." retires 2150) while a swapped pair
+ * like "is 3 for tenant 5" / "is 5 for tenant 3" — where each extra number
+ * is a qualifier, not a citation — coexists.
  */
-function sameSentenceExceptValues(
-  a: Set<string>,
-  b: Set<string>,
-  valueA: string,
-  valueB: string,
+function sameSentenceExceptValue(
+  a: { set: Set<string>; list: string[]; full: string[] },
+  b: { set: Set<string>; list: string[]; full: string[] },
+  aAsserted: string,
+  bAsserted: string,
 ): boolean {
-  const skip = new Set([
-    valueA.replace(/^[-+]/, ""),
-    valueB.replace(/^[-+]/, ""),
-  ]);
-  for (const t of a)
-    if (!skip.has(t) && !b.has(t) && !EDITORIAL.has(t)) return false;
-  for (const t of b)
-    if (!skip.has(t) && !a.has(t) && !EDITORIAL.has(t)) return false;
+  const numeric = (t: string) => /^\d+(?:\.\d+)?$/.test(t);
+  const cited = (
+    side: { set: Set<string>; list: string[]; full: string[] },
+    t: string,
+    otherAsserted: string,
+  ) => {
+    if (!numeric(t) || t !== otherAsserted.replace(/^[-+]/, "")) return false;
+    // Adjacency is read on the RAW token stream: "was 2150" cites even
+    // though "was" is prose glue, and "tenant 5" qualifies — the filter
+    // that serves the comparison would erase exactly this distinction.
+    const i = side.full.indexOf(t);
+    if (i === 0) return true;
+    const prev = side.full[i - 1] ?? "";
+    return IGNORE.has(prev) || EDITORIAL.has(prev);
+  };
+  for (const t of a.set)
+    if (!b.set.has(t) && !EDITORIAL.has(t) && !cited(a, t, bAsserted))
+      return false;
+  for (const t of b.set)
+    if (!a.set.has(t) && !EDITORIAL.has(t) && !cited(b, t, aAsserted))
+      return false;
   return true;
+}
+
+/** Escape a symbol for literal use in a RegExp. */
+const reLiteral = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Where the symbol asserts its value: the span of the first number within
+ * WINDOW after the symbol (falling back to before), mirroring symbolValues
+ * exactly — same search, first symbol match that yields a number.
+ */
+function assertedValueSpan(
+  content: string,
+  sym: string,
+): [number, number] | undefined {
+  const SYMBOL = new RegExp(`\\b${reLiteral(sym)}\\b`, "g");
+  let match: RegExpExecArray | null = SYMBOL.exec(content);
+  while (match) {
+    const afterStart = match.index + match[0].length;
+    const after = content.slice(afterStart, afterStart + WINDOW);
+    const numAfter = after.match(/[-+]?\d+(?:\.\d+)?/);
+    if (numAfter) {
+      const at = afterStart + (numAfter.index ?? 0);
+      return [at, at + numAfter[0].length];
+    }
+    const beforeStart = Math.max(0, match.index - WINDOW);
+    const before = content.slice(beforeStart, match.index);
+    const numBefore = before.match(/[-+]?\d+(?:\.\d+)?/);
+    if (numBefore) {
+      const at = beforeStart + (numBefore.index ?? 0);
+      return [at, at + numBefore[0].length];
+    }
+    match = SYMBOL.exec(content);
+  }
+  return undefined;
 }
 
 /**
@@ -199,7 +258,6 @@ export function valueConflicts(
   const guided = candidate.tags?.includes(USER_GUIDED_TAG) === true;
   const mine = symbolValues(candidate.content);
   if (mine.size === 0) return [];
-  const myWords = residualWords(candidate.content);
   const out: ValueConflict[] = [];
   for (const m of live) {
     if (m.superseded_by) continue;
@@ -217,10 +275,15 @@ export function valueConflicts(
       }
     }
     if (!hit) continue;
+    // Excise each side's asserted occurrence of the hit symbol's value,
+    // then require the rest of the two sentences to match.
     if (
-      !sameSentenceExceptValues(
-        myWords,
-        residualWords(m.content),
+      !sameSentenceExceptValue(
+        residualTokens(
+          candidate.content,
+          assertedValueSpan(candidate.content, hit.symbol),
+        ),
+        residualTokens(m.content, assertedValueSpan(m.content, hit.symbol)),
         mine.get(hit.symbol) ?? "",
         hit.from,
       )
