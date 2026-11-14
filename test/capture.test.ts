@@ -69,7 +69,19 @@ function seed(type: string, scope: string, content: string): void {
   );
 }
 
-async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
+/**
+ * Wait for a positive effect, with a budget the shared loop can actually meet.
+ *
+ * `bun test --parallel` runs every suite file in ONE process, so a capture
+ * pipeline that lands in tens of ms idle can stretch 4-8x under a loaded
+ * hosted runner (measured there: a 640 ms test at 5083 ms; a 150 ms
+ * fixed-sleep control at 0 rows). The 2000 ms this file used to guess was a
+ * harness constant racing that loop — the production capture path has no such
+ * deadline. 10 s still fails, loudly and with a real message, when the effect
+ * never arrives; bun's own per-test guard is raised to match (package.json
+ * `test` script).
+ */
+async function waitFor(cond: () => boolean, timeoutMs = 10_000): Promise<void> {
   const start = Date.now();
   while (!cond()) {
     if (Date.now() - start > timeoutMs) throw new Error("waitFor timed out");

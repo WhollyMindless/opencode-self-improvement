@@ -1101,7 +1101,7 @@ function suiteEnv(): Record<string, string> {
 
 async function runSuite(dir: string): Promise<SuiteRun> {
   const t0 = Date.now();
-  const proc = Bun.spawn([TEST_BUN, "test", "./test/"], {
+  const proc = Bun.spawn([TEST_BUN, "test", "./test/", "--timeout=20000"], {
     cwd: dir,
     stdout: "pipe",
     stderr: "pipe",

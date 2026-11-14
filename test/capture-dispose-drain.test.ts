@@ -56,7 +56,7 @@ afterEach(async () => {
   removeStore(root);
 });
 
-async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
+async function waitFor(cond: () => boolean, timeoutMs = 10_000): Promise<void> {
   const start = Date.now();
   while (!cond()) {
     if (Date.now() - start > timeoutMs) throw new Error("waitFor timed out");
@@ -74,7 +74,7 @@ async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
  */
 async function waitForAsync(
   cond: () => Promise<boolean>,
-  timeoutMs = 2000,
+  timeoutMs = 10_000,
 ): Promise<void> {
   const start = Date.now();
   while (!(await cond())) {

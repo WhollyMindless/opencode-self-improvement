@@ -138,7 +138,7 @@ describe("capture contradiction emission (#350)", () => {
         type: "session.execution.succeeded",
         data: { sessionID: "emission" },
       });
-      const deadline = Date.now() + 4000;
+      const deadline = Date.now() + 10_000;
       while (
         !readEvidenceLog().some(
           (e) => e.ev === "capture_lag" && e.session === "emission",
