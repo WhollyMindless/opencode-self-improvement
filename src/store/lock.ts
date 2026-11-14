@@ -89,7 +89,16 @@ import { record } from "../evidence/record.ts";
  */
 const lockDatabaseName = (file: string): string =>
   `.store-lock.${basename(file)}.sqlite`;
-const DEFAULT_TIMEOUT_MS = 5_000;
+const DEFAULT_TIMEOUT_MS = 10_000;
+// The budget must exceed the worst LEGITIMATE wait, not just an idle section.
+// A whole-file publish inside a section can spend 2000 ms in `handoverRename`
+// retrying a rename Windows refuses while a reader holds the destination
+// (src/core/logfmt/publish.ts) — and it holds the lock doing it, because the
+// handover's premise is exclusion. Two such sections queued ahead of a writer
+// are 4 s plus real work: measured on hosted Windows, a racing test's writer
+// reported "locked for 5001ms" while the holder was mid-handover-retry, not
+// wedged. 10 s still fails closed and reports, but stops refusing writes that
+// were simply behind two honest retries.
 // #216: the default policy is fail-closed, the policy #196 moved every
 // production writer to. A writer that omits opts must refuse at the deadline,
 // not silently reintroduce the unlocked-proceed row loss the LOCK_WRITE
