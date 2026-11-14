@@ -196,11 +196,18 @@ describe("capture checks an inferred claim before storing it", () => {
       data: { sessionID: sid },
     });
     const deadline = Date.now() + 4000;
-    while (!readEvidenceLog().some((l) => String(l.session) === sid)) {
-      if (Date.now() > deadline) throw new Error("capture did not run");
-      await new Promise((r) => setTimeout(r, 20));
+    for (;;) {
+      const events = readEvidenceLog().filter((l) => String(l.session) === sid);
+      const failure = events.find(
+        (l) => l.ev === "auto_capture_refused" && l.reason === "capture_threw",
+      );
+      if (failure)
+        throw new Error(`capture failed: ${JSON.stringify(failure)}`);
+      if (events.some((l) => l.ev === "capture_lag")) break;
+      if (Date.now() >= deadline)
+        throw new Error(`capture did not complete: ${JSON.stringify(events)}`);
+      await new Promise((r) => setTimeout(r, 5));
     }
-    await new Promise((r) => setTimeout(r, 250));
   }
 
   test("a contradicted inferred claim is refused and the failed check is logged", async () => {
