@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { loadAll } from "../src/store/files/load.ts";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -114,19 +115,20 @@ describe.skipIf(process.platform === "win32")("private store modes", () => {
     }
   });
 
-  test("the first lock creates a private store directory and lock files", async () => {
+  test("the first lock creates a private store directory and lock file", async () => {
     const file = join(root, "day.logfmt");
     await withStoreLock(
       file,
       async () => {
         expect(mode(root)).toBe(0o700);
-        // The lock is a SQLite database, so its WAL sidecars belong to the same
-        // private surface: -wal holds the rows that are not checkpointed yet,
-        // and a world-readable -wal leaks the store while the lock is held.
+        // One file per lock: the lock transaction dirties no page, so a
+        // rollback-mode database grows no journal and no WAL sidecars. Were it
+        // ever to run in WAL, a world-readable -wal would leak the store while
+        // the lock is held — so the assertion is that neither exists.
         const db = lockDatabaseFor(file);
         expect(mode(db)).toBe(0o600);
-        expect(mode(db + "-wal")).toBe(0o600);
-        expect(mode(db + "-shm")).toBe(0o600);
+        expect(existsSync(db + "-wal")).toBe(false);
+        expect(existsSync(db + "-shm")).toBe(false);
       },
       LOCK_WRITE,
     );

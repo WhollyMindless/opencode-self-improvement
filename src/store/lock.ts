@@ -31,26 +31,26 @@
 // 1.4.4 on the CI runner, which settles that option by itself.
 //
 // SQLite removes the dependency instead of retrying around it. Nothing is
-// created and nothing is deleted per acquisition — WAL keeps -wal and -shm
-// alive for the life of the connection — so there is no delete for Windows to
-// refuse, and a killed holder is released by the kernel. Measured on the
-// Windows runner with Bun 1.4.4: 6us per acquire and release against 770us for
-// the lock file, a second process refused with "database is locked", and a
-// SIGKILLed holder releasing immediately where the file protocol waited out its
-// stale window.
+// created and nothing is deleted per acquisition: the lock transaction writes
+// no page — BEGIN IMMEDIATE, then ROLLBACK — and SQLite only journals a
+// transaction that dirties one, so the kernel byte-range lock on the database
+// file IS the mutex. Measured: 50 lock cycles on a rollback-mode database
+// leave exactly one file on disk and refuse a second connection SQLITE_BUSY;
+// a killed holder is released by the kernel with its handles.
 //
 // Readers take NO lock: publishers hand over the new file with a rename
 // (writeAtomic in logfmt.ts), so a reader always sees a complete store, never
 // the middle of a rewrite.
 //
-// Supported storage. WAL mode needs mmap'd shared memory for -shm, which SQLite
-// does not support on network filesystems. A memory root on SMB, NFS or a
-// OneDrive-mounted folder is therefore unsupported (#407): writes there can
-// report a disk I/O error rather than serialise. That is a deliberate cut, not
-// an oversight — the lock is the correctness mechanism for the whole store, so
-// a silently unserialised store on a share was the worse option.
+// Supported storage. SQLite's locking is byte-range locks plus a journal it
+// renames into place, and neither is dependable on network filesystems. A
+// memory root on SMB, NFS or a OneDrive-mounted folder is therefore
+// unsupported (#407): writes there can report a disk I/O error rather than
+// serialise. That is a deliberate cut, not an oversight — the lock is the
+// correctness mechanism for the whole store, so a silently unserialised store
+// on a share was the worse option.
 import { AsyncLocalStorage } from "node:async_hooks";
-import { chmod } from "node:fs/promises";
+import { chmod, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { ensureDir } from "../core/logfmt/publish.ts";
@@ -75,9 +75,11 @@ import { record } from "../evidence/record.ts";
  * directory for the wait threw `EPERM` from the rename in 2 of 12 runs and made
  * the suite red in 6 of 12.
  *
- * The cost is one database, plus its `-wal` and `-shm` sidecars, per locked
- * file. The sidecars exist only while a connection is open — closing checkpoints
- * and removes them — and `MAX_CACHED_LOCKS` bounds how many stay open.
+ * The cost is one database file per locked file, and nothing else: the lock
+ * transaction dirties no page, so a rollback-mode database never grows a
+ * journal, and it never runs in WAL mode where `-wal` and `-shm` would sit
+ * beside it for the life of every connection. `MAX_CACHED_LOCKS` bounds how
+ * many stay open.
  *
  * A writer never holds two store locks at once: the day-move loop in
  * `store/files/append.ts` releases before it re-acquires, and sections run flat
@@ -95,9 +97,9 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_ON_TIMEOUT = "fail";
 const MIN_BACKOFF_MS = 1;
 const MAX_BACKOFF_MS = 25;
-// Reaching WAL is a once-per-process-per-lock setup step, not the hot path, so
-// it gets its own bound rather than the caller's remaining budget.
-const WAL_CONVERT_BUDGET_MS = 5_000;
+// Leaving a legacy WAL journal is a once-per-process-per-lock setup step, not
+// the hot path, so it gets its own bound rather than the caller's budget.
+const JOURNAL_CONVERT_BUDGET_MS = 5_000;
 
 // The one source of the timeout policy (#216): both give-up paths — the FIFO
 // hand-off and the SQLite wait — resolve through here, so the fail-closed
@@ -169,20 +171,21 @@ async function timed(prev: Promise<void>, ms: number): Promise<boolean> {
  *
  * The cache exists because opening a connection is the expensive half of an
  * acquisition, and a real process talks to one or two store directories. It must
- * not grow without bound though: each connection holds four file descriptors
- * (database, -wal, -shm, and SQLite's own), measured at 600 descriptors for 150
- * directories. A long-lived opencode process never gets near that, but a test
- * suite that makes a temp store per test does, and a CI runner with the common
- * `ulimit -n 1024` would fail with EMFILE rather than with a useful assertion.
+ * not grow without bound though: each connection holds file descriptors on the
+ * database, and a test suite that makes a temp store per test reaches hundreds.
+ * A long-lived opencode process never gets near that, but a CI runner with the
+ * common `ulimit -n 1024` would fail with EMFILE rather than with a useful
+ * assertion.
  *
  * So: evict only connections that are NOT holding a section, oldest first, and
  * only past the cap. The cap counts LOCKED FILES now, not directories: a
  * long-lived session touches today's day file, the ledger and canonical, while a
  * prune sweeps the month. Sweeping past the cap costs a reopen per file, never
- * correctness, because eviction skips anything in use. Closing is what checkpoints the WAL
- * and removes -wal/-shm, and that is exactly why it happens on eviction and
- * never per acquisition (#407 is about Windows refusing a delete we do not need
- * to attempt).
+ * correctness, because eviction skips anything in use. Closing is also what
+ * lets a test delete a store on Windows — a held handle keeps the file alive —
+ * and that is exactly why it happens on eviction and teardown, never per
+ * acquisition (#407 is about Windows refusing a delete we do not need to
+ * attempt).
  */
 interface Pinned {
   db: Database;
@@ -249,14 +252,15 @@ const heldLocks = new AsyncLocalStorage<ReadonlySet<string>>();
  *
  * Match the whole busy FAMILY, not just SQLITE_BUSY. SQLite reports extended
  * codes for the specific kinds of wait — BUSY_RECOVERY when another connection
- * is recovering the write-ahead log after a crash, BUSY_SNAPSHOT when a read
- * transaction has to restart, BUSY_TIMEOUT — and Bun puts the EXTENDED number
- * on `errno` (261, not 5) with the extended NAME on `code`. Comparing against
- * plain SQLITE_BUSY therefore made the one situation this lock is supposed to
- * survive — a holder that died and left the WAL to be recovered — fatal: the
- * first writer after a crash got "store lock unavailable: database is locked"
- * instead of waiting the few hundred microseconds recovery takes. Measured on
- * test/scenarios-consistency.test.ts, which kills racers mid-write.
+ * is recovering a write-ahead log (a legacy WAL lock database mid-conversion
+ * can still surface it), BUSY_SNAPSHOT when a read transaction has to restart,
+ * BUSY_TIMEOUT — and Bun puts the EXTENDED number on `errno` (261, not 5) with
+ * the extended NAME on `code`. Comparing against plain SQLITE_BUSY therefore
+ * made the one situation this lock is supposed to survive — a wait that names
+ * itself an extension of busy — fatal: a writer got "store lock unavailable:
+ * database is locked" instead of waiting the few hundred microseconds the other
+ * side needs. Measured on test/scenarios-consistency.test.ts, which kills
+ * racers mid-write.
  *
  * SQLITE_BUSY is 5 and every extension is 5 | (kind << 8), so the low byte is
  * the class.
@@ -307,15 +311,12 @@ export const isStaleLockHandle = staleHandle;
 
 /**
  * The store's privacy contract is owner-only files (README: new files 0600).
- * SQLite creates its own with the process umask, so all three are tightened.
- * -wal and -shm appear on first use, so this runs again after each acquisition.
- * A refused chmod is not worth failing a write over: it is the same concession
- * the README already makes for a root that reports EPERM.
+ * SQLite creates its own with the process umask, so it is tightened. A refused
+ * chmod is not worth failing a write over: it is the same concession the
+ * README already makes for a root that reports EPERM.
  */
 async function harden(dbPath: string): Promise<void> {
-  for (const suffix of ["", "-wal", "-shm"]) {
-    await chmod(dbPath + suffix, 0o600).catch(() => undefined);
-  }
+  await chmod(dbPath, 0o600).catch(() => undefined);
 }
 
 async function lockDatabase(dbPath: string): Promise<Database> {
@@ -348,7 +349,7 @@ async function lockDatabase(dbPath: string): Promise<Database> {
     // policy stays ours — async, bounded, and sharing one budget with the FIFO
     // hand-off above.
     db.run("PRAGMA busy_timeout = 0");
-    await ensureWal(db, dbPath);
+    await ensureLockJournal(db, dbPath);
   } catch (err) {
     db.close();
     throw err;
@@ -364,44 +365,60 @@ const journalMode = (db: Database): string =>
   ).toLowerCase();
 
 /**
- * Get this connection into WAL mode, and refuse the store if we cannot.
+ * Keep the lock database in rollback journal mode, converting a legacy WAL one,
+ * and refuse a database that will not convert.
  *
- * Converting a database to WAL takes the exclusive lock for a moment, and the
- * first statements a new connection runs against a WAL database initialise its
- * -shm index, so the FIRST open of a store races: every process that opens it
- * at the same instant can be refused with SQLITE_BUSY. Assuming a metadata read
- * is lock-free is exactly the "this one cannot need the lock" reasoning that
- * produced the bug this module is fixing — measured, both the read and the
- * conversion need the retry, and without it concurrent writers died in setup.
+ * The lock transaction dirties no page — BEGIN IMMEDIATE then ROLLBACK — and
+ * SQLite only creates a journal when a transaction has something to undo. So
+ * rollback mode is the quiet shape: one file per lock, created once, never
+ * journalled, never sidecar'd. WAL was the original choice on the theory that
+ * a journal file per acquisition is the exact Windows churn this module exists
+ * to avoid; the theory is wrong for a zero-write transaction, and WAL pays for
+ * nothing: `-wal` and `-shm` appear beside every lock while a connection is
+ * open, three Defender-visible files per lock on Windows instead of one, plus a
+ * first-open conversion race that needs its own retry budget.
  *
- * A store that cannot do WAL fails here rather than running in rollback-journal
- * mode, where every acquisition creates and then DELETES a journal file — the
- * exact Windows behaviour this module exists to avoid (#407). Saying so beats
- * paying the old defect with a new layer on top.
+ * Converting a legacy WAL database takes the exclusive lock for a moment, and
+ * a metadata read against a database another connection holds can be refused
+ * with SQLITE_BUSY, so this setup step keeps the retry. A database that cannot
+ * LEAVE WAL is refused rather than run that way: the sidecar churn would come
+ * back per store, silently.
  */
-async function ensureWal(db: Database, dbPath: string): Promise<void> {
+async function ensureLockJournal(db: Database, dbPath: string): Promise<void> {
   let backoff = MIN_BACKOFF_MS;
   let waited = 0;
   for (;;) {
     const step = Date.now();
     try {
-      if (journalMode(db) === "wal") return;
-      db.run("PRAGMA journal_mode = WAL");
-      if (journalMode(db) === "wal") return;
+      const mode = journalMode(db);
+      if (mode === "delete") return;
+      db.run("PRAGMA journal_mode = DELETE");
+      if (journalMode(db) === "delete") {
+        // The conversion checkpoints and removes `-wal`, but `-shm` only goes
+        // when the LAST WAL connection closes — and this connection, converted
+        // in place, does not close. Remove the orphan here: the exclusive lock
+        // the conversion just took means nobody is inside the WAL system, and a
+        // connection opened after it reads delete mode and never maps `-shm`.
+        // Best-effort: a refused unlink leaves a harmless orphan, and forcing
+        // the issue is the Windows delete this module exists to avoid.
+        await unlink(`${dbPath}-wal`).catch(() => undefined);
+        await unlink(`${dbPath}-shm`).catch(() => undefined);
+        return;
+      }
     } catch (err) {
       if (!contention(err)) {
         const info = err as { code?: string; errno?: number };
         throw new Error(
-          `[code=${info.code ?? "-"} errno=${info.errno ?? "-"}] store lock cannot enter WAL mode for ${dbPath}: ${(err as Error).message}`,
+          `[code=${info.code ?? "-"} errno=${info.errno ?? "-"}] store lock cannot set rollback journal mode for ${dbPath}: ${(err as Error).message}`,
         );
       }
     }
     await sleep(backoff);
     waited += Date.now() - step;
     backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
-    if (waited >= WAL_CONVERT_BUDGET_MS) {
+    if (waited >= JOURNAL_CONVERT_BUDGET_MS) {
       throw new Error(
-        `store lock could not reach WAL journal mode for ${dbPath} after ${waited}ms — another process is holding the lock database in a state that refuses it`,
+        `store lock could not leave write-ahead journal mode for ${dbPath} after ${waited}ms — another process is holding the lock database in a state that refuses it`,
       );
     }
   }

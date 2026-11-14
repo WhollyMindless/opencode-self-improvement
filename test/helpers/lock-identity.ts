@@ -21,13 +21,14 @@ export function lockIdentity(file: string): string {
 }
 
 /**
- * `name:inode` for the lock database and both write-ahead-log sidecars.
+ * `name:inode` for the lock database and the WAL sidecar names a legacy store
+ * can still carry.
  *
  * A directory listing cannot tell "nothing happened" from "deleted and
  * recreated": the NAMES come back identical either way. The inodes do not, so
  * this is the witness that makes the #407 property observable — the mutation
- * that unlinks `-shm` per acquisition survived a listing comparison and dies on
- * this one.
+ * that unlinks the database per acquisition survived a listing comparison and
+ * dies on this one.
  */
 export function lockArtifacts(file: string): string {
   const db = lockDatabaseFor(file);

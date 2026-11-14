@@ -286,9 +286,9 @@ describe("withStoreLock", () => {
     // The #407 property, stated as an assertion. The lock file protocol created
     // a name and then asked the filesystem to remove it, and on Windows that
     // removal could be refused while a third-party handle was open — leaving an
-    // entry that meant "held" with nobody holding it. WAL keeps -wal and -shm
-    // alive for the life of the connection, so a normal acquisition performs no
-    // create and no unlink at all.
+    // entry that meant "held" with nobody holding it. The lock transaction
+    // dirties no page, so a rollback-mode database never even journals: a
+    // normal acquisition performs no create and no unlink at all.
     const root = tmp();
     const file = join(root, "a.logfmt");
     await withStoreLock(file, async () => appendLog(file, "ts=warm writer=p"));
@@ -368,8 +368,8 @@ describe("withStoreLock", () => {
     //
     // The premise — the parent holds the kernel lock BEFORE the child starts —
     // must be established, not hoped for. Under --parallel the whole suite
-    // shares one process, and the parent's acquisition (mkdir, WAL pragma,
-    // three chmods) needs event-loop turns a loaded runner can withhold for
+    // shares one process, and the parent's acquisition (mkdir, journal-mode
+    // guard, chmod) needs event-loop turns a loaded runner can withhold for
     // hundreds of ms — long enough for a child on a dedicated core to take the
     // lock first. That is legal behaviour: measured, a 1500 ms starvation of
     // the loop after the spawn put the child's line at index 0 and failed this
@@ -499,23 +499,35 @@ describe("broken lock database", () => {
     expect(message).not.toMatch(/busy/);
   });
 
-  test("a store that cannot reach WAL mode is refused, not run in rollback mode", async () => {
-    // Rollback-journal mode creates and then DELETES a journal file per
-    // transaction — the Windows delete this module exists to remove. A store
-    // that cannot do WAL must say so instead of quietly paying the old defect.
-    // The assertion is on the connection this module keeps: it reports wal.
+  test("a lock database is rollback mode, and a legacy WAL one is converted", async () => {
+    // The lock transaction dirties no page, so rollback mode never journals:
+    // one file per lock. WAL would add -wal and -shm beside every lock for the
+    // life of the connection and buy nothing. A database left in WAL by an
+    // older release must be converted on the next open — and the conversion
+    // checkpoints and removes the sidecars.
     const file = join(tmp(), "a.logfmt");
-    await withStoreLock(file, async () => 1);
     const { Database } = await import("bun:sqlite");
-    const probe = new Database(lockDatabaseFor(file));
+    const dbPath = lockDatabaseFor(file);
+    // Create the lock database the way an older release did: WAL first.
+    const legacy = new Database(dbPath);
+    legacy.run("PRAGMA journal_mode = WAL");
+    legacy.run("CREATE TABLE legacy(x)");
+    legacy.close();
+    await withStoreLock(file, async () => 1);
+    const probe = new Database(dbPath);
     try {
       const mode = probe.query("PRAGMA journal_mode").get() as {
         journal_mode?: string;
       } | null;
-      expect(String(mode?.journal_mode).toLowerCase()).toBe("wal");
+      expect(String(mode?.journal_mode).toLowerCase()).toBe("delete");
     } finally {
       probe.close();
     }
+    expect(
+      readdirSync(dirname(dbPath)).filter((n) =>
+        n.startsWith(".store-lock.a.logfmt.sqlite"),
+      ),
+    ).toEqual([".store-lock.a.logfmt.sqlite"]);
   });
 
   test.skipIf(process.platform === "win32")(

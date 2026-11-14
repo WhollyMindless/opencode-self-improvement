@@ -136,7 +136,8 @@ export const MUTANTS: Mutant[] = [
     // require(), not an added import: a mutant is a single edit, and a bare
     // unlinkSync here throws ReferenceError into its own catch and survives by
     // doing nothing — which is what the first version of this mutant did.
-    replace: `  try {\n    require("node:fs").unlinkSync(dbPath + "-shm");\n  } catch {}\n  await harden(dbPath);\n  acquiredHook?.(file);`,
+    // The database file itself, not a sidecar: rollback mode has no sidecars.
+    replace: `  try {\n    require("node:fs").unlinkSync(dbPath);\n  } catch {}\n  await harden(dbPath);\n  acquiredHook?.(file);`,
     invariant:
       "an acquisition creates and deletes nothing in the store: Windows is never asked to unlink a lock",
     class: "D2",
@@ -201,12 +202,12 @@ export const MUTANTS: Mutant[] = [
     class: "D1",
   },
   {
-    id: "lock-wal-unenforced",
+    id: "lock-wal-kept",
     file: "src/store/lock.ts",
-    find: `      if (journalMode(db) === "wal") return;\n      db.run("PRAGMA journal_mode = WAL");`,
-    replace: `      if (true) return;\n      db.run("PRAGMA journal_mode = WAL");`,
+    find: `      const mode = journalMode(db);\n      if (mode === "delete") return;`,
+    replace: `      const mode = journalMode(db);\n      if (mode) return;`,
     invariant:
-      "a store that cannot reach WAL mode is refused, not run in rollback-journal mode",
+      "a lock database is rollback journal mode; a legacy WAL one is converted",
     class: "guard",
   },
   {
