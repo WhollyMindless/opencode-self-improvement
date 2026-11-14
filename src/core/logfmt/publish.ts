@@ -90,6 +90,21 @@ export async function writeAtomic(
   }
 }
 
+export type LockYield = (waitMs: number) => Promise<boolean>;
+let lockYield: LockYield | undefined;
+
+/**
+ * Register the way a wait gives the store lock back. Called once by `lock.ts`.
+ *
+ * The store lock covers a whole store DIRECTORY, so a wait inside a section is a
+ * wait for every writer in the store. The Windows handover below waits up to 2 s
+ * for a reader to let go of a destination, which is exactly such a wait, so it
+ * goes through here instead of sleeping on the lock.
+ */
+export function setLockYieldHook(hook: LockYield | undefined): void {
+  lockYield = hook;
+}
+
 // POSIX renames swap a file out from under an open reader; the handover needs
 // one call, and a failure there is fatal, never contention. Windows mandatory
 // locking instead REFUSES to replace a destination any reader still holds,
@@ -105,6 +120,15 @@ export async function writeAtomic(
 // reader handle, a mismatch means the write's premise is gone and it fails
 // with the original error, as the no-retry path always did. Hence also: no
 // `since`, no retry.
+//
+// The window is waited OUTSIDE the store lock. The lock covers a whole store
+// directory, so a 2 s sleep while holding it is a 2 s queue for every writer in
+// the store, including writers to unrelated files; `lockYield` gives the lock
+// back for the sleep and takes it back before the next attempt. Taking it back
+// can fail, and that failure propagates: a handover that cannot re-establish
+// exclusion must not publish. Releasing also means another LOCKED writer can
+// move the destination during the window, which the identity check below already
+// defines as a lost premise — the same outcome the no-retry path always had.
 async function handoverRename(
   tmp: string,
   file: string,
@@ -120,9 +144,14 @@ async function handoverRename(
     for (;;) {
       const now = Date.now();
       if (now >= deadline) throw err;
-      await new Promise((r) =>
-        setTimeout(r, Math.min(backoff, deadline - now)),
-      );
+      const wait = Math.min(backoff, deadline - now);
+      if (lockYield) {
+        // Give the directory back, wait, take it back: still holding the lock
+        // semantics the caller asked for when the next attempt runs.
+        await lockYield(wait);
+      } else {
+        await new Promise((r) => setTimeout(r, wait));
+      }
       backoff = Math.min(backoff * 2, 50);
       if ((await fileIdentity(file)) !== since) throw err; // destination moved; our copy is stale
       try {
