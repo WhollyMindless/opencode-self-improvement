@@ -20,7 +20,7 @@
 //      removes the store right after cleanup sees nothing straggling.
 // Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resetState } from "../src/core/state.ts";
@@ -30,6 +30,7 @@ import { loadAll } from "../src/store/files/load.ts";
 import { isActive } from "../src/store/model/predicates.ts";
 import { type LoadedPlugin, loadPlugin } from "./harness.ts";
 import { readEvidenceLog, sleep } from "./helpers/logfmt.ts";
+import { removeStore } from "./helpers/remove-store.ts";
 
 let root: string;
 let plugin: LoadedPlugin | undefined;
@@ -52,12 +53,31 @@ afterEach(async () => {
   setRepoScope(null);
   delete process.env.OPENCODE_MEMORY_DIR;
   delete process.env.OPENCODE_COMMANDS_DIR;
-  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  removeStore(root);
 });
 
-async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
+async function waitFor(cond: () => boolean, timeoutMs = 10_000): Promise<void> {
   const start = Date.now();
   while (!cond()) {
+    if (Date.now() - start > timeoutMs) throw new Error("waitFor timed out");
+    await sleep(5);
+  }
+}
+
+/**
+ * The same, for a condition that needs an async read. Positive assertions
+ * must WAIT for the effect, never guess a fixed sleep: under --parallel every
+ * suite file shares one event loop, so a gate-plus-write chain that lands in
+ * single-digit ms idle can stretch past 150 ms on a loaded runner. A 400 ms
+ * loop-hog inside a 150 ms sleep reproduced the hosted-Windows `0 rows`
+ * failure of the promotion control exactly.
+ */
+async function waitForAsync(
+  cond: () => Promise<boolean>,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const start = Date.now();
+  while (!(await cond())) {
     if (Date.now() - start > timeoutMs) throw new Error("waitFor timed out");
     await sleep(5);
   }
@@ -167,7 +187,7 @@ test("control: the same pass with no disposal does promote (so the check is what
     messages: thickMessages(),
   });
   await waitFor(() => loaded.capture.generate.calls.length === 1);
-  await sleep(150); // let the pass run the gate
+  await waitForAsync(async () => (await capturedRows()).length === 1);
 
   const rows = await capturedRows();
   expect(rows.length).toBe(1);
@@ -307,7 +327,9 @@ test("control: a compaction failure with no disposal still reports hook_error (#
     messages: thickMessages(),
   });
   await waitFor(() => loaded.capture.generate.calls.length === 1);
-  await sleep(150);
+  await waitForAsync(async () =>
+    readEvidenceLog().some((l) => l.ev === "hook_error"),
+  );
 
   const errors = readEvidenceLog().filter((l) => l.ev === "hook_error");
   expect(errors.length).toBe(1);

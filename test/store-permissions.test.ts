@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { loadAll } from "../src/store/files/load.ts";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -20,7 +21,11 @@ import {
   writeAtomic,
 } from "../src/core/logfmt/publish.ts";
 import { snapshotFiles } from "../src/store/files/snapshots.ts";
-import { withStoreLock, lockFileFor, LOCK_WRITE } from "../src/store/lock.ts";
+import {
+  withStoreLock,
+  lockDatabaseFor,
+  LOCK_WRITE,
+} from "../src/store/lock.ts";
 import { preparePrivateFile } from "../src/core/permissions.ts";
 import {
   readStatus,
@@ -29,6 +34,7 @@ import {
   sessionStatusFile,
 } from "../src/status/write.ts";
 import type { StatusPayload } from "../src/status/payload.ts";
+import { removeStore } from "./helpers/remove-store.ts";
 
 // Windows chmod does not represent ACL privacy. Exercise these guarantees on
 // POSIX with a permissive umask, rather than passing vacuous Windows checks.
@@ -50,7 +56,7 @@ describe.skipIf(process.platform === "win32")("private store modes", () => {
     process.umask(oldMask);
     if (oldDir === undefined) delete process.env.OPENCODE_MEMORY_DIR;
     else process.env.OPENCODE_MEMORY_DIR = oldDir;
-    rmSync(parent, { recursive: true, force: true });
+    removeStore(parent);
   });
 
   test("resolving an existing store protects its root without changing its parent or rewriting history", () => {
@@ -115,7 +121,14 @@ describe.skipIf(process.platform === "win32")("private store modes", () => {
       file,
       async () => {
         expect(mode(root)).toBe(0o700);
-        expect(mode(lockFileFor(file))).toBe(0o600);
+        // One file per lock: the lock transaction dirties no page, so a
+        // rollback-mode database grows no journal and no WAL sidecars. Were it
+        // ever to run in WAL, a world-readable -wal would leak the store while
+        // the lock is held — so the assertion is that neither exists.
+        const db = lockDatabaseFor(file);
+        expect(mode(db)).toBe(0o600);
+        expect(existsSync(db + "-wal")).toBe(false);
+        expect(existsSync(db + "-shm")).toBe(false);
       },
       LOCK_WRITE,
     );

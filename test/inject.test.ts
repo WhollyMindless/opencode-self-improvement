@@ -1,7 +1,7 @@
 // Deterministic memory-first: chat.message injection. Hermetic setup mirrors
 // scenarios.test.ts (temp OPENCODE_MEMORY_DIR, no repo touch).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { RESTATABLE_TAG } from "../src/core/tags.ts";
@@ -12,6 +12,7 @@ import { formatMemory } from "../src/inject/format.ts";
 import { contextualPull } from "../src/inject/pull.ts";
 import { relevantKnowledge, selectRelevant } from "../src/recall/relevant.ts";
 import type { Memory } from "../src/store/model/memory.ts";
+import { removeStore } from "./helpers/remove-store.ts";
 
 let root: string;
 
@@ -23,7 +24,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.OPENCODE_MEMORY_DIR;
-  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  removeStore(root);
 });
 
 function seed(type: string, scope: string, content: string): void {
