@@ -64,6 +64,25 @@ async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
   }
 }
 
+/**
+ * The same, for a condition that needs an async read. Positive assertions
+ * must WAIT for the effect, never guess a fixed sleep: under --parallel every
+ * suite file shares one event loop, so a gate-plus-write chain that lands in
+ * single-digit ms idle can stretch past 150 ms on a loaded runner. A 400 ms
+ * loop-hog inside a 150 ms sleep reproduced the hosted-Windows `0 rows`
+ * failure of the promotion control exactly.
+ */
+async function waitForAsync(
+  cond: () => Promise<boolean>,
+  timeoutMs = 2000,
+): Promise<void> {
+  const start = Date.now();
+  while (!(await cond())) {
+    if (Date.now() - start > timeoutMs) throw new Error("waitFor timed out");
+    await sleep(5);
+  }
+}
+
 /** A generate call the test holds open, then releases after disposal. */
 function parked(): { promise: Promise<void>; release: () => void } {
   const box = { promise: Promise.resolve(), release: () => {} };
@@ -168,7 +187,7 @@ test("control: the same pass with no disposal does promote (so the check is what
     messages: thickMessages(),
   });
   await waitFor(() => loaded.capture.generate.calls.length === 1);
-  await sleep(150); // let the pass run the gate
+  await waitForAsync(async () => (await capturedRows()).length === 1);
 
   const rows = await capturedRows();
   expect(rows.length).toBe(1);
@@ -255,7 +274,9 @@ test("control: a compaction failure with no disposal still reports hook_error (#
     messages: thickMessages(),
   });
   await waitFor(() => loaded.capture.generate.calls.length === 1);
-  await sleep(150);
+  await waitForAsync(async () =>
+    readEvidenceLog().some((l) => l.ev === "hook_error"),
+  );
 
   const errors = readEvidenceLog().filter((l) => l.ev === "hook_error");
   expect(errors.length).toBe(1);
