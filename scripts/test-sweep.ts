@@ -142,6 +142,28 @@ export const MUTANTS: Mutant[] = [
     class: "D2",
   },
   {
+    // The lock is per file on purpose: a directory-wide lock makes a blocked
+    // Windows handover stall every writer in the store, which lost writes.
+    id: "lock-per-directory",
+    file: "src/store/lock.ts",
+    find: "  `.store-lock.${basename(file)}.sqlite`;",
+    replace: '  ".store-lock.sqlite";',
+    invariant:
+      "one store file's lock does not stop writers of other files in the same store",
+    class: "D2",
+  },
+  {
+    // A batch lock that shared a database with a file lock would make every
+    // session wait out memory_update's gate.
+    id: "lock-batch-shares-file-db",
+    file: "src/store/lock.ts",
+    find: "  return acquire(join(root, `.store-batch.${name}.sqlite`), name, fn, opts);",
+    replace: `  return acquire(join(root, ".store-lock.a.logfmt.sqlite"), name, fn, opts);`,
+    invariant:
+      "a batch lock is its own database and does not exclude day-file writers",
+    class: "D2",
+  },
+  {
     // A cached connection is an open file, and Windows will not delete a
     // directory that contains one, so teardown must drop idle handles; but one
     // inside a section still guards a live transaction and must survive.

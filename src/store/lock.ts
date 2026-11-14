@@ -57,20 +57,36 @@ import { ensureDir } from "../core/logfmt/publish.ts";
 import { record } from "../evidence/record.ts";
 
 /**
- * The lock database for the day files (and every other real file) of one store
- * directory. It holds no rows and can be deleted whenever no session is
- * writing: it is coordination state, not data. The name never matches the
- * `*.logfmt` glob the store is scanned with, nor the `*.tmp` or `*.lock` shapes
- * older releases left behind.
+ * The lock database for ONE store file: `.store-lock.<file>.sqlite`, beside it.
+ * It holds no rows and can be deleted whenever no session is writing: it is
+ * coordination state, not data. The name never matches the `*.logfmt` glob the
+ * store is scanned with, nor the `*.tmp` or `*.lock` shapes older releases left
+ * behind.
  *
- * One database covers a whole directory rather than one per day file (#407:
- * accepted). An acquisition costs about 6us, so a supersede of one row and a
- * prune that sweeps the month differ by microseconds, while one database per
- * day file would mean three WAL files per day file — hundreds of stray files in
- * a long-lived store — and a writer that touches two files would hold two
- * locks at once, which is how deadlocks are born.
+ * Per file, not per directory. The directory shape was tried first and cost more
+ * than it saved. It makes every write in a store one queue — measured on macOS,
+ * eight concurrent sections on eight different files with a 150 ms hold: 153 ms
+ * under the old per-file lock file, 1218 ms under a per-directory SQLite lock —
+ * and `handoverRename` waits up to 2 s inside its section for a Windows reader
+ * to let go of the destination. Per file that wait blocks only that file's
+ * writers, which is what the handover's premise needs: while it waits, no other
+ * locked writer may move the destination. A lock that let one do so turned a
+ * stall into a lost write — measured on hosted Windows, where releasing the
+ * directory for the wait threw `EPERM` from the rename in 2 of 12 runs and made
+ * the suite red in 6 of 12.
+ *
+ * The cost is one database, plus its `-wal` and `-shm` sidecars, per locked
+ * file. The sidecars exist only while a connection is open — closing checkpoints
+ * and removes them — and `MAX_CACHED_LOCKS` bounds how many stay open.
+ *
+ * A writer never holds two store locks at once: the day-move loop in
+ * `store/files/append.ts` releases before it re-acquires, and sections run flat
+ * everywhere else. That is what keeps per-file locks from deadlocking. Batches
+ * take a distinct `.store-batch.<name>.sqlite`, always BEFORE the file locks
+ * their inner steps take, never after.
  */
-const LOCK_DB_NAME = ".store-lock.sqlite";
+const lockDatabaseName = (file: string): string =>
+  `.store-lock.${basename(file)}.sqlite`;
 const DEFAULT_TIMEOUT_MS = 5_000;
 // #216: the default policy is fail-closed, the policy #196 moved every
 // production writer to. A writer that omits opts must refuse at the deadline,
@@ -160,8 +176,10 @@ async function timed(prev: Promise<void>, ms: number): Promise<boolean> {
  * `ulimit -n 1024` would fail with EMFILE rather than with a useful assertion.
  *
  * So: evict only connections that are NOT holding a section, oldest first, and
- * only past the cap. The hot path never pays, because the cap is far above the
- * number of directories one process uses. Closing is what checkpoints the WAL
+ * only past the cap. The cap counts LOCKED FILES now, not directories: a
+ * long-lived session touches today's day file, the ledger and canonical, while a
+ * prune sweeps the month. Sweeping past the cap costs a reopen per file, never
+ * correctness, because eviction skips anything in use. Closing is what checkpoints the WAL
  * and removes -wal/-shm, and that is exactly why it happens on eviction and
  * never per acquisition (#407 is about Windows refusing a delete we do not need
  * to attempt).
@@ -173,7 +191,7 @@ interface Pinned {
 }
 
 const lockDbs = new Map<string, Pinned>();
-const MAX_CACHED_LOCKS = 32;
+const MAX_CACHED_LOCKS = 64;
 
 function cacheLock(dbPath: string, db: Database): void {
   lockDbs.set(dbPath, { db, inUse: 0 });
@@ -555,8 +573,9 @@ async function acquire<T>(
  * The tests that pin "a batch that published file 1 and then lost file 2 must
  * report file 1 as durable" need a refusal at a chosen point in a sequence.
  * Under the lock file a test could hold one day file and let the batch reach
- * the next one. With one lock per store directory (#407) holding any file holds
- * them all, so that driver no longer exists.
+ * the next one. The lock is per file again (#407 round two), so that driver
+ * exists again; this seam remains for the cases that need a refusal at a chosen
+ * step rather than a rival that holds a file.
  *
  * The refusal is injected where a real one surfaces — the acquisition of the
  * named file, through the same timeout policy and the same busy message a
@@ -577,16 +596,16 @@ export function setLockBusyInjector(
 /**
  * Run `fn` as the only writer of `file`, in this process and every other one.
  *
- * The lock covers the directory that holds `file`, so two writers of different
- * day files in the same store take turns. A call nested inside a section this
- * chain already holds joins it.
+ * The lock covers that one file, so writers of different day files in the same
+ * store do not wait on each other. A call nested inside a section this chain
+ * already holds joins it.
  */
 export async function withStoreLock<T>(
   file: string,
   fn: () => Promise<T>,
   opts: LockOptions = {},
 ): Promise<T> {
-  return acquire(join(dirname(file), LOCK_DB_NAME), file, fn, opts);
+  return acquire(lockDatabaseFor(file), file, fn, opts);
 }
 
 /**
@@ -597,7 +616,7 @@ export async function withStoreLock<T>(
  * read-gate-supersede sequence, and the inner steps take the day-file lock
  * themselves. Their modules state the contract: the outer lock is "a DISTINCT
  * file from anything runWriteGate or markSuperseded take (sections run flat)".
- * Folding the batch into the directory lock would hold the store-wide
+ * Folding the batch into the file lock would hold the store-wide
  * transaction for the entire gate and make every other session wait it out, so
  * the batch keeps its own database. The acquisition order stays batch-then-file,
  * never the reverse, which is what keeps the two from deadlocking.
@@ -608,7 +627,7 @@ export async function withStoreBatch<T>(
   fn: () => Promise<T>,
   opts: LockOptions = {},
 ): Promise<T> {
-  return acquire(join(root, `.store-lock.${name}.sqlite`), name, fn, opts);
+  return acquire(join(root, `.store-batch.${name}.sqlite`), name, fn, opts);
 }
 
 /**
@@ -628,7 +647,7 @@ export function setLockAcquiredHook(hook?: (file: string) => void): void {
 
 /** The lock database path for a store file. For diagnostics and tests. */
 export function lockDatabaseFor(file: string): string {
-  return join(dirname(file), LOCK_DB_NAME);
+  return join(dirname(file), lockDatabaseName(file));
 }
 
 /**

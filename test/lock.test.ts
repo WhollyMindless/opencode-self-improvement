@@ -24,6 +24,7 @@ import {
   isLockContention,
   lockDatabaseFor,
   setLockAcquiredHook,
+  withStoreBatch,
   withStoreLock,
 } from "../src/store/lock.ts";
 import { childHolder } from "./helpers/hold-cross-process.ts";
@@ -90,10 +91,9 @@ describe("withStoreLock", () => {
     expect(Date.now() - started).toBeLessThan(1000);
   });
 
-  test("stores in different directories are not contended", async () => {
-    // The lock is per store DIRECTORY, so independence now means a different
-    // directory. Two day files inside one store ARE contended on purpose, and
-    // the test below pins that.
+  test("files in different stores are not contended", async () => {
+    // The lock is per file, so two files never contend wherever they live. This
+    // is the cross-directory half; the same-store half is pinned above.
     const [a, b] = [join(tmp(), "a.logfmt"), join(tmp(), "b.logfmt")];
     const gate = deferred();
     let bFinished = false;
@@ -107,11 +107,31 @@ describe("withStoreLock", () => {
     await holding;
   });
 
-  test("two day files in one store take turns, by design", async () => {
-    // #407 accepted this coarsening: one kernel lock per store instead of one
-    // per day file, because an acquisition costs microseconds and a lock per
-    // day file would mean three WAL files per day file plus a writer holding
-    // two locks at once. What must NOT happen is both writing at the same time.
+  test("a batch lock does not exclude the store's own writers", async () => {
+    // memory_update and memory_merge_review hold a named batch lock across a
+    // whole read-gate-supersede sequence and take file locks inside it. If the
+    // batch ever shared a database with a file lock, every other session would
+    // wait out the gate — so the batch's database must be its own.
+    const root = tmp();
+    const file = join(root, "a.logfmt");
+    const gate = deferred();
+    const batch = withStoreBatch(root, "update-order", () => gate.promise);
+    const started = Date.now();
+    const wrote = await withStoreLock(file, async () => "wrote");
+    expect(wrote).toBe("wrote");
+    expect(Date.now() - started).toBeLessThan(1000);
+    gate.resolve();
+    await batch;
+  });
+
+  test("two files in one store do not take turns; one file does", async () => {
+    // The lock is per FILE. A per-directory lock was tried first and lost
+    // writes: `handoverRename` waits up to 2 s inside its section for a Windows
+    // reader to let go of the destination, and a store-wide queue means a
+    // blocked rename on one file stops every other writer in the store. Measured
+    // on macOS, eight concurrent sections on eight files with a 150 ms hold:
+    // 153 ms per file, 1218 ms per directory. What must never overlap is two
+    // writers of the SAME file, and the second half of this test pins that.
     const root = tmp();
     const [a, b] = [join(root, "a.logfmt"), join(root, "b.logfmt")];
     let inside = 0;
@@ -120,10 +140,14 @@ describe("withStoreLock", () => {
       withStoreLock(file, async () => {
         inside++;
         maxInside = Math.max(maxInside, inside);
-        await sleep(3);
+        await sleep(10);
         inside--;
       });
-    await Promise.all([section(a), section(b), section(a), section(b)]);
+    await Promise.all([section(a), section(b)]);
+    expect(maxInside).toBe(2);
+    inside = 0;
+    maxInside = 0;
+    await Promise.all([section(a), section(a), section(a)]);
     expect(maxInside).toBe(1);
   });
 
