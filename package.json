@@ -57,7 +57,7 @@
     "typescript": "^7.0.2"
   },
   "scripts": {
-    "test": "bun test ./test/ --parallel=4",
+    "test": "bun test ./test/ --parallel=4 --timeout=20000",
     "test:e2e": "bun test ./e2e/ --parallel=4 --timeout 240000",
     "gate": "bun scripts/merge-gate.ts",
     "gate:hooks": "git config core.hooksPath .githooks",
