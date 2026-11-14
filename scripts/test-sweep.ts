@@ -110,8 +110,8 @@ export const MUTANTS: Mutant[] = [
     // flag on open().
     id: "lock-no-transaction",
     file: "src/store/lock.ts",
-    find: `      db.run("BEGIN IMMEDIATE");\n      break;`,
-    replace: `      // mutant: the section runs with no transaction and no lock\n      break;`,
+    find: `      db.run("BEGIN IMMEDIATE");`,
+    replace: `      // mutant: the section runs with no transaction and no lock`,
     invariant:
       "the store lock is claimed before the section runs: the mutex is cross-process",
     class: "D2",
@@ -120,8 +120,8 @@ export const MUTANTS: Mutant[] = [
   {
     id: "lock-no-release",
     file: "src/store/lock.ts",
-    find: `        db.run("ROLLBACK");\n      } catch (err) {`,
-    replace: `        // mutant: the transaction is never given back\n      } catch (err) {`,
+    find: `      db.run("ROLLBACK");`,
+    replace: `      // mutant: the transaction is never given back`,
     invariant:
       "a section gives the lock back when it finishes, including when it throws",
     class: "D2",
@@ -140,39 +140,6 @@ export const MUTANTS: Mutant[] = [
     invariant:
       "an acquisition creates and deletes nothing in the store: Windows is never asked to unlink a lock",
     class: "D2",
-  },
-  {
-    // A wait that keeps the store lock is the 2 s store-wide queue #407 exposed:
-    // the yield must actually hand the directory back.
-    id: "lock-yield-keeps-lock",
-    file: "src/store/lock.ts",
-    find: `export async function yieldStoreLock(waitMs: number): Promise<boolean> {`,
-    replace: `export async function yieldStoreLock(waitMs: number): Promise<boolean> {\n  await sleep(waitMs);\n  return false;`,
-    invariant:
-      "a section that waits gives the store directory back instead of holding it",
-    class: "D2",
-  },
-  {
-    // Handing the lock back without taking it back is a lost lock: the section
-    // would publish while another writer holds the store.
-    id: "lock-yield-no-takeback",
-    file: "src/store/lock.ts",
-    find: `    await takeBack(remaining());`,
-    replace: `    await Promise.resolve();`,
-    invariant:
-      "a yield re-establishes exclusion before the section continues writing",
-    class: "D1",
-  },
-  {
-    // A yield that cannot re-acquire must fail the write. Continuing here is a
-    // silent unlocked publish.
-    id: "lock-yield-continue-on-loss",
-    file: "src/store/lock.ts",
-    find: `    ctl.dead = true;\n    throw err;`,
-    replace: `    ctl.dead = true;\n    return true;`,
-    invariant:
-      "a yield that cannot take the lock back fails the section closed",
-    class: "D1",
   },
   {
     // A cached connection is an open file, and Windows will not delete a

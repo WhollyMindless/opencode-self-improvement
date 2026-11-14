@@ -53,7 +53,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { chmod } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
-import { ensureDir, setLockYieldHook } from "../core/logfmt/publish.ts";
+import { ensureDir } from "../core/logfmt/publish.ts";
 import { record } from "../evidence/record.ts";
 
 /**
@@ -222,105 +222,6 @@ process.on("exit", closeAllLockDatabases);
  * chains, Promise.all siblings, Promise.race and unwinding.
  */
 const heldLocks = new AsyncLocalStorage<ReadonlySet<string>>();
-
-/**
- * A running section that is allowed to give the lock back.
- *
- * `handoverRename` waits up to 2 s for a Windows reader to let go of the
- * destination (#407). The lock is per store DIRECTORY, so sleeping while holding
- * it stops every writer in the store — measured: 8 concurrent sections on 8
- * different files take 153 ms under the old per-file lock and 1218 ms under this
- * one, so a 2 s sleep here is a 2 s store-wide queue. The wait therefore happens
- * through this control: end the transaction, hand the turn back, wait, then
- * queue again and take the transaction back.
- *
- * The section resumes holding the lock, or fails closed. It never continues
- * without it, which is the one thing that would lose another writer's rows.
- */
-interface SectionControl {
-  /** True while the transaction is held and the section may write. */
-  holding: boolean;
-  /** Set once a yield failed to take the lock back: nothing may write now. */
-  dead: boolean;
-  dbPath: string;
-  file: string;
-  /** Wall-clock end of the section's own budget; a yield may not exceed it. */
-  deadline: number;
-  /** Fill in by `holdLock` once the transaction exists. */
-  giveUp?: () => void;
-  takeBack?: (budgetMs: number) => Promise<void>;
-  /** Swapped by a yield so the section's exit releases the turn it LAST took. */
-  releaseTurn?: () => void;
-}
-
-const currentSection = new AsyncLocalStorage<SectionControl>();
-
-/**
- * Wait outside the critical section, then take the lock back.
- *
- * Returns false when the caller is not inside a section, which is the case for
- * the direct/legacy writers `writeAtomic` still tolerates; they keep waiting
- * where they are, because they hold nothing anyone else wants.
- */
-export async function yieldStoreLock(waitMs: number): Promise<boolean> {
-  const ctl = currentSection.getStore();
-  if (!ctl || !ctl.giveUp || !ctl.takeBack) return false;
-  const { giveUp, takeBack } = ctl;
-  const outer = ctl.releaseTurn;
-  giveUp();
-  outer?.();
-  // The section's own clock bounds the wait: a yield cannot extend a write past
-  // the budget every other lock path respects.
-  const remaining = () => Math.max(0, ctl.deadline - Date.now());
-  try {
-    // Sleep BEFORE taking a place in line, so nobody queues behind a wait.
-    await sleep(Math.min(waitMs, remaining()));
-    ctl.releaseTurn = await requeueTurn(ctl.dbPath, remaining(), ctl.file);
-    await takeBack(remaining());
-  } catch (err) {
-    // Fail closed and say so: the caller's write must not proceed unlocked.
-    ctl.dead = true;
-    throw err;
-  }
-  return true;
-}
-
-// A blocked Windows handover waits through this rather than on the store lock.
-setLockYieldHook(yieldStoreLock);
-
-/**
- * Take a place in this process's queue for `dbPath` and wait for it.
- *
- * Resolves to the function that hands the turn back. Unlike `acquire`, a wait
- * that runs out here THROWS: this is a section re-establishing exclusion it
- * already used, and continuing without it would publish over a writer that took
- * its turn in between.
- */
-async function requeueTurn(
-  dbPath: string,
-  budgetMs: number,
-  file: string,
-): Promise<() => void> {
-  let releaseTurn!: () => void;
-  const myTurnEnded = new Promise<void>((res) => (releaseTurn = res));
-  const queuedBehind = turns.get(dbPath);
-  turns.set(dbPath, myTurnEnded);
-  const abandon = () => {
-    releaseTurn();
-    if (turns.get(dbPath) === myTurnEnded) turns.delete(dbPath);
-  };
-  if (queuedBehind) {
-    const gained = await timed(queuedBehind, Math.max(0, budgetMs));
-    if (!gained) {
-      abandon();
-      throw new Error(busyMessage(file, Math.max(0, budgetMs)));
-    }
-  }
-  return () => {
-    releaseTurn();
-    if (turns.get(dbPath) === myTurnEnded) turns.delete(dbPath);
-  };
-}
 
 /**
  * Is this error "someone else holds it, ask again"? The distinction is
@@ -516,7 +417,6 @@ async function holdLock<T>(
   opts: LockOptions,
   budgetMs: number,
   now: () => number = Date.now,
-  ctl?: SectionControl,
 ): Promise<T> {
   let db = await lockDatabase(dbPath);
   const started = now();
@@ -566,75 +466,16 @@ async function holdLock<T>(
   const parent = heldLocks.getStore();
   const held = new Set(parent ?? []);
   held.add(dbPath);
-  if (ctl) {
-    ctl.holding = true;
-    ctl.giveUp = () => {
-      try {
-        db.run("ROLLBACK");
-      } catch {
-        // The transaction is already gone; the point is that we no longer hold it.
-      }
-      ctl.holding = false;
-    };
-    // Re-establish exclusion after waiting outside the critical section. No
-    // stale-handle repair here: that path drops the connection, and a dropped
-    // connection mid-section would be reported as a lost lock, not a retry.
-    ctl.takeBack = async (budget: number) => {
-      const beginStart = now();
-      let wait = MIN_BACKOFF_MS;
-      let repaired = false;
-      for (;;) {
-        try {
-          db.run("BEGIN IMMEDIATE");
-          ctl.holding = true;
-          return;
-        } catch (err) {
-          if (!contention(err)) {
-            // Another connection checkpointed and took the write-ahead log away
-            // while we waited outside the lock, which is the same stale-handle
-            // shape the first acquisition repairs: reopen once, then surface.
-            if (staleHandle(err) && !repaired) {
-              repaired = true;
-              dropLockDatabase(dbPath);
-              db = await lockDatabase(dbPath);
-              continue;
-            }
-            const info = err as { code?: string; errno?: number };
-            throw new Error(
-              `[code=${info.code ?? "-"} errno=${info.errno ?? "-"}] store lock unavailable for ${basename(file)} after yielding: ${(err as Error).message}`,
-            );
-          }
-          if (now() - beginStart >= budget) {
-            opts.onEvent?.("timeout", now() - beginStart);
-            throw new Error(busyMessage(file, now() - beginStart));
-          }
-          await sleep(wait);
-          wait = Math.min(wait * 2, MAX_BACKOFF_MS);
-        }
-      }
-    };
-  }
   try {
-    return await heldLocks.run(held, () =>
-      ctl ? currentSection.run(ctl, fn) : fn(),
-    );
+    return await heldLocks.run(held, fn);
   } finally {
-    if (ctl) {
-      ctl.giveUp = undefined;
-      ctl.takeBack = undefined;
-    }
     if (pinned) pinned.inUse--;
-    // A section that ended while it had given the lock back has nothing left to
-    // roll back; issuing the ROLLBACK anyway would inherit whoever else's
-    // transaction is open on this connection.
-    if (!ctl || ctl.holding) {
-      try {
-        db.run("ROLLBACK");
-      } catch (err) {
-        dropLockDatabase(dbPath);
-        opts.onEvent?.("reset", now() - started);
-        void err;
-      }
+    try {
+      db.run("ROLLBACK");
+    } catch (err) {
+      dropLockDatabase(dbPath);
+      opts.onEvent?.("reset", now() - started);
+      void err;
     }
   }
 }
@@ -695,14 +536,6 @@ async function acquire<T>(
     }
   }
 
-  const ctl: SectionControl = {
-    holding: false,
-    dead: false,
-    dbPath,
-    file,
-    deadline: started + timeoutMs,
-    releaseTurn: finish,
-  };
   try {
     return await holdLock(
       dbPath,
@@ -710,13 +543,9 @@ async function acquire<T>(
       fn,
       opts,
       timeoutMs - (Date.now() - started),
-      Date.now,
-      ctl,
     );
   } finally {
-    // The control's own release, not `finish`: a section that yielded holds a
-    // NEWER turn than the one it came in on, and that is the one to hand back.
-    (ctl.releaseTurn ?? finish)();
+    finish();
   }
 }
 
