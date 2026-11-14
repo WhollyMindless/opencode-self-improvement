@@ -44,6 +44,8 @@ jobs:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - name: Lock profile (#407 diagnostic)
+        # A probe crashing must not hide the suite it sits in front of.
+        continue-on-error: true
         run: bun run scripts/profile-lock.ts
       - name: Tests
         run: bun run test
@@ -59,6 +61,8 @@ jobs:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - name: Lock profile (#407 diagnostic)
+        # A probe crashing must not hide the suite it sits in front of.
+        continue-on-error: true
         run: bun run scripts/profile-lock.ts
       - name: Tests
         run: bun run test
