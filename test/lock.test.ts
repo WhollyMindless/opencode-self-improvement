@@ -365,25 +365,42 @@ describe("withStoreLock", () => {
     // Held for ~500ms: long enough that the child reaches the lock while the
     // parent is still writing, so an ignored lock shows up as an interleaved
     // line instead of one that waited its turn.
-    const holding = withStoreLock(file, async () => {
-      for (let i = 0; i < 20; i++) {
-        await appendLog(file, `ts=t${i} writer=parent`);
-        await sleep(25);
-      }
-    });
-    const p = Bun.spawn([process.execPath, child, file], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const code = await p.exited;
-    const err = await new Response(p.stderr).text();
-    await holding;
-    expect(err.trim()).toBe("");
-    expect(code).toBe(0);
-    const lines = readFileSync(file, "utf8").trim().split("\n");
-    expect(lines).toHaveLength(21);
-    expect(lines[20]).toContain("writer=child"); // never interleaved
-    expect(lines[19]).toContain("writer=parent");
+    //
+    // The premise — the parent holds the kernel lock BEFORE the child starts —
+    // must be established, not hoped for. Under --parallel the whole suite
+    // shares one process, and the parent's acquisition (mkdir, WAL pragma,
+    // three chmods) needs event-loop turns a loaded runner can withhold for
+    // hundreds of ms — long enough for a child on a dedicated core to take the
+    // lock first. That is legal behaviour: measured, a 1500 ms starvation of
+    // the loop after the spawn put the child's line at index 0 and failed this
+    // test's ordering assertions on hosted Windows without any lock defect. The
+    // acquired hook pins the premise instead.
+    const acquired: string[] = [];
+    setLockAcquiredHook((f) => acquired.push(f));
+    try {
+      const holding = withStoreLock(file, async () => {
+        for (let i = 0; i < 20; i++) {
+          await appendLog(file, `ts=t${i} writer=parent`);
+          await sleep(25);
+        }
+      });
+      await until(() => acquired.includes(file));
+      const p = Bun.spawn([process.execPath, child, file], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const code = await p.exited;
+      const err = await new Response(p.stderr).text();
+      await holding;
+      expect(err.trim()).toBe("");
+      expect(code).toBe(0);
+      const lines = readFileSync(file, "utf8").trim().split("\n");
+      expect(lines).toHaveLength(21);
+      expect(lines[20]).toContain("writer=child"); // never interleaved
+      expect(lines[19]).toContain("writer=parent");
+    } finally {
+      setLockAcquiredHook();
+    }
   });
 });
 
