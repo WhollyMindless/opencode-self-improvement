@@ -43,6 +43,8 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
+      - name: Lock profile (#407 diagnostic)
+        run: bun run scripts/profile-lock.ts
       - name: Tests
         run: bun run test
 
@@ -56,6 +58,8 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
+      - name: Lock profile (#407 diagnostic)
+        run: bun run scripts/profile-lock.ts
       - name: Tests
         run: bun run test
 
