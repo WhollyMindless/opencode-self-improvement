@@ -410,8 +410,8 @@ function report(): string {
       "fixed before the eval. naive = previous shipped matcher; prod = current shipped " +
       "matcher (query-side stopword abstention, two-concept evidence gate for free-text " +
       "queries, IDF-weighted ranking, recency tie-break); prod+kw = the same matcher with each " +
-      "row's authored write-time `kw` aliases indexed (bench/recall-dataset.ts records the " +
-      "authoring rule: keywords come from the memory's own content, never from the queries).",
+      "row's authored write-time `kw` aliases indexed (bench/fixtures/recall-dataset.ts records " +
+      "the authoring rule: keywords come from the memory's own content, never from the queries).",
   );
   lines.push("");
 
