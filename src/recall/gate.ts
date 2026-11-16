@@ -2,12 +2,12 @@
 //
 // The tool scores a row by counting how many of the query's words appear in it
 // as substrings, and returns anything that scores above zero. One shared word is
-// enough, so `watermark 283 287 head` returns every row that mentions a `head`,
+// enough, so `watermark 283 287 head` returns every row that mentions a head,
 // and `fixer ready tickets queue blocked` returns rows about the GitHub CLI and
 // about npm publishing. Measured on 404 real recall queries taken from 30 days of
 // session transcripts and labelled by two independent readers (poc-409/casebank),
-// 42% of the rows the tool returned were judged irrelevant and a further 30%
-// related-but-not-an-answer.
+// a large share of what the tool returned was judged irrelevant rather than
+// answering.
 //
 // The injection path already refuses single-concept matches once a query is long
 // enough to be a deliberate search (LONG_QUERY_TOKENS in score.ts). This applies
@@ -15,69 +15,117 @@
 // answer. It changes admission only: ranking, scoring and the window size are
 // untouched, and the flag-off path is the shipped behaviour.
 //
-//   OPENCODE_MEMORY_QUERY_GATE=1   (unset or 0 = shipped behaviour)
+//   OPENCODE_MEMORY_QUERY_GATE=1   (unset or anything else = shipped behaviour)
 //
-// On the case bank's held-out half (227 real queries, relevance labels from two
-// unrelated readers over a pinned store snapshot), measured by running this
-// handler itself with the flag flipped once per query: queries shown an answer
-// 148 before and 149 after, and an answer at rank 1 125 before and 125 after —
-// zero discordant pairs against recall — while returned rows fall from 571 to 480
-// and non-answering rows from 363 to 272. The rate at which a query with no
-// answer in the store is still shown a window drops from 0.847 to 0.678, paired
-// 10-to-0 (McNemar p=0.002). Every row the gate promotes into the window from
-// below rank 3 is labelled too: 9 queries gain a row, one an answer, one something
-// useful, eight junk. See https://github.com/abogartz/opencode-self-improvement/issues/409.
+// WHY THE GATE COUNTS WORDS AND THE SCORER COUNTS SUBSTRINGS
+//
+// These are different questions, and using the tool's own substring test here was
+// the first version's mistake. Scoring asks how strongly a row matches, and
+// substring matching is deliberate there: it is how `getUserAccount` finds a row
+// written `get_user_account`. Admission asks how many DISTINCT CONCEPTS the query
+// and the row share, and a substring is not a concept. Counting substrings made
+// the gate satisfiable by two accidents: `on` occurs inside `context` and inside
+// `decision`, so every row of those types shared it; `pr` occurs inside
+// `preference`; and `283` occurs inside `build2837`, so the query that motivated
+// this change, `watermark 283 287 head`, still admitted the row it was supposed to
+// refuse. The gate therefore compares whole words, and drops the query's stopwords
+// and fragments, which is exactly the vocabulary the injection scorer counts.
+//
+// Whole words are also what makes the number queries work. `#277` tokenises to
+// `277`, so a PR-number search still matches the row that cites it, while `283` no
+// longer matches `#2830`.
+//
+// STATUS: measured on the case bank; see the PR for the current numbers. The
+// first version's numbers were measured with substring counting and are void.
+// See https://github.com/abogartz/opencode-self-improvement/issues/409.
 import type { Memory } from "../store/model/memory.ts";
-import { LONG_QUERY_TOKENS } from "./score.ts";
+import { LONG_QUERY_TOKENS, QUERY_STOPWORDS } from "./score.ts";
 
 export const GATE_ENV = "OPENCODE_MEMORY_QUERY_GATE";
 
-/** Off unless the variable holds something other than 0, false or off. */
+/**
+ * On only for an explicit affirmative. Everything else — unset, empty, `0`,
+ * `false`, and in particular `no`, which a shell user writes meaning off — is off.
+ * A deny-list was the first version's mistake: `=no`, `=n`, `=00` and `=0.0` all
+ * enabled the gate.
+ */
 export function gateEnabled(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
   const raw = env[GATE_ENV]?.trim().toLowerCase();
-  if (!raw) return false;
-  return raw !== "0" && raw !== "false" && raw !== "off";
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
 /**
  * The text a recall query is matched against: type, scope, prose and the
- * author-supplied keyword aliases, lower-cased. The tool's scorer and this gate
- * share one definition so a row can never be scored against one string and
- * admitted against another. Distinct from score.ts's `haystack`, which orders the
- * same fields for the injection scorer's tokenizer.
+ * author-supplied keyword aliases, lower-cased. The tool's scorer shares this one
+ * definition so a row can never be scored against one string and admitted against
+ * another. Distinct from score.ts's `haystack`, which orders the same fields for
+ * the injection scorer.
  */
 export function recallHaystack(m: Memory): string {
   const kw = m.kw?.length ? ` ${m.kw.join(" ")}` : "";
   return `${m.type} ${m.scope} ${m.content}${kw}`.toLowerCase();
 }
 
+// Split into whole words at whitespace and punctuation. Underscore stays inside a
+// word so the identifier a user searches for — `db_id`, `OPENCODE_MEMORY_DIR` —
+// survives as the single concept it is (splitting it is the regression that
+// blocked PR #417); a dash separates, because prose writes `get-user-account` as
+// the three words it means. `build2837` stays one word, which is why `283` can no
+// longer match it.
+const WORD = /[^a-z0-9_]+/;
+
 /**
- * The query's distinct lower-cased words, split exactly the way the tool's
- * matcher splits it. Deliberately not the injection scorer's tokenizer: the gate
- * has to count the same units the scorer searches for, or a row could be admitted
- * for a token the scorer never looked at.
+ * The query's distinct concepts: lower-cased whole words, with fragments and the
+ * scorer's own stopword list removed. A gate that counted `on` or `i` was counting
+ * punctuation and grammar, not concepts.
  */
-export function queryTokens(query: string): string[] {
-  return [...new Set(query.toLowerCase().split(/\s+/).filter(Boolean))];
+export function queryConcepts(query: string): string[] {
+  const out: string[] = [];
+  for (const w of query.toLowerCase().split(WORD))
+    if (w.length > 2 && !QUERY_STOPWORDS.has(w) && !out.includes(w))
+      out.push(w);
+  return out;
 }
 
-/** How many of `tokens` occur anywhere in the row's searchable text. */
-export function sharedTokens(m: Memory, tokens: readonly string[]): number {
-  const hay = recallHaystack(m);
+/** The row's concepts, as a set for whole-word membership tests. */
+export function rowConcepts(m: Memory): Set<string> {
+  return new Set(
+    recallHaystack(m)
+      .split(WORD)
+      .filter((w) => w.length > 2),
+  );
+}
+
+/** How many of `concepts` the row contains as whole words. */
+export function sharedConcepts(
+  m: Memory,
+  concepts: readonly string[],
+  row?: Set<string>,
+): number {
+  const words = row ?? rowConcepts(m);
   let shared = 0;
-  for (const w of tokens) if (hay.includes(w)) shared++;
+  for (const w of concepts) if (words.has(w)) shared++;
   return shared;
 }
 
 /**
- * True when the row may be returned. A query of LONG_QUERY_TOKENS or more words
- * is a deliberate search, so a row must share two of its words; a shorter query
- * is too vague to hold a row to two. `tokens` is passed in so the split happens
- * once per call rather than once per candidate.
+ * True when the row may be returned. A query of LONG_QUERY_TOKENS or more
+ * concepts is a deliberate search, so a row must share two of them; a shorter
+ * query is too vague to hold a row to two. `concepts` is passed in so the split
+ * happens once per call rather than once per candidate.
  */
-export function admitsRow(m: Memory, tokens: readonly string[]): boolean {
-  const need = tokens.length >= LONG_QUERY_TOKENS ? 2 : 1;
-  return sharedTokens(m, tokens) >= need;
+export function admitsRow(
+  m: Memory,
+  concepts: readonly string[],
+  row?: Set<string>,
+): boolean {
+  // A query that reduces to zero concepts ("how do I") abstains on every row.
+  // That is intended: the scorer matched it on grammar alone — `i` occurs inside
+  // most English prose — and grammar-only matches are the noise this gate exists
+  // to refuse. "No matching memories" is the honest answer to a contentless
+  // query, and the tool already returns it when nothing scores.
+  const need = concepts.length >= LONG_QUERY_TOKENS ? 2 : 1;
+  return sharedConcepts(m, concepts, row) >= need;
 }

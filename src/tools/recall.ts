@@ -7,7 +7,7 @@ import { formatMemory } from "../inject/format.ts";
 import {
   admitsRow,
   gateEnabled,
-  queryTokens,
+  queryConcepts,
   recallHaystack,
 } from "../recall/gate.ts";
 import { loadAll } from "../store/files/load.ts";
@@ -52,13 +52,13 @@ export const register: ToolRegister = (editor, deps) => {
         if (args.type) results = results.filter((m) => m.type === args.type);
         if (args.query) {
           // Flag off, this is the shipped filter. Flag on, a row also has to
-          // share two of the query's words, which is the rule the injection
-          // scorer already applies (src/recall/gate.ts, #409).
+          // share two whole words of the query — the concepts rule, not the
+          // scorer's substring test (src/recall/gate.ts, #409).
           const gate = gateEnabled();
-          const tokens = gate ? queryTokens(args.query) : [];
+          const concepts = gate ? queryConcepts(args.query) : [];
           results = results
             .map((m) => ({ m, score: scoreMemory(m, args.query!) }))
-            .filter((x) => x.score > 0 && (!gate || admitsRow(x.m, tokens)))
+            .filter((x) => x.score > 0 && (!gate || admitsRow(x.m, concepts)))
             .sort((a, b) => b.score - a.score)
             .map((x) => x.m);
         }
