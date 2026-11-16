@@ -2,20 +2,24 @@
 //
 // Lane 0 joined 1,090 live `memory_recall` events to their session transcripts
 // and asked whether the returned rows were used: a row at rank 1 goes on to be
-// referenced in a later tool call at 3.4x the rate of a random store row, ranks
-// 2-3 at 2.4x, ranks 4-10 at 1.4x, and ranks 11-20 at 1.16x — indistinguishable
-// from noise against a 0.129 null. The tool was returning 17.7 rows per call,
-// so 62% of what it put in context was statistically worthless.
+// referenced in 3.4x the rate of a random store row, ranks 2-3 at 2.4x, ranks
+// 4-10 at 1.4x, and ranks 11-20 at 1.16x — indistinguishable from noise against
+// a 0.129 null. The tool was returning 17.7 rows per call, so 62% of what it
+// put in context was statistically worthless.
 //
-// The sweep (`poc-409/tighten.ts`) then showed the cut is free at the top: at
-// limit 5, r1 and r3 are identical to limit 20, precision rises 4.1% -> 13.1%,
-// and 74% of the returned characters disappear. The 15 gold rows it drops all
-// sit at ranks 6-20, where measured use is 1.16-1.4x null. Limit 3 was rejected
-// because it starts evicting ranks 4-5, which still carry the 1.4x signal.
+// The honest per-query cost, measured through the shipped handler over the 404
+// case-bank queries with adjudicated full-text labels (poc-409/casebank,
+// limit-windows): the window holds an answer for 231 of 404 queries at limit
+// 20 and 216 at limit 5 — 15 queries reach their answer only at ranks 6-20
+// (McNemar p<0.001; held-out 131 -> 125, p=0.031). What limit 5 buys: 69%
+// fewer rows and 74% fewer non-answering rows per call. This is a disclosed
+// trade of context against recall, not a free win; an earlier framing of this
+// lane as "precision rises 4.1% -> 13.1%" was denominator arithmetic that hid
+// the gold loss.
 //
-// What the caller keeps: an explicit `limit` overrides the default, and the
-// header still reports the full match count, so a narrow window never hides
-// the fact that more matched.
+// What the caller keeps: an explicit `limit` overrides the default, the header
+// still reports the full match count, and non-positive limits are coerced to
+// the default — slice(0, -n) would otherwise return MORE rows, not fewer.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -75,6 +79,20 @@ describe("the recall window default (#409)", () => {
       limit: 12,
     });
     expect(rendered(out)).toBe(12);
+  });
+
+  test("a negative or zero limit cannot widen the window", async () => {
+    // slice(0, -1) drops one row and slice(-(-1)) drops none: an unclamped
+    // negative limit returns MORE rows than the default, not fewer.
+    const { tool } = await loadPlugin(root);
+    await seedTwelve();
+    for (const bad of [-1, -12, 0]) {
+      const out = await tool.memory_recall!.execute({
+        query: "deploys",
+        limit: bad,
+      });
+      expect(rendered(out)).toBe(5);
+    }
   });
 
   test("the filter-only path is capped too, and keeps the most recent rows", async () => {

@@ -58,7 +58,9 @@ export const register: ToolRegister = (editor, deps) => {
         // 1.16x — noise. Returning 17.7 rows per call meant most of the window
         // was paid for in context and never read. 5 is the last rank where a
         // useful row survives the cut; a caller that wants more still asks.
-        const limit = args.limit || 5;
+        // Non-positive or fractional limits are coerced, never trusted: a
+        // negative slice(0, n) / slice(-n) silently returns MORE rows, not fewer.
+        const limit = args.limit && args.limit > 0 ? Math.floor(args.limit) : 5;
         // #409 dedup lane (RESULTS §17): flag off, this is the same slice as
         // before. Flag on, near-duplicate copies are skipped so the window
         // fills with distinct rows instead of repeats of the top hit.
