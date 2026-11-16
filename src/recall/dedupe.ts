@@ -39,6 +39,12 @@
 //    scope alone at 1.0 and deleted the second row. A row with fewer than
 //    MIN_CONTENT content tokens is never suppressed: there is nothing to
 //    compare.
+// 4. It treated differing numeric facts as duplicates. `words()` drops tokens
+//    of length <= 2, so "Rate limiter reads Redis DB 3." and "...DB 4." have
+//    identical token sets (Jaccard 1) and the older row was suppressed even at
+//    threshold 1 (review #415, reproduced through the handler). Numbers are
+//    compared as a sorted multiset of literals and a pair that disagrees on
+//    them is never a copy.
 import type { Memory } from "../store/model/memory.ts";
 import { haystack, words } from "./score.ts";
 
@@ -89,6 +95,32 @@ export function jaccard(a: Set<string>, b: Set<string>): number {
 }
 
 /**
+ * The short tokens `words()` drops (chunks of length <= 2). They are where
+ * single-digit facts hide: "Rate limiter reads Redis DB 3." and "...DB 4."
+ * have identical token sets and reach Jaccard 1 (review #415). Timestamped
+ * cursor rows — the rows this pass exists to suppress — keep their digit
+ * groups inside longer tokens ("15z"), so comparing the dropped chunks only
+ * guards real fact changes without touching the cursor case. A pair whose
+ * dropped chunks differ is never a copy.
+ */
+export function droppedChunks(content: string): string[] {
+  return content
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/)
+    .filter((t) => t.length > 0 && t.length <= 2)
+    .sort();
+}
+
+/** True when two rows carry the same short chunks (same multiset). */
+function sameDroppedChunks(a: Memory, b: Memory): boolean {
+  const na = droppedChunks(a.content);
+  const nb = droppedChunks(b.content);
+  if (na.length !== nb.length) return false;
+  for (let i = 0; i < na.length; i++) if (na[i] !== nb[i]) return false;
+  return true;
+}
+
+/**
  * A row's own tokens: everything except the `type` and `scope` values, which
  * the same-scope requirement already guarantees are shared and which made short
  * unrelated rows look like copies.
@@ -110,9 +142,10 @@ function hasPolarity(tokens: Set<string>): boolean {
  * when it is a near-copy (same scope, content-token Jaccard >= `threshold`) of
  * a row already kept. When a clash happens the NEWER row takes the slot —
  * §17: the duplicates are stale snapshots, so recency decides, not rank. Rows
- * under `MIN_CONTENT` content tokens, and pairs that disagree on a negation
- * word, are never suppressed. `threshold <= 0` returns the plain top-`limit`
- * slice, so the flag-off path costs nothing and cannot reorder.
+ * under `MIN_CONTENT` content tokens, pairs that disagree on a negation word,
+ * and pairs whose numeric literals differ are never suppressed. `threshold <= 0`
+ * returns the plain top-`limit` slice, so the flag-off path costs nothing and
+ * cannot reorder.
  */
 export function dedupeWindow(
   ranked: Memory[],
@@ -135,6 +168,7 @@ export function dedupeWindow(
         ranked[k]!.scope === ranked[i]!.scope &&
         tokenSets[k]!.size >= MIN_CONTENT &&
         polarity[k] === polarity[i] &&
+        sameDroppedChunks(ranked[k]!, ranked[i]!) &&
         jaccard(tokenSets[i]!, tokenSets[k]!) >= threshold
       ) {
         clash = pos;

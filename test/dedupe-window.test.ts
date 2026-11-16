@@ -112,6 +112,23 @@ describe("dedupeWindow", () => {
     expect(out).toEqual([PERMIT, PROHIBIT]);
   });
 
+  test("rows differing only by a short numeric fact are not copies", () => {
+    // Review #415: words() drops chunks of length <= 2, so "db 3" and "db 4"
+    // leave identical token sets and the older row was suppressed through the
+    // handler. Widened past the MIN_CONTENT floor so the short-chunk guard,
+    // not the floor, is what keeps both rows.
+    const db3 = mem(
+      "redis",
+      "the rate limiter reads its counters from redis db 3 with a five second eviction window",
+    );
+    const db4 = mem(
+      "redis",
+      "the rate limiter reads its counters from redis db 4 with a five second eviction window",
+    );
+    expect(jaccard(contentTokens(db3), contentTokens(db4))).toBe(1);
+    expect(dedupeWindow([db3, db4], 2, 0.8)).toEqual([db3, db4]);
+  });
+
   test("rows with no comparable content are never suppressed", () => {
     // Non-Latin prose tokenises to nothing under words(); the pre-floor version
     // scored two unrelated Chinese rows in one scope at 1.0 and deleted one.
