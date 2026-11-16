@@ -8,26 +8,67 @@ import { type UseSignals, useBoost } from "./relevant.ts";
 /**
  * The matcher's tokenizer. Identifier-aware (#409, RESULTS §15): the shipped
  * version kept `_` inside a token and never touched case, so `getUserAccount`,
- * `get_user_account` and `get-user-account` were three unrelated tokens. This
- * splits camelCase boundaries, `_`, `.`, `/` and `-` first, so the identifiers a
- * memory cites — a function name, a dotted config key, a path — match the way a
- * session types them.
+ * `get_user_account` and `get-user-account` were three unrelated tokens.
  *
- * Measured on the bench fixture with the shipped scorer (store 200, `kw`
- * indexed, limit 5): r1, top-3 and any@5 unchanged, and wrong rows returned for
- * queries that have no gold in the store fall 0.60 -> 0.44 per call. It is the
- * harm-free half of the tokenizer lane; the stemming half buys 5 more golds but
- * costs 0.84 wrong rows, so it is not included.
+ * Each identifier (a maximal run of letters, digits, `_`, `.`, `-`, `/`) emits
+ * TWO granularities: the whole identifier lower-cased, and its segments split
+ * at camelCase boundaries and separators. The whole form is what preserves the
+ * exact match the shipped tokenizer had — `db_id` and `OPENCODE_MEMORY_DIR`
+ * stay single tokens, and an authored keyword stored fused (`memoryrecallthreshold`)
+ * still matches the query that cites it. Dropping the whole form is the
+ * regression that made the first version of this change abstain on `db_id`
+ * queries and break the #40 vocabulary bridge for camelCase aliases. The
+ * segments are what make the styles match each other: a query typed
+ * `getUserAccount` shares `get`, `user`, `account` with a row written
+ * `get_user_account`.
+ *
+ * The scan is one linear pass with no backtracking: a 4,000-character row of
+ * adversarial text costs microseconds, not milliseconds.
+ *
+ * Measured on the bench fixture at the SHIPPED configuration (`kw` indexed,
+ * store 200 and 48): lexical R@1 stays 98% and top-1 noise stays 6% — the
+ * fixture's queries never spell the same identifier two ways, so this is a
+ * correctness fix the fixture cannot price, not a measured win. The no-keyword
+ * arm moves (lexical R@1 98% -> 100%), but production indexes keywords.
  */
 export function words(text: string): string[] {
-  const split = text
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
-    .replace(/[_./-]+/g, " ");
-  return split
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 2);
+  const out: string[] = [];
+  const ids = text.match(/[A-Za-z0-9_.\-/]+/g);
+  if (!ids) return out;
+  for (const id of ids) {
+    const whole = id.toLowerCase();
+    if (whole.length > 2) out.push(whole);
+    let cur = "";
+    const flush = () => {
+      if (cur.length > 2) {
+        const seg = cur.toLowerCase();
+        if (seg !== whole) out.push(seg); // single words emit once, as before
+      }
+      cur = "";
+    };
+    for (let i = 0; i < id.length; i++) {
+      const ch = id[i]!;
+      const c = id.charCodeAt(i);
+      const isUpper = c >= 65 && c <= 90;
+      const isLower = c >= 97 && c <= 122;
+      const isDigit = c >= 48 && c <= 57;
+      if (!isUpper && !isLower && !isDigit) {
+        flush(); // `_`, `.`, `-`, `/` end a segment
+        continue;
+      }
+      if (isUpper && cur) {
+        const prev = cur.charCodeAt(cur.length - 1)!;
+        const next = i + 1 < id.length ? id.charCodeAt(i + 1)! : 0;
+        const boundary =
+          (prev >= 97 && prev <= 122) || // getUser -> get | User
+          (prev >= 65 && prev <= 90 && next >= 97 && next <= 122); // HTTPServer -> HTTP | Server
+        if (boundary) flush();
+      }
+      cur += ch;
+    }
+    flush();
+  }
+  return out;
 }
 
 // Query-side stopwords: bag-of-words scoring has no IDF, so "the/what/how"

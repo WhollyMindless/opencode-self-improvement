@@ -40,7 +40,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatMemory } from "../../src/inject/format.ts";
-import { scoreMemories, words } from "../../src/recall/score.ts";
+import { scoreMemories } from "../../src/recall/score.ts";
 import type { Memory } from "../../src/store/model/memory.ts";
 import {
   buildStore,
@@ -74,11 +74,20 @@ function asMemory(
 }
 
 // naive: pre-stopword-filter shipped matcher, kept verbatim as the baseline.
+// The tokenizer is FROZEN here (wordsLegacy), not imported: the control arms
+// must keep measuring the vocabulary they were published with, or a tokenizer
+// change silently redefines the baseline and cross-run comparability is lost.
+const wordsLegacy = (text: string): string[] =>
+  text
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/)
+    .filter((t) => t.length > 2);
+
 export const naive: Rank = (query, mems) => {
-  const q = new Set(words(query));
+  const q = new Set(wordsLegacy(query));
   return mems
     .map((m) => {
-      const hay = new Set(words(`${m.scope} ${m.type} ${m.content}`));
+      const hay = new Set(wordsLegacy(`${m.scope} ${m.type} ${m.content}`));
       let score = 0;
       for (const w of q) if (hay.has(w)) score++;
       return { m, score };
@@ -95,13 +104,17 @@ export const BM25_K1 = 1.2;
 export const BM25_B = 0.75;
 
 export function bm25Rank(query: string, mems: Memory[]): Memory[] {
-  const docs = mems.map((m) => words(`${m.scope} ${m.type} ${m.content}`));
+  // Frozen tokenizer, same reason as naive: the published BM25 control is a
+  // reference point for the OLD vocabulary.
+  const docs = mems.map((m) =>
+    wordsLegacy(`${m.scope} ${m.type} ${m.content}`),
+  );
   const N = docs.length || 1;
   const avgdl = docs.reduce((a, d) => a + d.length, 0) / N;
   const df = new Map<string, number>();
   for (const d of docs)
     for (const t of new Set(d)) df.set(t, (df.get(t) ?? 0) + 1);
-  const q = [...new Set(words(query))];
+  const q = [...new Set(wordsLegacy(query))];
   const scored = mems.map((m, i) => {
     const tf = new Map<string, number>();
     for (const t of docs[i]!) tf.set(t, (tf.get(t) ?? 0) + 1);
@@ -153,7 +166,9 @@ const STOP = new Set(
 const goldById = new Map(MEMORIES.map((m) => [m.id, m]));
 
 function contentTokens(text: string): Set<string> {
-  return new Set(words(text).filter((t) => !STOP.has(t)));
+  // Frozen: the query-class classification must not move with the tokenizer,
+  // or every published per-class number changes meaning.
+  return new Set(wordsLegacy(text).filter((t) => !STOP.has(t)));
 }
 
 export type QClass = "lexical" | "near" | "strict";
