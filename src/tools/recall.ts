@@ -32,7 +32,7 @@ export const register: ToolRegister = (editor, deps) => {
     validated(RecallArgs, {
       name: "memory_recall",
       description:
-        "Look up durable project knowledge — build/test/lint commands, decisions, patterns, preferences, blockers — BEFORE searching the repo or reading files. Use for 'how do I run X', conventions, and past decisions. By scope, type, or free-text query; with no filters it returns the most recent memories.",
+        "Look up durable project knowledge — build/test/lint commands, decisions, patterns, preferences, blockers — BEFORE searching the repo or reading files. Use for 'how do I run X', conventions, and past decisions. By scope, type, or free-text query; with no filters it returns the most recent memories. Returns at most 5 rows by default, best match first — pass `limit` when you genuinely need a wider sweep.",
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid, call } = toolIds(context);
@@ -52,7 +52,13 @@ export const register: ToolRegister = (editor, deps) => {
             .sort((a, b) => b.score - a.score)
             .map((x) => x.m);
         }
-        const limit = args.limit || 20;
+        // #409: the default window was 20. A live audit joined 1,090 recall
+        // events to their session transcripts: rank-1 rows go on to be
+        // referenced at 3.4x the rate of a random store row, ranks 11-20 at
+        // 1.16x — noise. Returning 17.7 rows per call meant most of the window
+        // was paid for in context and never read. 5 is the last rank where a
+        // useful row survives the cut; a caller that wants more still asks.
+        const limit = args.limit || 5;
         // #409 dedup lane (RESULTS §17): flag off, this is the same slice as
         // before. Flag on, near-duplicate copies are skipped so the window
         // fills with distinct rows instead of repeats of the top hit.
