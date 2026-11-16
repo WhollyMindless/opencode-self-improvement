@@ -5,10 +5,28 @@ import { isInjectable } from "../store/model/predicates.ts";
 import { cmpTs } from "../core/cmp-ts.ts";
 import { type UseSignals, useBoost } from "./relevant.ts";
 
+/**
+ * The matcher's tokenizer. Identifier-aware (#409, RESULTS §15): the shipped
+ * version kept `_` inside a token and never touched case, so `getUserAccount`,
+ * `get_user_account` and `get-user-account` were three unrelated tokens. This
+ * splits camelCase boundaries, `_`, `.`, `/` and `-` first, so the identifiers a
+ * memory cites — a function name, a dotted config key, a path — match the way a
+ * session types them.
+ *
+ * Measured on the bench fixture with the shipped scorer (store 200, `kw`
+ * indexed, limit 5): r1, top-3 and any@5 unchanged, and wrong rows returned for
+ * queries that have no gold in the store fall 0.60 -> 0.44 per call. It is the
+ * harm-free half of the tokenizer lane; the stemming half buys 5 more golds but
+ * costs 0.84 wrong rows, so it is not included.
+ */
 export function words(text: string): string[] {
-  return text
+  const split = text
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/[_./-]+/g, " ");
+  return split
     .toLowerCase()
-    .split(/[^a-z0-9_]+/)
+    .split(/[^a-z0-9]+/)
     .filter((t) => t.length > 2);
 }
 
