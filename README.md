@@ -87,6 +87,7 @@ Zero configuration is the default. To tune, use the object form of the plugin en
 | `OPENCODE_MEMORY_ALLOW_OUTSIDE_PATHS` | Operator-only. When truthy, `memory_export`/`memory_import` accept paths anywhere on disk instead of confining themselves to the store. Off by default. See [Export and move between machines](#export-and-move-between-machines). |
 | `OPENCODE_MEMORY_INJECT_BUDGET` | Fallback for `injectBudget`. |
 | `OPENCODE_MEMORY_FRONTIER_BUDGET` | Fallback for `frontierBudget`. |
+| `OPENCODE_MEMORY_DEDUP` | Near-duplicate suppression inside a `memory_recall` window. Set to a token-Jaccard threshold, for example `0.8`: a row that is a near-copy (same scope, Jaccard at or above the threshold) of a row already returned is skipped, so the window fills with distinct facts instead of repeats of the top hit. Unset or `0` returns the plain top-`limit` slice, byte-identical to previous behavior. Below `0.8` it suppresses rows that are merely related rather than copied; see [#409](https://github.com/abogartz/opencode-self-improvement/issues/409). |
 | `OPENCODE_COMMANDS_DIR` | Where the plugin mirrors its slash commands (default `~/.config/opencode/commands`). |
 | `OPENCODE_VIEWER_HOST` | Interface the editor binds to (default `127.0.0.1`). A non-loopback bind serves the store over plain HTTP with no authentication — only do it on a network you control. See [Surfaces](#surfaces). |
 | `OPENCODE_VIEWER_PORT` | Admin editor port (default `8787`). |
