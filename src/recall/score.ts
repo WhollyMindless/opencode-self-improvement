@@ -36,7 +36,11 @@ export function words(text: string): string[] {
   const ids = text.match(/[A-Za-z0-9_.\-/]+/g);
   if (!ids) return out;
   for (const id of ids) {
-    const whole = id.toLowerCase();
+    // Sentence punctuation is not part of the identifier: a row ending
+    // `Join on db_id.` must still carry the token `db_id`. Underscore stays
+    // (the shipped tokenizer kept it), and interior separators stay — only
+    // the edges are trimmed.
+    const whole = id.replace(/^[./-]+|[./-]+$/g, "").toLowerCase();
     if (whole.length > 2) out.push(whole);
     let cur = "";
     const flush = () => {
@@ -83,7 +87,8 @@ export const QUERY_STOPWORDS = new Set(
   ),
 );
 
-// A free-text prompt long enough to carry >= this many content tokens must
+// A free-text prompt long enough to carry >= this many distinct concepts (see
+// queryConcepts: an identifier and its segments count once) must
 // share >= 2 distinct concepts with a memory to inject: with a long query
 // vocabulary, one shared token is near-certain coincidence (a live store hit
 // injected a git memory on the word "should", df=1). A keyword-length query
@@ -113,6 +118,30 @@ const LONG_QUERY_TOKENS = 3;
 // loadAll() result must not be the one place a retired memory leaks back into
 // an injected block (#43 item 1: forbidden hits). The drop also keeps a
 // retired row from diluting the document frequencies the ranking depends on.
+/**
+ * The query's distinct concepts. `words()` emits each identifier at two
+ * granularities — whole form plus camel/separator segments — and the admission
+ * gate must count ONE concept per identifier, not one per token: a query
+ * citing `memoryRecallThreshold` is a single concept even though it emits
+ * four tokens (review #417: the flat token count raised needShared from 1 to
+ * 2 and a row carrying that keyword fused in `kw` stopped matching its own
+ * keyword). Identifiers sharing any token — the same concept spelled two ways
+ * in one query — merge into one group.
+ */
+function queryConcepts(term: string): string[][] {
+  const groups: string[][] = [];
+  for (const id of term.match(/[A-Za-z0-9_.\-/]+/g) ?? []) {
+    const toks = words(id).filter((t) => !QUERY_STOPWORDS.has(t));
+    if (!toks.length) continue;
+    let hit = -1;
+    for (let g = 0; g < groups.length && hit === -1; g++)
+      if (toks.some((t) => groups[g]!.includes(t))) hit = g;
+    if (hit === -1) groups.push([...new Set(toks)]);
+    else groups[hit] = [...new Set([...groups[hit]!, ...toks])];
+  }
+  return groups;
+}
+
 export function scoreMemories(
   term: string,
   mems: Memory[],
@@ -120,9 +149,9 @@ export function scoreMemories(
   use?: UseSignals,
 ): Memory[] {
   const live = mems.filter(isInjectable);
-  const query = new Set(words(term).filter((t) => !QUERY_STOPWORDS.has(t)));
-  if (!query.size) return [];
-  const needShared = query.size >= LONG_QUERY_TOKENS ? 2 : 1;
+  const concepts = queryConcepts(term);
+  if (!concepts.length) return [];
+  const needShared = concepts.length >= LONG_QUERY_TOKENS ? 2 : 1;
   const hays = live.map((m) => new Set(words(haystack(m))));
   const df = new Map<string, number>();
   for (const h of hays) for (const t of h) df.set(t, (df.get(t) ?? 0) + 1);
@@ -131,12 +160,22 @@ export function scoreMemories(
     .map((m, i) => {
       let shared = 0;
       let score = 0;
-      for (const w of query)
-        if (hays[i]!.has(w)) {
+      for (const c of concepts) {
+        // A concept contributes at most its best-matching token's idf: the
+        // whole form and its segments are one concept, not four independent
+        // agreements, so a row cannot out-rank another by spelling the same
+        // identifier in more granularities.
+        let best = 0;
+        for (const w of c)
+          if (hays[i]!.has(w)) {
+            const d = df.get(w) ?? 0;
+            best = Math.max(best, Math.log(1 + (n - d + 0.5) / (d + 0.5)));
+          }
+        if (best > 0) {
           shared++;
-          const d = df.get(w) ?? 0;
-          score += Math.log(1 + (n - d + 0.5) / (d + 0.5));
+          score += best;
         }
+      }
       return { m, shared, score };
     })
     .filter((s) => s.shared >= needShared)

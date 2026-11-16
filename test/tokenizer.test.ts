@@ -129,12 +129,34 @@ describe("identifier tokenisation (#409)", () => {
     expect(top[0]).toBe(rows[0]);
   });
 
+  test("a fused keyword alone suffices with no segment overlap in prose", () => {
+    // Review #417: the segment expansion raised the flat token count to four,
+    // the gate then demanded two matches, and the fused alias supplied one —
+    // the row stopped matching its own keyword. Admission counts concepts, and
+    // an identifier plus its segments is ONE concept.
+    const rows = [
+      mem("Controls admission of weak matches", {
+        kw: ["memoryrecallthreshold"],
+      }),
+    ];
+    expect(scoreMemories("memoryRecallThreshold", rows, 3)[0]).toBe(rows[0]);
+  });
+
+  test("sentence punctuation does not glue onto an identifier", () => {
+    // Review #417: `Join on db_id.` tokenised as `db_id.`, so the row ended
+    // its sentence out of reach of a `db_id` query.
+    const rows = [mem("Join on db_id.")];
+    expect(words("Join on db_id.")).toContain("db_id");
+    expect(scoreMemories("db_id", rows, 3)[0]).toBe(rows[0]);
+  });
+
   test("tokenisation cost stays linear on adversarial text", () => {
     // A memory_remember call can plant a 4,000-char row; the scan is one pass
-    // with no backtracking. The bound is deliberately generous — the regex
-    // chain this replaced cost ~10 ms per call on 4,000 uppercase characters,
-    // which would blow past it by an order of magnitude even on a slow CI
-    // runner (which tripped a tighter 40 ms budget at 42 ms).
+    // with no backtracking. The bound is calibrated, not guessed: 20 calls on
+    // 4,000 uppercase characters cost ~34 ms with this scan and ~200 ms with
+    // the regex chain it replaces, so 150 ms fails the old path and every
+    // super-linear regression while staying clear of loaded-runner noise
+    // (a 40 ms budget tripped at 42 ms under load).
     for (const evil of [
       "A".repeat(4000),
       "a-a-a-".repeat(1000),
@@ -142,7 +164,7 @@ describe("identifier tokenisation (#409)", () => {
     ]) {
       const t0 = performance.now();
       for (let i = 0; i < 20; i++) words(evil);
-      expect(performance.now() - t0).toBeLessThan(200);
+      expect(performance.now() - t0).toBeLessThan(150);
     }
   });
 });
