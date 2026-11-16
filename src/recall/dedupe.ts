@@ -7,30 +7,76 @@
 // needs together rarely fit side by side because the first one's copies take
 // the slots.
 //
-// The fix is one deterministic pass AFTER ranking: keep rank order, skip any
-// candidate whose token Jaccard against an already-kept row reaches the
-// threshold, and continue until the window is full. No model, no new index,
-// and nothing changes unless the flag is set:
+// The fix is one deterministic pass AFTER ranking: skip any candidate whose
+// content-token Jaccard against an already-kept row of the same scope reaches
+// the threshold, keeping the NEWEST copy of a clash (§17's adoption rule: the
+// live duplicates are stale cursors and superseded snapshots, so the row that
+// survives is the one written last, not the one that ranked highest). No model,
+// no new index, and nothing changes unless the flag is set:
 //
 //   OPENCODE_MEMORY_DEDUP=0.8   (unset or 0 = shipped behavior, byte-identical)
 //
 // Threshold guidance from the live replay (§17): 0.5-0.7 suppresses rows that
 // are merely related (92% of them at 0.5) and forces the window deep into the
-// ranking; 0.8 suppresses only near-identical copies. Ties are broken by scope
-// because two scopes can legitimately hold parallel wording.
+// ranking; 0.8 suppresses only near-identical copies. Values below 0.5 are a
+// misconfiguration, not an aggressive setting: at Jaccard 1e-9 a single shared
+// fragment suppressed rows, so anything under 0.5 turns the pass off.
+//
+// WHAT COUNTS AS A NEAR-COPY — the first version's three mistakes, each pinned
+// by a test:
+//
+// 1. It scored `type` and `scope` as tokens. Same-scope rows then shared two
+//    free tokens, so short rows looked like copies of each other. Comparison is
+//    content-only.
+// 2. It compared whole token sets, so a prohibition read as a copy of the
+//    permission it denies: "force push main" inside "never force push main"
+//    reaches Jaccard 0.833, and at threshold 0.8 the WRONG copy survived. If
+//    exactly one row of a pair carries a negation word, it is not a copy.
+// 3. It had no floor. Non-Latin prose tokenises to nothing under `words()`
+//    (which splits on [^a-z0-9_]+), so two unrelated Chinese rows in one scope
+//    both reduced to the empty content set — Jaccard over empty sets is
+//    defined here as 0, but the pre-floor version scored them on type and
+//    scope alone at 1.0 and deleted the second row. A row with fewer than
+//    MIN_CONTENT content tokens is never suppressed: there is nothing to
+//    compare.
 import type { Memory } from "../store/model/memory.ts";
 import { haystack, words } from "./score.ts";
 
 export const DEDUPE_ENV = "OPENCODE_MEMORY_DEDUP";
 
-/** Threshold from the environment. Unset, empty, unparsable or <= 0 means off. */
+/** Below this, the value is a misconfiguration and the pass stays off. */
+export const MIN_THRESHOLD = 0.5;
+
+/** A row with fewer content tokens than this is never compared (§17 floor). */
+export const MIN_CONTENT = 4;
+
+/**
+ * Tokens that reverse a row's meaning. If exactly one row of a candidate pair
+ * carries any of them, the rows disagree, and disagreement is not duplication.
+ * Only words that survive `words()` (lower-case, length > 2) are listed;
+ * contractions split ("don't" yields "don"), which is why "don" appears.
+ */
+export const POLARITY_WORDS = new Set([
+  "never",
+  "not",
+  "cannot",
+  "cant",
+  "dont",
+  "don",
+  "avoid",
+  "forbidden",
+  "prohibited",
+  "banned",
+]);
+
+/** Threshold from the environment. Unset, empty, unparsable, < MIN_THRESHOLD or > 1 means off. */
 export function dedupeThreshold(
   env: Record<string, string | undefined> = process.env,
 ): number {
   const raw = env[DEDUPE_ENV];
   if (!raw) return 0;
   const n = Number(raw);
-  return Number.isFinite(n) && n > 0 && n <= 1 ? n : 0;
+  return Number.isFinite(n) && n >= MIN_THRESHOLD && n <= 1 ? n : 0;
 }
 
 export function jaccard(a: Set<string>, b: Set<string>): number {
@@ -43,10 +89,30 @@ export function jaccard(a: Set<string>, b: Set<string>): number {
 }
 
 /**
+ * A row's own tokens: everything except the `type` and `scope` values, which
+ * the same-scope requirement already guarantees are shared and which made short
+ * unrelated rows look like copies.
+ */
+export function contentTokens(m: Memory): Set<string> {
+  const out = new Set(words(haystack(m)));
+  out.delete(m.type.toLowerCase());
+  out.delete(m.scope.toLowerCase());
+  return out;
+}
+
+function hasPolarity(tokens: Set<string>): boolean {
+  for (const w of tokens) if (POLARITY_WORDS.has(w)) return true;
+  return false;
+}
+
+/**
  * Keep at most `limit` rows from `ranked`, in ranking order, skipping a row
- * when it is a near-copy (same scope, token Jaccard >= `threshold`) of a row
- * already kept. `threshold <= 0` returns the plain top-`limit` slice, so the
- * flag-off path costs nothing and cannot reorder.
+ * when it is a near-copy (same scope, content-token Jaccard >= `threshold`) of
+ * a row already kept. When a clash happens the NEWER row takes the slot —
+ * §17: the duplicates are stale snapshots, so recency decides, not rank. Rows
+ * under `MIN_CONTENT` content tokens, and pairs that disagree on a negation
+ * word, are never suppressed. `threshold <= 0` returns the plain top-`limit`
+ * slice, so the flag-off path costs nothing and cannot reorder.
  */
 export function dedupeWindow(
   ranked: Memory[],
@@ -54,16 +120,29 @@ export function dedupeWindow(
   threshold: number,
 ): Memory[] {
   if (threshold <= 0 || ranked.length <= 1) return ranked.slice(0, limit);
-  const tokenSets = ranked.map((m) => new Set(words(haystack(m))));
+  const tokenSets = ranked.map(contentTokens);
+  const polarity = tokenSets.map(hasPolarity);
   const kept: number[] = [];
   for (let i = 0; i < ranked.length && kept.length < limit; i++) {
-    const scope = ranked[i]!.scope;
-    const clash = kept.some(
-      (k) =>
-        ranked[k]!.scope === scope &&
-        jaccard(tokenSets[i]!, tokenSets[k]!) >= threshold,
-    );
-    if (!clash) kept.push(i);
+    if (tokenSets[i]!.size < MIN_CONTENT) {
+      kept.push(i);
+      continue;
+    }
+    let clash = -1; // position within `kept`, not the row index
+    for (const pos of kept.keys()) {
+      const k = kept[pos]!;
+      if (
+        ranked[k]!.scope === ranked[i]!.scope &&
+        tokenSets[k]!.size >= MIN_CONTENT &&
+        polarity[k] === polarity[i] &&
+        jaccard(tokenSets[i]!, tokenSets[k]!) >= threshold
+      ) {
+        clash = pos;
+        break;
+      }
+    }
+    if (clash === -1) kept.push(i);
+    else if (ranked[i]!.ts > ranked[kept[clash]!]!.ts) kept[clash] = i;
   }
   return kept.map((i) => ranked[i]!);
 }
