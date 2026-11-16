@@ -95,7 +95,7 @@ export const QUERY_STOPWORDS = new Set(
 // is a deliberate search — one shared concept suffices. memory_recall and the
 // contextual pull keep single-overlap matches reachable; injection just stays
 // quiet unless the vocabulary genuinely agrees twice.
-const LONG_QUERY_TOKENS = 3;
+export const LONG_QUERY_TOKENS = 3;
 
 // Production relevance ranking. Candidates must clear the concept-overlap
 // gate, then rank by Robertson-IF of the shared tokens (rare concepts beat

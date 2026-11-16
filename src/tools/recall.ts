@@ -4,6 +4,12 @@
 import type { ToolRegister } from "./deps.ts";
 import { record } from "../evidence/record.ts";
 import { formatMemory } from "../inject/format.ts";
+import {
+  admitsRow,
+  gateEnabled,
+  queryTokens,
+  recallHaystack,
+} from "../recall/gate.ts";
 import { loadAll } from "../store/files/load.ts";
 import { isInjectable } from "../store/model/predicates.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
@@ -15,8 +21,7 @@ import { dedupeThreshold, dedupeWindow } from "../recall/dedupe.ts";
 function scoreMemory(m: Memory, q: string): number {
   // Same indexed fields as the injection scorer (#40): a row recalled by one of
   // its keywords is the same row recalled by the prose that keyword stands for.
-  const kw = m.kw?.length ? ` ${m.kw.join(" ")}` : "";
-  const hay = `${m.type} ${m.scope} ${m.content}${kw}`.toLowerCase();
+  const hay = recallHaystack(m);
   let score = 0;
   for (const w of q.toLowerCase().split(/\s+/).filter(Boolean)) {
     if (hay.includes(w)) score++;
@@ -46,9 +51,14 @@ export const register: ToolRegister = (editor, deps) => {
           results = results.filter((m) => m.scope.includes(args.scope!));
         if (args.type) results = results.filter((m) => m.type === args.type);
         if (args.query) {
+          // Flag off, this is the shipped filter. Flag on, a row also has to
+          // share two of the query's words, which is the rule the injection
+          // scorer already applies (src/recall/gate.ts, #409).
+          const gate = gateEnabled();
+          const tokens = gate ? queryTokens(args.query) : [];
           results = results
             .map((m) => ({ m, score: scoreMemory(m, args.query!) }))
-            .filter((x) => x.score > 0)
+            .filter((x) => x.score > 0 && (!gate || admitsRow(x.m, tokens)))
             .sort((a, b) => b.score - a.score)
             .map((x) => x.m);
         }
