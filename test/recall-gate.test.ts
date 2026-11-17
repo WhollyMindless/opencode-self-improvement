@@ -61,26 +61,28 @@ const SUBSTRING_TRAP = mem("checkout detached head at build2837", {
 });
 
 describe("gateEnabled", () => {
-  test("unset, empty and the documented off values mean off", () => {
-    expect(gateEnabled({})).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "" })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "  " })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "0" })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "FALSE" })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "off" })).toBe(false);
+  test("unset and empty mean on (default ON, #409 flags)", () => {
+    expect(gateEnabled({})).toBe(true);
+    expect(gateEnabled({ [GATE_ENV]: "" })).toBe(true);
+    expect(gateEnabled({ [GATE_ENV]: "  " })).toBe(true);
   });
-  test("only an explicit affirmative means on", () => {
+  test("explicit off words and any zero mean off", () => {
+    expect(gateEnabled({ [GATE_ENV]: "off" })).toBe(false);
+    expect(gateEnabled({ [GATE_ENV]: "no" })).toBe(false);
+    expect(gateEnabled({ [GATE_ENV]: "n" })).toBe(false);
+    expect(gateEnabled({ [GATE_ENV]: "FALSE" })).toBe(false);
+    expect(gateEnabled({ [GATE_ENV]: "0" })).toBe(false);
+    // A shell user writes these meaning off; they must mean off.
+    expect(gateEnabled({ [GATE_ENV]: "00" })).toBe(false);
+    expect(gateEnabled({ [GATE_ENV]: "0.0" })).toBe(false);
+  });
+  test("affirmatives and anything else mean on", () => {
     expect(gateEnabled({ [GATE_ENV]: "1" })).toBe(true);
     expect(gateEnabled({ [GATE_ENV]: "true" })).toBe(true);
     expect(gateEnabled({ [GATE_ENV]: "YES" })).toBe(true);
     expect(gateEnabled({ [GATE_ENV]: "On" })).toBe(true);
-  });
-  test("values a user writes meaning off stay off", () => {
-    // The first version deny-listed, so these all enabled the gate.
-    expect(gateEnabled({ [GATE_ENV]: "no" })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "n" })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "00" })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "0.0" })).toBe(false);
+    // A typo must not silently disable a default-ON quality path.
+    expect(gateEnabled({ [GATE_ENV]: "tureh" })).toBe(true);
   });
 });
 
@@ -163,7 +165,7 @@ describe("memory_recall with the gate", () => {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "osi-gate-"));
     process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
-    // An ambient flag in the CI shell must not flip the flag-off tests on.
+    // An ambient off-switch in the CI shell must not flip the default-on tests.
     delete process.env[GATE_ENV];
     resetState();
     setRepoScope(null);
@@ -193,8 +195,9 @@ describe("memory_recall with the gate", () => {
     });
   }
 
-  test("flag off, a one-concept row is still returned", async () => {
+  test("opted out, a one-concept row is still returned", async () => {
     seed(ONE_CONCEPT, TWO_CONCEPTS);
+    process.env[GATE_ENV] = "off";
     const loaded = await loadPlugin(root);
     const out = await loaded.tool.memory_recall!.execute({
       query: "head watermark 283",
@@ -205,9 +208,8 @@ describe("memory_recall with the gate", () => {
     await loaded.cleanup();
   });
 
-  test("flag on, the one-concept row is dropped and the two-concept row stays", async () => {
+  test("by default, the one-concept row is dropped and the two-concept row stays", async () => {
     seed(ONE_CONCEPT, TWO_CONCEPTS);
-    process.env[GATE_ENV] = "1";
     const loaded = await loadPlugin(root);
     const out = await loaded.tool.memory_recall!.execute({
       query: "head watermark 283",
