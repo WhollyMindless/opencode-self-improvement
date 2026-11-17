@@ -1,33 +1,57 @@
 #!/usr/bin/env bun
 /**
- * symptom-fixer — DRY RUN ONLY. Reports how many pre-convention rows could be
- * rewritten to the #419 symptom-first shape ("When <symptom>: <fact>"), using
- * ONLY symptoms the store's own query ledger recorded. It never invents a
- * symptom and never writes.
+ * symptom-fixer — repair the pre-#419 lesson backlog from the store's own
+ * query ledger. Default: DRY RUN. `--apply`: gated writes.
  *
- * Grounding rule: a symptom is known only when a real session issued a query
+ * Grounding rule: a symptom is known ONLY when a real session issued a query
  * (hits.logfmt terms=[...]) that shares >= 2 rare content tokens with the row
- * yet the row was NOT among the rows used. The query text IS the symptom.
+ * yet the row was NOT among the rows used. The query text IS the symptom —
+ * never invented, never reworded.
  *
- * Replay gate (the consolidate discipline): a rewrite is promoted-eligible
- * only when (a) it would have entered the window for its grounding query, and
- * (b) for every ledger query where the OLD row made the window, the rewritten
- * row still makes it. Any loss vetoes the rewrite.
+ * Repair shape (kw-only, decided 2026-11-17): the symptom words are added to
+ * the row's kw — indexed, never injected. Content stays byte-identical, so a
+ * word-bag never becomes displayed prose and no row's meaning can drift.
+ * Retrieval still improves: kw rides every scorer's haystack, and the words
+ * that enter are exactly the ones the content lacked (new vocabulary only).
  *
- * Usage: bun scripts/symptom-fixer.ts [--store <dir>] [--window 5] [--limit N]
+ * Replay gate (the consolidate discipline): a rewrite is applied only when
+ * (a) it would have entered the window for its grounding query, and (b) for
+ * every ledger query where the OLD row made the window, the rewritten row
+ * still makes it. Any loss vetoes the rewrite.
+ *
+ * Apply path: one row at a time under the store's batch lock, through the
+ * real 4-gate write pipeline with supersedesTs set — the memory_update
+ * contract. The successor inherits the target's repo stamp (the fixer forges
+ * no identity), the old row is superseded, never edited, and markSuperseded
+ * snapshots the day-file first: memory_undo stays the recovery path.
+ * OPENCODE_MEMORY_SYMPTOM=off is the #423 escape hatch for automation
+ * holding the pre-convention backlog: content is unchanged here, so the
+ * new-prose rule does not apply.
+ *
+ * Usage: bun scripts/symptom-fixer.ts [--apply] [--store <dir>]
+ *        [--window 5] [--limit N]
  */
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { scoreMemories } from "../src/recall/score.ts";
-import { words } from "../src/recall/score.ts";
-import { loadAll } from "../src/store/files/load.ts";
+import { QUERY_STOPWORDS, scoreMemories, words } from "../src/recall/score.ts";
+import { MAX_KEYWORDS, type Memory } from "../src/store/model/memory.ts";
 import { isActive } from "../src/store/model/predicates.ts";
-import type { Memory } from "../src/store/model/memory.ts";
+import { loadAll } from "../src/store/files/load.ts";
+import { markSuperseded } from "../src/store/files/supersede.ts";
+import { withStoreBatch } from "../src/store/lock.ts";
+import { memoryRoot } from "../src/core/config/paths.ts";
+import { nonCaptureTags } from "../src/core/guidance.ts";
+import { runWriteGate } from "../src/gate/gate.ts";
+
+// The rule shapes NEW lesson prose. This script never changes content, so
+// the documented automation escape hatch (#423) is the correct setting.
+process.env.OPENCODE_MEMORY_SYMPTOM ??= "off";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
+const APPLY = process.argv.includes("--apply");
 const WINDOW = Number(arg("window") ?? 5);
 const SHOW = Number(arg("limit") ?? 8);
 
@@ -68,17 +92,35 @@ const withSymptom = lessons.filter((m) => SYMPTOM_OK.test(m.content));
 const backlog = lessons.filter((m) => !SYMPTOM_OK.test(m.content));
 
 // Rare-token overlap: query concepts the row's CONTENT actually carries.
-const byTs = new Map(rows.map((m) => [m.ts, m]));
-function contentWords(m: Memory): Set<string> {
-  return new Set(words(m.content));
+const cw = new Map(rows.map((m) => [m.ts, new Set(words(m.content))]));
+
+/**
+ * The kw-only repair: symptom words the row's vocabulary LACKS (words already
+ * in content or kw add no retrieval value), minus query grammar, capped at
+ * the schema's keyword ceiling. Exported for tests.
+ */
+export function mergeSymptomKw(row: Memory, symptomQuery: string[]): string[] {
+  const merged = [...(row.kw ?? [])];
+  const known = new Set([
+    ...cw.get(row.ts)!,
+    ...merged.map((k) => k.toLowerCase()),
+  ]);
+  outer: for (const t of symptomQuery) {
+    for (const w of words(t)) {
+      if (merged.length >= MAX_KEYWORDS) break outer;
+      if (QUERY_STOPWORDS.has(w) || known.has(w)) continue;
+      known.add(w);
+      merged.push(w);
+    }
+  }
+  return merged;
 }
-const cw = new Map(rows.map((m) => [m.ts, contentWords(m)]));
 
 interface Proposal {
   row: Memory;
   symptom: string;
-  shared: number;
   query: string[];
+  mergedKw: string[];
 }
 const proposals = new Map<string, Proposal>();
 for (const ev of events) {
@@ -90,28 +132,30 @@ for (const ev of events) {
       for (const w of words(t)) if (set.has(w)) shared++;
     if (shared < 2) continue;
     const prev = proposals.get(row.ts);
-    if (!prev || shared > prev.shared) {
+    if (!prev || shared > prev.query.length) {
       proposals.set(row.ts, {
         row,
         symptom: ev.terms.join(" "),
-        shared,
         query: ev.terms,
+        mergedKw: mergeSymptomKw(row, ev.terms),
       });
     }
   }
 }
 
-// Replay: rewrite = prepend the grounded symptom clause; content otherwise
-// byte-identical. (a) must enter the window for its grounding query;
-// (b) must keep every ledger window the old row was in.
-let eligible = 0;
+// Replay: the rewritten row is the SAME row with merged kw. (a) must enter
+// the window for its grounding query; (b) must keep every ledger window the
+// old row was in. A proposal that adds no new keyword cannot change any
+// window — it is dropped here, honestly, as no-op.
+const eligible: Proposal[] = [];
 let vetoed = 0;
-const examples: string[] = [];
+let noOp = 0;
 for (const p of proposals.values()) {
-  const rewritten: Memory = {
-    ...p.row,
-    content: `When ${p.symptom}: ${p.row.content}`,
-  };
+  if (p.mergedKw.length === (p.row.kw?.length ?? 0)) {
+    noOp++;
+    continue;
+  }
+  const rewritten: Memory = { ...p.row, kw: p.mergedKw };
   const swap = (m: Memory) => (m.ts === p.row.ts ? rewritten : m);
   const enters = scoreMemories(p.query.join(" "), rows.map(swap), WINDOW).some(
     (m) => m.ts === p.row.ts,
@@ -125,16 +169,11 @@ for (const p of proposals.values()) {
       break;
     }
   }
-  if (enters && keeps) {
-    eligible++;
-    if (examples.length < SHOW)
-      examples.push(
-        `  [${p.row.scope}/${p.row.type}] symptom="${p.symptom}"\n    was: ${p.row.content.slice(0, 110)}`,
-      );
-  } else vetoed++;
+  if (enters && keeps) eligible.push(p);
+  else vetoed++;
 }
 
-console.log(`store: ${root}`);
+console.log(`store: ${root}  mode: ${APPLY ? "APPLY" : "dry-run"}`);
 console.log(`active rows: ${rows.length}`);
 console.log(
   `learning/blocker: ${lessons.length} — with symptom clause: ${withSymptom.length}, backlog: ${backlog.length}`,
@@ -143,14 +182,81 @@ console.log(`ledger events with terms: ${events.length}`);
 console.log(
   `grounded proposals (>=2 shared rare tokens, row not used): ${proposals.size}`,
 );
+console.log(`no new keyword vocabulary (no-op, dropped): ${noOp}`);
 console.log(
-  `replay-eligible (enters grounding window, loses no old window): ${eligible}`,
+  `replay-eligible (enters grounding window, loses no old window): ${eligible.length}`,
 );
 console.log(`vetoed by replay: ${vetoed}`);
-if (examples.length) {
-  console.log("\neligible examples:");
-  console.log(examples.join("\n"));
+
+if (!APPLY) {
+  const examples = eligible
+    .slice(0, SHOW)
+    .map(
+      (p) =>
+        `  [${p.row.scope}/${p.row.type}] +kw=${JSON.stringify(
+          p.mergedKw.slice(p.row.kw?.length ?? 0),
+        )}\n    was: ${p.row.content.slice(0, 100)}`,
+    );
+  if (examples.length) {
+    console.log("\neligible examples (kw-only; content byte-identical):");
+    console.log(examples.join("\n"));
+  }
+  console.log(
+    "\nDRY RUN — no writes. Re-run with --apply to write through the gated update path.",
+  );
+} else {
+  let applied = 0;
+  const failures: string[] = [];
+  for (const p of eligible) {
+    const verdict = await withStoreBatch(
+      memoryRoot(),
+      "fixer-order",
+      async () => {
+        const fresh = await loadAll();
+        const target = fresh.find((m) => m.ts === p.row.ts);
+        if (!target || !isActive(target)) return "target-gone";
+        if (target.content !== p.row.content)
+          return "drift (content changed since replay)";
+        const out = await runWriteGate(
+          {
+            type: target.type,
+            scope: target.scope,
+            content: target.content,
+            kw: p.mergedKw,
+            tags: nonCaptureTags(target.tags),
+            issue: target.issue,
+            status: target.status ?? "settled",
+            repo: target.repo ?? "global",
+            repoPath: target.repoPath,
+          },
+          {
+            liveRoot: memoryRoot(),
+            evidenceCalls: [],
+            hasGateCheck: true,
+            trusted: true,
+            supersedesTs: target.ts,
+          },
+        );
+        if (out.action === "promoted") {
+          const ok = await markSuperseded(target.ts, {
+            superseded_by: out.ts,
+            reason: "fixer_kw_symptom",
+          });
+          return ok
+            ? "applied"
+            : `PARTIAL: replacement ${out.ts} IS on disk; supersede of ${target.ts} failed — re-run reports the duplicate`;
+        }
+        return `blocked:${out.action === "blocked" ? out.reason : out.action}`;
+      },
+    );
+    if (verdict === "applied") applied++;
+    else failures.push(`${p.row.ts} [${p.row.scope}/${p.row.type}] ${verdict}`);
+  }
+  console.log(
+    `\napplied (gated update, supersede-first, snapshot-backed): ${applied}`,
+  );
+  if (failures.length) {
+    console.log(`not applied (${failures.length}):`);
+    for (const f of failures.slice(0, SHOW)) console.log(`  ${f}`);
+  }
 }
-console.log(
-  "\nDRY RUN — no writes. Apply path = gated memory_update, one row at a time.",
-);
