@@ -49,7 +49,11 @@ const keywordList = z
 // ---- tool argument schemas (JSON Schema generated from these) ------------
 
 export const RememberArgs = z.object({
-  type: z.enum(TYPES).describe("Type of memory"),
+  type: z
+    .enum(TYPES)
+    .describe(
+      'Type of memory. A `learning` or `blocker` row must open its content with the observable trigger: "When <symptom>: <fact>" (#419).',
+    ),
   scope: memoryField.describe("Scope/area (e.g., auth, api, ctl)"),
   content: z.string().describe("The memory content"),
   issue: memoryField.describe("Related issue").optional(),

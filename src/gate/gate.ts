@@ -298,6 +298,25 @@ function deltaTokens(
   return [...set];
 }
 
+/**
+ * The #419 symptom-clause rule (learning/blocker content must open with
+ * "When <symptom>:") is ON unless OPENCODE_MEMORY_SYMPTOM is off/0/false.
+ * Read per call so tests and automation can flip it without a restart.
+ */
+export function symptomRuleEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const raw = env.OPENCODE_MEMORY_SYMPTOM;
+  return (
+    raw === undefined ||
+    !(
+      raw === "0" ||
+      raw.toLowerCase() === "off" ||
+      raw.toLowerCase() === "false"
+    )
+  );
+}
+
 export async function runWriteGate(
   candidate: WriteCandidate,
   ctx: GateContext,
@@ -426,6 +445,27 @@ export async function runWriteGate(
       reason: "credential_in_metadata",
       chain,
       hint: `Credential-shaped value in ${credentialMetadata.join(", ")}; remove it and retry. Only memory content is redacted automatically.`,
+    };
+  }
+
+  // The #419 capture convention, enforced: a `learning`/`blocker` row must
+  // open with the observable trigger a future session will hit. The measured
+  // gap is the whole argument — the same lesson surfaced 0/8 written as a
+  // session diary and ranked 1-7 written symptom-first, because the future
+  // searcher is typing the symptom, not the lesson. OPENCODE_MEMORY_SYMPTOM=off
+  // is the escape hatch for automation holding a pre-0.28 backlog; the
+  // backlog itself is repairable (scripts/symptom-fixer.ts), silence is not.
+  if (
+    (candidate.type === "learning" || candidate.type === "blocker") &&
+    symptomRuleEnabled() &&
+    !/^when\b[^\n]{0,160}:/i.test(candidate.content)
+  ) {
+    await recBlocked(4, "symptom_missing", [`type=${candidate.type}`], chain);
+    return {
+      action: "blocked",
+      reason: "symptom_missing",
+      chain,
+      hint: 'learning/blocker rows must open with the observable trigger: "When <symptom>: <fact>" (#419). Name the failing command, the error text, or the wrong number — or write the row as context/decision if it is not trigger-keyed.',
     };
   }
 
