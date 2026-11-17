@@ -3,8 +3,9 @@
 // mention one of them. The gate applies the injection path's two-concept rule to
 // the tool, counting whole words — the first version counted substrings and was
 // satisfiable by accidents (`on` inside `context`, `283` inside `build2837`).
-// The property that matters for a release is the first unit test and the first
-// e2e test: with the flag unset the tool's output is unchanged.
+// The property that matters for a release is the first unit test and the
+// first e2e test: with OPENCODE_MEMORY_QUERY_GATE=off the tool's output is
+// unchanged; unset now means the gate is ON (#426).
 //
 // Evidence: poc-409/casebank — 404 real recall queries from 30 days of session
 // transcripts, relevance labelled by two independent readers against a pinned

@@ -167,11 +167,31 @@ export function dedupeWindow(
   threshold: number,
 ): Memory[] {
   if (threshold <= 0 || ranked.length <= 1) return ranked.slice(0, limit);
-  const tokenSets = ranked.map(contentTokens);
-  const polarity = tokenSets.map(hasPolarity);
+  // Token sets are built lazily and cached per index: the loop stops once
+  // `limit` rows are kept, so eager tokenization of every candidate costs
+  // 1.7ms/12.5ms/96.4ms at 200/2k/10k candidates on every query recall
+  // (review #426). Lazy cost is window-sized.
+  const tokenCache = new Map<number, Set<string>>();
+  const tokensOf = (i: number): Set<string> => {
+    let t = tokenCache.get(i);
+    if (t === undefined) {
+      t = contentTokens(ranked[i]!);
+      tokenCache.set(i, t);
+    }
+    return t;
+  };
+  const polarityCache = new Map<number, boolean>();
+  const polarityOf = (i: number): boolean => {
+    let p = polarityCache.get(i);
+    if (p === undefined) {
+      p = hasPolarity(tokensOf(i));
+      polarityCache.set(i, p);
+    }
+    return p;
+  };
   const kept: number[] = [];
   for (let i = 0; i < ranked.length && kept.length < limit; i++) {
-    if (tokenSets[i]!.size < MIN_CONTENT) {
+    if (tokensOf(i).size < MIN_CONTENT) {
       kept.push(i);
       continue;
     }
@@ -180,10 +200,10 @@ export function dedupeWindow(
       const k = kept[pos]!;
       if (
         ranked[k]!.scope === ranked[i]!.scope &&
-        tokenSets[k]!.size >= MIN_CONTENT &&
-        polarity[k] === polarity[i] &&
+        tokensOf(k).size >= MIN_CONTENT &&
+        polarityOf(k) === polarityOf(i) &&
         sameDroppedChunks(ranked[k]!, ranked[i]!) &&
-        jaccard(tokenSets[i]!, tokenSets[k]!) >= threshold
+        jaccard(tokensOf(i), tokensOf(k)) >= threshold
       ) {
         clash = pos;
         break;
