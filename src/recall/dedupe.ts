@@ -46,7 +46,7 @@
 //    compared as a sorted multiset of literals and a pair that disagrees on
 //    them is never a copy.
 import type { Memory } from "../store/model/memory.ts";
-import { haystack, words } from "./score.ts";
+import { words } from "./score.ts";
 
 export const DEDUPE_ENV = "OPENCODE_MEMORY_DEDUP";
 
@@ -121,15 +121,17 @@ function sameDroppedChunks(a: Memory, b: Memory): boolean {
 }
 
 /**
- * A row's own tokens: everything except the `type` and `scope` values, which
- * the same-scope requirement already guarantees are shared and which made short
- * unrelated rows look like copies.
+ * A row's own tokens: built DIRECTLY from the content and keyword fields.
+ * Never from `haystack()` — the identifier tokenizer (#417) splits a
+ * snake_case scope like `auth_token_refresh_policy` into auth/token/refresh/
+ * policy, and deleting only the whole scope/type strings left those words
+ * standing in for content: two unrelated non-Latin rows in one scope shared
+ * a Jaccard-1 metadata vocabulary, cleared MIN_CONTENT on scope tokens alone,
+ * and dedup hid one (#421, post-merge report on #417).
  */
 export function contentTokens(m: Memory): Set<string> {
-  const out = new Set(words(haystack(m)));
-  out.delete(m.type.toLowerCase());
-  out.delete(m.scope.toLowerCase());
-  return out;
+  const text = m.content + (m.kw?.length ? ` ${m.kw.join(" ")}` : "");
+  return new Set(words(text));
 }
 
 function hasPolarity(tokens: Set<string>): boolean {
