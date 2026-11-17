@@ -15,7 +15,11 @@ import { memoryRoot } from "../src/core/config/paths.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
 import { resetState } from "../src/core/state.ts";
 import { setRepoScope } from "../src/identity/repokey.ts";
-import { contentTokens, DEDUPE_ENV, dedupeWindow } from "../src/recall/dedupe.ts";
+import {
+  contentTokens,
+  DEDUPE_ENV,
+  dedupeWindow,
+} from "../src/recall/dedupe.ts";
 import type { Memory } from "../src/store/model/memory.ts";
 import { loadPlugin } from "./harness.ts";
 import { removeStore } from "./helpers/remove-store.ts";
