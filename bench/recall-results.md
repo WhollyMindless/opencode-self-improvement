@@ -28,10 +28,10 @@ Efficiency — R@3 hits per 1k injected characters (window k=3; abstention = a m
 
 | Query class | n | chars prod | chars prod+kw | naive /1k | prod /1k | prod+kw /1k | BM25 /1k |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| lexical | 45 | 6216 | 7193 | 3.11 | 7.24 | 6.26 | 3.22 |
+| lexical | 45 | 6189 | 7281 | 3.11 | 7.27 | 6.18 | 3.22 |
 | near | 18 | 904 | 2795 | 2.18 | 5.53 | 4.65 | 2.73 |
 | strict | 38 | 616 | 2292 | 0.24 | 0.00 | 3.93 | 0.17 |
-| **all** | 101 | 7736 | 12280 | 1.85 | 6.46 | 5.46 | 1.97 |
+| **all** | 101 | 7709 | 12368 | 1.85 | 6.49 | 5.42 | 1.97 |
 
 Negative controls (the metric must rank, not always pass):
 
@@ -40,7 +40,7 @@ Negative controls (the metric must rank, not always pass):
 | prod (shipped) | 49% | 50% |
 | prod + authored kw | 64% | 66% |
 | naive (previous) | 50% | 60% |
-| prod + shuffled kw (control: same tokens, wrong meanings), must be lower than prod | 28% | 50% |
+| prod + shuffled kw (control: same tokens, wrong meanings), must be lower than prod | 29% | 49% |
 | constant (control), must be lower than prod | 3% | 7% |
 | anti-naive (control), must be lower than prod | 12% | 20% |
 
@@ -48,10 +48,10 @@ Negative controls (the metric must rank, not always pass):
 
 | Query class | n | naive R@3 | prod R@1 | prod R@3 | BM25 R@1 | BM25 R@3 | prod recovers | BM25 recovers | all miss | prod abstains |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| lexical | 48 | 94% | 98% | 98% | 98% | 98% | 2 | 0 | 1 | 0 |
+| lexical | 48 | 94% | 98% | 98% | 98% | 98% | 3 | 1 | 0 | 0 |
 | near | 18 | 72% | 28% | 28% | 56% | 78% | 1 | 9 | 4 | 12 |
 | strict | 39 | 5% | 0% | 0% | 3% | 3% | 0 | 1 | 38 | 35 |
-| **all** | 105 | 57% | 50% | 50% | 55% | 59% | 3 | 10 | 43 | 47 |
+| **all** | 105 | 57% | 50% | 50% | 55% | 59% | 4 | 11 | 42 | 47 |
 
 Wrong-memory-first (top-1 noise): naive 49% -> prod 6% -> prod+kw 6%.
 
@@ -70,10 +70,10 @@ Efficiency — R@3 hits per 1k injected characters (window k=3; abstention = a m
 
 | Query class | n | chars prod | chars prod+kw | naive /1k | prod /1k | prod+kw /1k | BM25 /1k |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| lexical | 48 | 18966 | 18896 | 2.36 | 2.48 | 2.49 | 2.48 |
+| lexical | 48 | 18886 | 18896 | 2.36 | 2.49 | 2.49 | 2.48 |
 | near | 18 | 2163 | 5747 | 1.93 | 2.31 | 2.26 | 2.03 |
 | strict | 39 | 1549 | 4552 | 0.14 | 0.00 | 2.20 | 0.07 |
-| **all** | 105 | 22678 | 29195 | 1.49 | 2.29 | 2.40 | 1.54 |
+| **all** | 105 | 22598 | 29195 | 1.49 | 2.30 | 2.40 | 1.54 |
 
 Negative controls (the metric must rank, not always pass):
 
@@ -82,7 +82,7 @@ Negative controls (the metric must rank, not always pass):
 | prod (shipped) | 50% | 50% |
 | prod + authored kw | 66% | 67% |
 | naive (previous) | 50% | 57% |
-| prod + shuffled kw (control: same tokens, wrong meanings), must be lower than prod | 29% | 35% |
+| prod + shuffled kw (control: same tokens, wrong meanings), must be lower than prod | 30% | 36% |
 | constant (control), must be lower than prod | 3% | 7% |
 | anti-naive (control), must be lower than prod | 0% | 0% |
 
@@ -90,10 +90,10 @@ Negative controls (the metric must rank, not always pass):
 
 | Query class | n | naive R@3 | prod R@1 | prod R@3 | BM25 R@1 | BM25 R@3 | prod recovers | BM25 recovers | all miss | prod abstains |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| lexical | 48 | 94% | 98% | 98% | 98% | 98% | 2 | 0 | 1 | 0 |
+| lexical | 48 | 94% | 98% | 98% | 98% | 98% | 3 | 1 | 0 | 0 |
 | near | 18 | 72% | 28% | 28% | 72% | 78% | 1 | 9 | 4 | 12 |
 | strict | 39 | 5% | 0% | 0% | 3% | 3% | 0 | 1 | 38 | 35 |
-| **all** | 105 | 57% | 50% | 50% | 58% | 59% | 3 | 10 | 43 | 47 |
+| **all** | 105 | 57% | 50% | 50% | 58% | 59% | 4 | 11 | 42 | 47 |
 
 Wrong-memory-first (top-1 noise): naive 49% -> prod 6% -> prod+kw 7%.
 
@@ -112,10 +112,10 @@ Efficiency — R@3 hits per 1k injected characters (window k=3; abstention = a m
 
 | Query class | n | chars prod | chars prod+kw | naive /1k | prod /1k | prod+kw /1k | BM25 /1k |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| lexical | 48 | 18966 | 18896 | 2.36 | 2.48 | 2.49 | 2.48 |
+| lexical | 48 | 18886 | 18896 | 2.36 | 2.49 | 2.49 | 2.48 |
 | near | 18 | 2163 | 5798 | 1.93 | 2.31 | 2.07 | 2.03 |
 | strict | 39 | 1549 | 4552 | 0.14 | 0.00 | 2.20 | 0.07 |
-| **all** | 105 | 22678 | 29246 | 1.49 | 2.29 | 2.36 | 1.54 |
+| **all** | 105 | 22598 | 29246 | 1.49 | 2.30 | 2.36 | 1.54 |
 
 Negative controls (the metric must rank, not always pass):
 
@@ -124,7 +124,7 @@ Negative controls (the metric must rank, not always pass):
 | prod (shipped) | 50% | 50% |
 | prod + authored kw | 65% | 66% |
 | naive (previous) | 50% | 57% |
-| prod + shuffled kw (control: same tokens, wrong meanings), must be lower than prod | 30% | 36% |
+| prod + shuffled kw (control: same tokens, wrong meanings), must be lower than prod | 30% | 37% |
 | constant (control), must be lower than prod | 3% | 7% |
 | anti-naive (control), must be lower than prod | 0% | 0% |
 
