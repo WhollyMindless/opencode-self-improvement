@@ -299,6 +299,18 @@ describe("buildCapturePrompt", () => {
     expect(p).toContain("never shown to a model");
   });
 
+  // #409 RESULTS §29-30: the same lesson scored OUTSIDE the recall window as
+  // session diary and ranked 1-7 for the terse symptom queries agents actually
+  // issue when it opened with the observable trigger. The rule is the write-
+  // side half of retrieval alignment; pin it so a prompt refactor cannot drop
+  // it back to diary form.
+  test("requires symptom-first content for lessons (#409)", () => {
+    const p = buildCapturePrompt("user: hello world", 5);
+    expect(p).toContain("START the content with the observable trigger");
+    expect(p).toContain("When <symptom>: <fact>");
+    expect(p).toContain("words of the symptom itself");
+  });
+
   // The line is load-bearing for cost, not precision: dropping it multiplies
   // reasoning and wall clock on the capture fixture. Pin it so a prompt
   // refactor cannot silently remove the bound.

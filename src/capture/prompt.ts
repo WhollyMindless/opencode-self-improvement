@@ -78,7 +78,13 @@ export function buildCapturePrompt(
     "- scope: short area name (e.g. auth, api, build).",
     '- status: "open" for a live planning thread; otherwise "settled".',
     "- content: one self-contained fact, 20-600 characters, useful in a NEW session.",
-    "- kw: 3-5 search keywords for how a DIFFERENT session would ask for this — synonyms and alternate names, other verb forms, the literal command or file name. They are indexed for retrieval and never shown to a model. Omit (or []) when the content already uses those words.",
+    // #409 RESULTS §29-30: retrieval alignment is a WRITE-side property. The
+    // same lesson scored zero (outside the recall window) as session diary and
+    // ranked 1-7 for the terse symptom queries agents actually issue when it
+    // opened with the observable trigger. The kw rule below is the bridge;
+    // this rule makes the content itself searchable and self-explanatory.
+    '- For `learning` and `blocker` rows, START the content with the observable trigger a future session will hit — the failing command, the error text, the wrong number — then the fact, as "When <symptom>: <fact>". A lesson written as a session diary ("In this session we fixed...") shares no words with the query a future session will type, and will never be recalled.',
+    "- kw: 3-5 search keywords for how a DIFFERENT session would ask for this — synonyms and alternate names, other verb forms, the literal command or file name, and the words of the symptom itself (the failing command name, a distinctive error substring, the wrong figure's subject). They are indexed for retrieval and never shown to a model. Omit (or []) when the content already uses those words.",
     "- guided: true ONLY when the user STATED this fact in their own words — a value, rate, number, rule or correction that appears in a user: line or the REQUESTS block. Omit guided for anything the agent discovered by itself.",
     '- When guided AND the value names a declared code symbol, also output "ref": that symbol exactly as declared (e.g. "TAX_RATE"), "claim": the user\'s value alone (e.g. "0.0825", at most 32 characters), and "klass": "spec" when the user is the authority on the value (a rate, a requirement) or "behavior" when the row describes how working code behaves. Omit all three when no single declared constant is involved.',
     '- If it is unclear whether the user is specifying a requirement or describing working code, omit "klass". Never guess authority; an unclassified row remains plain guidance without a conflict verdict.',
