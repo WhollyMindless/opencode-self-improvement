@@ -44,8 +44,10 @@ import { nonCaptureTags } from "../src/core/guidance.ts";
 import { runWriteGate } from "../src/gate/gate.ts";
 
 // The rule shapes NEW lesson prose. This script never changes content, so
-// the documented automation escape hatch (#423) is the correct setting.
-process.env.OPENCODE_MEMORY_SYMPTOM ??= "off";
+// the documented automation escape hatch (#423) is the correct setting —
+// hard-set, NOT ??=: an inherited on-value would block every --apply write,
+// because backlog content is pre-convention by definition.
+process.env.OPENCODE_MEMORY_SYMPTOM = "off";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -97,9 +99,9 @@ const cw = new Map(rows.map((m) => [m.ts, new Set(words(m.content))]));
 /**
  * The kw-only repair: symptom words the row's vocabulary LACKS (words already
  * in content or kw add no retrieval value), minus query grammar, capped at
- * the schema's keyword ceiling. Exported for tests.
+ * the schema's keyword ceiling.
  */
-export function mergeSymptomKw(row: Memory, symptomQuery: string[]): string[] {
+function mergeSymptomKw(row: Memory, symptomQuery: string[]): string[] {
   const merged = [...(row.kw ?? [])];
   const known = new Set([
     ...cw.get(row.ts)!,
@@ -121,6 +123,7 @@ interface Proposal {
   symptom: string;
   query: string[];
   mergedKw: string[];
+  shared: number;
 }
 const proposals = new Map<string, Proposal>();
 for (const ev of events) {
@@ -132,12 +135,13 @@ for (const ev of events) {
       for (const w of words(t)) if (set.has(w)) shared++;
     if (shared < 2) continue;
     const prev = proposals.get(row.ts);
-    if (!prev || shared > prev.query.length) {
+    if (!prev || shared > prev.shared) {
       proposals.set(row.ts, {
         row,
         symptom: ev.terms.join(" "),
         query: ev.terms,
         mergedKw: mergeSymptomKw(row, ev.terms),
+        shared,
       });
     }
   }
@@ -217,6 +221,12 @@ if (!APPLY) {
         if (!target || !isActive(target)) return "target-gone";
         if (target.content !== p.row.content)
           return "drift (content changed since replay)";
+        // A concurrent kw edit between scan and apply must not be clobbered
+        // by stale mergedKw.
+        if (
+          (target.kw ?? []).join("\u0000") !== (p.row.kw ?? []).join("\u0000")
+        )
+          return "drift (kw changed since replay)";
         const out = await runWriteGate(
           {
             type: target.type,

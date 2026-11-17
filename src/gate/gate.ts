@@ -458,15 +458,30 @@ export async function runWriteGate(
   if (
     (candidate.type === "learning" || candidate.type === "blocker") &&
     symptomRuleEnabled() &&
-    !/^when\b[^\n]{0,160}:/i.test(candidate.content)
+    !/^when\b[^\n]{0,160}:/i.test(candidate.content.replace(/^[\s\uFEFF]+/, ""))
   ) {
-    await recBlocked(4, "symptom_missing", [`type=${candidate.type}`], chain);
-    return {
-      action: "blocked",
-      reason: "symptom_missing",
-      chain,
-      hint: 'learning/blocker rows must open with the observable trigger: "When <symptom>: <fact>" (#419). Name the failing command, the error text, or the wrong number — or write the row as context/decision if it is not trigger-keyed.',
-    };
+    // New-vs-legacy distinction (#423 review): a rewrite that carries the
+    // supersede target's content byte-identical is a metadata repair, not a
+    // new lesson. retagQuarantinedRows and metadata-only memory_update on a
+    // legacy row re-submit unchanged prose — blocking them would stall
+    // quarantine repair forever and make legacy rows uneditable. New prose
+    // against a supersedesTs is still a new lesson and still blocked.
+    const repair =
+      ctx.supersedesTs !== undefined &&
+      (await loadScope(candidate.scope, reader)).some(
+        (m) =>
+          m.ts === ctx.supersedesTs &&
+          m.content === redactSecrets(candidate.content),
+      );
+    if (!repair) {
+      await recBlocked(4, "symptom_missing", [`type=${candidate.type}`], chain);
+      return {
+        action: "blocked",
+        reason: "symptom_missing",
+        chain,
+        hint: 'learning/blocker rows must open with the observable trigger: "When <symptom>: <fact>" (#419). Name the failing command, the error text, or the wrong number — the trigger clause must stay under 160 characters — or write the row as context/decision if it is not trigger-keyed.',
+      };
+    }
   }
 
   // This is the common boundary for manual, imported and auto-captured writes.

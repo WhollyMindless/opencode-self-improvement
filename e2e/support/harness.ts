@@ -211,7 +211,6 @@ export function makeGuest(
     XDG_CACHE_HOME: join(root, "cache"),
     OPENCODE_MEMORY_DIR: memoryDir,
     // Fixtures here are pre-#419 prose; the rule is production default ON.
-    // e2e/symptom-rule.test.ts drives the on-state explicitly.
     OPENCODE_MEMORY_SYMPTOM: "off",
     OPENCODE_DISABLE_AUTOUPDATE: "1",
     OPENCODE_DISABLE_MODELS_FETCH: "1",

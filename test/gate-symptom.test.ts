@@ -112,6 +112,80 @@ describe("write gate with the symptom rule on", () => {
       expect(out.action).toBe("promoted");
     }
   });
+
+  test("leading whitespace before the trigger is accepted", async () => {
+    const out = await runWriteGate(
+      candidate("learning", "  \n When totals are off: pricing uses half-up"),
+      { liveRoot: root, evidenceCalls: [], hasGateCheck: true, trusted: true },
+    );
+    expect(out.action).toBe("promoted");
+  });
+
+  test("a metadata-only repair of a legacy row is NOT blocked (#423 review)", async () => {
+    // Seed a pre-convention diary row with the rule off (the legacy state).
+    process.env.OPENCODE_MEMORY_SYMPTOM = "off";
+    const legacy = await runWriteGate(
+      candidate(
+        "learning",
+        "In this session we fixed the rounding drift in totals",
+      ),
+      { liveRoot: root, evidenceCalls: [], hasGateCheck: true, trusted: true },
+    );
+    expect(legacy.action).toBe("promoted");
+    if (legacy.action !== "promoted") return;
+    // Rule ON, same content, new keywords — retag and metadata-only
+    // memory_update re-submit unchanged prose and must pass.
+    process.env.OPENCODE_MEMORY_SYMPTOM = "1";
+    const repair = await runWriteGate(
+      {
+        type: "learning",
+        scope: "payments",
+        content: "In this session we fixed the rounding drift in totals",
+        kw: ["totals", "rounding"],
+        status: "settled" as const,
+      },
+      {
+        liveRoot: root,
+        evidenceCalls: [],
+        hasGateCheck: true,
+        trusted: true,
+        supersedesTs: legacy.ts,
+      },
+    );
+    expect(repair.action).toBe("promoted");
+  });
+
+  test("NEW diary content against a supersedesTs is still blocked", async () => {
+    process.env.OPENCODE_MEMORY_SYMPTOM = "off";
+    const legacy = await runWriteGate(
+      candidate(
+        "learning",
+        "In this session we fixed the rounding drift in totals",
+      ),
+      { liveRoot: root, evidenceCalls: [], hasGateCheck: true, trusted: true },
+    );
+    expect(legacy.action).toBe("promoted");
+    if (legacy.action !== "promoted") return;
+    process.env.OPENCODE_MEMORY_SYMPTOM = "1";
+    const rewrite = await runWriteGate(
+      {
+        type: "learning",
+        scope: "payments",
+        content: "In a later session we rewrote the rounding fix from scratch",
+        status: "settled" as const,
+      },
+      {
+        liveRoot: root,
+        evidenceCalls: [],
+        hasGateCheck: true,
+        trusted: true,
+        supersedesTs: legacy.ts,
+      },
+    );
+    expect(rewrite.action).toBe("blocked");
+    if (rewrite.action === "blocked")
+      expect(rewrite.reason).toBe("symptom_missing");
+  });
 });
 
 describe("write gate with the escape hatch off", () => {
