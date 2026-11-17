@@ -10,6 +10,7 @@ import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 import type { Memory } from "../store/model/memory.ts";
 import { RecallArgs, validated } from "./schema.ts";
 import { firstFrontierTap, markFrontierTap } from "../capture/triggers.ts";
+import { dedupeThreshold, dedupeWindow } from "../recall/dedupe.ts";
 
 function scoreMemory(m: Memory, q: string): number {
   // Same indexed fields as the injection scorer (#40): a row recalled by one of
@@ -52,8 +53,12 @@ export const register: ToolRegister = (editor, deps) => {
             .map((x) => x.m);
         }
         const limit = args.limit || 20;
+        // #409 dedup lane (RESULTS §17): flag off, this is the same slice as
+        // before. Flag on, near-duplicate copies are skipped so the window
+        // fills with distinct rows instead of repeats of the top hit.
+        const dedupeAt = dedupeThreshold();
         const limited = args.query
-          ? results.slice(0, limit)
+          ? dedupeWindow(results, limit, dedupeAt)
           : results.slice(-limit);
         if (!limited.length) return { content: "No matching memories" };
         const openIn = limited.filter((m) => m.status === "open").length;
