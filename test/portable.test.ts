@@ -3,7 +3,7 @@
 // re-enters through the SAME runWriteGate as any other write, so gate
 // semantics apply unchanged: ref-free settled rows need session engagement,
 // and the tests ground it with a `read` tool result exactly like
-// test/capture.test.ts (that is intended behavior, not a workaround). Decay
+// test/capture-auto.test.ts (that is intended behavior, not a workaround). Decay
 // defaults to dry-run; a real run snapshots (prune's snapshotFiles helper)
 // before any mutation and supersedes rather than deletes. Hermetic: temp
 // OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
@@ -104,7 +104,7 @@ const daysAgo = (n: number, msOffset = 0) =>
 
 // Ground the session: a recorded code-tool result makes the gate accept
 // ref-free settled candidates (behavior-grounded promotion), exactly as for
-// model-authored writes — same pattern as test/capture.test.ts.
+// model-authored writes — same pattern as test/capture-auto.test.ts.
 async function engage(
   loaded: Awaited<ReturnType<typeof loadPlugin>>,
   sid: string,
