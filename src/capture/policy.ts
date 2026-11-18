@@ -190,7 +190,7 @@ const EDIT_TOOLS = new Set(["edit", "write", "patch", "multiedit"]);
 /**
  * Did this session produce anything durable since the last capture?
  *
- * Three signals, all read off the tool ledger the plugin already keeps:
+ * Four signals, all read off the tool ledger the plugin already keeps:
  *
  *  - `edited`          — a file was written. Most durable rows describe a
  *                        change; a turn that only read has never produced one.
@@ -201,11 +201,13 @@ const EDIT_TOOLS = new Set(["edit", "write", "patch", "multiedit"]);
  *  - `newCommandPassed`— a command passed that had never passed in this
  *                        session. The first `bun test ./src` is a fact worth
  *                        keeping; the tenth is not.
+ *  - `gateUnrecovered` — a gate failed in this window without a later PASS of
+ *                        its family. The same attestation feeds failure lessons.
  *
  * Deliberately conservative in the SAFE direction: an unknown tool name or a
- * trimmed ledger tail can only cause a MISSED capture, and a missed capture
- * costs nothing the next signal-bearing turn cannot recover, because the
- * cursor does not advance on a skip.
+ * trimmed ledger tail can cause a missed capture. A skip leaves the cursor
+ * alone so a later signal can recover the window, but a session ending with
+ * an attested failure must not depend on a later successful turn (#383).
  */
 export function captureSignalSince(
   s: SessionState,
@@ -247,6 +249,8 @@ export function captureSignalSince(
     )
   )
     return { ok: true, why: "newCommandPassed" };
+  if (attestedGateFailures(s, sinceTurn).length)
+    return { ok: true, why: "gateUnrecovered" };
   // The window is real and held tool calls, none of them durable: reads,
   // greps, a repeated command. Skip, and leave the cursor alone so the next
   // signal-bearing turn still mines this one too.
@@ -267,9 +271,8 @@ export function captureSignalSince(
  *
  * A recovered failure is excluded on purpose: FAIL then PASS means the agent
  * fixed it, and "do not do what I just did" is only a lesson while the thing is
- * still broken. `captureSignalSince` reads the same ledger for the opposite
- * purpose — a recovery is the best REASON to capture, an unrecovered failure is
- * the best thing to capture.
+ * still broken. `captureSignalSince` uses this same list to admit a window
+ * with an unrecovered failure; a recovery remains a separate capture signal.
  *
  * One family's recovery does not attest away another family's failure: a
  * session that got its tests green and its lint red still has an open lint

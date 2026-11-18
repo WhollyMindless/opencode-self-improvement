@@ -1876,6 +1876,106 @@ const turnEnd = (sid: string) => ({
 });
 
 describe("capture cost policy", () => {
+  test.each([false, true])(
+    "a failure-only turn captures once with captureDelta=%s",
+    async (captureDelta) => {
+      const sid = "ses-unrecovered";
+      const loaded = await loadCapturePlugin({
+        autoCapture: true,
+        captureModel: "fake/model",
+        captureOnSignal: true,
+        captureDelta,
+      });
+      try {
+        await loaded.sessionHooks.prompt?.({
+          sessionID: sid,
+          prompt: { text: "investigate the cart totals" },
+        });
+        await loaded["tool.execute.after"](
+          {
+            tool: "bash",
+            sessionID: sid,
+            callID: "failed-test",
+            args: { command: "bun test ./src/cart.test.ts" },
+          },
+          {
+            output: "(fail) cart > total\n1 fail\n0 pass",
+            metadata: { exit: 1 },
+          },
+        );
+        const first = [
+          { role: "user", content: longText("investigate the cart totals") },
+          {
+            role: "assistant",
+            content: longText(
+              "the test failed; investigation ended without an edit",
+            ),
+          },
+        ];
+        loaded.capture.context.messages = first;
+        loaded.capture.generate.response = JSON.stringify([
+          {
+            type: "blocker",
+            scope: "cart",
+            content:
+              "when the cart spans two warehouses, avoid summing in report.ts — mergeStock in warehouse.ts drops the backorder flag",
+            failure: "bun test ./src/cart.test.ts",
+          },
+        ]);
+        // A failed tool command is distinct from the host's turn-end event.
+        // Use the existing observed event vocabulary; no new trigger is added.
+        loaded.capture.events.push(turnEnd(sid));
+        await waitFor(() =>
+          evidence().some(
+            (e) =>
+              e.session === sid &&
+              (e.ev === "capture_lag" || e.ev === "auto_capture_skipped"),
+          ),
+        );
+        expect(loaded.capture.generate.calls.length).toBe(1);
+        expect(String(loaded.capture.generate.calls[0].prompt)).toContain(
+          "ATTESTED FAILURES",
+        );
+        const row = (await loadAll()).find((r) => r.scope === "cart");
+        expect(row?.content).toContain("avoid summing in report.ts");
+        expect(row?.tags).toContain("auto-capture");
+
+        // Bypass only cooldown, so the signal cursor must prevent replay of the
+        // old failure. Both full-transcript and delta capture use that cursor.
+        resetCaptureCooldowns();
+        await loaded.sessionHooks.prompt?.({
+          sessionID: sid,
+          prompt: { text: "read the cart module again" },
+        });
+        await loaded["tool.execute.after"](
+          {
+            tool: "read",
+            sessionID: sid,
+            callID: "later-read",
+            args: { filePath: "src/cart.ts" },
+          },
+          { output: longText("cart source"), metadata: {} },
+        );
+        loaded.capture.context.messages = [
+          ...first,
+          { role: "user", content: longText("read the cart module again") },
+        ];
+        loaded.capture.events.push(turnEnd(sid));
+        await waitFor(() =>
+          evidence().some(
+            (e) =>
+              e.session === sid &&
+              e.ev === "auto_capture_skipped" &&
+              e.reason === "no-signal",
+          ),
+        );
+        expect(loaded.capture.generate.calls.length).toBe(1);
+      } finally {
+        await loaded.cleanup();
+      }
+    },
+  );
+
   test("the signal gate skips a turn that only read files", async () => {
     const loaded = await loadCapturePlugin({
       autoCapture: true,
