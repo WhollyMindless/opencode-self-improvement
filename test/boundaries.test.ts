@@ -49,7 +49,10 @@ const EXPECTED_WIRE = {
           "context",
           "pattern",
         ],
-        description: "Type of memory",
+        // Deliberate contract move (#419 enforcement): the trigger-clause rule
+        // is stated where the author chooses a type.
+        description:
+          'Type of memory. A `learning` or `blocker` row must open its content with the observable trigger: "When <symptom>: <fact>" (#419).',
       },
       scope: {
         type: "string",
