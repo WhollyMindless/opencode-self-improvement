@@ -1,0 +1,54 @@
+{
+  "about": "Every effectiveness or cost number this repository publishes, as data. test/claims.test.ts validates this file and checks that the README's effectiveness section still quotes each published claim. The README is text that must carry these facts; it is not the source of them. Adding a third result means adding an entry here, which forces an n, a seat, a metric and a record before the test suite will accept it. Raw run data is not committed: the artifact policy deletes it and the cited issue keeps the method and the verdict.",
+  "metric": {
+    "definition": "session generation + capture generation",
+    "cache": "cache read and cache write are reported separately and never folded into a total"
+  },
+  "rules": [
+    "n=6 pairs per arm",
+    "20% resolution",
+    "An issue or PR body making a cost claim owes the same n, seat and metric",
+    "cache state"
+  ],
+  "claims": [
+    {
+      "id": "transport-cross-session",
+      "status": "published",
+      "label": "Transport",
+      "claim": "A fact learned in one session reaches a later session that provably cannot obtain it any other way",
+      "n": "5 per arm, with the empty-store floor verified first",
+      "seat": "evo/Qwen3.8-Flash-Next-UD-Q4_K_XL",
+      "measurement": "empty store 0/5, the same store seeded 5/5",
+      "estimator": "pass count per arm, floor run before seeded run",
+      "record": "https://github.com/abogartz/opencode-self-improvement/issues/391",
+      "mustAppear": ["0/5", "5/5", "5 per arm", "empty store"]
+    },
+    {
+      "id": "reuse-work-ratio",
+      "status": "published",
+      "label": "Reuse",
+      "claim": "A memory reduces the work on a task the agent already passes",
+      "n": "6 pairs",
+      "seat": "evo/Qwen3.8-Flash-Next-UD-Q4_K_XL",
+      "measurement": "median of the six per-pair L2/L0 work ratios 0.91x, higher in 2 of 6; an unrelated memory 0.99x, higher in 3 of 6",
+      "estimator": "median of the six per-pair ratios, middle two averaged",
+      "resolution": "20% resolution",
+      "record": "https://github.com/abogartz/opencode-self-improvement/issues/385",
+      "mustAppear": [
+        "0.91",
+        "6 pairs",
+        "0.99",
+        "median of the six per-pair",
+        "middle two"
+      ]
+    }
+  ],
+  "retracted": [
+    {
+      "id": "cache-blind-token-saving",
+      "figures": ["20,506", "10,009"],
+      "why": "two runs that started in different cache states, read as a saving",
+      "record": "https://github.com/abogartz/opencode-self-improvement/issues/392"
+    }
+  ]
+}
