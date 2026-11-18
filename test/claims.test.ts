@@ -21,7 +21,7 @@
 // answer to that is the section's own "What is not claimed here" paragraph.
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 
 interface Claim {
   id: string;
@@ -99,7 +99,11 @@ function markdownDocs(): Doc[] {
       }
       return open;
     });
-    return { name: relative(root, p), text, lines, fenced };
+    // Forward slashes on every platform: the coverage check and the failure
+    // messages compare these names as paths, and `relative` yields backslashes
+    // on Windows, where "docs\file.md" would match neither "docs/" nor a link.
+    const name = relative(root, p).split(sep).join("/");
+    return { name, text, lines, fenced };
   });
 }
 
