@@ -145,7 +145,7 @@ process.env.OPENCODE_COMMANDS_DIR = dir + "/commands";
 // budget below: two child bun launches (AV-scan slow on Windows) plus
 // readiness polling put real work past Bun's default 5s timeout on a busy
 // Windows runner at --parallel=4 — green runs were measured at 5.3s here.
-// Only time is granted; no assertion moves (#174's precedent, #245).
+// Only time is granted; no assertion moves.
 function spawnRacer(label: string, rows: number): Writer {
   const report = join(root, `${label}.reported`);
   const script = join(root, `${label}.ts`);
@@ -544,7 +544,7 @@ describe("an import landing while another session writes", () => {
   // This integration workload performs 30 gated imports plus 80 concurrent
   // appends. waitForRows alone permits 20s for the children to become ready;
   // Bun's default 5s deadline can abort valid work on a busy Windows runner
-  // with four test workers (#174). Budget 30s for this scenario, retaining
+  // with four test workers. Budget 30s for this scenario, retaining
   // every row/count assertion and the normal timeout for other tests.
   test("imported rows and concurrently appended rows all land", async () => {
     seedScopes(150, [["consistency", 1200]]);

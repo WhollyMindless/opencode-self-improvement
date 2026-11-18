@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
-// Full merge gate: the exact sequence the CI jobs enforce (typecheck, lint/format,
-// unit tests, terminal smoke + BDD integration against a real opencode host).
+// Full merge gate: the exact sequence the CI jobs enforce (comment policy,
+// typecheck, lint/format, unit tests, terminal smoke + BDD integration against
+// a real opencode host).
 // The .githooks/pre-push hook runs this so a broken build never even reaches
 // a PR; CI remains the authoritative gate via the required "smoke" check.
 import { join } from "node:path";
@@ -8,6 +9,11 @@ import { join } from "node:path";
 const REPO = join(import.meta.dir, "..");
 
 const steps: [string, string[]][] = [
+  // Cheapest check first: it reads the diff, not the code.
+  [
+    "comment policy (no tickets, no review narrative)",
+    ["bun", "run", "lint:comments"],
+  ],
   ["typecheck (tsc)", ["bun", "x", "tsc", "--noEmit", "-p", "tsconfig.json"]],
   ["lint + format (biome)", ["bun", "run", "lint"]],
   // Share the bounded worker count and test options with CI's package scripts.

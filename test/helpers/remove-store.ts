@@ -1,6 +1,6 @@
 // Teardown for a temporary store directory.
 //
-// The store lock is a SQLite connection (#407), and a connection is an open
+// The store lock is a SQLite connection, and a connection is an open
 // file. Windows refuses to delete a directory that contains one, so a fixture
 // that removes its store while this process still holds the connection fails
 // with EBUSY — measured on the Windows runner, where it took down most of the

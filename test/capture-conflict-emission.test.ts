@@ -8,7 +8,7 @@ import { loadAll } from "../src/store/files/load.ts";
 import { loadPlugin, withTempStore } from "./harness.ts";
 import { readEvidenceLog } from "./helpers/logfmt.ts";
 
-describe("capture contradiction emission (#350)", () => {
+describe("capture contradiction emission", () => {
   const fixture = withTempStore({ prefix: "osi-conflict-emission-" });
   test.each([
     ["ref", "bad.path", undefined],

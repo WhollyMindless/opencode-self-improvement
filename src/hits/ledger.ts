@@ -1,4 +1,4 @@
-// The use ledger (#42). Decay, consolidation and the status surfaces all act
+// The use ledger. Decay, consolidation and the status surfaces all act
 // on memories today with no idea whether anybody ever reads them — the store
 // knows what was written and nothing about what was used. This module closes
 // that loop with one append-only logfmt file.
@@ -85,7 +85,7 @@ async function rotateIfNeeded(): Promise<void> {
     throw err;
   }
   if (size <= MAX_HITS_BYTES) return;
-  // #106: anchor the halving like every other whole-file publish (#89) - on
+  // anchor the halving like every other whole-file publish - on
   // Windows the rename can be refused by a reader's handle, and the retry is
   // only safe while nothing else moved this file.
   const since = await fileIdentity(hitsFile());
@@ -106,7 +106,7 @@ async function rotateIfNeeded(): Promise<void> {
  *
  * `terms` are the tokens the query and these rows shared (never the query
  * itself), capped and pre-sanitised by sharedTerms() in src/inject.ts. They
- * exist so #45 can ask "if we merge these rows, do the same reads still
+ * exist so can ask "if we merge these rows, do the same reads still
  * land?" — a question no use log without them can answer.
  */
 export async function recordHits(
@@ -213,7 +213,7 @@ function parseList(value: string): string[] {
 
 /**
  * Every read the ledger recorded, in file order: the terms used and the rows it
- * credited. This is the corpus consolidation (#45) replays — "would this merge
+ * credited. This is the corpus consolidation replays — "would this merge
  * have lost a read that actually happened?" is only answerable against real
  * reads, and a per-row aggregate has already thrown the grouping away.
  */

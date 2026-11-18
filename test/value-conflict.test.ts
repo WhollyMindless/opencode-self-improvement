@@ -1,4 +1,4 @@
-// Contract (#390): a correction retires the row it corrects IN THE DATA. R3
+// Contract: a correction retires the row it corrects IN THE DATA. R3
 // (`results-stale-x5/`, 2150 → 1900) kept both values, the correction winning
 // only because the model wrote "this supersedes the earlier 2150 bps figure"
 // and retrieval happened to prefer it. R3c narrowed the exposure to the
@@ -47,7 +47,7 @@ describe("symbolValues", () => {
   });
 
   test("the scan does not depend on which row ran last", () => {
-    // A module-level `g` regex carries lastIndex between calls — the #393 bug.
+    // A module-level `g` regex carries lastIndex between calls — the bug.
     // A retirement rule whose answer depends on call order is worse than none,
     // because it looks deterministic.
     const a = "The VAT_BPS constant is 2150 basis points.";
@@ -98,7 +98,7 @@ describe("valueConflicts", () => {
   });
 
   test("a history note does not retire the fact it mentions", () => {
-    // The misfire class #393 accepted for a REFUSAL is not accepted for a
+    // The misfire class accepted for a REFUSAL is not accepted for a
     // RETIREMENT: with the numbers stripped these are different sentences,
     // and the shape floor must stop it.
     const fact = mem(
@@ -112,7 +112,7 @@ describe("valueConflicts", () => {
     expect(valueConflicts(note, [fact])).toEqual([]);
   });
 
-  test("#400 review: two environments are two facts, not a correction", () => {
+  test("two environments are two facts, not a correction", () => {
     // The reviewer's pair, verbatim shape: identical sentence, one symbol,
     // disagreeing numbers, different environment. Guards 1–3 all pass
     // (jaccard 0.71); guard 4 must stop the retirement in both directions.
@@ -128,7 +128,7 @@ describe("valueConflicts", () => {
     expect(valueConflicts(prod, [staging])).toEqual([]);
   });
 
-  test("#400 review: an environment-scoped row does not retire the bare default", () => {
+  test("an environment-scoped row does not retire the bare default", () => {
     // "is 3" may be the default; hiding it behind one environment's value is
     // the same defect as the pair above, so one-sided scoping coexists too.
     const bare = mem("2026-10-01T09:00:00.000Z", "The MAX_RETRIES is 3.");
@@ -140,7 +140,7 @@ describe("valueConflicts", () => {
     expect(valueConflicts(bare, [scoped])).toEqual([]);
   });
 
-  test("#400 review cost check: the same environment still corrects", () => {
+  test("a cost check: the same environment still corrects", () => {
     const old = mem(
       "2026-10-01T09:00:00.000Z",
       "The MAX_RETRIES constant is 3 in production.",
@@ -152,7 +152,7 @@ describe("valueConflicts", () => {
     expect(valueConflicts(fix, [old]).length).toBe(1);
   });
 
-  test("a sign flip is a disagreement, not one fact restated (#399 class)", () => {
+  test("a sign flip is a disagreement, not one fact restated", () => {
     const pos = mem("2026-10-01T09:00:00.000Z", "The TEMP_OFFSET is 5.");
     const neg = mem("2026-10-02T09:00:00.000Z", "The TEMP_OFFSET is -5.");
     expect(valueConflicts(neg, [pos]).length).toBe(1);
@@ -164,7 +164,7 @@ describe("valueConflicts", () => {
     ).toEqual([]);
   });
 
-  test("#400 review round 2: unknown qualifiers (tenants) coexist too", () => {
+  test("unknown qualifiers (tenants) coexist too", () => {
     // The counterexample that broke the environment dictionary: both
     // qualifier sets empty, retirement fired anyway. The residual rule needs
     // no dictionary — "tenant", "alpha" and "beta" are words one row says
@@ -207,7 +207,7 @@ describe("valueConflicts", () => {
     expect(valueConflicts(v3, [v2])).toEqual([]);
   });
 
-  test("#400 review round 3: numeric qualifiers are context, not noise", () => {
+  test("numeric qualifiers are context, not noise", () => {
     // The residual matcher dropped EVERY pure number, so "tenant 101" and
     // "tenant 202" differed only in digits the comparison never saw — and
     // tenant 101 retired. Only the two compared values may drop out.
@@ -237,7 +237,7 @@ describe("valueConflicts", () => {
     expect(valueConflicts(fix, [old]).length).toBe(1);
   });
 
-  test("#400 review round 4: a qualifier repeating the value survives", () => {
+  test("a qualifier repeating the value survives", () => {
     // The literal skip deleted every token equal to a compared value, so
     // "tenant 3" vanished with the asserted 3 and the tenants coexisted no
     // more. The excision is positional: only the number next to the symbol
@@ -346,7 +346,7 @@ describe("the gate retires a corrected row in the data", () => {
     expect(rows.find((m) => m.ts !== fix.ts)?.content).toContain("2150");
   });
 
-  test("#400 review: the two-write probe leaves both environments injectable", async () => {
+  test("the two-write probe leaves both environments injectable", async () => {
     const prod = await write("The MAX_RETRIES constant is 3 in production.");
     expect(prod.action).toBe("promoted");
     const staging = await write("The MAX_RETRIES constant is 5 in staging.");

@@ -1,4 +1,4 @@
-// #45 through the shipped tool: memory_consolidate proposes, reports, and never
+//through the shipped tool: memory_consolidate proposes, reports, and never
 // writes. The store before and after the call must be byte-identical.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
@@ -34,7 +34,7 @@ const B =
 const C =
   "finance reconciles the zebra brasserie ledger nightly and mails a digest before opening bell";
 
-describe("memory_consolidate tool (#45)", () => {
+describe("memory_consolidate tool", () => {
   test("it proposes the near-duplicates and leaves the store byte-identical", async () => {
     const p = await loadPlugin(process.cwd());
     for (const content of [A, B, C]) {

@@ -1,52 +1,28 @@
-// Near-duplicate suppression inside a returned window (#409, RESULTS §17).
+// Near-duplicate suppression inside a returned window: one deterministic pass
+// AFTER ranking.
 //
-// The live store carries repeated rows — superseded snapshots, cursor rows that
-// differ only by a timestamp, the same decision restated after a compaction —
-// and the matcher scores them all the same. With a fixed window they crowd out
-// distinct facts, which is what breaks composition: two memories a later task
-// needs together rarely fit side by side because the first one's copies take
-// the slots.
+// Skip a candidate whose content-token Jaccard against an already-kept row of
+// the same scope reaches the threshold; the NEWEST copy of a clash takes the
+// slot, because the duplicates in a live store are stale cursors and
+// superseded snapshots. ON by default at 0.8; OPENCODE_MEMORY_DEDUP=0 returns
+// the plain top-limit slice, byte-identical to no pass. A value below 0.5 or
+// above 1, or one that is not a number, is a misconfiguration and turns the
+// pass off.
 //
-// The fix is one deterministic pass AFTER ranking: skip any candidate whose
-// content-token Jaccard against an already-kept row of the same scope reaches
-// the threshold, keeping the NEWEST copy of a clash (§17's adoption rule: the
-// live duplicates are stale cursors and superseded snapshots, so the row that
-// survives is the one written last, not the one that ranked highest). No model,
-// no new index, and ON by default — a window padded with near-copies of the top
-// hit is paid-for context nobody reads, and a quality fix behind an opt-in flag
-// is not a fix. Explicit opt-out:
+// Guards, each pinned by a test:
+// - Compare content tokens only. Type and scope are not tokens: same-scope
+//   rows would share two free tokens and short rows would look alike.
+// - A pair where exactly one row carries a negation word is never a copy:
+//   "force push main" inside "never force push main" reaches Jaccard 0.833 and
+//   the wrong copy would survive.
+// - A row under MIN_CONTENT content tokens is never suppressed; non-Latin
+//   prose tokenises to nothing and there is nothing to compare.
+// - A pair whose numeric literals differ is never a copy: short tokens are
+//   dropped, so "DB 3" and "DB 4" otherwise share identical token sets.
 //
-//   OPENCODE_MEMORY_DEDUP=0   (the plain top-limit slice, byte-identical)
-//
-// Threshold guidance from the live replay (§17): 0.5-0.7 suppresses rows that
-// are merely related (92% of them at 0.5) and forces the window deep into the
-// ranking; 0.8 suppresses only near-identical copies. Values below 0.5 are a
-// misconfiguration, not an aggressive setting: at Jaccard 1e-9 a single shared
-// fragment suppressed rows, so anything under 0.5 turns the pass off.
-//
-// WHAT COUNTS AS A NEAR-COPY — the first version's three mistakes, each pinned
-// by a test:
-//
-// 1. It scored `type` and `scope` as tokens. Same-scope rows then shared two
-//    free tokens, so short rows looked like copies of each other. Comparison is
-//    content-only.
-// 2. It compared whole token sets, so a prohibition read as a copy of the
-//    permission it denies: "force push main" inside "never force push main"
-//    reaches Jaccard 0.833, and at threshold 0.8 the WRONG copy survived. If
-//    exactly one row of a pair carries a negation word, it is not a copy.
-// 3. It had no floor. Non-Latin prose tokenises to nothing under `words()`
-//    (which splits on [^a-z0-9_]+), so two unrelated Chinese rows in one scope
-//    both reduced to the empty content set — Jaccard over empty sets is
-//    defined here as 0, but the pre-floor version scored them on type and
-//    scope alone at 1.0 and deleted the second row. A row with fewer than
-//    MIN_CONTENT content tokens is never suppressed: there is nothing to
-//    compare.
-// 4. It treated differing numeric facts as duplicates. `words()` drops tokens
-//    of length <= 2, so "Rate limiter reads Redis DB 3." and "...DB 4." have
-//    identical token sets (Jaccard 1) and the older row was suppressed even at
-//    threshold 1 (review #415, reproduced through the handler). Numbers are
-//    compared as a sorted multiset of literals and a pair that disagrees on
-//    them is never a copy.
+// Threshold guidance: 0.5-0.7 suppresses merely-related rows and forces the
+// window deep into the ranking; 0.8 suppresses near-identical copies only.
+// History and measurements: docs/adr/0002.
 import type { Memory } from "../store/model/memory.ts";
 import { words } from "./score.ts";
 
@@ -111,7 +87,7 @@ export function jaccard(a: Set<string>, b: Set<string>): number {
 /**
  * The short tokens `words()` drops (chunks of length <= 2). They are where
  * single-digit facts hide: "Rate limiter reads Redis DB 3." and "...DB 4."
- * have identical token sets and reach Jaccard 1 (review #415). Timestamped
+ * have identical token sets and reach Jaccard 1. Timestamped
  * cursor rows — the rows this pass exists to suppress — keep their digit
  * groups inside longer tokens ("15z"), so comparing the dropped chunks only
  * guards real fact changes without touching the cursor case. A pair whose
@@ -136,12 +112,12 @@ function sameDroppedChunks(a: Memory, b: Memory): boolean {
 
 /**
  * A row's own tokens: built DIRECTLY from the content and keyword fields.
- * Never from `haystack()` — the identifier tokenizer (#417) splits a
- * snake_case scope like `auth_token_refresh_policy` into auth/token/refresh/
- * policy, and deleting only the whole scope/type strings left those words
- * standing in for content: two unrelated non-Latin rows in one scope shared
- * a Jaccard-1 metadata vocabulary, cleared MIN_CONTENT on scope tokens alone,
- * and dedup hid one (#421, post-merge report on #417).
+ * Never from `haystack()` — the identifier tokenizer splits a snake_case
+ * scope like `auth_token_refresh_policy` into auth/token/refresh/policy, and
+ * deleting only the whole scope/type strings leaves those words standing in
+ * for content: two unrelated non-Latin rows in one scope then share a
+ * Jaccard-1 metadata vocabulary, clear MIN_CONTENT on scope tokens alone,
+ * and dedup hides one.
  */
 export function contentTokens(m: Memory): Set<string> {
   const text = m.content + (m.kw?.length ? ` ${m.kw.join(" ")}` : "");
@@ -171,8 +147,8 @@ export function dedupeWindow(
   if (threshold <= 0 || ranked.length <= 1) return ranked.slice(0, limit);
   // Token sets are built lazily and cached per index: the loop stops once
   // `limit` rows are kept, so eager tokenization of every candidate costs
-  // 1.7ms/12.5ms/96.4ms at 200/2k/10k candidates on every query recall
-  // (review #426). Lazy cost is window-sized.
+  // 1.7ms/12.5ms/96.4ms at 200/2k/10k candidates on every query recall.
+  // Lazy cost is window-sized.
   const tokenCache = new Map<number, Set<string>>();
   const tokensOf = (i: number): Set<string> => {
     let t = tokenCache.get(i);

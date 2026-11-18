@@ -1,4 +1,4 @@
-// render — split from src/consolidate.ts (#168 domain restructure). Declaration bodies are unchanged.
+// render — split from src/consolidate.ts. Declaration bodies are unchanged.
 
 import { type ProposalReport } from "./propose.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
@@ -14,7 +14,7 @@ export function renderProposals(report: ProposalReport): string {
     out.push(
       `${p.id}  ${p.type}/${p.scope}  ${p.losers.length + 1} rows → 1`,
       `  keep   ${p.survivor.ts}`,
-      // Row prose is multiline in the store and flattened only here (#299):
+      // Row prose is multiline in the store and flattened only here:
       // one row is one output line, the same rule memory_recall follows.
       `    ${flattenMemoryText(p.survivor.content.slice(0, 160))}`,
       ...p.losers.map(

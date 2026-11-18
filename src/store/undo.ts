@@ -11,10 +11,10 @@
 // and additionally snapshots the file it replaces, so the state it drops stays
 // undoable (result.safety). Every mode consults the rejection tombstones: a
 // row whose content was rejected by a human is omitted from what it publishes,
-// never revived (#35, decision #214 A).
+// never revived.
 //
 // A day file is shared across REPOSITORIES too, and foreign rows are outside
-// a caller's reach in every sense (#153): no mode revives them from the
+// a caller's reach in every sense: no mode revives them from the
 // snapshot, rewinds them to a stale copy, or drops them. Foreign live lines
 // are carried over verbatim in every mode, appended at the end — line content
 // preserved, position in the shared file not — and only the caller's own rows
@@ -22,7 +22,7 @@
 // visibility, not ownership: GLOBAL rows (repo=global, or legacy unstamped)
 // are visible to every reader, so every repository's rollback treats them as
 // its own — a force restore may drop a global line appended after the
-// snapshot (pinned in test/undo-ownership). That is #131's "act on exactly
+// snapshot (pinned in test/undo-ownership). That is "act on exactly
 // what you may read", the same rule memory_forget applies to global scope.
 // Admin readers (the viewer, out-of-plugin maintenance) keep the whole-file
 // restore exactly as it was.
@@ -109,7 +109,7 @@ export interface RestoreResult {
   // ts of rows intentionally deleted after this snapshot. CHECK and MERGE
   // leave them deleted; FORCE is the explicit recovery path — except for rows
   // whose content carries a rejection tombstone, which no mode recovers
-  // (rejectedOmitted): a rejection is absolute (#35, decision #214 A).
+  // (rejectedOmitted): a rejection is absolute.
   deletedOmitted: string[];
   // ts of caller-owned rows the restore omitted because their content carries a
   // rejection tombstone. Reporting them separately from deletedOmitted is the
@@ -120,7 +120,7 @@ export interface RestoreResult {
   // different row, which the identity-keyed deletion audit cannot catch.
   rejectedOmitted: string[];
   // Live rows owned by other repositories, whose lines are carried over
-  // verbatim (appended at the end) in every mode (#153). Admin restores
+  // verbatim (appended at the end) in every mode. Admin restores
   // report 0 — there is no foreign reader.
   foreignPreserved: number;
 }
@@ -273,8 +273,8 @@ export async function restoreSnapshot(
       // finished just before this restore is honoured.
       const audited =
         mode !== "force" ? await auditedDeletions() : new Set<string>();
-      // Rejection tombstones are keyed on the VALUE (#35), and a rejection is
-      // absolute (decision #214 A): no tool lifts one, so EVERY mode reads them
+      // Rejection tombstones are keyed on the VALUE, and a rejection is
+      // absolute (decision A): no tool lifts one, so EVERY mode reads them
       // and applies the content-hash floor to the caller-owned rows it publishes
       // (see the floor below), not just FORCE. The identity-keyed deletion audit
       // above cannot catch a rejected value carried by an older snapshot
@@ -282,7 +282,7 @@ export async function restoreSnapshot(
       // lock, like the deletion audit, so a forget that finished just before
       // this restore is honoured.
       const rejected = new Set((await tombstones()).map((t) => t.ch));
-      // Ownership before anything else (#153): rows a foreign repo owns are
+      // Ownership before anything else: rows a foreign repo owns are
       // excluded from the snapshot side in EVERY mode (never revived, never
       // rewound), excluded from the deletion audit and the divergence
       // bookkeeping (not this caller's to reason about), and carried verbatim
@@ -315,7 +315,7 @@ export async function restoreSnapshot(
         else if (s !== l) concurrentChanged.push(k);
       }
 
-      // CHECK keeps its documented conservatism (#153 control): ANY divergence
+      // CHECK keeps its documented conservatism ( control): ANY divergence
       // of the shared file — including other repositories' rows, which FORCE
       // and MERGE now provably leave untouched — refuses until the caller picks
       // a mode deliberately. The refusal is a "the file moved, say again on
@@ -359,7 +359,7 @@ export async function restoreSnapshot(
           .concat(curOwn.filter((l) => !snapByKey.has(rowKey(l))));
       }
 
-      // Rejection is absolute (#35, decision #214 A): the content-hash floor is
+      // Rejection is absolute: the content-hash floor is
       // the last gate before publishing, applied to the caller-owned rows of
       // EVERY mode. A row whose content carries a tombstone is omitted here and
       // reported in rejectedOmitted, so the store never ends up holding an
@@ -369,7 +369,7 @@ export async function restoreSnapshot(
       // rollback drops the original with no audit, then a later copy is
       // forgotten). The tombstone file itself is read-only to a restore —
       // mis-forget recovery stays human. Foreign rows are carried verbatim and
-      // never filtered: they are outside this caller's reach (#153).
+      // never filtered: they are outside this caller's reach.
       const rejectedOmitted: string[] = [];
       if (rejected.size > 0) {
         pubOwn = pubOwn.filter((line) => {
@@ -389,7 +389,7 @@ export async function restoreSnapshot(
         mode === "force" ? (await snapshotFiles([target]))[0] : undefined;
 
       // Foreign live lines are re-admitted verbatim in every mode, appended at
-      // the end — line content preserved, position not (#153). Under the admin
+      // the end — line content preserved, position not. Under the admin
       // reader curForeign is empty and the write is the historical whole-file
       // restore, byte for byte — modulo the rejected-row omission above, which
       // applies to every reader and every mode: a rejection is absolute, not

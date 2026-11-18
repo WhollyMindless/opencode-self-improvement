@@ -1,10 +1,10 @@
-// #260: the mutating tools that resolve their Reader — memory_merge_review,
+// the mutating tools that resolve their Reader — memory_merge_review,
 // memory_forget, memory_undo — must await `bindSessionIdentity` BEFORE
 // authorizing, the way memory_remember/update/import/init already do. An
 // unseen session is otherwise bound provisionally to the INSTANCE's directory
 // by the entry binding alone, so on a serve host (where the session row is the
 // only source of truth and no prompt hook has run yet) authorization resolves
-// against the wrong repository: the very boundary #131/#204 protect.
+// against the wrong repository: the very identity boundary this protects.
 // Replay shape is the recorded serve-host one (see repo-scope-serve-host):
 // context messages carry no location; the session ROW carries directory.
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -88,7 +88,7 @@ async function seedA(content: string) {
 const tsOf = async (marker: string): Promise<string> =>
   (await loadAll()).find((m) => m.content.includes(marker))!.ts;
 
-test("merge_review resolves session identity before authorizing (#260)", async () => {
+test("merge_review resolves session identity before authorizing", async () => {
   const sid = "ses-260-merge";
   const p = await serveHostSessionInB(sid);
   await seedA("A260_MERGE_WINNER");
@@ -130,7 +130,7 @@ test("control: a session whose row names A still merges A's rows", async () => {
   expect(String(res.content)).toContain("Resolved merge");
 });
 
-test("forget resolves session identity before pruning (#260)", async () => {
+test("forget resolves session identity before pruning", async () => {
   const sid = "ses-260-forget";
   const p = await serveHostSessionInB(sid);
   const row = await seedA("A260_FORGET_TARGET");
@@ -145,7 +145,7 @@ test("forget resolves session identity before pruning (#260)", async () => {
   expect((await loadAll()).some((m) => m.ts === row)).toBe(true);
 });
 
-test("undo resolves session identity before restoring (#260)", async () => {
+test("undo resolves session identity before restoring", async () => {
   const sid = "ses-260-undo";
   const p = await serveHostSessionInB(sid);
   await seedA("A260_UNDO_BASELINE");

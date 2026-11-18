@@ -1,4 +1,4 @@
-// The memory_remember tool, extracted from index.ts (#168). Schema, description
+// The memory_remember tool, extracted from index.ts. Schema, description
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
@@ -36,7 +36,7 @@ export const register: ToolRegister = (editor, deps) => {
         };
         await bindSessionIdentity(sid);
         // An explicit global write needs no repository owner; anything else
-        // does (#152).
+        // does.
         if (!args.global) {
           const ownerless = ownerlessWriter(sid);
           if (ownerless)
@@ -44,7 +44,7 @@ export const register: ToolRegister = (editor, deps) => {
         }
         const outcome = await runWriteGate(candidate, gateContext(sid));
         // A durable row whose audit line fell is NOT a clean success
-        // (#155 review): the reply says what is missing where it is
+        // the reply says what is missing where it is
         // missing, and the row itself stands.
         if (outcome.action === "promoted")
           return {
@@ -54,7 +54,7 @@ export const register: ToolRegister = (editor, deps) => {
           return { content: `Duplicate ignored: ${args.type}/${args.scope}` };
         return {
           content: `Write blocked at GATE (${outcome.reason}). ${
-            // #268 F1: the catch-all must name the filter a reader needs.
+            // F1: the catch-all must name the filter a reader needs.
             // `ev` matches the EVENT type (`write_blocked`), never the block
             // reason — a session that guesses the reason gets "No evidence"
             // while the row is in the log. Keep the `ev=write_blocked`

@@ -52,7 +52,7 @@ export interface WriteCandidate {
   content: string;
   issue?: string;
   tags?: string[];
-  // Retrieval keywords (#40) — indexed for recall, never rendered. Normalised
+  // Retrieval keywords — indexed for recall, never rendered. Normalised
   // (trim/lowercase/cap) at promotion, so a caller may hand junk without
   // changing the verdict the prose deserves.
   kw?: string[];
@@ -79,7 +79,7 @@ export const sameStrList = (a?: string[], c?: string[]) =>
   (a ?? []).every((x, i) => (c ?? [])[i] === x);
 
 // The sentence every success reply owes the reader when the gate promoted a
-// row but its write_promoted audit line failed to land (#155 review): the
+// row but its write_promoted audit line failed to land: the
 // row IS durable — and memory_evidence, where every other verdict points
 // the curious reader, will show NOTHING for it. Only silence was optional.
 export const auditCaveat = (outcome: GateOutcome): string =>
@@ -102,7 +102,7 @@ export interface GateContext {
   hasGateCheck: boolean;
   // The session this write belongs to, when the caller knows it by name.
   // Repo-stamp resolution prefers it over the mutable global current, which
-  // a capture's model-call await can outlive into another session (#116).
+  // a capture's model-call await can outlive into another session.
   sessionID?: string;
   // True when the session exercised the code (read/grep/edit/bash results
   // recorded). Empirical engagement substitutes for hand-copied refs (gate
@@ -117,7 +117,7 @@ export interface GateContext {
   // excludes it from rivalry: the update IS the sanctioned supersession, so it
   // must never be blocked as a conflict with the row it is about to supersede.
   supersedesTs?: string;
-  // Optional caller-owned ledger (#158 round 3): GATE-2's drift/canonical
+  // Optional caller-owned ledger: GATE-2's drift/canonical
   // supersessions append the ts values they made durable HERE, immediately
   // after the batch publish and BEFORE their audit lines — so a failed audit
   // line can no longer hide a persisted retirement from the caller's catch.
@@ -133,7 +133,7 @@ interface GateOutcomeFields {
   chain: string;
   hint?: string;
   // Promoted with the row DURABLE but its post-append write_promoted audit
-  // line failed (#155). Entry points with a further post-mutation step
+  // line failed. Entry points with a further post-mutation step
   // (memory_update's supersede) must still run it and report a partial
   // result. Throwing was the old shape of this signal and it lied: callers
   // read it as "nothing happened" while the row sat on disk. Pre-append
@@ -141,8 +141,8 @@ interface GateOutcomeFields {
   evidenceError?: string;
   // On a collapsed (un-stored) write: the ts of the ACTIVE row whose content
   // already IS the candidate. An update completing its supersession needs the
-  // survivor's id to retire its own target in the survivor's favor (#155
-  // convergence: a retry must be able to end with one active row).
+  // survivor's id to retire its own target in the survivor's favor: a retry
+  // must be able to end with one active row.
   collapsedWith?: string;
 }
 
@@ -152,7 +152,7 @@ export type GateOutcome =
   | (GateOutcomeFields & { action: "collapsed" });
 
 // STOPWORDS, tokens, rawTokens and jaccard now live in tokenize.ts so the
-// rejection sketch (#35) scores similarity with the same definition GATE-3
+// rejection sketch scores similarity with the same definition GATE-3
 // uses. Imported below; behavior is byte-identical to the local copies.
 
 // GATE-3 similarity floors. OVERLAP_FLOOR: reworded near-duplicates of any
@@ -299,7 +299,7 @@ function deltaTokens(
 }
 
 /**
- * The #419 symptom-clause rule (learning/blocker content must open with
+ * The symptom-clause rule (learning/blocker content must open with
  * "When <symptom>:") is ON unless OPENCODE_MEMORY_SYMPTOM is off/0/false.
  * Read per call so tests and automation can flip it without a restart.
  */
@@ -448,7 +448,7 @@ export async function runWriteGate(
     };
   }
 
-  // The #419 capture convention, enforced: a `learning`/`blocker` row must
+  // The capture convention, enforced: a `learning`/`blocker` row must
   // open with the observable trigger a future session will hit. The measured
   // gap is the whole argument — the same lesson surfaced 0/8 written as a
   // session diary and ranked 1-7 written symptom-first, because the future
@@ -460,7 +460,7 @@ export async function runWriteGate(
     symptomRuleEnabled() &&
     !/^when\b[^\n]{0,160}:/i.test(candidate.content.replace(/^[\s\uFEFF]+/, ""))
   ) {
-    // New-vs-legacy distinction (#423 review): a rewrite that carries the
+    // New-vs-legacy distinction: a rewrite that carries the
     // supersede target's content byte-identical is a metadata repair, not a
     // new lesson. retagQuarantinedRows and metadata-only memory_update on a
     // legacy row re-submit unchanged prose — blocking them would stall
@@ -577,7 +577,7 @@ export async function runWriteGate(
     });
     // Drift-fed supersession is AUTO (provable) and target depends on whether a
     // valid write will land; stale data is neutralized either way. One batch
-    // publish for the whole set (#61): a row marked out-of-band between the scan
+    // publish for the whole set: a row marked out-of-band between the scan
     // and the pass is skipped by the batch (it re-reads under the lock).
     const target = g1.candidateStale ? "<-" : chain;
     if (typeof s.memory.superseded_by === "string") continue;
@@ -606,14 +606,14 @@ export async function runWriteGate(
       driftPlan.map((p) => ({ ts: p.s.memory.ts, fields: p.fields })),
       ctx.durable,
     );
-    // #208: the audit trail names only rows THIS call retired. A row the
+    // the audit trail names only rows THIS call retired. A row the
     // batch skipped (retired out of band between the scan and the publish)
     // belongs to the other session's chain and reason; recording it here
-    // would attribute that retirement to this write — the same rule #158
-    // round 3 pins for the durable ledger.
+    // would attribute that retirement to this write — the same rule the
+    // durable ledger pins.
     const retired = new Set(marked);
     // Ledger BEFORE the audit lines: what is on disk now stays on disk no
-    // matter what the record loop below does (round-3 probe 3).
+    // matter what the record loop below does.
     for (const p of driftPlan) {
       if (!retired.has(p.s.memory.ts)) continue;
       supersededTs = p.s.memory.ts;
@@ -658,7 +658,7 @@ export async function runWriteGate(
       );
       canonPlan.push({ ts: m.ts, from });
     }
-    // One batch publish for the whole neutralization set (#61); rows marked
+    // One batch publish for the whole neutralization set; rows marked
     // out-of-band since the scan are skipped by the batch (re-read under lock).
     const { marked: canonMarked } = await markManySupersededReport(
       canonPlan.map((p) => ({
@@ -673,7 +673,7 @@ export async function runWriteGate(
       })),
       ctx.durable,
     );
-    // #208: same attribution rule as the drift batch above — evidence and
+    // same attribution rule as the drift batch above — evidence and
     // promoted.supersedes name only the rows this call actually retired.
     const canonRetired = new Set(canonMarked);
     for (const p of canonPlan) {
@@ -693,7 +693,7 @@ export async function runWriteGate(
   }
 
   // ---- GATE-3: no dupes ----------------------------------------------------
-  // #35: a value a human rejected stays rejected. This is the "have we already
+  // a value a human rejected stays rejected. This is the "have we already
   // seen this" gate, and it is the only place a rejection can be enforced
   // before a write becomes durable — but unlike every other check here, it is
   // keyed on the VALUE, not on row identity. The blocklist keys on `ts` and
@@ -961,7 +961,7 @@ export async function runWriteGate(
     return { action: "collapsed", chain, collapsedWith: collapseMatch.ts };
   }
 
-  // #390 plan: live rows the incoming row CORRECTS, computed before the append
+  // live rows the incoming row CORRECTS, computed before the append
   // because the retirement pointer must name the ts the append creates — and
   // the marking must wait until the append actually lands, or a blocked write
   // would delete the old value with no successor behind it. An open planning
@@ -1008,21 +1008,21 @@ export async function runWriteGate(
     ...owner,
     sessionID: ctx.sessionID,
   });
-  // #165: remember who made this row, so the writing session is not billed a
+  // remember who made this row, so the writing session is not billed a
   // prompt-cache bust to be shown its own thought. Only promoted writes are
   // attributed — a blocked candidate created nothing.
   noteAuthored(ctx.sessionID, ts);
   // Everything past the append is durable state: an audit failure from here
   // must not escape as a throw, or the caller reports a write that happened
-  // as if it had not (#155 — memory_update told the model "Nothing was
-  // written" while the replacement row sat un-superseded on disk). The
+  // as if it had not — memory_update once told the model "Nothing was
+  // written" while the replacement row sat un-superseded on disk. The
   // outcome carries the error instead.
   let evidenceError: string | undefined;
   try {
-    // #390 apply: the append landed, so the retired rows now have a named
+    // the append landed, so the retired rows now have a named
     // successor. Ledger first (markManySupersededReport appends to ctx.durable
     // after each publish), evidence only for rows THIS call actually retired
-    // (#208's attribution rule) — a row retired out-of-band belongs to the
+    // (the attribution rule above) — a row retired out-of-band belongs to the
     // other session's chain.
     if (conflictPlan.length > 0) {
       const { marked } = await markManySupersededReport(

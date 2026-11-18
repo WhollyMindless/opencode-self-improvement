@@ -1,4 +1,4 @@
-// Contract (#290): PEM redaction must pair BEGIN and END markers in one
+// Contract: PEM redaction must pair BEGIN and END markers in one
 // linear pass. The old single lazy regex re-scanned to end-of-input at every
 // unmatched BEGIN, so a large tool output of repeated BEGIN lines with no END
 // line stalled afterTool for seconds per megabyte. The rewrite must stay
@@ -7,7 +7,7 @@
 import { expect, test } from "bun:test";
 import { redactSecrets, REDACTED_SECRET } from "../src/store/secrets.ts";
 
-// The pre-#290 implementation, kept here as the equivalence oracle.
+// The pre- implementation, kept here as the equivalence oracle.
 const OLD_BLOCK =
   /-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----[\s\S]*?-----END(?: [A-Z0-9]+)* PRIVATE KEY-----/g;
 function oldRedact(text: string): string {
@@ -86,7 +86,7 @@ test("PEM pair is redacted, surrounding text survives", () => {
   expect(out).toBe(`head ${REDACTED_SECRET} tail`);
 });
 
-test("BEGIN-without-END input is redacted in linear time (#290)", () => {
+test("BEGIN-without-END input is redacted in linear time", () => {
   // 2.8M chars of BEGIN lines, no END line — the ticket's worst case.
   // Measured on the merge-base: 103,000 ms and growing quadratically
   // (6,828 ms at 700k chars, 26,356 ms at 1.4M). Linear here: tens of ms.

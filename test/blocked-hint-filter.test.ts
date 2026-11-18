@@ -1,4 +1,4 @@
-// #268 F1: the catch-all block hint must name a memory_evidence filter that
+//F1: the catch-all block hint must name a memory_evidence filter that
 // actually returns the blocked row. `ev` matches the EVENT type
 // (`write_blocked`), never the block reason — a session that filters by the
 // reason it was just told gets "No evidence" while the row sits in the log.

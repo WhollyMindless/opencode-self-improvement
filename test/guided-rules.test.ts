@@ -84,7 +84,7 @@ describe("mergeGuidedCandidates", () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.original).toBe(quote);
   });
-  // #364 review: `out.find` could hand a fallback row to the NEXT quote and
+  //review: `out.find` could hand a fallback row to the NEXT quote and
   // overwrite its text, so three stated facts sharing one number stored one.
   test("three quotes that state the same number keep three rows", () => {
     const quotes = [

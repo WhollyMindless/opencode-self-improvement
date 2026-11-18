@@ -1,4 +1,4 @@
-// Shared logfmt test helpers extracted from duplicated per-file copies (#225).
+// Shared logfmt test helpers extracted from duplicated per-file copies.
 // Behavior-preserving: each body is byte-identical to the majority copy it replaces.
 
 import { existsSync, readFileSync } from "node:fs";

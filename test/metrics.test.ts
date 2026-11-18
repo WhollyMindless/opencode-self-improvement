@@ -1,4 +1,4 @@
-// #44 — the store's own numbers: what a row costs, how fast the store grows,
+//— the store's own numbers: what a row costs, how fast the store grows,
 // how stale a capture is, and how much of the store never gets retrieved.
 // These are reported, never acted on; the tests pin the math and the wording.
 import { describe, expect, test } from "bun:test";
@@ -10,7 +10,7 @@ import { formatLine } from "../src/core/logfmt/format.ts";
 const at = (daysAgo: number) =>
   new Date(Date.now() - daysAgo * 86_400_000).toISOString();
 
-describe("store self-metrics (#44)", () => {
+describe("store self-metrics", () => {
   test("percentile is nearest-rank and never invents a number", () => {
     expect(percentile([], 0.5)).toBeNull();
     expect(percentile([100], 0.95)).toBe(100);

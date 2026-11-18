@@ -1,4 +1,4 @@
-// deletions — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
+// deletions — split from src/memory.ts. Declaration bodies are unchanged.
 import { deletionsFile } from "../../core/config/paths.ts";
 import { formatLine } from "../../core/logfmt/format.ts";
 import { appendLog } from "../../core/logfmt/publish.ts";
@@ -23,12 +23,12 @@ export async function logDeletion(
       type: memory.type,
       scope: memory.scope,
       content: memory.content,
-      // Origin survives the delete/restore round trip (#129): a restore-entry
+      // Origin survives the delete/restore round trip: a restore-entry
       // made from this line re-stamps what the row carried. A row with no
       // stamp writes no stamp here — the legacy global path, unchanged.
       repo: memory.repo,
       repoPath: memory.repoPath,
-      // #207: the visibility- and provenance-bearing metadata survives here
+      // the visibility- and provenance-bearing metadata survives here
       // too. tags carry the quarantine marker, so a restore that reads this
       // line cannot silently release quarantine; issue and kw keep provenance
       // and recall aliases alive; status keeps an open thread open. Comma-

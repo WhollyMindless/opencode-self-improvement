@@ -27,7 +27,7 @@ export interface FirstTap {
 export interface SessionState {
   sid: string;
   calls: ToolResult[];
-  // Lifetime facts that outlive the CALLS_CAP tail (#224): calls keeps only
+  // Lifetime facts that outlive the CALLS_CAP tail: calls keeps only
   // the most recent CALLS_CAP entries, so counts and ever-seen signals are
   // recorded as they happen instead of being derived from the array.
   callsTotal: number;
@@ -48,7 +48,7 @@ export interface SessionState {
     count: number;
     fix?: { call: string; index: number };
   } | null;
-  // Bounded provenance for write telemetry (#163), independent of the full
+  // Bounded provenance for write telemetry, independent of the full
   // calls ledger used by grounding, attribution, and convergence.
   writeEvidence?: {
     recent: string[];
@@ -65,7 +65,7 @@ export interface SessionState {
   finalized: boolean;
 }
 
-// Rows this session promoted, for the riding-bytes rule (#165): a session must
+// Rows this session promoted, for the riding-bytes rule: a session must
 // not pay a prompt-cache bust to be shown a fact it wrote itself, because that
 // fact is already in its transcript. Filled where a write is promoted (the one
 // place a row is created ON behalf of a named session — the viewer's own writes
@@ -112,7 +112,7 @@ export function setLastSeenSid(sid: string): void {
 
 const sessions = new Map<string, SessionState>();
 
-// Bounded like every other session-keyed ledger (#224): a resident server must
+// Bounded like every other session-keyed ledger: a resident server must
 // not retain a SessionState for every session it ever saw. An evicted session
 // starts over — its retained call tail and lifetime counters are dropped, the
 // same "starts over" cost lru.ts already accepts for the epoch caches.

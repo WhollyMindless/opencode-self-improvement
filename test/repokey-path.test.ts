@@ -1,4 +1,4 @@
-// Issue #92: the repo= field must ALWAYS be a bare token. Non-git (and
+// the repo= field must ALWAYS be a bare token. Non-git (and
 // origin-less) dirs used to stamp the raw path, which logfmt quotes when the
 // path contains a space or backslash — breaking naive field extraction and
 // making the key unmatchable-by-hash. Now: repo= is sha1 of the NORMALIZED
@@ -48,7 +48,7 @@ const gitToplevel = (dir: string): string | null => {
 const sha1 = (s: string) =>
   createHash("sha1").update(s).digest("hex").slice(0, 12);
 
-// Independent ground truth for the volume under test (#109): write a lowercase
+// Independent ground truth for the volume under test: write a lowercase
 // file and ask whether the UPPERCASE spelling names an existing file. A
 // case-insensitive volume says yes; a case-sensitive one says no. Deliberately
 // never calls the probe under test.
@@ -71,9 +71,9 @@ beforeEach(() => {
   process.env.OPENCODE_MEMORY_DIR = memDir;
   // This file asserts on the AMBIENT module scope: it calls setRepoScope()
   // and expects appendMemory to stamp with it, and reads through the ambient
-  // reader. Both resolve the calling session FIRST when one is bound (#127),
+  // reader. Both resolve the calling session FIRST when one is bound,
   // so the file must own that state too — an ambient sid left behind by an
-  // earlier file silently outranks setRepoScope() (#149).
+  // earlier file silently outranks setRepoScope().
   resetState();
   resetSessionScopes();
   setRepoScope(null);
@@ -84,7 +84,7 @@ afterEach(() => {
   removeStore(root);
 });
 
-describe("non-git repo keys are bare tokens (#92)", () => {
+describe("non-git repo keys are bare tokens", () => {
   test("a session dir containing a space stamps repo= as an unquoted hash, repoPath stays raw", async () => {
     const projDir = mkdtempSync(join(tmpdir(), "osi-repokey Default Project "));
     try {
@@ -187,7 +187,7 @@ describe("non-git repo keys are bare tokens (#92)", () => {
   });
 });
 
-describe("case folding follows the volume, not the platform (#109)", () => {
+describe("case folding follows the volume, not the platform", () => {
   test("isCaseInsensitivePath agrees with the filesystem's own name-matching", () => {
     const dir = mkdtempSync(join(tmpdir(), "osi-repokey-109-probe-"));
     try {

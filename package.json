@@ -70,7 +70,8 @@
     "memory-view": "bun run src/viewer/server.ts",
     "format": "biome format --write",
     "format:check": "biome format",
-    "lint": "biome lint && bun run format:check"
+    "lint": "biome lint && bun run format:check",
+    "lint:comments": "bun scripts/comment-lint.ts"
   },
   "dependencies": {
     "@babel/parser": "7.29.9",

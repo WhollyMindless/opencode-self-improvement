@@ -1,4 +1,4 @@
-// The memory_recall tool, extracted from index.ts (#168). Schema, description
+// The memory_recall tool, extracted from index.ts. Schema, description
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
@@ -19,7 +19,7 @@ import { firstFrontierTap, markFrontierTap } from "../capture/triggers.ts";
 import { dedupeThreshold, dedupeWindow } from "../recall/dedupe.ts";
 
 function scoreMemory(m: Memory, q: string): number {
-  // Same indexed fields as the injection scorer (#40): a row recalled by one of
+  // Same indexed fields as the injection scorer: a row recalled by one of
   // its keywords is the same row recalled by the prose that keyword stands for.
   const hay = recallHaystack(m);
   let score = 0;
@@ -53,7 +53,7 @@ export const register: ToolRegister = (editor, deps) => {
         if (args.query) {
           // Default on: a row must share two whole words of the query — the
           // concepts rule, not the scorer's substring test (src/recall/gate.ts,
-          // #409). OPENCODE_MEMORY_QUERY_GATE=off restores the old matcher.
+          //). OPENCODE_MEMORY_QUERY_GATE=off restores the old matcher.
           const gate = gateEnabled();
           const concepts = gate ? queryConcepts(args.query) : [];
           results = results
@@ -62,7 +62,7 @@ export const register: ToolRegister = (editor, deps) => {
             .sort((a, b) => b.score - a.score)
             .map((x) => x.m);
         }
-        // #409: the default window was 20. A live audit joined 1,090 recall
+        // the default window was 20. A live audit joined 1,090 recall
         // events to their session transcripts: rank-1 rows go on to be
         // referenced at 3.4x the rate of a random store row, ranks 11-20 at
         // 1.16x — noise. Returning 17.7 rows per call meant most of the window
@@ -71,7 +71,7 @@ export const register: ToolRegister = (editor, deps) => {
         // Non-positive or fractional limits are coerced, never trusted: a
         // negative slice(0, n) / slice(-n) silently returns MORE rows, not fewer.
         const limit = args.limit && args.limit > 0 ? Math.floor(args.limit) : 5;
-        // #409 dedup lane (RESULTS §17): default on at 0.8 — near-duplicate
+        // dedup lane (RESULTS §17): default on at 0.8 — near-duplicate
         // copies are skipped so the window fills with distinct rows instead of
         // repeats of the top hit. OPENCODE_MEMORY_DEDUP=0 restores the plain
         // slice.

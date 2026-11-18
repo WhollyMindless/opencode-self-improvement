@@ -24,7 +24,7 @@ export const USER_GUIDED_TAG = "user-guided";
  * A row that is genuinely restatable gets the tag again from the next capture
  * pass, so dropping it costs a demotion and never a fact.
  *
- * The viewer's edit path deliberately does NOT go through here: #129 keeps tag
+ * The viewer's edit path deliberately does NOT go through here: keeps tag
  * provenance across a typo fix, where the verdict still describes the prose, and
  * a human can clear the tag by hand.
  */

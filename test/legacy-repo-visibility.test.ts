@@ -1,4 +1,4 @@
-// #254: a historical whole-path-folded key is not authority over a distinct
+// a historical whole-path-folded key is not authority over a distinct
 // lowercase sibling. Exercise real retrieval, evidence, and restore filtering.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
@@ -89,7 +89,7 @@ function siblings() {
 }
 
 describe.skipIf(foldsCase)(
-  "legacy folded keys on case-sensitive volumes (#254)",
+  "legacy folded keys on case-sensitive volumes",
   () => {
     test("owner retrieval survives; the lowercase sibling cannot retrieve the row", async () => {
       const { owner, other, stamp } = siblings();

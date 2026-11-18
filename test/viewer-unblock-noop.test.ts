@@ -1,4 +1,4 @@
-// #209: a no-op unblock must not withdraw another copy's value rejection.
+// a no-op unblock must not withdraw another copy's value rejection.
 // removeBlock/removeTombstone returned true and republished the file even when
 // they filtered nothing, and unblockMemory lifted the value tombstone whenever
 // the row existed — so a stale/direct /api/unblock on a never-blocked row A
@@ -64,7 +64,7 @@ async function post(
   return (await res.json()) as Record<string, unknown>;
 }
 
-describe("#209 no-op blocklist and tombstone removal", () => {
+describe("no-op blocklist and tombstone removal", () => {
   test("removeBlock reports false for an unknown ts and does not rewrite the file", async () => {
     const ts = await appendMemory({
       type: "learning",

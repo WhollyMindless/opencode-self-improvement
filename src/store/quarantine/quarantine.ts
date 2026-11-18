@@ -48,8 +48,8 @@ export function quarantineCandidate<
     tags?: string[];
   },
 >(candidate: T): T {
-  // #205: scope renders model-facing (inject/format.ts prints it on every
-  // injected line), so the scanner covers it as well as content. #364 review:
+  // scope renders model-facing (inject/format.ts prints it on every
+  // injected line), so the scanner covers it as well as content. review:
   // so does `original`, the verbatim quote the same line prints as
   // `(user said: "...")` — a benign summary carrying an instruction-shaped
   // quote reached the prompt untagged. Hits are merged and deduplicated;

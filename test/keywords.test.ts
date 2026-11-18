@@ -1,5 +1,5 @@
-// Write-time retrieval keywords (#40 item 3) and the recency tie-break (#40
-// item 2).
+// Write-time retrieval keywords and the recency tie-break: between two
+// equally relevant rows the newer one wins.
 //
 // Keywords are the vocabulary bridge for the bench's strict-paraphrase wall:
 // the user's words are not the memory's words, so the row carries its own
@@ -342,7 +342,7 @@ describe("keywords in retrieval", () => {
   });
 });
 
-// --- recency tie-break (#40 item 2) ---------------------------------------------
+// --- recency tie-break  ---------------------------------------------
 
 describe("recency tie-break", () => {
   const OLD = "2026-01-01T00:00:00.000Z";

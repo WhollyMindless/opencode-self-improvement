@@ -1,4 +1,4 @@
-// The use ledger (#42) at unit altitude. e2e/ledger.test.ts proves the wiring
+// The use ledger at unit altitude. e2e/ledger.test.ts proves the wiring
 // through a real host; this file pins the module's own promises — the line
 // shape, the throttle and its keys, the ring's rotation, what may and may not
 // be written into `terms`, what the ledger can honestly claim about rows it
@@ -105,7 +105,7 @@ describe("the ledger line", () => {
   });
 
   test("terms can only ever be words the row itself contains", () => {
-    // The privacy guarantee of #42: the ledger stores no prompt text. What it
+    // The privacy guarantee: the ledger stores no prompt text. What it
     // stores is the INTERSECTION of query words and the row's own vocabulary,
     // so every logged term already exists inside the row it points at.
     const m: Memory = {
@@ -127,14 +127,14 @@ describe("the ledger line", () => {
 });
 
 describe("the throttle", () => {
-  test("a filesystem lock refusal backs off repeated calls, then permits another attempt (#210)", async () => {
+  test("a filesystem lock refusal backs off repeated calls, then permits another attempt", async () => {
     const t0 = Date.parse("2026-06-01T00:00:00Z");
     const rows = [row("2026-01-01T00:00:00.000Z")];
     const originalBudget = LOCK_WRITE.timeoutMs;
     const originalEvent = LOCK_WRITE.onEvent;
     const events: string[] = [];
     // No in-process holder: this forces the cross-process wait, which is what
-    // #210 throttles. A live rival process is the only honest fixture now —
+    //throttles. A live rival process is the only honest fixture now —
     // the lock is a kernel record, not a file a test can create by hand.
     const holder = await childHolder(hitsFile());
     LOCK_WRITE.timeoutMs = 40;
@@ -192,7 +192,7 @@ describe("the throttle", () => {
     expect((await readLedger()).lines).toBe(2);
   });
 
-  test("a refused lock does not throttle the retry after the holder releases (#210)", async () => {
+  test("a refused lock does not throttle the retry after the holder releases", async () => {
     const t0 = Date.parse("2026-06-01T00:00:00Z");
     const rows = [row("2026-01-01T00:00:00.000Z")];
     const originalBudget = LOCK_WRITE.timeoutMs;
@@ -248,7 +248,7 @@ describe("the throttle", () => {
     expect((await readLedger()).lines).toBe(1);
   }, 30_000);
 
-  test("an append failure stays fail-soft and allows retry once the file is writable (#210)", async () => {
+  test("an append failure stays fail-soft and allows retry once the file is writable", async () => {
     const t0 = Date.parse("2026-06-01T00:00:00Z");
     const memory = row("2026-01-01T00:00:00.000Z");
     const rows = [memory];
@@ -269,7 +269,7 @@ describe("the throttle", () => {
     expect((await readLedger()).byRow.get(memory.ts)?.count).toBe(1);
   });
 
-  test("overlapping identical calls persist one use, then normal expiry permits another (#210)", async () => {
+  test("overlapping identical calls persist one use, then normal expiry permits another", async () => {
     const t0 = Date.parse("2026-06-01T00:00:00Z");
     const memory = row("2026-01-01T00:00:00.000Z");
     const rows = [memory];
@@ -501,15 +501,15 @@ describe("the surfaces read the ledger honestly", () => {
   });
 });
 
-// #106 (same gap, pre-existing): the ring's rotation republishes the halved
-// ledger under the store lock WITHOUT #89's fileIdentity anchor. On Windows a
+//(same gap, pre-existing): the ring's rotation republishes the halved
+// ledger under the store lock WITHOUT fileIdentity anchor. On Windows a
 // reader's open handle refuses the handover rename, writeAtomic fails its
 // single attempt, recordHits swallows it (telemetry never breaks retrieval) -
 // and the ledger silently stays over the cap: a lost rotation, no signal.
 // Anchored, the retry lands once the handle closes. POSIX renames never fail
 // this way, hence the gate; the red leg is windows-latest CI.
 describe.skipIf(process.platform !== "win32")(
-  "ledger rotation under Windows reader contention (#106)",
+  "ledger rotation under Windows reader contention",
   () => {
     test("a rotation against a reader holding the ledger retries and lands, not silently fails", async () => {
       const filler = Array.from(

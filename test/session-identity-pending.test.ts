@@ -1,4 +1,4 @@
-// #260 follow-up: awaiting identity must also await a lookup already in flight.
+//follow-up: awaiting identity must also await a lookup already in flight.
 // These deterministic stalls exercise host interleavings, not a recorded host race.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";

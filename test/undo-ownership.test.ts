@@ -1,8 +1,8 @@
-// Probes for #153: model-facing rollback must respect row ownership. A
+// Probes: model-facing rollback must respect row ownership. A
 // snapshot names a whole DAY FILE, which is shared across repositories, so a
 // force restore run from repo A silently rewrote or dropped repo B's private
-// rows — the undo twin of #131's rule that a known id is not authority, and of
-// #143's export breadth: authorization belongs to the entry point, and every
+// rows — the undo twin of rule that a known id is not authority, and of
+// export breadth: authorization belongs to the entry point, and every
 // mode (check/merge/force) must leave foreign rows exactly where they are.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
@@ -75,7 +75,7 @@ async function seed(dir: string, content: string) {
 }
 const ctx = (sessionID: string) => ({ sessionID, id: "undo-proof" });
 
-describe("memory_undo respects row ownership (#153)", () => {
+describe("memory_undo respects row ownership", () => {
   test("force undo from A must preserve a private B row that A cannot read", async () => {
     const pa = await plugin(a);
     const own = await seed(a, "A_SNAPSHOT_BASELINE");
@@ -164,11 +164,11 @@ describe("memory_undo respects row ownership (#153)", () => {
   });
 
   test("contract: a global row appended after the snapshot is in every repo's rollback scope", async () => {
-    // The documented exception to the ownership rule (#153 review, F2):
+    // The documented exception to the ownership rule:
     // repo=global — and legacy unstamped — rows are visible to EVERY reader,
     // so restore counts them as own rows and a force rollback from A drops a
     // global line written after A's snapshot. Deliberate: "act on exactly
-    // what you may read" (#131), the same rule memory_forget applies to
+    // what you may read", the same rule memory_forget applies to
     // global scope. Pinned so the next reader inherits the decision instead
     // of rediscovering it.
     const pa = await plugin(a);

@@ -1,4 +1,4 @@
-// Identifier tokenisation (#409, RESULTS §15).
+// Identifier tokenisation (RESULTS §15).
 //
 // `words()` is the matcher's single vocabulary: the injection scorer, the
 // credit attribution and the consolidation similarity all read it. It used to
@@ -28,7 +28,7 @@ const mem = (content: string, over: Partial<Memory> = {}): Memory => ({
   ...over,
 });
 
-describe("identifier tokenisation (#409)", () => {
+describe("identifier tokenisation", () => {
   test("every identifier spelling shares the same segments", () => {
     for (const id of [
       "getUserAccount",
@@ -117,7 +117,7 @@ describe("identifier tokenisation (#409)", () => {
 
   test("a keyword stored fused still matches the query that cites it", () => {
     // normalizeKeywords lower-cases authored keywords, so `memoryRecallThreshold`
-    // is stored as `memoryrecallthreshold`. The #40 vocabulary bridge depends
+    // is stored as `memoryrecallthreshold`. The vocabulary bridge depends
     // on the whole form surviving.
     const rows = [
       mem("threshold gates the injection of weak matches", {
@@ -130,7 +130,7 @@ describe("identifier tokenisation (#409)", () => {
   });
 
   test("a fused keyword alone suffices with no segment overlap in prose", () => {
-    // Review #417: the segment expansion raised the flat token count to four,
+    // Reproduced: the segment expansion raised the flat token count to four,
     // the gate then demanded two matches, and the fused alias supplied one —
     // the row stopped matching its own keyword. Admission counts concepts, and
     // an identifier plus its segments is ONE concept.
@@ -143,7 +143,7 @@ describe("identifier tokenisation (#409)", () => {
   });
 
   test("sentence punctuation does not glue onto an identifier", () => {
-    // Review #417: `Join on db_id.` tokenised as `db_id.`, so the row ended
+    // Reproduced: `Join on db_id.` tokenised as `db_id.`, so the row ended
     // its sentence out of reach of a `db_id` query.
     const rows = [mem("Join on db_id.")];
     expect(words("Join on db_id.")).toContain("db_id");

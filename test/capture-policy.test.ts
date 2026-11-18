@@ -1,4 +1,4 @@
-// Capture policy (#334): when is a capture worth paying for?
+// Capture policy: when is a capture worth paying for?
 //
 // The unit altitude — the signal verdicts and the cursor arithmetic. The e2e
 // wiring lives in test/capture.test.ts ("capture cost policy").
@@ -160,14 +160,14 @@ describe("deltaMessages", () => {
 
   test("a fully consumed window is empty; a SHRUNK context is mined whole", () => {
     expect(deltaMessages([1, 2], 2)).toEqual([]);
-    // #366 review [P2]: compaction replaces the transcript, so `since` can point
+    //review [P2]: compaction replaces the transcript, so `since` can point
     // past the end of an array that is simply shorter now. An empty window here
     // skipped EVERY later turn as too thin, because a skip does not advance the
     // cursor — the session stayed unmined until it grew past the old count.
     expect(deltaMessages([1, 2], 5)).toEqual([1, 2]);
   });
 
-  test("a replaced transcript is told apart from an append (#366 review)", () => {
+  test("a replaced transcript is told apart from an append", () => {
     const five = [
       { type: "user", text: "one detail" },
       { type: "assistant", text: "two detail" },
@@ -225,7 +225,7 @@ describe("deltaMessages", () => {
     expect(prefixFingerprint([{ type: "user", text: "x" }], 4)).toBeUndefined();
   });
 
-  // Round 4 [P2]: ONE message cannot prove the consumed prefix is the same
+  // ONE message cannot prove the consumed prefix is the same
   // prefix. An ordinary reply repeated at the boundary position is not an FNV
   // collision — it is a different conversation wearing the same sentence.
   test("a repeated boundary message does not hide a replaced prefix", () => {
@@ -285,7 +285,7 @@ describe("the capture cursor", () => {
   });
 });
 
-describe("guidedStatementInWindow (#365 hint-channel guard)", () => {
+describe("guidedStatementInWindow (hint-channel guard)", () => {
   test("a user spec statement in the window is a signal", () => {
     expect(
       guidedStatementInWindow(
@@ -333,7 +333,7 @@ describe("guidedStatementInWindow (#365 hint-channel guard)", () => {
     ).toBe(false);
   });
 
-  // #366 review [P2]: the guard decoded its own narrow message shape, so genuine
+  //review [P2]: the guard decoded its own narrow message shape, so genuine
   // user rules in shapes the capture transcript parser accepts got a no-signal
   // skip before generation — the exact loss the guard exists to prevent. It now
   // shares that decoder, so there is one definition of "who said this line".

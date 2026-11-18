@@ -1,4 +1,4 @@
-// #44 in the real wiring: memory_status must carry the store's own numbers, and
+//in the real wiring: memory_status must carry the store's own numbers, and
 // they must agree with what is actually on disk.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
@@ -26,7 +26,7 @@ afterEach(() => {
   removeStore(root);
 });
 
-describe("self-metrics through the tool (#44)", () => {
+describe("self-metrics through the tool", () => {
   test("the report sizes the store, states growth, and names its capture lag", async () => {
     const p = await loadPlugin(process.cwd());
     await appendMemory({

@@ -1,4 +1,4 @@
-// #297: real emit paths must keep their caller's owner while another session
+// real emit paths must keep their caller's owner while another session
 // is ambient. Unresolved owners stay private rather than becoming global.
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -31,7 +31,7 @@ let sid: string;
 let otherSid: string;
 let serial = 0;
 
-describe("caller-owned evidence emitters (#297)", () => {
+describe("caller-owned evidence emitters", () => {
   beforeEach(async () => {
     resetSessionScopes();
     const a = join(store.root, "repo-a");

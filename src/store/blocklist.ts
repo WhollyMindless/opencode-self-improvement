@@ -86,7 +86,7 @@ export async function removeBlock(ts: string): Promise<boolean> {
         const row = parseLine(l);
         return !(row && row.ts === ts);
       });
-      // A no-op must report as a no-op (#209): nothing was filtered, so return
+      // A no-op must report as a no-op: nothing was filtered, so return
       // false and skip the rewrite — republishing identical bytes bumps the
       // file identity for nothing and hands callers a success they did not earn.
       if (kept.length === lines.length) return false;

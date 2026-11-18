@@ -3,7 +3,7 @@
 // and klass (who holds authority). At render time the plugin reads the code —
 // bounded, deterministic, NO model call — and a collision renders ONE flagged
 // CONFLICT line whose Action is fixed by the class: behavior class trusts the
-// code, spec class fixes it. #345 measured the alternative twice: a wrong
+// code, spec class fixes it. Measured twice: a wrong
 // guided row made the agent rewrite a correct constant (raw row) and the
 // framing-only fix stayed a coin flip (2 harms in 5). The class rule held 6/6.
 import {

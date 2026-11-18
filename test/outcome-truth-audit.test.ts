@@ -1,8 +1,8 @@
-// Contracts from the maintainer review of #158 (CHANGES_REQUESTED), verified
-// against a probe of this branch. (1) The collapse-completion added for #155
-// convergence retired the named row into a survivor UNCONDITIONALLY — so an
+// Contracts from a maintainer review (CHANGES_REQUESTED), verified
+// against a probe of this branch. (1) The collapse-completion retired the
+// named row into a survivor UNCONDITIONALLY — so an
 // update whose prose duplicated a DIFFERENT live row destroyed the named row's
-// issue link, keywords and OPEN standing, inverting #154's rule ("an update is
+// issue link, keywords and OPEN standing, inverting rule ("an update is
 // built FROM the row it replaces") while reporting a clean no-op. The store's
 // two rules must agree: GATE-3 says same-prose-different-metadata is an EDIT,
 // so the fold may only retire when the survivor already carries what the named
@@ -59,7 +59,7 @@ beforeEach(() => {
   process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
   resetState();
   resetSessionScopes();
-  resetCaptureCooldowns(); // module-level since #108, and bun shares modules across files
+  resetCaptureCooldowns(); // module-level since the cooldown refactor, and bun shares modules across files
   setRepoScope(null);
   plugins = [];
 });
@@ -105,9 +105,9 @@ function evidenceLines(): Fields[] {
     .filter((f): f is Fields => f !== null);
 }
 
-describe("the collapse-completion keeps #154's rule", () => {
+describe("the collapse-completion keeps its rule", () => {
   test("a survivor that lacks the named row's metadata may not receive the fold — both ids are reported", async () => {
-    // The review's probe shape: editing A (OPEN frontier thread, issue link,
+    // The shape that matters: editing A (OPEN frontier thread, issue link,
     // keywords) with prose that happens to byte-equal a DIFFERENT live row B.
     // Retiring A into B silently leaves the frontier and destroys metadata no
     // call named; keeping both is merely two rows stating one fact, which a
@@ -150,7 +150,7 @@ describe("the collapse-completion keeps #154's rule", () => {
   });
 
   test("when the survivor already carries the metadata, the fold still completes (control)", async () => {
-    // The #155 convergence path must survive the guard: a retry whose rows
+    // The convergence path must survive the guard: a retry whose rows
     // agree on standing, issue, tags and kw retires exactly as before.
     const PROSE =
       "Session ledger snapshots ride the frozen epoch boundary unchanged";
@@ -188,7 +188,7 @@ describe("the collapse-completion keeps #154's rule", () => {
 });
 
 describe("a durable row with no audit line is never a clean success", () => {
-  // The gate already refuses to throw past the append (#155); what was
+  // The gate already refuses to throw past the append; what was
   // missing was LISTENING to the flag on the other three writers.
   function unauditedSpy(): { restore: () => void } {
     const record = evidence.record;
@@ -339,10 +339,10 @@ describe("a durable row with no audit line is never a clean success", () => {
   });
 });
 
-describe("the fold judges the REQUESTED state; the gate owns its durable steps (review round 3)", () => {
-  // Three probes from the independent recheck of c95c919 (#158 comment,
+describe("the fold judges the REQUESTED state; the gate owns its durable steps", () => {
+  // Three probes from the independent recheck of c95c919 ( comment,
   // 2026-10-29T00:22Z) — setup and assertions kept theirs. The fold added
-  // for #155 convergence judged the PRE-EDIT target against the survivor,
+  // for convergence judged the PRE-EDIT target against the survivor,
   // so it could consume an explicit keyword/status edit (the requested
   // value never landed anywhere) and could retire a GLOBAL row into a
   // repo-private one (other repositories silently lost the fact). The
