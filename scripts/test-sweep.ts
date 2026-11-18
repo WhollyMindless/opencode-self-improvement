@@ -653,9 +653,18 @@ export const MUTANTS: Mutant[] = [
   {
     id: "inject-one-token-shared",
     file: "src/recall/score.ts",
-    find: `  const needShared = query.size >= LONG_QUERY_TOKENS ? 2 : 1;`,
+    find: `  const needShared = concepts.length >= LONG_QUERY_TOKENS ? 2 : 1;`,
     replace: `  const needShared = 1;`,
     invariant: "free-text prompts need two shared concepts to inject",
+    class: "pure",
+  },
+  {
+    id: "gate-admits-one-shared",
+    file: "src/recall/gate.ts",
+    find: `  const need = concepts.length >= LONG_QUERY_TOKENS ? 2 : 1;`,
+    replace: `  const need = 1;`,
+    invariant:
+      "tool recall admits a row only on two shared concepts for a deliberate query",
     class: "pure",
   },
   {
