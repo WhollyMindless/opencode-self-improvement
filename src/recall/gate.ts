@@ -13,9 +13,10 @@
 // enough to be a deliberate search (LONG_QUERY_TOKENS in score.ts). This applies
 // that rule to the tool, so the two paths agree on when nothing is a good enough
 // answer. It changes admission only: ranking, scoring and the window size are
-// untouched, and the flag-off path is the shipped behaviour.
+// untouched. ON by default — the two paths disagreeing was the bug, and a
+// quality fix that nobody flips on is not a fix. Explicit opt-out:
 //
-//   OPENCODE_MEMORY_QUERY_GATE=1   (unset or anything else = shipped behaviour)
+//   OPENCODE_MEMORY_QUERY_GATE=off   (also 0 / no / n / false)
 //
 // WHY THE GATE COUNTS WORDS AND THE SCORER COUNTS SUBSTRINGS
 //
@@ -39,21 +40,26 @@
 // first version's numbers were measured with substring counting and are void.
 // See https://github.com/abogartz/opencode-self-improvement/issues/409.
 import type { Memory } from "../store/model/memory.ts";
-import { LONG_QUERY_TOKENS, QUERY_STOPWORDS } from "./score.ts";
+import { LONG_QUERY_TOKENS, QUERY_STOPWORDS, words } from "./score.ts";
 
 export const GATE_ENV = "OPENCODE_MEMORY_QUERY_GATE";
 
 /**
- * On only for an explicit affirmative. Everything else — unset, empty, `0`,
- * `false`, and in particular `no`, which a shell user writes meaning off — is off.
- * A deny-list was the first version's mistake: `=no`, `=n`, `=00` and `=0.0` all
- * enabled the gate.
+ * ON by default. Off only for an explicit negative: the off words (`off`, `no`,
+ * `n`, `false`) and any number equal to zero — `0`, `00`, `0.0` all mean off,
+ * which is what a shell user writing `=no` means. Unset, empty, or anything
+ * else is on: a default-ON quality path must not be disableable by typo.
  */
 export function gateEnabled(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
   const raw = env[GATE_ENV]?.trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+  if (!raw) return true;
+  if (raw === "off" || raw === "no" || raw === "n" || raw === "false")
+    return false;
+  const n = Number(raw);
+  if (Number.isFinite(n)) return n !== 0;
+  return true;
 }
 
 /**
@@ -63,9 +69,13 @@ export function gateEnabled(
  * another. Distinct from score.ts's `haystack`, which orders the same fields for
  * the injection scorer.
  */
-export function recallHaystack(m: Memory): string {
+function recallHaystackRaw(m: Memory): string {
   const kw = m.kw?.length ? ` ${m.kw.join(" ")}` : "";
-  return `${m.type} ${m.scope} ${m.content}${kw}`.toLowerCase();
+  return `${m.type} ${m.scope} ${m.content}${kw}`;
+}
+
+export function recallHaystack(m: Memory): string {
+  return recallHaystackRaw(m).toLowerCase();
 }
 
 // Split into whole words at whitespace and punctuation. Underscore stays inside a
@@ -91,14 +101,20 @@ export function queryConcepts(query: string): string[] {
 
 /** The row's concepts, as a set for whole-word membership tests. */
 export function rowConcepts(m: Memory): Set<string> {
-  return new Set(
-    recallHaystack(m)
-      .split(WORD)
-      .filter((w) => w.length > 2),
-  );
+  // Union of two vocabularies (#426 review). The #417 scorer tokenizer over
+  // the ORIGINAL-case haystack carries whole identifiers plus camel/separator
+  // segments, so a prose query is admitted against an identifier written in
+  // any style. But words() segments at EVERY separator: `table.db_id` yields
+  // table/db/id, never `db_id` whole, and an exact `db_id` query is one
+  // concept — so the WORD split (underscore inside, everything else a
+  // separator) is unioned back in. Both sides keep their length floor, so
+  // `build2837` still shares nothing with `283` and admission stays word-level.
+  const out = new Set(words(recallHaystackRaw(m)));
+  for (const w of recallHaystack(m).split(WORD)) if (w.length > 2) out.add(w);
+  return out;
 }
 
-/** How many of `concepts` the row contains as whole words. */
+/** How many of `concepts` the row contains as whole words (or identifier segments). */
 export function sharedConcepts(
   m: Memory,
   concepts: readonly string[],

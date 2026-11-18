@@ -1,12 +1,13 @@
-// #409 dedup lane (RESULTS §17). The pass is off unless OPENCODE_MEMORY_DEDUP
-// is set, so the first property is the one that matters for a release: with the
-// flag unset, the window is byte-identical to the plain top-limit slice. The
-// rest pin the adversarial review's findings: a prohibition is never a copy of
+// #409 dedup lane (RESULTS §17). The pass is ON by default at 0.8; the
+// escape hatch OPENCODE_MEMORY_DEDUP=0 restores the plain top-limit slice,
+// byte-identical to the old behavior. The rest pin the adversarial review's
+// findings: a prohibition is never a copy of
 // the permission it denies, rows with nothing to compare are never suppressed,
 // a misconfigured threshold cannot turn the pass on, and the NEWEST copy of a
 // clash survives (§17's adoption rule).
 import { describe, expect, test } from "bun:test";
 import {
+  DEFAULT_THRESHOLD,
   dedupeThreshold,
   dedupeWindow,
   jaccard,
@@ -58,14 +59,19 @@ const PROHIBIT = mem(
 );
 
 describe("dedupeThreshold", () => {
-  test("unset or disabled means off", () => {
-    expect(dedupeThreshold({})).toBe(0);
-    expect(dedupeThreshold({ OPENCODE_MEMORY_DEDUP: "" })).toBe(0);
+  test("unset means the default 0.8; explicit zero means off", () => {
+    expect(dedupeThreshold({})).toBe(DEFAULT_THRESHOLD);
+    expect(dedupeThreshold({ OPENCODE_MEMORY_DEDUP: "" })).toBe(
+      DEFAULT_THRESHOLD,
+    );
+    expect(dedupeThreshold({ OPENCODE_MEMORY_DEDUP: "  " })).toBe(
+      DEFAULT_THRESHOLD,
+    );
     expect(dedupeThreshold({ OPENCODE_MEMORY_DEDUP: "0" })).toBe(0);
+  });
+  test("an explicit misconfiguration turns the pass off", () => {
     expect(dedupeThreshold({ OPENCODE_MEMORY_DEDUP: "nope" })).toBe(0);
     expect(dedupeThreshold({ OPENCODE_MEMORY_DEDUP: "1.5" })).toBe(0);
-  });
-  test("values below the floor are a misconfiguration, not an aggressive setting", () => {
     // At 1e-9 a single shared fragment suppressed rows.
     expect(dedupeThreshold({ OPENCODE_MEMORY_DEDUP: "1e-9" })).toBe(0);
     expect(dedupeThreshold({ OPENCODE_MEMORY_DEDUP: "0.3" })).toBe(0);
