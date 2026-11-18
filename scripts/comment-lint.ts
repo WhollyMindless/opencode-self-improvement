@@ -37,7 +37,8 @@ function isCommit(ref: string): boolean {
 // way, because a check that quietly does nothing still reports green.
 function baseRef(): { base: string; how: string } | null {
   const cli = process.argv.find((a) => a.startsWith("--base="));
-  const explicit = cli?.slice("--base=".length) || process.env.COMMENT_LINT_BASE;
+  const explicit =
+    cli?.slice("--base=".length) || process.env.COMMENT_LINT_BASE;
   if (explicit) {
     if (isCommit(explicit))
       return { base: explicit, how: cli ? "--base" : "COMMENT_LINT_BASE" };
