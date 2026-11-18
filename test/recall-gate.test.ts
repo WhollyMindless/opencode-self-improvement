@@ -7,11 +7,9 @@
 // first e2e test: with OPENCODE_MEMORY_QUERY_GATE=off the tool's output is
 // unchanged; unset now means the gate is ON (#426).
 //
-// Evidence: poc-409/casebank — 404 real recall queries from 30 days of session
-// transcripts, relevance labelled by two independent readers against a pinned
-// store snapshot, measured through this handler by poc-409/casebank/gate-e2e.ts.
-// The numbers quoted in the PR body are from the full-text relabel; the
-// substring gate's numbers are void.
+// Evidence: 404 real recall queries from 30 days of session transcripts,
+// relevance labelled by two independent readers against a pinned store
+// snapshot, measured through this handler.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";

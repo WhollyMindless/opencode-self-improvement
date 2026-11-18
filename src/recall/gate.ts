@@ -5,7 +5,7 @@
 // enough, so `watermark 283 287 head` returns every row that mentions a head,
 // and `fixer ready tickets queue blocked` returns rows about the GitHub CLI and
 // about npm publishing. Measured on 404 real recall queries taken from 30 days of
-// session transcripts and labelled by two independent readers (poc-409/casebank),
+// session transcripts and labelled by two independent readers,
 // a large share of what the tool returned was judged irrelevant rather than
 // answering.
 //

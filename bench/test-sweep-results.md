@@ -1,8 +1,8 @@
 # The mutation sweep: what the suite actually pins (issue #70)
 
-Historical measurement: for the later #71 catalog and pinned before/after results, see [test-integrity-71.json](test-integrity-71.json). The denominators describe different trees/catalogs and must not be combined.
+Historical measurement: the later #71 catalog and its pinned before/after results were retired from the tree in November 2026; recover them with `git log -- bench/test-integrity-71.json` and `git show <last-revision>:bench/test-integrity-71.json`. The denominators describe different trees/catalogs and must not be combined.
 
-The #71 inputs are retained as [before.jsonl](test-integrity-71/before.jsonl) and [after.jsonl](test-integrity-71/after.jsonl). From the repository root at the #195 branch, rebuild with `bun scripts/triage-71.ts bench/test-integrity-71/before.jsonl bench/test-integrity-71/after.jsonl <output.json>`. That rebuild reproduces only at the #195 tree: the tool requires one verdict per CURRENT test file, so on a later tree it stops with "every current test file needs exactly one verdict" (#232). These logs reproduce the original pinned report, not a new sweep of subsequent changes. Per-test kill sets are observations from those runs, not stable coverage quantities.
+The #71 rebuild tool and its inputs are likewise in history (`git log -- scripts/triage-71.ts bench/test-integrity-71/`). That rebuild reproduced only at the #195 tree anyway: the tool required one verdict per CURRENT test file, so on any later tree it stopped with "every current test file needs exactly one verdict" (#232). These logs reproduce the original pinned report, not a new sweep of subsequent changes. Per-test kill sets are observations from those runs, not stable coverage quantities.
 
 One question, answered mechanically: when an invariant dies, does anything die with it? Each mutant breaks
 exactly ONE claimed invariant in a detached scratch worktree of HEAD and runs the full suite against that tree.
