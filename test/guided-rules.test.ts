@@ -1,7 +1,7 @@
 // guided-rules POC (FINDINGS 2026-11-08 §4): the user's lines decide what is
 // guided; the model phrases but cannot veto; a quote the user never wrote is
 // refused, not silently stripped. Pure functions — the end-to-end path is
-// covered in capture.test.ts.
+// covered in capture-auto.test.ts.
 import { describe, expect, test } from "bun:test";
 import {
   findGuidedQuotes,

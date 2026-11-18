@@ -311,7 +311,7 @@ describe("keywords in retrieval", () => {
     const loaded = await loadPlugin(root);
     setRepoScope(null);
     // Ground the session: a ref-free settled row needs observed engagement,
-    // exactly as for any other write (capture.test.ts / portable.test.ts).
+    // exactly as for any other write (capture-auto.test.ts / portable.test.ts).
     await loaded["tool.execute.after"]!(
       {
         tool: "read",
