@@ -11,3 +11,10 @@ package-lock.json
 # bench/test-sweep-results.md); regenerate the payloads with the command each
 # runner documents — see "Bench artifacts stay out of git" in README.md.
 bench/append-publication-198/
+
+# Research sandboxes are never committed (hygiene plan): findings belong in
+# issues, raw data stays out of git entirely. Tracked files predate this rule
+# and are retired deliberately, not by these patterns.
+poc*/
+research/
+*-venv/
