@@ -207,7 +207,7 @@ const EDIT_TOOLS = new Set(["edit", "write", "patch", "multiedit"]);
  * Deliberately conservative in the SAFE direction: an unknown tool name or a
  * trimmed ledger tail can cause a missed capture. A skip leaves the cursor
  * alone so a later signal can recover the window, but a session ending with
- * an attested failure must not depend on a later successful turn (#383).
+ * an attested failure must not depend on a later successful turn.
  */
 export function captureSignalSince(
   s: SessionState,
