@@ -2,31 +2,62 @@
 //
 // Three numbers were published and corrected inside one day, because a metric
 // that silently undercounts by 93% still produces a plausible number and a
-// plausible number gets quoted. "Be more careful" is not a fix. These tests are
-// the fix: they run in CI on every push, they cost nothing, and they fail on the
-// README text itself.
+// plausible number gets quoted. "Be more careful" is not a fix. These checks
+// run in CI on every push and cost nothing.
 //
-// A later review showed that a rule bound to one markdown format binds
-// nothing: the same claim survived a leading space, a "USD" spelling, a
-// "cuts token use by 30%" rewording, and a line parked one row past a fixed
-// nine-line exemption. These checks match the words a claim can wear, not the
-// table syntax it happens to sit in. They are word-matching, not
-// evidence-checking: what still slips through is listed in the record of .
+// The published numbers live in `bench/claims.json`. Each claim carries its id,
+// n, seat, metric, estimator and the issue that records the run, so a claim
+// missing one of those fails here before it can reach the README. The README
+// must still quote every number the data file lists: prose can be rewritten
+// freely while the facts stay pinned, and a third result means editing the data
+// file first, which is where the n, seat and metric are demanded.
 //
-// What they hold:
-//   1. the effectiveness section quotes exactly two results, each with n and
-//      seat, and the reuse numbers name their estimator in words;
-//   2. no dollar figure and no token-saving sentence anywhere in the README,
-//      in any spelling, while explicit denials and fenced shell pass;
-//   3. "cheaper" appears only where an n, a seat and a metric share the line,
-//      exempting exactly the rules block that names the word;
-//   4. the rules themselves are written down where a contributor reads them.
+// What stays bound to the README's wording is the prohibitions, because a
+// prohibition is a statement about wording: no dollar figure, no token-saving
+// sentence, and the word "cheaper" only where an n, a seat and a metric share
+// the line. Those match the words a claim can wear, not the table syntax it
+// happens to sit in. They are word-matching, not evidence-checking: a claim
+// phrased in a shape none of these patterns knows still passes, and the honest
+// answer to that is the section's own "What is not claimed here" paragraph.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+interface Claim {
+  id: string;
+  status: string;
+  label: string;
+  claim: string;
+  n: string;
+  seat: string;
+  measurement: string;
+  estimator: string;
+  resolution?: string;
+  record: string;
+  mustAppear: string[];
+}
+
+interface Retracted {
+  id: string;
+  figures: string[];
+  why: string;
+  record: string;
+}
+
+interface ClaimsFile {
+  about: string;
+  metric: { definition: string; cache: string };
+  rules: string[];
+  claims: Claim[];
+  retracted: Retracted[];
+}
+
 const README = readFileSync(join(import.meta.dir, "..", "README.md"), "utf8");
 const LINES = README.split("\n");
+const DATA = JSON.parse(
+  readFileSync(join(import.meta.dir, "..", "bench", "claims.json"), "utf8"),
+) as ClaimsFile;
+const PUBLISHED = DATA.claims.filter((c) => c.status === "published");
 
 /** True for lines inside a ``` fence; the fence lines themselves count as inside. */
 const FENCED = (() => {
@@ -57,45 +88,79 @@ function section(heading: string): string[] {
 
 const WORTH = section("## What memory is worth, measured");
 
-describe("the effectiveness section quotes exactly two results", () => {
+describe("the claim file is data the suite can rely on", () => {
+  test("every published claim names its n, seat, metric, estimator and record", () => {
+    const missing: string[] = [];
+    for (const c of DATA.claims) {
+      for (const field of [
+        "id",
+        "status",
+        "label",
+        "claim",
+        "n",
+        "seat",
+        "measurement",
+        "estimator",
+        "record",
+      ] as const) {
+        if (!c[field]?.trim()) missing.push(`${c.id || "<no id>"}.${field}`);
+      }
+      if (!/^https?:\/\//.test(c.record))
+        missing.push(`${c.id}.record is not a link`);
+    }
+    expect(missing).toEqual([]);
+  });
+
+  test("ids are unique, so a retired claim is edited and not duplicated", () => {
+    const ids = DATA.claims.map((c) => c.id);
+    expect(ids.filter((v, i) => ids.indexOf(v) !== i)).toEqual([]);
+  });
+
+  test("every claim lists at least one string the README must carry", () => {
+    const empty = DATA.claims.filter((c) => c.mustAppear.length === 0);
+    expect(empty.map((c) => c.id)).toEqual([]);
+    const blank = DATA.claims.flatMap((c) =>
+      c.mustAppear.filter((s) => !s.trim()).map((s) => `${c.id}: "${s}"`),
+    );
+    expect(blank).toEqual([]);
+  });
+
+  test("a retracted figure names the record that retracted it", () => {
+    const bad = DATA.retracted
+      .filter((r) => !r.why.trim() || !/^https?:\/\//.test(r.record))
+      .map((r) => r.id);
+    expect(bad).toEqual([]);
+  });
+});
+
+describe("the effectiveness section quotes every published claim", () => {
   test("the section exists", () => {
     expect(WORTH.length).toBeGreaterThan(5);
   });
 
-  test("transport: floor and seeded result, with n", () => {
-    const text = WORTH.join("\n");
-    expect(text).toContain("Transport");
-    expect(text).toContain("0/5");
-    expect(text).toContain("5/5");
-    expect(text).toContain("5 per arm");
-    // The floor is the result. A transport claim without it is not transport.
-    expect(text.toLowerCase()).toContain("empty store");
-  });
+  for (const claim of PUBLISHED) {
+    test(`${claim.id}: the numbers it publishes are in the section`, () => {
+      const text = WORTH.join("\n");
+      expect(text).toContain(claim.label);
+      expect(text).toContain(claim.n);
+      for (const token of claim.mustAppear) expect(text).toContain(token);
+    });
+  }
 
-  test("reuse: the neutral median-of-ratios, with n and its estimator", () => {
-    const text = WORTH.join("\n");
-    expect(text).toContain("Reuse");
-    expect(text).toContain("0.91");
-    expect(text).toContain("6 pairs");
-    expect(text).toContain("0.99");
-    // The first version published ratios[Math.floor(n/2)] — the upper-middle
-    // element at n=6 — as "the median", and a bare "median" cannot tell a
-    // reader between median-of-ratios and ratio-of-medians. The estimator is
-    // pinned in words so the mislabel cannot come back.
-    expect(text).toMatch(/median of the six per-pair/);
-    expect(text).toMatch(/middle two/);
-  });
-
-  test("the seat is named inside the section", () => {
+  test("every seat the data file names appears in the section", () => {
     // Without a seat these are adjectives, not measurements.
-    expect(WORTH.join("\n")).toMatch(/evo\/[A-Za-z0-9.\-_]+/);
+    const text = WORTH.join("\n");
+    for (const seat of new Set(PUBLISHED.map((c) => c.seat)))
+      expect(text).toContain(seat);
   });
 
-  test("exactly two result rows — a third claim has to move this test first", () => {
+  test("the result rows are exactly the published claims", () => {
     const rows = WORTH.filter((l) =>
-      /^\|\s*\*\*(Transport|Reuse)\.\*\*/.test(l.trimStart()),
+      new RegExp(
+        `^\\|\\s*\\*\\*(${PUBLISHED.map((c) => c.label).join("|")})\\.\\*\\*`,
+      ).test(l.trimStart()),
     );
-    expect(rows.length).toBe(2);
+    expect(rows.length).toBe(PUBLISHED.length);
     // Claim-shaped content, not markdown syntax: a table row survives a leading
     // space or a `|-` prefix, and a third result smuggled in as a bold
     // paragraph is just as much a third result. Only the section's own
@@ -112,8 +177,8 @@ describe("the effectiveness section quotes exactly two results", () => {
         return true;
       return false;
     });
-    // The table header plus the two results. Nothing else.
-    expect(claimShaped.length).toBe(3);
+    // The table header plus one row per published claim. Nothing else.
+    expect(claimShaped.length).toBe(PUBLISHED.length + 1);
   });
 });
 
@@ -169,6 +234,16 @@ describe("no cost claim the corrected metric cannot support", () => {
     );
     expect(hits).toEqual([]);
   });
+
+  test("a figure retracted in the data file never comes back", () => {
+    // Each of these was published and withdrawn. The data file keeps them so
+    // the withdrawal is a check and not a memory.
+    const hits: string[] = [];
+    for (const r of DATA.retracted)
+      for (const figure of r.figures)
+        if (README.includes(figure)) hits.push(`${r.id}: ${figure}`);
+    expect(hits).toEqual([]);
+  });
 });
 
 describe("the word cheaper carries its evidence", () => {
@@ -216,31 +291,27 @@ describe("the word cheaper carries its evidence", () => {
 });
 
 describe("the rules are written down where contributors hit them", () => {
-  test("the n floor is stated", () => {
-    expect(WORTH.join("\n")).toMatch(/n=6 pairs per arm|n\s*=\s*6 pairs/);
-  });
+  for (const rule of DATA.rules) {
+    test(`the section states: ${rule}`, () => {
+      expect(WORTH.join("\n")).toContain(rule);
+    });
+  }
 
   test("the resolution label is stated on the row it qualifies", () => {
     // Pinned to the result row: the label may not survive only in the rules
     // bullet while the row quietly becomes "10% resolution".
-    const reuseRow = WORTH.find((l) => /^\|\s*\*\*Reuse\.\*\*/.test(l)) ?? "";
-    expect(reuseRow).toContain("20% resolution");
-  });
-
-  test("the rules reach issue and PR bodies, where CI cannot read them", () => {
-    expect(WORTH.join("\n")).toContain(
-      "An issue or PR body making a cost claim owes the same n, seat and metric",
-    );
-  });
-
-  test("cache state is named as a confounder, because that is what produced the worst claim", () => {
-    // 20,506 -> 10,009 "saving" was two runs in different cache states.
-    expect(WORTH.join("\n").toLowerCase()).toContain("cache state");
+    for (const claim of PUBLISHED) {
+      const resolution = claim.resolution;
+      if (!resolution) continue;
+      const row =
+        WORTH.find((l) =>
+          new RegExp(`^\\|\\s*\\*\\*${claim.label}\\.\\*\\*`).test(l),
+        ) ?? "";
+      expect(row).toContain(resolution);
+    }
   });
 
   test("the corrected metric is defined in words, not implied", () => {
-    expect(WORTH.join("\n")).toContain(
-      "session generation + capture generation",
-    );
+    expect(WORTH.join("\n")).toContain(DATA.metric.definition);
   });
 });
