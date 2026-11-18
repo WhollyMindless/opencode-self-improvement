@@ -1,4 +1,4 @@
-// score — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
+// Recall scoring: the matcher over the store.
 import { loadAll } from "../store/files/load.ts";
 import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";
@@ -6,30 +6,21 @@ import { cmpTs } from "../core/cmp-ts.ts";
 import { type UseSignals, useBoost } from "./relevant.ts";
 
 /**
- * The matcher's tokenizer. Identifier-aware (#409, RESULTS §15): the shipped
- * version kept `_` inside a token and never touched case, so `getUserAccount`,
- * `get_user_account` and `get-user-account` were three unrelated tokens.
+ * The matcher's tokenizer. Each identifier (a maximal run of letters, digits,
+ * `_`, `.`, `-`, `/`) emits TWO granularities: the whole identifier
+ * lower-cased, and its segments split at camelCase boundaries and separators.
  *
- * Each identifier (a maximal run of letters, digits, `_`, `.`, `-`, `/`) emits
- * TWO granularities: the whole identifier lower-cased, and its segments split
- * at camelCase boundaries and separators. The whole form is what preserves the
- * exact match the shipped tokenizer had — `db_id` and `OPENCODE_MEMORY_DIR`
- * stay single tokens, and an authored keyword stored fused (`memoryrecallthreshold`)
- * still matches the query that cites it. Dropping the whole form is the
- * regression that made the first version of this change abstain on `db_id`
- * queries and break the #40 vocabulary bridge for camelCase aliases. The
- * segments are what make the styles match each other: a query typed
- * `getUserAccount` shares `get`, `user`, `account` with a row written
+ * Both are load-bearing. The whole form preserves the exact identifier match:
+ * `db_id` and `OPENCODE_MEMORY_DIR` stay single tokens, and an authored
+ * keyword stored fused (`memoryrecallthreshold`) still matches the query that
+ * cites it. The segments make identifier styles match each other: a query
+ * typed `getUserAccount` shares `get`, `user`, `account` with a row written
  * `get_user_account`.
  *
  * The scan is one linear pass with no backtracking: a 4,000-character row of
  * adversarial text costs microseconds, not milliseconds.
  *
- * Measured on the bench fixture at the SHIPPED configuration (`kw` indexed,
- * store 200 and 48): lexical R@1 stays 98% and top-1 noise stays 6% — the
- * fixture's queries never spell the same identifier two ways, so this is a
- * correctness fix the fixture cannot price, not a measured win. The no-keyword
- * arm moves (lexical R@1 98% -> 100%), but production indexes keywords.
+ * History and measurements: docs/adr/0003.
  */
 export function words(text: string): string[] {
   const out: string[] = [];
@@ -103,11 +94,11 @@ export const LONG_QUERY_TOKENS = 3;
 // Ties break deliberately, in this order: open threads first (a pinned frontier
 // row beats an equal-scoring settled one — that is what the frontier is for),
 // then rows the use ledger has actually retrieved, most-recently-used first
-// (#42 reinforcement), then the newer row (#40 item 2: between two equally
+//, then the newer row (between two equally
 // relevant facts, the one stating what is true NOW is the better guess;
 // epoch-freeze-safe because ts never changes for a given row).
 // The haystack is `scope + type + content + kw`, where `kw` are the
-// author-supplied aliases indexed at write time (#40 item 3, the vocabulary
+// author-supplied aliases indexed at write time (the vocabulary
 // bridge for the bench's strict-paraphrase wall). Keywords are indexed, never
 // rendered, so they cannot change what a block costs.
 // Exported for bench/runners/recall-quality.ts — the benchmark measures the shipped
@@ -116,14 +107,14 @@ export const LONG_QUERY_TOKENS = 3;
 // Superseded rows are dropped HERE, not only by the callers. Every model-facing
 // sink already passes isInjectable() rows, but a scorer that can be handed a raw
 // loadAll() result must not be the one place a retired memory leaks back into
-// an injected block (#43 item 1: forbidden hits). The drop also keeps a
+// an injected block (forbidden hits). The drop also keeps a
 // retired row from diluting the document frequencies the ranking depends on.
 /**
  * The query's distinct concepts. `words()` emits each identifier at two
  * granularities — whole form plus camel/separator segments — and the admission
  * gate must count ONE concept per identifier, not one per token: a query
  * citing `memoryRecallThreshold` is a single concept even though it emits
- * four tokens (review #417: the flat token count raised needShared from 1 to
+ * four tokens: the flat token count raised needShared from 1 to
  * 2 and a row carrying that keyword fused in `kw` stopped matching its own
  * keyword). Identifiers sharing any token — the same concept spelled two ways
  * in one query — merge into one group.

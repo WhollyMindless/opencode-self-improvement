@@ -5,7 +5,7 @@
 // evicted session simply starts over (no block until its next prompt, then a
 // "first" epoch), which costs one recompute and never serves stale state.
 // Single shared cap: repokey.ts's session-scope cache imports this constant,
-// so the ledgers cannot drift (#224).
+// so the ledgers cannot drift.
 export const SESSION_CAP = 64;
 
 export class SessionLru {

@@ -1,4 +1,4 @@
-// release — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
+// release — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
 import { type Fields, formatLine } from "../../core/logfmt/format.ts";
 import { filesHoldingTs, memoryFiles } from "../files/load.ts";
 import { stampRow } from "../files/snapshots.ts";
@@ -21,7 +21,7 @@ export async function releaseQuarantine(
     else delete fields.tags;
     return formatLine(fields);
   };
-  // #215 + #373 review: release every copy. The day file the ts names is the
+  //+ review: release every copy. The day file the ts names is the
   // common case; the previous day's file joins ONLY when a scan finds the same
   // identity in it, which is what an older midnight-boundary append could write.
   // Leaving a duplicate quarantined beside a released copy would keep the row

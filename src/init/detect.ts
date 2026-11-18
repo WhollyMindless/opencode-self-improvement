@@ -1,10 +1,10 @@
-// detect — split from src/init.ts (#168 domain restructure). Declaration bodies are unchanged.
+// detect — split from src/init.ts ( domain restructure). Declaration bodies are unchanged.
 // Repository init: re-derive build/test command memories through the write gate.
 // Deterministic (no model calls): manifests are parsed locally and every write
 // goes through the 4-gate pipeline with the `trusted` flag (plugin-authored
 // bookkeeping, not model claims). Degrades gracefully when git is absent, so
 // install-from-scratch still writes script memories.
-// The codebase-memory graph integration was removed (#231): no read or gate
+// The codebase-memory graph integration was removed: no read or gate
 // path ever consumed the index, and spawning a pinned third-party binary in
 // the user's repository was a supply-chain surface with no consumer.
 import { join } from "node:path";
@@ -66,7 +66,7 @@ async function readText(root: string, file: string): Promise<string | null> {
 // A script key becomes the command a later session is told to run, so it may
 // only be an identifier: no whitespace and no shell metacharacter can survive
 // into `npm run <key>`. `:` and `.` are allowed because `test:ci` and
-// `lint.fix` are ordinary npm keys (this is wider than #301's literal
+// `lint.fix` are ordinary npm keys (this is wider than literal
 // `[A-Za-z0-9_-]+`, which would drop them; the rejection this ticket is about —
 // `test && echo SYNTHETIC` — is rejected either way). Make/Just targets use the
 // narrower class already, and a Make target cannot contain `:` in any case.

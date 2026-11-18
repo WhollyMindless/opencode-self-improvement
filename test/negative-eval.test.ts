@@ -1,4 +1,4 @@
-// Negative retrieval evals (#43, epic #84 item 1).
+// Negative retrieval evals: forbidden hits must never surface.
 //
 // The rest of the epic (ranking, use telemetry, consolidation) is only worth
 // shipping if the eval can say NO. Positive evals ask "did the right memory
@@ -335,7 +335,7 @@ describe("no-memory floor — the chance floor is zero", () => {
   });
 });
 
-// --- 4. re-ingestion: what holds today, and the #35 spec -------------------------
+// --- 4. re-ingestion: what holds today, and the  spec -------------------------
 
 describe("re-ingestion after prune / block", () => {
   const CANON =
@@ -386,12 +386,12 @@ describe("re-ingestion after prune / block", () => {
     }
   });
 
-  // RED-FIRST ACCEPTANCE SPEC for #35 (value-keyed rejection tombstone).
+  // RED-FIRST ACCEPTANCE SPEC for  (value-keyed rejection tombstone).
   // Today the tombstone is keyed on row identity (`ts`), so pruning deletes
   // the rejection with it: the same content replayed through the gate lands as
-  // a fresh promoted row. #35 makes rejections keyed on the VALUE, at which
+  // a fresh promoted row.  makes rejections keyed on the VALUE, at which
   // point un-skip this test — it must turn green without being edited.
-  test("pruned content stays rejected when replayed through the gate (#35)", async () => {
+  test("pruned content stays rejected when replayed through the gate", async () => {
     const candidate = {
       type: "learning" as const,
       scope: "prune",
@@ -629,7 +629,7 @@ describe("governed-path tripwire — no write path walks past the gate", () => {
       (readFileSync(join(REPO, rel), "utf8").match(/runWriteGate\s*\(/g) ?? [])
         .length;
     // memory_remember, memory_update, memory_import live in their own modules
-    // since the #168 split; auto-capture lives in capture/runtime.ts. Each write path
+    // since the  split; auto-capture lives in capture/runtime.ts. Each write path
     // is asserted individually — the tripwire must keep naming them, not just
     // a file that happens to contain them.
     expect(gatesIn("src/tools/remember.ts")).toBeGreaterThanOrEqual(1);
@@ -640,7 +640,7 @@ describe("governed-path tripwire — no write path walks past the gate", () => {
     expect(gatesIn("src/init/run.ts")).toBeGreaterThanOrEqual(1);
     // Import and capture are writers-by-proxy only: they hand candidates to the
     // gate callback and never touch the store themselves. Whole folders are
-    // asserted — the #168 layout splits each domain across modules.
+    // asserted — the  layout splits each domain across modules.
     expect(
       callSites().some(({ file }) => file.startsWith("src/portable/")),
     ).toBe(false);

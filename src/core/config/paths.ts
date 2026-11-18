@@ -1,4 +1,4 @@
-// paths — split from src/config.ts (#168 domain restructure). Declaration bodies are unchanged.
+// paths — split from src/config.ts ( domain restructure). Declaration bodies are unchanged.
 // Store paths for the self-improvement harness. Everything lives OUTSIDE any
 // repository: under ~/.config/opencode/memory by default, or
 // under $OPENCODE_MEMORY_DIR when set (tests use this for hermetic runs).

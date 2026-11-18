@@ -1,4 +1,4 @@
-// pull — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
+// pull — split from src/inject.ts ( domain restructure). Declaration bodies are unchanged.
 import { loadAll } from "../store/files/load.ts";
 import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";
@@ -16,7 +16,7 @@ export interface TransformOutput {
 export interface PullInput {
   tool?: unknown;
   args?: unknown;
-  // The session the pull runs FOR (#127): resolved to an immutable Reader at
+  // The session the pull runs FOR: resolved to an immutable Reader at
   // entry so the loadAll await below cannot drift into another session's repo.
   sessionID?: unknown;
 }
@@ -36,7 +36,7 @@ export async function contextualPull(
   const term = argText(input.args);
   if (!term) return [];
   // Repo-scoped: model-facing reads see the CALLER's repo + global rows —
-  // the pull's own sessionID, resolved before the store read (#127).
+  // the pull's own sessionID, resolved before the store read.
   const mems = visibleTo(
     (await loadAll()).filter(isInjectable),
     readerFromSid(input.sessionID),

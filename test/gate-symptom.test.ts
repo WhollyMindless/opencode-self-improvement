@@ -1,4 +1,4 @@
-// The #419 capture convention, enforced at the write gate: `learning` and
+// The  capture convention, enforced at the write gate: `learning` and
 // `blocker` rows must open with the observable trigger ("When <symptom>:").
 // The measured gap justifies enforcement — the same lesson surfaced 0/8 as a
 // session diary and ranked 1-7 symptom-first, because the future searcher

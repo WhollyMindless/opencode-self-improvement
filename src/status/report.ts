@@ -1,4 +1,4 @@
-// report — split from src/status.ts (#168 domain restructure). Declaration bodies are unchanged.
+// report — split from src/status.ts ( domain restructure). Declaration bodies are unchanged.
 import { join } from "node:path";
 import { cacheRate, estTok, fmtBytes, fmtCount, fmtMs } from "./format.ts";
 import {
@@ -109,7 +109,7 @@ export function windowLines(p: StatusPayload): string[] {
       "  of what you sent  not measured yet — receipts appear after the first assistant turn",
     );
   }
-  // #387: the completion side. Everything above counts the prompt only, and
+  // the completion side. Everything above counts the prompt only, and
   // `input` is the UNCACHED remainder, so neither was ever "what the session
   // cost" — the tokens the model produced were not reported at all. Rendered
   // only when the host reports them: an absent number stays absent rather than
@@ -149,7 +149,7 @@ export function attributionLines(p: StatusPayload): string[] {
 }
 
 /**
- * AUTO-CAPTURE line (#138): the chat-facing answer to "is capture off,
+ * AUTO-CAPTURE line: the chat-facing answer to "is capture off,
  * misconfigured, armed-but-inert, or alive?" — the states the evidence file
  * distinguishes, surfaced so a user never has to read a logfmt file to learn
  * the pipeline never ran. `unknown` means no heartbeat was found at all, which
@@ -175,7 +175,7 @@ export function captureLines(c: CaptureHealth): string[] {
       // Inert means NO execution evidence at all: no candidate line and no
       // `capture_lag` completion receipt. A successful capture whose model
       // returned `[]` writes only the receipt, and is alive, not inert
-      // (#288 F1).
+      // ( F1).
       if (!c.lastExecuted && c.rows === 0 && c.blocked === 0)
         return [
           "  auto-capture: ARMED BUT NEVER FIRED — capture is on, no auto_capture_* or capture_lag lines in the last 30d",
@@ -295,7 +295,7 @@ export function renderMemoryReport(input: {
       `capture lag p50 ${fmtMs(store.captureLag.p50)} / p95 ${fmtMs(store.captureLag.p95)}`,
     );
   }
-  // #387: capture is a separate model call outside every session's usage, so
+  // capture is a separate model call outside every session's usage, so
   // anything that reads session numbers reports it as free. Render it even at
   // zero, with the reason, because "0" and "never ran" are different facts and
   // the plugin billed it as the first for its whole history.

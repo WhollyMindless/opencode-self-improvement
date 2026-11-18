@@ -1,4 +1,4 @@
-// Contract (#389, changed by #402): capture flags what the next session can read
+// Contract: capture flags what the next session can read
 // in the working tree, and STORES IT ANYWAY.
 //
 // The discriminator still comes from measurement, not taste (FINDINGS
@@ -6,12 +6,12 @@
 // pays everything (empty store 0/5, seeded 5/5). What separates the two is
 // whether the next session could get the fact by itself.
 //
-// What #402 changed is the CONSEQUENCE, not the check. The first version dropped
+// What  changed is the CONSEQUENCE, not the check. The first version dropped
 // a candidate the moment it matched. Measured against this repo's live store it
 // refused 30 of 1166 real captured rows and 29 of those were wrong — "OpenCode V2
 // (v2.0.26) does NOT run LSP servers" was refused because the row contained the
-// string `bun test` and the project declares a `test` script. Four review rounds
-// on #397 hardened the matcher until it refuses 0 of 1166, which is the other
+// string `bun test` and the project declares a `test` script. History: docs/adr/0008.
+// on  hardened the matcher until it refuses 0 of 1166, which is the other
 // half of the same evidence: no lexical rule is defensible as a delete.
 //
 // So every test below asserts the same invariant FIRST — the row reaches the
@@ -143,7 +143,7 @@ describe("capture availability tag (#389, #402)", () => {
   // ── The invariant every case below is written against ──────────────────────
 
   test("the availability check cannot prevent a write — all-restatable batch", async () => {
-    // #402 in one assertion. Before it, three candidates like these produced zero
+    //in one assertion. Before it, three candidates like these produced zero
     // rows and no trace of what was lost.
     await capture(makeRepo("invariant"), [
       { type: "learning", scope: "av-inv1", content: README_TEXT },
@@ -203,7 +203,7 @@ describe("capture availability tag (#389, #402)", () => {
   test("a command the project declares is tagged, with the gate named", async () => {
     // The bare mention is the case the manifest can actually answer. Prose
     // riding the command is a claim the manifest does not make, so it is left
-    // untagged (#397 round 3); see the gate-claim test below.
+    // untagged; see the gate-claim test below.
     await capture(makeRepo("gate"), [
       {
         type: "pattern",
@@ -223,7 +223,7 @@ describe("capture availability tag (#389, #402)", () => {
   // ── What the matcher must NOT claim ────────────────────────────────────────
 
   test("a restriction ON a declared command is new information — untagged", async () => {
-    // Review #397 (WhollyMindless): merely finding a declared command does not
+    // Reproduced: merely finding a declared command does not
     // establish that a new instruction about WHEN to avoid it is available.
     // The approval code and the restriction appear nowhere in the tree.
     await capture(makeRepo("gate-restriction"), [
@@ -241,7 +241,7 @@ describe("capture availability tag (#389, #402)", () => {
   });
 
   test("a restated clause carrying a new clause is untagged", async () => {
-    // Review #397: one old clause matching must not tag the whole row and hide
+    // Reproduced: one old clause matching must not tag the whole row and hide
     // the unavailable fact riding it.
     await capture(makeRepo("mixed"), [
       {
@@ -254,8 +254,8 @@ describe("capture availability tag (#389, #402)", () => {
     expect((await rowsWith("mixed")).length).toBe(1);
   });
 
-  test("a SHORT restriction on a declared command is untagged (#397 round 2)", async () => {
-    // Review #397 (WhollyMindless): the residual after the command span is
+  test("a SHORT restriction on a declared command is untagged", async () => {
+    // Reproduced: the residual after the command span is
     // stripped is 27 characters, and the whole fact is in it. The manifest
     // declares that `deploy` exists; it declares nothing about approval.
     await capture(makeRepo("gate-short"), [
@@ -269,8 +269,8 @@ describe("capture availability tag (#389, #402)", () => {
     expect((await rowsWith("release4")).length).toBe(1);
   });
 
-  test("a restated clause carrying a SHORT new clause is untagged (#397 round 2)", async () => {
-    // Review #397 (WhollyMindless): the new clause is below the MIN_CLAUSE
+  test("a restated clause carrying a SHORT new clause is untagged", async () => {
+    // Reproduced: the new clause is below the MIN_CLAUSE
     // threshold this file used to split on, so the old code dropped it from
     // `needed` and refused on the old clause alone.
     // A short clause can carry the entire new number.
@@ -285,8 +285,8 @@ describe("capture availability tag (#389, #402)", () => {
     expect((await rowsWith("mixed2")).length).toBe(1);
   });
 
-  test("a declared command does not swallow a new behavioural fact (#397 round 3)", async () => {
-    // Review #397 (WhollyMindless): the residual left by the command strip was
+  test("a declared command does not swallow a new behavioural fact", async () => {
+    // Reproduced: the residual left by the command strip was
     // 26 characters and carried no restriction word, so its LENGTH alone was
     // taken as proof of a restatement. The manifest declares that `deploy` runs
     // `rsync dist/ box:/srv`. It says nothing about the staging database and
@@ -310,8 +310,8 @@ describe("capture availability tag (#389, #402)", () => {
     expect((await rowsWith("release6")).length).toBe(1);
   });
 
-  test("nothing is discarded before the tag is decided (#397 round 4)", async () => {
-    // Review #397 (WhollyMindless), two gaps on `fe00c92`:
+  test("nothing is discarded before the tag is decided", async () => {
+    // Reproduced, two gaps on `fe00c92`:
     //   - `assertions()` dropped every fragment under 16 characters, so the only
     //     claim in "Never `npm run deploy`." was erased and the empty list was
     //     then read as proof the whole row was restatable;
@@ -345,8 +345,8 @@ describe("capture availability tag (#389, #402)", () => {
     expect((await rowsWith("mixed3")).length).toBe(1);
   });
 
-  test("a substring of the OPPOSITE rule is not a restatement (#397 round 3)", async () => {
-    // Review #397 (WhollyMindless): the clause lookup matched `Use tabs for
+  test("a substring of the OPPOSITE rule is not a restatement", async () => {
+    // Reproduced: the clause lookup matched `Use tabs for
     // indentation.` INSIDE `We do not use tabs for indentation.`. That is the
     // worst failure this check can have: it hides the correction and leaves the
     // doc's authority behind the reversed rule. A match now has to sit in a
@@ -378,7 +378,7 @@ describe("capture availability tag (#389, #402)", () => {
     const tagged = tagFor("style2");
     expect(tagged.length).toBe(1);
     expect(String(tagged[0].reason)).toBe("in_tracked_file");
-    // Both rows exist. Before #402 the first one did not.
+    // Both rows exist. Before  the first one did not.
     const style = await rowsWith("style");
     expect(style.length).toBe(1);
     expect(style[0]?.tags ?? []).not.toContain(RESTATABLE_TAG);
@@ -480,9 +480,9 @@ describe("capture availability tag (#389, #402)", () => {
   });
 
   test("the tag lowers injected bytes, not the model call: #389 AC4 cannot hold", async () => {
-    // Criterion 4 of #389 expected capture's token cost to fall. It cannot.
+    // Criterion 4 of  expected capture's token cost to fall. It cannot.
     // Candidates come FROM the model, so availability can only be evaluated
-    // after the call that produced them. #402 makes the position honest rather
+    // after the call that produced them.  makes the position honest rather
     // than arguing it: the check now changes which rows give up injection
     // budget, never how many tokens the pass spent, and never how many rows
     // exist. Pinned, so a future cost claim about this mechanism has to move a
@@ -563,7 +563,7 @@ describe("capture availability tag (#389, #402)", () => {
     expect(rows[0]?.tags ?? []).not.toContain(RESTATABLE_TAG);
   });
 
-  test("a dual-role verb does not mask a scope negation (#403 review round 1)", async () => {
+  test("a dual-role verb does not mask a scope negation ", async () => {
     // The union of the cue list with `polaritySigns` was applied to BOTH sides of
     // the polarity comparison in `findClause`, and that comparison CREATES tags.
     // `polaritySigns` reads the dual-role `removes` as negative in both strings,
@@ -597,7 +597,7 @@ describe("capture availability tag (#389, #402)", () => {
     expect(tagFor("av-dual")).toHaveLength(0);
   });
 
-  test("the polarity union still declines a command the prose drops (#403 round 1)", async () => {
+  test("the polarity union still declines a command the prose drops", async () => {
     // The other half: the union is load-bearing where the answer is absolute.
     // "Drop using" carries no cue-list negation, and `polaritySigns` reads `drop`
     // as negative, so the manifest's declaration is refused as evidence. Narrowing
@@ -652,7 +652,7 @@ describe("capture availability tag (#389, #402)", () => {
     expect(raw).toContain("Ship with `npm run deploy`.");
   });
 
-  // ── #402 P0: the scan is lazy and visible ──────────────────────────────────
+  // ──  P0: the scan is lazy and visible ──────────────────────────────────
 
   test("a pass with no candidates reads no tree (#402 P0)", async () => {
     // The build is a synchronous `git ls-files` plus a read of every tracked

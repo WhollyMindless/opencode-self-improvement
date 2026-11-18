@@ -9,7 +9,7 @@
 // One repo per case, because sharing one tree would let a candidate match a
 // DIFFERENT case's line and report a verdict for the wrong reason.
 //
-// The reason is asserted as well as the verdict. Review round 4 (WhollyMindless)
+// The reason is asserted as well as the verdict. The reason assertion
 // found seven cases named for the declared-command branch sitting on README prose,
 // so the text branch answered them and a mutation replacing `gateHit(...)` with a
 // null gate left this file green. `expectReason` is what closes that, and the
@@ -55,7 +55,7 @@ function verdictFor(c: AvailabilityCase) {
   return availabilityIndex(repoFor(c)).check(c.candidate);
 }
 
-// One test per entry, so a failure names the case AND the review round that found
+// One test per entry, so a failure names the case AND the case that found
 // it. A single aggregate assertion would report "19/21" and leave the reader to
 // find which veto moved.
 for (const c of AVAILABILITY_CASES) {
@@ -87,7 +87,7 @@ test("the case bank can say both things", () => {
   );
 });
 
-// The control that would have caught round 4 without any of the above: the bank
+// The control that would have caught a blind bank without any of the above: the bank
 // must actually reach BOTH branches. If `gateHit` is removed, or `parseGates`
 // stops reading the manifests, no case returns `declared_gate` and this fails —
 // where before it stayed green, because prose answered every gate case.

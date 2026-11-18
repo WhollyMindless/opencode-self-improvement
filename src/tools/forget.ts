@@ -1,4 +1,4 @@
-// The memory_forget tool, extracted from index.ts (#168). Schema, description
+// The memory_forget tool, extracted from index.ts. Schema, description
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
@@ -15,7 +15,7 @@ export const register: ToolRegister = (editor, deps) => {
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
-        // Identity before the prune's repo floor (#260): resolve the session
+        // Identity before the prune's repo floor: resolve the session
         // from the host (messages, then session row) before pruneMemory
         // captures the Reader, so an unseen serve-host session is partitioned
         // by its own repository, not the instance's provisional binding.

@@ -1,4 +1,4 @@
-// write — split from src/status.ts (#168 domain restructure). Declaration bodies are unchanged.
+// write — split from src/status.ts ( domain restructure). Declaration bodies are unchanged.
 // The status hand-off between the two surface halves. The server plugin writes
 // one status file per session on every epoch recompute AND every measured
 // assistant turn (src/index.ts); the terminal plugin (src/tui.tsx) and the
@@ -106,8 +106,7 @@ export async function readStatus(
 }
 
 // Newest-first last `limit` write_blocked evidence rows, scanning today and
-// yesterday so a block just before midnight stays visible. #306 (decision #213
-// B): the lines follow the SAME visibility rule as memory_evidence — a row
+// yesterday so a block just before midnight stays visible. (a decision// the lines follow the SAME visibility rule as memory_evidence — a row
 // stamped to another repository, or private to a named session, is not this
 // surface's data. The default is the historical unfiltered read (ADMIN_READER)
 // for out-of-plugin callers; every plugin-facing surface must pass its own
@@ -143,7 +142,7 @@ export async function blockedRecent(
   }
 }
 
-// #306: the Reader for the terminal panel. The TUI process owns no
+// the Reader for the terminal panel. The TUI process owns no
 // session→repo map (the server binds sessions in its own process), so the
 // panel resolves the ACTIVE session's repository from its root directory —
 // resolveRepo is deterministic for the same path on this machine, hence the

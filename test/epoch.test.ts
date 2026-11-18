@@ -1,7 +1,7 @@
 // Contract: the injected "Relevant durable memory" block is FROZEN per
 // epoch. An epoch is invalidated on the first prompt of a session, when the
 // memory store changed since the epoch was computed, when a new prompt
-// re-scores the block onto DIFFERENT bytes (#335 — same rows, same bytes,
+// re-scores the block onto DIFFERENT bytes ( — same rows, same bytes,
 // no bust), or after a compaction for that session — so the system prefix
 // (and the provider prompt cache) survives ordinary turns. The block is
 // capped to a character budget at whole-line boundaries. Hermetic: temp
@@ -124,7 +124,7 @@ async function deliveredBlock(
 
 // The ENTIRE memory section riding the system prompt, in push order. The
 // provider caches a prefix, so cache stability is a property of these bytes —
-// not of the relevance block alone (issue #162).
+// not of the relevance block alone (issue ).
 async function deliveredSystem(loaded: Loaded, sid: string): Promise<string> {
   const delivered: {
     sessionID: string;
@@ -145,7 +145,7 @@ function digestOf(system: string): string {
 }
 
 // A promoted write made ON BEHALF OF ONE SESSION, through the real gate. The
-// riding-bytes rule (#165) keys off authorship, so those tests cannot use
+// riding-bytes rule keys off authorship, so those tests cannot use
 // seed()'s direct file append — that creates a row with no author, which is
 // exactly what a viewer edit or an import is.
 let callN = 0;
@@ -206,7 +206,7 @@ describe("epoch freeze (cache-safe injection)", () => {
 
     // A NEW prompt that selects the SAME rows re-scores and adopts: the
     // rendered bytes do not move, so the cache survives and no recompute is
-    // recorded. This is the prompt-reveal half of the #335 contract.
+    // recorded. This is the prompt-reveal half of the  contract.
     const same = await deliveredBlock(
       loaded,
       "ses-frozen",
@@ -214,7 +214,7 @@ describe("epoch freeze (cache-safe injection)", () => {
     );
     expect(same).toBe(first);
 
-    // A new prompt whose vocabulary matches NOTHING abstains (#335, the
+    // A new prompt whose vocabulary matches NOTHING abstains (, the
     // epoch-freeze fix): rows frozen at the FIRST topic must not keep riding
     // a session that has moved on. The block moves, so this DOES recompute.
     const second = await deliveredBlock(
@@ -232,12 +232,12 @@ describe("epoch freeze (cache-safe injection)", () => {
     expect(String(recomputes[1].reason)).toBe("prompt_reveal");
   });
 
-  // The same-order half of the #340 contract, stated with enough rows for an
+  // The same-order half of the  contract, stated with enough rows for an
   // ORDER to exist — case 1 seeds a single row, so it cannot show one. Both
   // prompts score the two rows identically, so the re-score renders the same
   // bytes and the epoch adopts the new prompt without moving. This is the half
-  // that must survive #388's canonical render order; the order-sensitivity of
-  // the current rendering is deliberately NOT pinned here, because #388 exists
+  // that must survive canonical render order; the order-sensitivity of
+  // the current rendering is deliberately NOT pinned here, because  exists
   // to change it.
   test("a prompt that re-selects the same rows in the same order costs ZERO cache busts", async () => {
     seed(
@@ -454,7 +454,7 @@ describe("epoch freeze (cache-safe injection)", () => {
     );
   });
 
-  // ---- issue #162: a write costs a cache bust ONLY when rendered bytes move --
+  // ----  a write costs a cache bust ONLY when rendered bytes move --
 
   test("a write that changes nothing rendered costs ZERO cache busts", async () => {
     seed("pattern", "build", "Run the build with make all from the repo root.");
@@ -570,7 +570,7 @@ describe("epoch freeze (cache-safe injection)", () => {
     expect(digestOf(await deliveredSystem(loaded, "ses-digest-2"))).toBe(small);
   });
 
-  // ---- issue #165: a session never pays for bytes it is not currently riding --
+  // ----  a session never pays for bytes it is not currently riding --
 
   test("a memory this session wrote itself costs ZERO cache busts", async () => {
     seed("pattern", "build", "Run the build with make all from the repo root.");
@@ -585,7 +585,7 @@ describe("epoch freeze (cache-safe injection)", () => {
     const system = await deliveredSystem(loaded, sid);
     expect(epochRecomputes(sid).map((e) => e.reason)).toEqual(["first"]);
 
-    // Relevant ON PURPOSE: under #162 alone this was adopted on the next
+    // Relevant ON PURPOSE: under  alone this was adopted on the next
     // request and re-billed the whole conversation. The model wrote it, so it
     // is already in that transcript — the frozen bytes keep riding.
     await rememberAs(

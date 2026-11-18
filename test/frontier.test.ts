@@ -28,7 +28,7 @@ beforeEach(() => {
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
   // Hermetic identity: seeded rows are GLOBAL (no scope to inherit) and no
-  // session carries a leftover binding from an earlier file (#127 made an
+  // session carries a leftover binding from an earlier file ( made an
   // unbound named sid global-only instead of module-scope — this file was
   // silently depending on whatever module scope the last file left behind).
   setRepoScope(null);

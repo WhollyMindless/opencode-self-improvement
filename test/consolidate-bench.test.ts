@@ -1,4 +1,4 @@
-// The non-regression proof #45 asks for, run against the SHIPPED eval dataset
+// The non-regression proof  asks for, run against the SHIPPED eval dataset
 // instead of a month of production data: consolidate the bench store, then show
 // recall does not fall while the store gets smaller.
 //
@@ -131,7 +131,7 @@ function consolidation() {
   return shared;
 }
 
-describe("consolidation does not regress recall (#45)", () => {
+describe("consolidation does not regress recall", () => {
   test("the shipped dataset consolidates, and R@3 does not fall", () => {
     const { before, after, afterRecall } = consolidation();
     expect(before.n).toBeGreaterThan(0);

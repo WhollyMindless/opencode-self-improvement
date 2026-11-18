@@ -1,4 +1,4 @@
-// The memory_decay tool, extracted from index.ts (#168). Schema, description
+// The memory_decay tool, extracted from index.ts. Schema, description
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
@@ -58,7 +58,7 @@ export const register: ToolRegister = (editor, deps) => {
         const snapshot = await snapshotFiles([
           ...new Set(stale.map((m) => m.file)),
         ]);
-        // One lock/read/snapshot/publish per file for the whole decay run (#61):
+        // One lock/read/snapshot/publish per file for the whole decay run:
         // N retired rows are one undo point, not N. Idempotent (a no-op on rows
         // already superseded, out-of-band ones skipped under the lock).
         const durable: string[] = [];

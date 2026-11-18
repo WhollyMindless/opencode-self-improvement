@@ -1,4 +1,4 @@
-// prompt — split from src/capture.ts (#168 domain restructure). Declaration bodies are unchanged.
+// prompt — split from src/capture.ts ( domain restructure). Declaration bodies are unchanged.
 // Opt-in auto-capture parsing, prompt, and lag helpers. Host access and model
 // calls live in src/index.ts. Every candidate that leaves this module flows
 // through runWriteGate in index.ts: capture NEVER writes memories directly,
@@ -54,7 +54,7 @@ export const CAPTURE_KEYWORD_CHARS = 48;
 // array so parseCandidates can trust it; anything else parses to [].
 //
 // `userProse` keeps the session's brief OUT of the work block. Measured on the
-// fixture that reproduces #329: brief mixed into one undifferentiated block,
+// fixture that reproduces a known failure: brief mixed into one undifferentiated block,
 // the model stores it back as a durable `preference`; work block alone, zero
 // framing rows — but also zero real preferences, because "we use bun here, not
 // npm" lives in the same prose. So the prose is kept, labelled for what it is.
@@ -78,7 +78,7 @@ export function buildCapturePrompt(
     "- scope: short area name (e.g. auth, api, build).",
     '- status: "open" for a live planning thread; otherwise "settled".',
     "- content: one self-contained fact, 20-600 characters, useful in a NEW session.",
-    // #409 RESULTS §29-30: retrieval alignment is a WRITE-side property. The
+    // RESULTS §29-30: retrieval alignment is a WRITE-side property. The
     // same lesson scored zero (outside the recall window) as session diary and
     // ranked 1-7 for the terse symptom queries agents actually issue when it
     // opened with the observable trigger. The kw rule below is the bridge;

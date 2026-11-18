@@ -1,4 +1,4 @@
-// import — split from src/portable.ts (#168 domain restructure). Declaration bodies are unchanged.
+// import — split from src/portable.ts ( domain restructure). Declaration bodies are unchanged.
 import { open, readFile } from "node:fs/promises";
 import { allowOutsideStorePaths, memoryRoot } from "../core/config/paths.ts";
 import { resolveContained } from "../store/containment.ts";
@@ -114,15 +114,15 @@ export async function importMemories(
   gate: (
     c: WriteCandidate,
   ) => Promise<{ action: string; evidenceError?: string }>,
-  // The importing session, captured at tool entry (#127): "the importing
+  // The importing session, captured at tool entry: "the importing
   // session's current repo" must be the CALLER's repo even though this loop
   // awaits the gate on every row, during which a concurrent session can move
   // the ambient current.
   sessionID?: string,
 ): Promise<ImportTally> {
   // Capture the importing owner before file I/O: later session moves must not
-  // re-home rows partway through the import (#183). Resolve with the writer
-  // rule so an unresolved named session never borrows the ambient repo (#152).
+  // re-home rows partway through the import. Resolve with the writer
+  // rule so an unresolved named session never borrows the ambient repo.
   const writeAt = writeTarget(sessionID ?? getCurrent().sid);
   const target = await resolveContained(path, memoryRoot(), {
     label: "memory_import file",

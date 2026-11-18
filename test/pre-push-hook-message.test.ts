@@ -1,4 +1,4 @@
-// The pre-push hook must not promise CI enforcement on a push (#236):
+// The pre-push hook must not promise CI enforcement on a push:
 // ci.yml triggers on pull_request and workflow_dispatch only, so a direct
 // push with SKIP_GATE=1 runs no CI at all.
 import { expect, test } from "bun:test";

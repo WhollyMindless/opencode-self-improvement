@@ -1,4 +1,4 @@
-// Contract (#388): the bytes that ride the prompt cache do not move when the
+// Contract: the bytes that ride the prompt cache do not move when the
 // RANKING moves.
 //
 // The epoch's cache key is the rendered memory section joined onto the system
@@ -277,7 +277,7 @@ describe("budget pressure keeps relevance, not recency", () => {
   });
 });
 
-// AC 1 of #388, in the scripted form the ticket states. Six turns against a
+// AC 1 of , in the scripted form the ticket states. Six turns against a
 // non-empty store. Turns 1-5 are five phrasings of work that selects the SAME
 // rows; turn 6 writes a row, which must still bust.
 //

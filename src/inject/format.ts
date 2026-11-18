@@ -1,4 +1,4 @@
-// format — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
+// format — split from src/inject.ts ( domain restructure). Declaration bodies are unchanged.
 import { type Memory } from "../store/model/memory.ts";
 import { provenanceMarker, provenanceOf } from "../store/model/provenance.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
@@ -21,7 +21,7 @@ export function formatMemory(m: Memory): string {
   const tag = m.status === "open" ? " [open]" : "";
   const via = PROVENANCE_TAGS.filter((t) => m.tags?.includes(t));
   const src = via.length ? ` [via ${via.join("+")}]` : "";
-  // #393: the discount the reader needs. `[via auto-capture]` says where a row
+  // the discount the reader needs. `[via auto-capture]` says where a row
   // came from; this says whether anything OUTSIDE that source ever agreed with
   // it. R4 measured the cost of not saying so: one plausible wrong row shipped a
   // wrong artifact in 4/5 runs with no uncertainty flagged, while an empty store

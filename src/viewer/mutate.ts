@@ -69,7 +69,7 @@ async function findMemory(ts: string): Promise<Memory> {
 // Non-destructive edit: snapshot the pre-state, supersede the old entry, then
 // append the edited replacement (added ONLY because the edit requires it).
 //
-// ORIGIN PRESERVATION (#129): the replacement carries the target's repo stamp
+// ORIGIN PRESERVATION: the replacement carries the target's repo stamp
 // verbatim. The viewer is an ADMIN entry point with no repository scope of
 // its own; letting appendMemory resolve the stamp from that null scope used
 // to leave every edited row unstamped — i.e. silently GLOBAL, recallable and
@@ -93,7 +93,7 @@ export async function editMemory(input: EditInput): Promise<MutationResult> {
     type: input.type || target.type,
     scope: input.scope || target.scope,
     content: input.content,
-    // Omitted metadata survives the edit (#129): the usual UI sends
+    // Omitted metadata survives the edit: the usual UI sends
     // type/scope/content/reason, and dropping the old issue/tags/kw erased
     // import/auto-capture provenance and retrieval aliases from a row whose
     // prose only got a typo fix.
@@ -128,7 +128,7 @@ export async function editMemory(input: EditInput): Promise<MutationResult> {
     reason: input.reason,
     snapshot: snapshot[0] ?? "-",
     op: "write",
-    // #305: the line inherits the target's repository, so a repo-B edit is
+    // the line inherits the target's repository, so a repo-B edit is
     // private to B (and admin), never a global broadcast of the reason.
     ...targetRepoFields(target),
   });
@@ -183,7 +183,7 @@ export async function deleteMemory(
     snapshot: snapshot[0] ?? "-",
     audit: deletionsFile(),
     tool: "memory_viewer",
-    // #305: same inheritance as viewer_edit — a delete of a private row is
+    // same inheritance as viewer_edit — a delete of a private row is
     // not a globally readable event.
     ...targetRepoFields(target),
   });
@@ -214,13 +214,13 @@ async function audit(
       type: mem.type,
       scope: mem.scope,
       content: mem.content,
-      // Origin survives the audit record (#129): the viewer's restore-entry
+      // Origin survives the audit record: the viewer's restore-entry
       // path reads these lines, and a restore of a repo-private row must be
       // able to re-stamp what was deleted. A line with no stamp is the
       // legacy/unstamped case — restore leaves it global, as documented.
       repo: mem.repo,
       repoPath: mem.repoPath,
-      // #207: tags (which carry quarantine), kw, issue and status survive the
+      // tags (which carry quarantine), kw, issue and status survive the
       // same way, so restoring a deleted row cannot silently release
       // quarantine or drop provenance. Absent metadata writes nothing — the
       // legacy fallback the restore path documents.
@@ -228,14 +228,14 @@ async function audit(
       kw: mem.kw?.length ? mem.kw.join(",") : undefined,
       issue: mem.issue,
       status: mem.status,
-      // Same write-boundary rule as evidence (#128): an audit reason is
+      // Same write-boundary rule as evidence: an audit reason is
       // human prose and must not persist a recognized credential.
       reason: redactSecrets(reason),
     }),
   );
 }
 
-// F1 on #308: the origin lookup must NOT go through loadAll(). loadAll
+// The origin lookup must NOT go through loadAll(). loadAll
 // intentionally hides blocklisted rows, but releaseQuarantine scans the raw
 // day files and acts on them anyway — so a blocked private row released from
 // the viewer resolved to no target, and its evidence line fell back to the
@@ -270,9 +270,9 @@ export async function releaseQuarantinedMemory(
   // is pinned by the route rejection test; direct callers still need this one.
   requireReason(reason);
   // Resolve the target's origin BEFORE releasing so the audit line can
-  // inherit it (#305). A not_found noop has no row — no origin exists to
+  // inherit it. A not_found noop has no row — no origin exists to
   // carry, and the line names nothing private, so it stays unstamped. The
-  // lookup is unfiltered (F1 on #308): a blocklisted row is still a row the
+  // lookup is unfiltered (F1 on): a blocklisted row is still a row the
   // release below can act on, and its evidence must carry its repo.
   const target = await findTargetOrigin(ts);
   const outcome = await releaseQuarantine(ts);
@@ -303,7 +303,7 @@ export async function releaseQuarantinedMemory(
 }
 
 // Blocking is a human rejection, so it tombstones the VALUE as well as hiding
-// the row (#35): without that, re-ingesting the source stores the same content
+// the row: without that, re-ingesting the source stores the same content
 // again under a fresh `ts` and the block silently stops protecting anything.
 // Order matters — the block is what the operator asked for and lands first; a
 // failure to tombstone leaves the row hidden (no data loss) rather than the
@@ -329,7 +329,7 @@ export async function blockMemory(input: {
 // back in view. The tombstone is keyed on the value, so this withdraws the
 // rejection of that content wherever else a copy of it was blocked; that is the
 // same decision the tombstone made when it was written.
-// The lift is conditional on an actual un-block (#209): a no-op on a row that
+// The lift is conditional on an actual un-block: a no-op on a row that
 // was never blocked must not withdraw the rejection still guarding a blocked
 // identical copy, which would let the value be re-ingested.
 export async function unblockMemory(ts: string): Promise<boolean> {
@@ -340,7 +340,7 @@ export async function unblockMemory(ts: string): Promise<boolean> {
   return true;
 }
 
-// The explicit un-tombstone escape hatch (#35): lifts a rejection recorded by
+// The explicit un-tombstone escape hatch: lifts a rejection recorded by
 // `forget`, which has no row left to un-block. Human-only — this is reachable
 // from the viewer and deliberately from NO plugin tool, so a session whose
 // write was refused cannot clear its own refusal and retry in the same turn.

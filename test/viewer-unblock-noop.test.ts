@@ -1,4 +1,4 @@
-// #209: a no-op unblock must not withdraw another copy's value rejection.
+//: a no-op unblock must not withdraw another copy's value rejection.
 // removeBlock/removeTombstone returned true and republished the file even when
 // they filtered nothing, and unblockMemory lifted the value tombstone whenever
 // the row existed — so a stale/direct /api/unblock on a never-blocked row A

@@ -52,10 +52,10 @@ beforeEach(() => {
 
 afterEach(() => {
   // Release the identity this file took. Dispatching a tool binds the ambient
-  // session to `liveRoot` (bindSessionProvisional at flow entry, #127), and
+  // session to `liveRoot` (bindSessionProvisional at flow entry, ), and
   // that map is module-global — without this the sid "upd" and its binding
   // outlive the file and outrank the next file's own setRepoScope(), stamping
-  // its rows with this file's already-deleted temp repo (#149).
+  // its rows with this file's already-deleted temp repo.
   resetState();
   resetSessionScopes();
   delete process.env.OPENCODE_MEMORY_DIR;
@@ -291,7 +291,7 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
   test("ADVERSARIAL pin: an update swaps its target's value with rival content, no review (the rivalry gate is advisory for updates)", async () => {
     // Same payload through two tools: memory_remember is review-gated, while
     // memory_update on the rival's ts promotes with NO similarity requirement
-    // between update content and target. Per the #122 ruling the update IS the
+    // between update content and target. Per the  ruling the update IS the
     // sanctioned supersession — but that makes gate-3 skippable by any caller
     // that reads the block hint. If updates are ever required to stay near
     // their target's content, this pin flips alongside the hint text.
@@ -329,10 +329,10 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
   });
 
   test("an update whose content byte-equals another live row completes the merge: the target retires in the survivor's favor", async () => {
-    // The #125 review pinned the OLD shape ("Duplicate ignored": target
+    // The  review pinned the OLD shape ("Duplicate ignored": target
     // survives next to the row its content duplicated — two active statements
     // of one fact, and the retry after a supersede-step fault never converged
-    // past it). The follow-up review of #155 folded the collapse into a real
+    // past it). The follow-up review of  folded the collapse into a real
     // supersede, as predicted here: the named target is retired pointing AT
     // the survivor (first-call-wins, so this is safe on every path), and the
     // store ends with exactly one active statement.
@@ -470,7 +470,7 @@ describe("memory_merge_review survivor revival", () => {
       tags: ["bun"],
       status: "settled",
     });
-    // #126 narrowed this pin: the merge may clear only a supersession this
+    //narrowed this pin: the merge may clear only a supersession this
     // review owns, so the survivor is hidden behind the review's OWN loser.
     // A survivor superseded by some other (live) row is the stale-merge case
     // and now refuses — pinned in test/merge-stale-survivor.test.ts.

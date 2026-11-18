@@ -1,4 +1,4 @@
-// payload — split from src/status.ts (#168 domain restructure). Declaration bodies are unchanged.
+// payload — split from src/status.ts ( domain restructure). Declaration bodies are unchanged.
 // The status hand-off between the two surface halves. The server plugin writes
 // one status file per session on every epoch recompute AND every measured
 // assistant turn (src/index.ts); the terminal plugin (src/tui.tsx) and the
@@ -32,7 +32,7 @@ export interface StoreCounts {
   malformed: number;
   /**
    * Active rows the use ledger has never credited (or not inside the window).
-   * Undefined until #42's ledger is read — an absent number, never a zero.
+   * Undefined until ledger is read — an absent number, never a zero.
    */
   neverRetrieved?: number;
   /**
@@ -50,7 +50,7 @@ export interface StoreCounts {
   /** Capture latency in ms, p50/p95, from `capture_lag` evidence. */
   captureLag?: { p50: number; p95: number; n: number };
   /**
-   * What the plugin's own model calls cost (#387), from `capture_cost`
+   * What the plugin's own model calls cost, from `capture_cost`
    * evidence. An ESTIMATE: the host gives capture no receipt. Absent until
    * evidence is read — a missing number, never a zero that reads as free.
    */
@@ -98,7 +98,7 @@ export interface Measured {
   read: number;
   write: number;
   /**
-   * Completion tokens for the session (#387): what the model produced, split
+   * Completion tokens for the session: what the model produced, split
    * so a reasoning-heavy seat is visible as one. `input` alone is only the
    * uncached remainder, so quoting it as "what the session cost" understates
    * it by most of its size — measured 13,393 reported against 187,856 moved.

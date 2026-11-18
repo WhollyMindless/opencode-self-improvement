@@ -143,7 +143,7 @@ export interface CaptureFakes {
   generate: {
     calls: Array<{ prompt: string; model: unknown }>;
     response: string;
-    // Deterministic stall seam (#116): when set, the stub awaits this promise
+    // Deterministic stall seam: when set, the stub awaits this promise
     // AFTER logging the call, so a test can park the plugin mid-model-call and
     // interleave other work before releasing it — no sleep-based races.
     park?: Promise<unknown>;
@@ -154,7 +154,7 @@ export interface CaptureFakes {
   context: {
     calls: string[];
     messages: unknown;
-    // Interleave seam (#211): when set, session.context() awaits this AFTER
+    // Interleave seam: when set, session.context() awaits this AFTER
     // logging the call, so a test can park the plugin mid-context-read and
     // dispose the plugin while it waits — the shape the pre-model abort check
     // exists for.
@@ -164,7 +164,7 @@ export interface CaptureFakes {
     getCalls: string[];
     row: unknown;
   };
-  // #139: what the fake ctx.model.default.get() returns (undefined = the host
+  //: what the fake ctx.model.default.get() returns (undefined = the host
   // exposes no default model). Tests set this to drive the last-resort
   // inheritance path of an omitted captureModel.
   modelDefault?: { providerID: string; modelID: string };
@@ -309,7 +309,7 @@ export async function loadPlugin(
         return { text: capture.generate.response };
       },
     },
-    // #139: host default model domain; get() returns whatever the test set.
+    //: host default model domain; get() returns whatever the test set.
     model: {
       default: {
         get: () => capture.modelDefault,
@@ -355,7 +355,7 @@ export async function loadPlugin(
     },
     // Drive the real session.context hook (guarded), mapping its text parts
     // back onto the V1 `output.system: string[]` shape. `model` (the V2
-    // SessionRequest ref) rides along so #139 model inheritance can be
+    // SessionRequest ref) rides along so  model inheritance can be
     // replayed with the ref a real host delivers.
     "experimental.chat.system.transform": async (input: any, output: any) => {
       const parts: Array<{ type: string; text: string }> = [];

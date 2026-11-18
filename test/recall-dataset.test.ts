@@ -59,7 +59,7 @@ describe("recall dataset integrity", () => {
 // bench/fixtures/recall-dataset.ts is enforced mechanically: keywords are shaped like
 // write-time aliases, they exist for every gold row, and none of them is the
 // eval's own phrasing copied backwards.
-describe("write-time keyword integrity (#40)", () => {
+describe("write-time keyword integrity", () => {
   test("every gold memory carries 3-5 keywords of its own", () => {
     for (const m of MEMORIES) {
       const kw = KEYWORDS[m.id];

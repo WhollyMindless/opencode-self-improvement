@@ -1,4 +1,4 @@
-// publish — split from src/logfmt.ts (#168 domain restructure). Declaration bodies are unchanged.
+// publish — split from src/logfmt.ts ( domain restructure). Declaration bodies are unchanged.
 // Minimal logfmt reader/writer shared by the durable store and the evidence
 // log. Field order is preserved on write so chains are diffable.
 import { dirname } from "node:path";

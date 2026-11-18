@@ -1,4 +1,4 @@
-// append — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
+// append — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { memoryRoot } from "../../core/config/paths.ts";
@@ -45,7 +45,7 @@ export interface AppendMemoryInput {
   repo?: string;
   repoPath?: string;
   // Which session the write belongs to, when the caller knows it (the gate
-  // threads it from GateContext, #116). Preferred over the ambient current.
+  // threads it from GateContext,). Preferred over the ambient current.
   sessionID?: string;
 }
 
@@ -62,7 +62,7 @@ function existingTs(text: string): Set<string> {
   return set;
 }
 
-// #152: the store's answer to a write whose owner it cannot determine. Thrown
+// the store's answer to a write whose owner it cannot determine. Thrown
 // from the one place that knows what an owner is (the stamp resolution below),
 // so no caller — gate, import, capture, or a future one — can quietly persist
 // an ownerless row. `unresolvedWriteMessage` is the same text the model-facing
@@ -142,11 +142,11 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   if (repo === undefined) {
     // The caller's session when it named one: capture awaits a model call, and
     // the last setCurrent before persistence may belong to another session
-    // entirely (#116). Unnamed writers (tools, viewer, restore) keep the
+    // entirely. Unnamed writers (tools, viewer, restore) keep the
     // ambient binding.
     //
     // A NAMED session that never resolved a repository is not an unnamed one
-    // (#152): falling back to the module scope stamped its rows into whatever
+    //: falling back to the module scope stamped its rows into whatever
     // workspace set up last, and with no module scope at all it stamped nothing
     // — which every reader calls global. Both outcomes publish private content
     // somewhere its owner can no longer see it, so the store refuses the write
@@ -162,7 +162,7 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
   }
   // The day file is chosen before the lock because it IS the lock key. A
   // colliding ts is bumped inside that lock, and the bump can cross UTC midnight
-  // — which #215 made more than cosmetic: a supersede addresses a row by the day
+  // — which made more than cosmetic: a supersede addresses a row by the day
   // its own ts names, so a row filed under another day is a second, unreachable
   // address for the same identity (two files can then hold the same ts). So when
   // the bumped ts leaves the day, hand the row to the file it names and take that
@@ -220,7 +220,7 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
         // A lock excludes writers, not readers: an O_APPEND read can end mid-row.
         // Publish the complete day file using the read already needed for IDs.
         // This costs a whole-file write and can refuse on Windows reader handles;
-        // the old destination remains intact if publication fails (#198).
+        // the old destination remains intact if publication fails.
         await writeAtomic(
           file,
           prior + (prior && !prior.endsWith("\n") ? "\n" : "") + line + "\n",

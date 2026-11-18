@@ -250,7 +250,7 @@ describe("cache math", () => {
     ).toBe("unknown");
   });
 
-  // #344: `prompt_reveal` joined the reason values, and the surfaces must not
+  //: `prompt_reveal` joined the reason values, and the surfaces must not
   // have to learn new ones. Every reason reaches `/memory` and `memory_status`
   // by interpolation, so a value a later build adds renders as-is instead of
   // blanking or being relabelled as something the plugin did not record.
@@ -332,7 +332,7 @@ describe("renderMemoryReport", () => {
     expect(text).toContain("abstained");
   });
 
-  test("CONTEXT reports the whole riding section, not only the budgeted block (#162)", () => {
+  test("CONTEXT reports the whole riding section, not only the budgeted block", () => {
     const text = renderMemoryReport({
       status: payload({ sectionChars: 1400 }),
       store: payload().store,
@@ -427,7 +427,7 @@ describe("renderMemoryReport", () => {
     );
   });
 
-  // #138: capture off / misconfigured / armed-but-inert must differ on the
+  //: capture off / misconfigured / armed-but-inert must differ on the
   // chat surface, not only in the evidence file.
   test("auto-capture line: off is named off", () => {
     const text = renderMemoryReport({
@@ -493,7 +493,7 @@ describe("renderMemoryReport", () => {
     expect(text).toContain("ARMED BUT NEVER FIRED");
   });
 
-  // #288 F1: a successful capture whose model returned `[]` writes only the
+  //F1: a successful capture whose model returned `[]` writes only the
   // capture_lag completion receipt. That is execution evidence — the status
   // surface must render it alive with zero rows, not inert.
   test("auto-capture line: empty successful capture is alive, not ARMED BUT NEVER FIRED", () => {
@@ -536,10 +536,10 @@ describe("renderMemoryReport", () => {
   });
 });
 
-// #138: the metric that reads the evidence file and answers "is capture off,
+//: the metric that reads the evidence file and answers "is capture off,
 // misconfigured, armed-and-inert, or alive?" — the evidence file alone must
 // distinguish the states, so this parses only plugin_load + auto_capture_*.
-describe("captureHealth (#138)", () => {
+describe("captureHealth", () => {
   const hb = (capture: string, ts: string) =>
     formatLine({ ev: "plugin_load", ts, capture });
   const ac = (action: string, ts: string) =>
@@ -569,7 +569,7 @@ describe("captureHealth (#138)", () => {
     expect(h.lastExecuted).toBeNull();
   });
 
-  // #288 F1: the capture_lag completion receipt is execution evidence even
+  //F1: the capture_lag completion receipt is execution evidence even
   // when the model returned no candidates; a stale receipt is outside the
   // window and must not clear the inert verdict.
   test("capture_lag receipt sets lastExecuted without touching rows or lastFired", () => {
@@ -700,7 +700,7 @@ async function poll<T>(
 }
 
 describe("memory_status tool + epoch wiring", () => {
-  test("chat and epoch summaries retain the same mixed-repository totals (#168)", async () => {
+  test("chat and epoch summaries retain the same mixed-repository totals", async () => {
     const repoA = join(root, "repo-a"),
       repoB = join(root, "repo-b");
     mkdirSync(repoA);
@@ -823,7 +823,7 @@ describe("memory_status tool + epoch wiring", () => {
     expect((await readStatus())!.recomputes).toBe(before);
 
     // A new prompt that matches nothing re-scores and MOVES the block
-    // (#335): a recompute with reason=prompt_reveal is recorded, because the
+    //: a recompute with reason=prompt_reveal is recorded, because the
     // bytes the provider caches actually changed.
     await p.sessionHooks["prompt"]!({
       sessionID: "ses_status",

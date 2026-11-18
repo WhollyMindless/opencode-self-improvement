@@ -1,4 +1,4 @@
-// version — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
+// version — split from src/inject.ts ( domain restructure). Declaration bodies are unchanged.
 // Context surfaces: a small system digest, a capped open-thread frontier, and
 // relevance-ranked memory frozen per epoch by src/index.ts. These ride the
 // session context hook's system parts. Contextual pull appends relevant memory

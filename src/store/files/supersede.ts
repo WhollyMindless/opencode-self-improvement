@@ -1,4 +1,4 @@
-// supersede — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
+// supersede — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
 
 import { basename } from "node:path";
 import {
@@ -36,7 +36,7 @@ export async function markSuperseded(
   );
 }
 
-// Batch supersession (#61): one lock acquisition, one read, one snapshot and
+// Batch supersession: one lock acquisition, one read, one snapshot and
 // one publish PER FILE touched - N rows retire as one undo point instead of
 // N. decay and the gate's drift/canonical loops used to call markSuperseded
 // per row, which meant N full read-modify-write cycles, N undo points, and
@@ -52,8 +52,7 @@ export async function markManySuperseded(
   return (await markManySupersededReport(entries, durable)).marked.length;
 }
 
-// Same operation, reporting WHICH rows retired rather than how many (#158
-// round 3): the write gate needs the ids to keep a durable-mutation ledger,
+// Same operation, reporting WHICH rows retired rather than how many:// the write gate needs the ids to keep a durable-mutation ledger,
 // because a failed audit line after a persisted retirement must still be able
 // to name what actually landed. Skipped-by-the-batch rows (already retired
 // out of band) are absent from `marked` — the ledger never claims a retirement
@@ -73,8 +72,8 @@ export async function markManySupersededReport(
     withStoreLock(
       file,
       async () => {
-        // #106: identity BEFORE the read, like every other whole-file
-        // read-modify-write (#89's contract) - the publish below may retry a
+        // identity BEFORE the read, like every other whole-file
+        // read-modify-write ( contract) - the publish below may retry a
         // Windows handover only while the destination still matches this.
         const since = await fileIdentity(file);
         const lines = await readLines(file);
@@ -90,7 +89,7 @@ export async function markManySupersededReport(
           if (!fields) continue;
           // Whole line rewritten, not extended: an old-format line comes out in
           // the current format with its values unchanged (as markSuperseded did).
-          // The one exception is SECRET SCRUB (#128, review probe 4): the
+          // The one exception is SECRET SCRUB (, review probe 4): the
           // fields a merge/decay/update copies into the loser's row carry
           // caller-authored prose (the rotation note "key ghp_... rotated"),
           // and content already scrubs at this same boundary (appendMemory
@@ -116,7 +115,7 @@ export async function markManySupersededReport(
       LOCK_WRITE,
     );
 
-  // #215 + #373 review: retire every address a row can have, and pay for it.
+  //+ review: retire every address a row can have, and pay for it.
   // Pass 1 walks the day files the batch's own ts values name, plus the previous
   // day's file ONLY where a cheap scan proves a second copy lives there — the
   // one shape an older `appendMemory` could write at UTC midnight. A one-row
@@ -137,14 +136,14 @@ export async function markManySupersededReport(
     }
   }
   // A ts that appears in more than one file retires in EVERY file that holds it
-  // (#373 review): reporting a retirement while a live copy stands would be the
+  // ( review): reporting a retirement while a live copy stands would be the
   // worse bug, so the neighbour-day scan above exists. `appendMemory` now also
   // refuses to create the collision in the first place; the scan is what keeps a
   // store written before that fix honest.
   return { marked };
 }
 
-// The #126 provenance guard: which supersession a merge_review may clear.
+// The provenance guard: which supersession a merge_review may clear.
 export interface ClearProvenance {
   // The review's loser: a survivor the loser itself superseded first is the
   // legitimate revival the merge exists for.
@@ -157,7 +156,7 @@ export interface ClearProvenance {
 // Drop a row's supersession markers IN PLACE (snapshot-first), making it active
 // again. Used by memory_merge_review: a declared survivor must be recallable
 // even when an earlier row — now the loser — had superseded it first.
-// #126: with a provenance guard the marker is cleared ONLY when it points at
+// with a provenance guard the marker is cleared ONLY when it points at
 // this review's loser or carries the review's reason. A survivor superseded by
 // anything else (e.g. a memory_update that retired it after the review was
 // filed) keeps its marker and the clear reports false — erasing that later
@@ -190,7 +189,7 @@ export async function clearSuperseded(
     }
     return formatLine(parsed);
   };
-  // #215 + #373 review: revive every copy a row has. The common case is the one
+  //+ review: revive every copy a row has. The common case is the one
   // day file the ts names; the previous day's file joins ONLY when a scan finds
   // the same identity in it, which is what an older midnight-boundary append
   // could write. Reviving one copy while a duplicate stayed retired would put

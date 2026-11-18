@@ -1,4 +1,4 @@
-// The memory_undo tool, extracted from index.ts (#168). Schema, description
+// The memory_undo tool, extracted from index.ts. Schema, description
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
@@ -19,14 +19,14 @@ export const register: ToolRegister = (editor, deps) => {
       async execute(args, context): Promise<{ content: string }> {
         if (args.snapshot) {
           const mode = args.force ? "force" : args.merge ? "merge" : "check";
-          // Day files are shared across repositories (#153): the rollback
+          // Day files are shared across repositories: the rollback
           // carries the CALLER's reader, so rows another repo owns survive
           // untouched in every mode instead of riding the snapshot wholesale.
           const { sid } = toolIds(context);
-          // Identity before ownership partitioning (#260): the caller's
+          // Identity before ownership partitioning: the caller's
           // repository must be resolved from the host before the Reader
           // decides which lines are foreign, exactly as merge and forget now
-          // do; the day file is shared (#153) and a wrong reader is a write
+          // do; the day file is shared and a wrong reader is a write
           // into another repository's history.
           await bindSessionIdentity(sid);
           const res = await restoreSnapshot(

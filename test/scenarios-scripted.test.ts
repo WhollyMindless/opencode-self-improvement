@@ -184,13 +184,13 @@ describe("a force restore between two remembers", () => {
 });
 
 describe("a forgotten value re-entering through import", () => {
-  // #35 FLIPPED this table. It used to pin the opposite policy: nothing was
+  //FLIPPED this table. It used to pin the opposite policy: nothing was
   // keyed on a rejected or forgotten value, so re-ingestion stored it again as
   // a fresh row, and the comment here said the tombstone work would flip it to
   // "row absent, tally blocked". That is what now happens — the rejection is
   // keyed on the VALUE, so a replay through import is refused even though the
   // row that held it is gone and its `ts` no longer exists anywhere.
-  test("import refuses the forgotten value instead of re-storing it (#35)", async () => {
+  test("import refuses the forgotten value instead of re-storing it", async () => {
     s = await startScripted();
     const s1 = s.session("s1");
     await s1.engage();

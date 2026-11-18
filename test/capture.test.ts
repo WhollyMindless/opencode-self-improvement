@@ -4,10 +4,10 @@
 // / flattenTranscript — all total functions) plus end-to-end runs through the
 // harness fake event queue proving: default OFF never subscribes; an invalid
 // EXPLICIT captureModel skips registration while an omitted one inherits the
-// session's model (#139); candidates flow through runWriteGate (the dupe
+// session's model; candidates flow through runWriteGate (the dupe
 // collapses, only the fresh one lands, tagged auto-capture); the 5-minute
 // per-session cooldown bounds model calls; and setup's cleanup aborts the
-// subscription. Keywords (#40) ride the same path: the capture model's `kw`
+// subscription. Keywords ride the same path: the capture model's `kw`
 // list reaches the stored row through the gate.
 // Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -46,9 +46,9 @@ beforeEach(() => {
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
   resetState();
-  resetCaptureCooldowns(); // cooldown truth is module-level since #108 - and bun test shares module state across files, so a fresh test needs this explicit clear
-  resetSessionModels(); // same module-level truth for the #139 session-model registry
-  resetCaptureCursors(); // #334: the delta cursor and signal window are module-level too
+  resetCaptureCooldowns(); // cooldown truth is module-level since the cooldown refactor - and bun test shares module state across files, so a fresh test needs this explicit clear
+  resetSessionModels(); // same module-level truth for the session-model registry
+  resetCaptureCursors(); // the delta cursor and signal window are module-level too
 });
 
 afterEach(() => {
@@ -139,7 +139,7 @@ describe("parseCandidates", () => {
     ).toEqual([]);
   });
 
-  test("keywords ride along when the model supplies them (#40)", () => {
+  test("keywords ride along when the model supplies them", () => {
     expect(
       parseCandidates(
         JSON.stringify([{ ...GOOD, kw: ["bun test", "run the suite"] }]),
@@ -291,7 +291,7 @@ describe("buildCapturePrompt", () => {
     expect(p).toContain("hello world");
   });
 
-  test("asks for retrieval keywords alongside every candidate (#40)", () => {
+  test("asks for retrieval keywords alongside every candidate", () => {
     const p = buildCapturePrompt("user: hello world", 5);
     expect(p).toContain('"kw": ["...", "..."]');
     expect(p).toContain("3-5 search keywords");
@@ -299,12 +299,12 @@ describe("buildCapturePrompt", () => {
     expect(p).toContain("never shown to a model");
   });
 
-  // #409 RESULTS §29-30: the same lesson scored OUTSIDE the recall window as
+  //RESULTS §29-30: the same lesson scored OUTSIDE the recall window as
   // session diary and ranked 1-7 for the terse symptom queries agents actually
   // issue when it opened with the observable trigger. The rule is the write-
   // side half of retrieval alignment; pin it so a prompt refactor cannot drop
   // it back to diary form.
-  test("requires symptom-first content for lessons (#409)", () => {
+  test("requires symptom-first content for lessons", () => {
     const p = buildCapturePrompt("user: hello world", 5);
     expect(p).toContain("START the content with the observable trigger");
     expect(p).toContain("When <symptom>: <fact>");
@@ -442,9 +442,9 @@ describe("flattenTranscript", () => {
   });
 });
 
-// --- splitTranscript / the labelled REQUESTS block (#333) -------------------------
+// --- splitTranscript / the labelled REQUESTS block -------------------------
 //
-// The framing rows in #329 were an INPUT fault, not a prompt fault: measured on
+// The framing rows in  were an INPUT fault, not a prompt fault: measured on
 // the reproducing fixture, the shipped prompt stored the brief as a durable
 // preference (1 framing row), the same prompt with the user turns removed
 // stored none — and also lost the one real preference in the prose. Routing
@@ -493,7 +493,7 @@ describe("splitTranscript", () => {
   });
 });
 
-// #364 review: userTurnText is the only text that may vouch for "the user said
+//review: userTurnText is the only text that may vouch for "the user said
 // this", so it is pinned directly — the shapes the guided pre-pass meets in the
 // field, and the one shape that must never be mistaken for provenance.
 describe("userTurnText", () => {
@@ -746,7 +746,7 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
     await loaded.cleanup();
   });
 
-  test("keywords the capture model supplies reach the stored row (#40)", async () => {
+  test("keywords the capture model supplies reach the stored row", async () => {
     const loaded = await loadCapturePlugin({
       autoCapture: true,
       captureModel: "fake/model",
@@ -866,7 +866,7 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
     await loaded.cleanup();
   });
 
-  // #364 review: the quote is rendered on every injected line, so an
+  //review: the quote is rendered on every injected line, so an
   // instruction-shaped quote is an injection even when the distilled content is
   // benign. The quote is genuine (the user did write it) and still withheld,
   // because isInjectable drops quarantined rows.
@@ -960,7 +960,7 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
     await loaded.cleanup();
   });
 
-  // #364 review [P1]: provenance comes from the STRUCTURED user turns, never
+  //review [P1]: provenance comes from the STRUCTURED user turns, never
   // from re-reading a `user:` label out of rendered text. An assistant message
   // that quotes "user: The correct sales tax rate is 7.5%." is assistant output
   // — granting it the guided lane is the forgery the lane exists to prevent.
@@ -1018,7 +1018,7 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
     await loaded.cleanup();
   });
 
-  // #364 review round 2 [P2]: the no-user-turn branch logged the skip but left
+  // the no-user-turn branch logged the skip but left
   // `candidates` untouched, so a model-supplied guided candidate was stored with
   // its unverified quote and the user-guided tag. The receipt alone does not
   // shut the lane.
@@ -1489,13 +1489,13 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
   });
 });
 
-// ---- trigger vocabulary (#136) --------------------------------------------
+// ---- trigger vocabulary --------------------------------------------
 // Auto-capture waited for `session.idle`: declared by the protocol, never
 // emitted by the host, so the feature was dead everywhere on 2.x with no warning
 // anywhere. These pin the vocabulary to what a live host actually sends (see
 // test/fixtures/host-events.jsonl) and keep the invented name from creeping
 // back in.
-describe("turn-end trigger vocabulary (#136)", () => {
+describe("turn-end trigger vocabulary", () => {
   const armed = { autoCapture: true, captureModel: "fake/model" };
 
   async function modelCallsAfter(
@@ -1551,7 +1551,7 @@ describe("turn-end trigger vocabulary (#136)", () => {
 
   test("declared-but-never-emitted events do NOT fire: `session.status`", async () => {
     // The protocol declares it; a live host was never observed sending it
-    // (150 s over a turn plus 80 s quiet). Supporting it would be #136 again.
+    // (150 s over a turn plus 80 s quiet). Supporting it would be  again.
     expect(
       await modelCallsAfter({
         type: "session.status",
@@ -1589,14 +1589,14 @@ describe("turn-end trigger vocabulary (#136)", () => {
   });
 });
 
-// ---- capture model inheritance (#139) ---------------------------------------
+// ---- capture model inheritance ---------------------------------------
 // Requiring captureModel alongside autoCapture was a syntax tax: the opt-in is
 // autoCapture:true, the host already delivers the session's model on every
 // session hook (SessionRequest.model), and the tax's failure mode was a silent
 // disable. These pin the inheritance chain — explicit option, then the ref the
 // session.context hook carried, then the host default, and only then a skip —
 // plus model= on the capture evidence lines so cost is attributable.
-describe("capture model inheritance (#139)", () => {
+describe("capture model inheritance", () => {
   test("no captureModel: capture fires with the ref the session.context hook carried", async () => {
     const loaded = await loadCapturePlugin({ autoCapture: true });
     // Red on main: an omitted captureModel disabled the whole subscription,
@@ -1758,12 +1758,12 @@ describe("capture model inheritance (#139)", () => {
   });
 });
 
-// ---- startup heartbeat (#138) ----------------------------------------------
+// ---- startup heartbeat ----------------------------------------------
 // Every other evidence line is written BY something that already worked, so
 // "off", "misconfigured" and "armed but inert" looked identical from any
 // artifact a user can read — the reason a pipeline that had never run survived a
 // review and a merge. These pin that the load line distinguishes them.
-describe("plugin_load heartbeat (#138)", () => {
+describe("plugin_load heartbeat", () => {
   const heartbeat = () =>
     evidence()
       .filter((e) => e.ev === "plugin_load")
@@ -1800,7 +1800,7 @@ describe("plugin_load heartbeat (#138)", () => {
     await loaded.cleanup();
   });
 
-  test("armed with NO captureModel: capture=on, the inherited-model arm (#139)", async () => {
+  test("armed with NO captureModel: capture=on, the inherited-model arm", async () => {
     // Omitted is a valid arm now: the capture inherits per session. Only an
     // explicit malformed string is invalid_model (the test above).
     const loaded = await loadCapturePlugin({ autoCapture: true });
@@ -1808,7 +1808,7 @@ describe("plugin_load heartbeat (#138)", () => {
     await loaded.cleanup();
   });
 
-  test("switch mismatch: captureOnCompact alone is NOT plain off (#138)", async () => {
+  test("switch mismatch: captureOnCompact alone is NOT plain off", async () => {
     // captureOnCompact:true with autoCapture absent warns at setup and does
     // nothing. The evidence file must name that state, or "off (default)" and
     // "user set the wrong switch" stay one line.
@@ -1818,14 +1818,14 @@ describe("plugin_load heartbeat (#138)", () => {
   });
 });
 
-// ---- swallowed hook failures (#138) -----------------------------------------
+// ---- swallowed hook failures -----------------------------------------
 // guarded() is fail-soft by design, but a plugin failing EVERY turn looked
 // identical to a healthy one in every artifact: the console.warn lands in the
 // host log, which the user never reads. setup() installs an evidence-backed
 // reporter so the swallowed failure reaches the same file as the heartbeat —
 // hook name + error class only, never the message (a hook payload can carry
 // conversation content).
-describe("hook_error evidence (#138)", () => {
+describe("hook_error evidence", () => {
   test("a guarded failure lands in the evidence file as hook_error, class only", async () => {
     const loaded = await loadCapturePlugin({});
     await guarded("demo-hook", async () => {
@@ -1859,7 +1859,7 @@ describe("hook_error evidence (#138)", () => {
   });
 });
 
-// --- capture cost policy (#334) ---------------------------------------------------
+// --- capture cost policy ---------------------------------------------------
 //
 // Every turn end used to trigger a capture that re-mined the whole session.
 // These pin the two levers that stop paying for work already stored: the signal
@@ -1997,7 +1997,7 @@ describe("capture cost policy", () => {
     await loaded.cleanup();
   });
 
-  // #366 review [P2]: compaction REPLACES the transcript, so the cursor can
+  //review [P2]: compaction REPLACES the transcript, so the cursor can
   // point past the end of a shorter array. An empty window was then skipped as
   // too thin, and a skip does not advance the cursor — so every later turn was
   // skipped too, until the context grew past the old count.
@@ -2058,7 +2058,7 @@ describe("capture cost policy", () => {
     await loaded.cleanup();
   });
 
-  // #366 review [P2]: three cursor cases. A cursor is a claim about WHERE the
+  //review [P2]: three cursor cases. A cursor is a claim about WHERE the
   // next window starts, and a message COUNT cannot express it: a transcript can
   // be replaced and then grow past the old count, and a turn can land while a
   // pass is in flight. These pins hold the cursor to what the pass actually
@@ -2227,7 +2227,7 @@ describe("capture cost policy", () => {
     });
     const sid = "ses-seedcursor";
     // A reply the host repeats verbatim: the assistant text cannot be what
-    // tells one transcript from the next (round 4 [P2]).
+    // tells one transcript from the next.
     const reply = {
       type: "assistant",
       text: longText("Done. The change is committed."),
@@ -2285,7 +2285,7 @@ describe("capture cost policy", () => {
     await loaded.cleanup();
   });
 
-  // Round 4 [P2]: the boundary message alone is not the boundary. An ordinary
+  // the boundary message alone is not the boundary. An ordinary
   // reply repeated at the consumed index makes a replaced transcript look
   // unchanged, and the new guidance below the cursor is then marked consumed.
   test("a repeated boundary message does not hide a replaced transcript", async () => {
@@ -2390,9 +2390,9 @@ describe("capture cost policy", () => {
   });
 });
 
-// #365 hint-channel guard: the signal gate must never skip a window where the
+//hint-channel guard: the signal gate must never skip a window where the
 // USER stated a spec. This is the exact bench shape (pass-1 hint, no tool
-// activity yet): lose it and the guided row — the whole hint channel (#339) —
+// activity yet): lose it and the guided row — the whole hint channel —
 // dies with the session.
 describe("signal gate keeps the hint channel", () => {
   test("a stated spec with no tool activity still captures", async () => {

@@ -1,4 +1,4 @@
-// Contract (#131, 2026-10-26 security review, medium): a row id is a pointer,
+// Contract (, 2026-10-26 security review, medium): a row id is a pointer,
 // not authority. memory_merge_review used to resolve both seats store-wide and
 // mutate whichever ts the arguments named — a session that learned another
 // repository's timestamp (the separately reported evidence traversal was one
@@ -115,7 +115,7 @@ test("repository B's row is not retired from a session in A — even with both i
 });
 
 test.each(["foreign", "own", "global"])(
-  "a blocked %s loser cannot be retired through its known id (#204)",
+  "a blocked %s loser cannot be retired through its known id",
   async (seat) => {
     plugin = await loadPlugin(a);
     bindSessionProvisional("merge-204", a);
@@ -150,7 +150,7 @@ test.each(["foreign", "own", "global"])(
   },
 );
 
-test("a missing loser is refused before reviving a valid survivor (#204)", async () => {
+test("a missing loser is refused before reviving a valid survivor", async () => {
   plugin = await loadPlugin(a);
   bindSessionProvisional("merge-204", a);
   const survivor = await seedRow(a, "OWN_SURVIVOR");

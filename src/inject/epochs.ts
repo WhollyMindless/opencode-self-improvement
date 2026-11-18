@@ -54,12 +54,12 @@ export function createInjectionEpochs({
   // Per-session frozen injection epochs: the whole memory section (digest +
   // frontier + relevance) plus the store fingerprint it was rendered from.
   // Recomputed on the first prompt of a tracked session, when injectable rows
-  // change, when a new prompt re-scores the block (#335), or after a
+  // change, when a new prompt re-scores the block, or after a
   // compaction (see the prompt/context/compaction hooks).
   // The RENDERED BYTES, not the fingerprint, decide whether the epoch moved
-  // (issue #162): a write that changes nothing the model is shown must not
+  // (issue): a write that changes nothing the model is shown must not
   // cost the next request a full re-prefill. And a pure addition the session
-  // wrote itself does not move them either (#165) — see refreshEpoch. The
+  // wrote itself does not move them either — see refreshEpoch. The
   // shared LRU below may evict the whole session state; a later prompt starts
   // it fresh.
   const epoch = new Map<
@@ -74,7 +74,7 @@ export function createInjectionEpochs({
       prefix: string;
       /**
        * Rows THIS session had already authored when these bytes were rendered
-       * (#165). The riding-bytes test subtracts everything authored after this
+       *. The riding-bytes test subtracts everything authored after this
        * snapshot; if what remains renders identically, the whole difference is
        * the session's own additions and the bytes keep riding.
        */
@@ -150,7 +150,7 @@ export function createInjectionEpochs({
   // removals fail-closed: an out-of-band redaction or a block during a tool
   // loop cannot ride one more request waiting for another user prompt.
   // The caller's sid is resolved to an immutable Reader BEFORE the store
-  // read (#127): while loadAll awaits, another session's hooks may dispatch
+  // read: while loadAll awaits, another session's hooks may dispatch
   // and move the ambient current; filtering with THAT leaks the other
   // session's repo into this one's system prompt.
   const injectableRows = async (sid?: string): Promise<Memory[]> => {
@@ -164,7 +164,7 @@ export function createInjectionEpochs({
   // followed by this epoch's relevance block. The parts are exactly what gets
   // pushed onto `event.system`; their join is the byte key the epoch compares
   // against, so "did the cache-critical prefix change?" is answered by the
-  // bytes the model would actually see and never by a proxy (issue #162).
+  // bytes the model would actually see and never by a proxy (issue).
   const buildMemorySection = async (
     sid: string | undefined,
     mems: Memory[],
@@ -194,10 +194,10 @@ export function createInjectionEpochs({
       promptOverride ??
       (sid === undefined ? "" : (latestPrompt.get(sid) ?? ""));
     // Widen the candidate pool, then cap: the budget decides what rides.
-    // The guided cap (#335) rides user-stated rows ahead of the lexical picks;
+    // The guided cap rides user-stated rows ahead of the lexical picks;
     // the char budget below still bounds the whole block. The conflict check
     // reads the session's OWN repo directory (its reader's scope) — never an
-    // ambient one (#127's rule applies to code reads too).
+    // ambient one ( rule applies to code reads too).
     const reader = readerFromSid(sid);
     const sel = await selectRelevant(
       prompt,
@@ -207,7 +207,7 @@ export function createInjectionEpochs({
       undefined,
       {
         guidedCap: 3,
-        // #388: budget the RIDING set by priority here, before the block is
+        // budget the RIDING set by priority here, before the block is
         // rendered in canonical order. Capping the rendered string (the old
         // path) made recency decide who got dropped, because the newest row is
         // now always first.
@@ -266,7 +266,7 @@ export function createInjectionEpochs({
     // Cheap pre-check: no injectable row moved AND the frozen bytes were
     // already scored against THIS prompt. Skips re-scoring and the use-ledger
     // write on ordinary turns and on every tool-loop request within a turn.
-    // A new prompt does re-score (#335, the epoch-freeze flaw): a block
+    // A new prompt does re-score (, the epoch-freeze flaw): a block
     // frozen at the first request carried the first topic's rows for the
     // whole session and never picked up the rows a later prompt genuinely
     // matches. Cache is still safe — the epoch only MOVES when the rendered
@@ -284,7 +284,7 @@ export function createInjectionEpochs({
       epoch.set(sid, { ...cached, version, prompt });
       return;
     }
-    // Riding bytes (#165): a pure addition this session wrote itself is
+    // Riding bytes: a pure addition this session wrote itself is
     // information it already has — the model produced it, it is in the
     // transcript. Re-render the section with every row authored SINCE these
     // bytes were frozen taken back out: if it comes back byte-identical, the
@@ -310,7 +310,7 @@ export function createInjectionEpochs({
         }
       }
     }
-    // Use ledger (#42): the rows that actually rode the block, credited with
+    // Use ledger: the rows that actually rode the block, credited with
     // the terms the prompt and those rows shared (never the prompt itself).
     // Only once the build is ADOPTED — a discarded rebuild must not credit
     // rows that were already offered under the frozen epoch.
@@ -346,7 +346,7 @@ export function createInjectionEpochs({
         // guidedSeen=0 -> capture never wrote the row. guidedSeen>0 with the
         // id absent from `guided` -> the cap (newest-first, 3) dropped it.
         // In `guided` but absent from `guidedRode` -> the budget inside
-        // selectRelevant dropped it (#388 moved the cap there from capToBudget).
+        // selectRelevant dropped it ( moved the cap there from capToBudget).
         // In `guidedRode` yet absent from the wire -> render/transport, or a
         // paraphrased needle (now impossible for rows carrying `orig=true`).
         ...(built.guidedSeen ? { guidedSeen: built.guidedSeen } : {}),
@@ -388,7 +388,7 @@ export function createInjectionEpochs({
     if (typeof sid === "string") await refreshEpoch(sid, mems);
     // Deliver the FROZEN memory section. Every byte pushed onto the system
     // prompt comes from the epoch, so between busts the provider sees an
-    // identical prefix and serves the conversation from cache (issue #162).
+    // identical prefix and serves the conversation from cache (issue).
     // A session with no epoch yet (no prompt recorded, or evicted from the
     // LRU) still gets the standing digest, built fresh and uncached.
     const ep = typeof sid === "string" ? epoch.get(sid) : undefined;

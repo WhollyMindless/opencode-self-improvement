@@ -1,4 +1,4 @@
-// The memory_export tool, extracted from index.ts (#168). Schema, description
+// The memory_export tool, extracted from index.ts. Schema, description
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";

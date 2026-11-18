@@ -1,5 +1,5 @@
-// #74 slice 1: memory_export must not write stored credentials verbatim.
-// The write side redacts (#67), but rows written before it keep their secrets,
+//slice 1: memory_export must not write stored credentials verbatim.
+// The write side redacts, but rows written before it keep their secrets,
 // and export serialised `content` and `issue` as-is — handing any holder of
 // the JSONL the credential. Redaction here happens on the value being
 // serialised, never on the row: export stays a read path.
@@ -39,7 +39,7 @@ afterEach(() => {
   removeStore(root);
 });
 
-// A legacy row, written straight to the day file the way pre-#67 code did:
+// A legacy row, written straight to the day file the way pre- code did:
 // appendMemory would redact the credential before storing it, so the write
 // gate never sees this payload — only the export path can.
 function seedLegacy(fields: Record<string, unknown>) {
@@ -122,7 +122,7 @@ describe("memory_export redacts stored credentials (#74 slice 1)", () => {
     expect(rows[0].content).toContain(SK_TOKEN);
   });
 
-  // #300: the same rule has to cover the metadata a row carries. New writes
+  //: the same rule has to cover the metadata a row carries. New writes
   // cannot put a credential in scope/tags/kw (the schema and the write boundary
   // refuse it), but a row stored before those checks — or hand-edited into the
   // store — exports into a file meant to leave the machine.

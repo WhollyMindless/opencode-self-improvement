@@ -1,4 +1,4 @@
-// Capture policy: WHEN a capture is worth paying for (#334).
+// Capture policy: WHEN a capture is worth paying for.
 //
 // Today every turn end triggers a capture (throttled by a fixed cooldown), and
 // every capture re-mines the WHOLE transcript. Two costs follow. The first is
@@ -24,7 +24,7 @@ interface Cursor {
   turn: number;
   /**
    * Identity of the messages that capture consumed — the flattened prefix, not
-   * its last message (#366 review, round 4). A count says how many messages were
+   * its last message. A count says how many messages were
    * consumed; it cannot say WHICH ones, and a host that replaces the transcript
    * and then lets it grow again hands back an array longer than the cursor that
    * shares nothing with it.
@@ -54,7 +54,7 @@ function fingerprintOf(text: string): string {
  * consumed. Undefined when there is nothing to fingerprint: not an array, a
  * count this array cannot supply, or messages that decode to no text at all.
  *
- * The WHOLE prefix, not its last message (round 4 [P2]): an ordinary assistant
+ * The WHOLE prefix, not its last message: an ordinary assistant
  * reply repeated at the boundary position makes a replaced transcript look
  * unchanged, and no hash collision is required for that.
  *
@@ -98,7 +98,7 @@ export function resetCaptureCursors(): void {
 }
 
 /**
- * Is this array still the transcript the cursor was counting (#366 review)?
+ * Is this array still the transcript the cursor was counting ( review)?
  *
  * Two shapes say it is not. SHORTER than the count: compaction replaced the
  * transcript, so `since` names an index that no longer exists — a normal event,
@@ -135,7 +135,7 @@ export function transcriptReplaced(
 export function deltaMessages(msgs: unknown, since: number): unknown {
   if (!Array.isArray(msgs) || since <= 0) return msgs;
   // A context that shrank past the cursor is a REPLACED transcript (compaction),
-  // not a window that has been fully mined (#366 review). Mine what is there:
+  // not a window that has been fully mined ( review). Mine what is there:
   // an empty window here was skipped by the thin-check WITHOUT advancing the
   // cursor, so every later turn was skipped as well until the array grew past
   // the stale count.
@@ -147,7 +147,7 @@ export function deltaMessages(msgs: unknown, since: number): unknown {
  * Did the USER state a rule or spec in the window? The signal gate reads the
  * tool ledger, so a session that only talks — "TAX_RATE must be 0.0825", no
  * edits, no gate commands — would skip the capture and lose the hint channel
- * (#339) for good when the session ends. A declarative marker in a user
+ * for good when the session ends. A declarative marker in a user
  * message is the cheap stand-in for "this window can hold a durable fact".
  *
  * Deliberately loose in the SAFE direction: a false positive costs one
@@ -164,7 +164,7 @@ export function guidedStatementInWindow(
   if (!Array.isArray(msgs)) return true;
   const window = msgs.slice(Math.max(0, sinceMsgs));
   if (window.length === 0) return false;
-  // The SAME decode the transcript uses (#366 review): roles come from
+  // The SAME decode the transcript uses ( review): roles come from
   // `info.role` / `role` / `type`, text from `parts[]` / `content[]` / `text` /
   // a string `content`. Reading one narrow shape here meant a genuine user rule
   // in any other accepted shape got a no-signal skip before generation — the

@@ -338,7 +338,7 @@ describe("an unattested lesson is refused, not stored", () => {
   });
 
   test("a substring of a failing command is not the failing command", async () => {
-    // Review #384 finding 2: the only failure was
+    // Review  finding 2: the only failure was
     // `bun test --test-name-pattern tsc`; a lesson citing bare `tsc` was
     // accepted by the joined-haystack includes() although no typecheck ran.
     // The prompt demands the citation copied EXACTLY; set membership is that
@@ -365,7 +365,7 @@ describe("an unattested lesson is refused, not stored", () => {
   });
 
   test("a credential in a failing command's args never reaches the prompt", async () => {
-    // Review #384 finding 1: attested entries were built from RAW ledger args.
+    // Review  finding 1: attested entries were built from RAW ledger args.
     // The transcript scrub does not cover this input, so the ATTESTED FAILURES
     // block carried the token verbatim.
     const TOKEN = "sk-abcdefghij0123456789";

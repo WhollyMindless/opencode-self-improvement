@@ -1,4 +1,4 @@
-// digest — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
+// digest — split from src/inject.ts ( domain restructure). Declaration bodies are unchanged.
 import { loadAll } from "../store/files/load.ts";
 import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";
@@ -20,7 +20,7 @@ import { type TransformOutput } from "./pull.ts";
 const OPEN_THREAD_LIMIT = 3;
 
 const frontierInjectedSessions = new Set<string>();
-// #224: the "once per process" set is bounded by the shared session cap. An
+// the "once per process" set is bounded by the shared session cap. An
 // evicted session is shown the frontier block once more on a later prompt —
 // one extra evidence row, never unbounded growth.
 const frontierOrder = new SessionLru(SESSION_CAP, (sid) => {
@@ -46,16 +46,16 @@ export async function systemDigest(
       ? String((_input as Record<string, unknown>).sessionID)
       : "?";
   // Snapshot before any awaits; unresolved callers still need a private sid
-  // on their evidence even when ordinary call metadata is suppressed (#297).
+  // on their evidence even when ordinary call metadata is suppressed.
   const evidenceContext = captureEvidenceContext(sid);
   // Repo-scoped: model-facing reads see the CALLER's repo + global rows, via
-  // the sid carried on this flow's input (#127) — never a global re-read
+  // the sid carried on this flow's input — never a global re-read
   // after the loadAll await.
   const mems = (
     opts.rows ?? visibleTo(await loadAll(), readerFromSid(sid))
   ).filter(isInjectable);
   if (!mems.length) return;
-  // CACHE-STABLE BY CONSTRUCTION (issue #162): this line carries no row count
+  // CACHE-STABLE BY CONSTRUCTION (issue): this line carries no row count
   // and no latest-ts. Both change on every promoted write, and the digest rides
   // the FRONT of the system prompt, so one volatile byte invalidated the whole
   // cached prefix — every memory write cost the next request a full re-prefill.

@@ -1,11 +1,11 @@
 // Contract: capture and identity triggers must be declared AND recorded from
 // a live host. Other event reads below have a weaker declaration/legacy check.
 //
-// Why this file exists (#136): auto-capture waited for `session.idle`, and the
+// Why this file exists: auto-capture waited for `session.idle`, and the
 // feature was dead on every 2.x host with no warning anywhere. The manifest DOES
 // declare `session.idle` — so schema membership alone would have passed, and the
 // tests fabricated the same envelope anyway (fake and prod wrong together, the
-// lesson already paid for in #86 and #90). What caught the bug was a recording of
+// lesson already paid for once. What caught the bug was a recording of
 // the live host: `session.idle` and `session.status` are declared but never
 // emitted, while `session.execution.succeeded` is emitted on every turn end.
 //
@@ -108,7 +108,7 @@ describe("host event fidelity (#136, #137, #176)", () => {
     expect(CAPTURE_EVENT_TYPES.filter((t) => !declaredSet.has(t))).toEqual([]);
   });
 
-  // The assertion that would have caught #136 two releases ago.
+  // The assertion that would have caught  two releases ago.
   test("every event type auto-capture reacts to was really observed on a live host", () => {
     const neverSent = CAPTURE_EVENT_TYPES.filter((t) => !observed.has(t));
     expect(neverSent).toEqual([]);

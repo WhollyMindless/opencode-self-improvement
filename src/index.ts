@@ -123,7 +123,7 @@ const impl = {
     // only as the gate's verification tree when no session location is known.
     const setupRoot = ctx?.location?.directory;
     const liveRoot = setupRoot ?? process.cwd();
-    // #138: mirror every swallowed guarded() failure into the evidence file.
+    // mirror every swallowed guarded() failure into the evidence file.
     // Hook name + error class ONLY — never the message, which can carry
     // conversation content. Fire-and-forget: evidence must not add a failure
     // to a path that already failed softly.
@@ -143,7 +143,7 @@ const impl = {
     setRepoScope(setupRoot ? resolveRepo(setupRoot) : null);
     // THIS instance's own workspace. The module scope says who loaded last;
     // this says who I am. An unbound session that calls into THIS instance
-    // resolves here — never to another instance's scope (#127, multi-setup).
+    // resolves here — never to another instance's scope (, multi-setup).
     const instanceDir =
       typeof setupRoot === "string" && setupRoot ? setupRoot : undefined;
 
@@ -182,7 +182,7 @@ const impl = {
     } = createSessionContext(ctx, { instanceDir, liveRoot });
 
     // ---- tools --------------------------------------------------------------
-    // Use ledger (#42). `query` is what retrieval was asked with; what gets
+    // Use ledger. `query` is what retrieval was asked with; what gets
     // stored is the vocabulary the answer SHARES with the query, taken from the
     // memory side, so the ledger can never become a copy of user prompts.
     // Fail-soft inside recordHits: telemetry must not break a read path.
@@ -274,7 +274,7 @@ const impl = {
     });
     onCompactCapture = capture.onCompactCapture;
     const captureCleanup = capture.cleanup;
-    // ---- startup heartbeat (#138) ------------------------------------------
+    // ---- startup heartbeat ------------------------------------------
     // Every other evidence line is written BY something that already worked,
     // so "capture is off", "capture is misconfigured" and "capture is armed and
     // inert" were indistinguishable from anything a user could read - which is
@@ -294,7 +294,7 @@ const impl = {
         // a heartbeat with an unknown version still beats no heartbeat
       }
       const wantCapture = ctx.options?.autoCapture === true;
-      // #139: an omitted captureModel is a valid arm — the capture inherits
+      // an omitted captureModel is a valid arm — the capture inherits
       // the session's model (session.context) or the host default. Only an
       // explicit but malformed string is invalid_model.
       const captureModelOpt = ctx.options?.captureModel;
@@ -314,7 +314,7 @@ const impl = {
       const captureState = !wantCapture
         ? // captureOnCompact alone is a distinct misconfiguration (the
           // runtime warns about it and stays disabled) — name it, or "off
-          // (default)" and "wrong switch set" share one line (#138).
+          // (default)" and "wrong switch set" share one line.
           ctx.options?.captureOnCompact === true
           ? "switch_mismatch"
           : "off"

@@ -1,7 +1,6 @@
-// #409 dedup lane (RESULTS §17). The pass is ON by default at 0.8; the
+// Near-duplicate suppression inside the recall window. The pass is ON by default at 0.8; the
 // escape hatch OPENCODE_MEMORY_DEDUP=0 restores the plain top-limit slice,
-// byte-identical to the old behavior. The rest pin the adversarial review's
-// findings: a prohibition is never a copy of
+// byte-identical to the old behavior. The rest pin the guards: a prohibition is never a copy of
 // the permission it denies, rows with nothing to compare are never suppressed,
 // a misconfigured threshold cannot turn the pass on, and the NEWEST copy of a
 // clash survives (§17's adoption rule).
@@ -119,7 +118,7 @@ describe("dedupeWindow", () => {
   });
 
   test("rows differing only by a short numeric fact are not copies", () => {
-    // Review #415: words() drops chunks of length <= 2, so "db 3" and "db 4"
+    // Reproduced: words() drops chunks of length <= 2, so "db 3" and "db 4"
     // leave identical token sets and the older row was suppressed through the
     // handler. Widened past the MIN_CONTENT floor so the short-chunk guard,
     // not the floor, is what keeps both rows.

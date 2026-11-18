@@ -87,7 +87,7 @@ function gateOrder(lines: Fields[], chain: string): number[] {
 function ctx(sid: string): GateContext {
   // This gate call runs for `sid` IN liveRoot. A real host states the same
   // thing by handing every tool execute a sessionID this instance resolves;
-  // a named session with no repository has no write target (#152), so the
+  // a named session with no repository has no write target, so the
   // scenario harness has to declare the workspace it is simulating.
   rememberSessionDir(sid, liveRoot);
   return {

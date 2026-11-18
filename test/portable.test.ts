@@ -50,7 +50,7 @@ beforeEach(() => {
   process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
-  // Import files live inside the store (#24), and these tests write them
+  // Import files live inside the store, and these tests write them
   // before anything else would create the root.
   mkdirSync(memoryRoot(), { recursive: true });
   resetState();
@@ -552,7 +552,7 @@ describe("memory_export / memory_import tools (round trip)", () => {
 
     const loaded = await loadPlugin(liveRoot);
     // Fresh store (simulates another machine); the export→hop→import sequence
-    // is the shared builder (#228).
+    // is the shared builder.
     const { exportOut, hop, importOut } = await roundTripThroughImport(
       loaded,
       root,

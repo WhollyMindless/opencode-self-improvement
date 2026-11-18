@@ -1,6 +1,6 @@
 // Contradiction surface (POC): a guided row that declares ref/claim/klass is
 // code-checked at render time; a collision renders one CONFLICT line whose
-// Action is fixed by the class. #345 measured the alternative: a wrong guided
+// Action is fixed by the class.  measured the alternative: a wrong guided
 // row rewrote correct code (raw row) and framing alone stayed a coin flip.
 // Hermetic: temp OPENCODE_MEMORY_DIR + temp repo dirs, nothing real touched.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";

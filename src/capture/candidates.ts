@@ -1,4 +1,4 @@
-// candidates — split from src/capture.ts (#168 domain restructure). Declaration bodies are unchanged.
+// candidates — split from src/capture.ts ( domain restructure). Declaration bodies are unchanged.
 // Opt-in auto-capture parsing, prompt, and lag helpers. Host access and model
 // calls live in src/index.ts. Every candidate that leaves this module flows
 // through runWriteGate in index.ts: capture NEVER writes memories directly,
@@ -92,7 +92,7 @@ export function parseCandidates(raw: string, max: number): CaptureCandidate[] {
         o.status === "open" || o.status === "settled" ? o.status : undefined;
       // A bad kw list costs the row its keywords, never the row itself.
       const kw = cleanKeywords(o.kw);
-      // Hint channel (#335): only a literal true counts; junk yields an
+      // Hint channel: only a literal true counts; junk yields an
       // untagged row, the same shape an agent-derived fact has.
       const guided = o.guided === true;
       // Contradiction surface (POC): ref/claim/klass ride guided rows only.

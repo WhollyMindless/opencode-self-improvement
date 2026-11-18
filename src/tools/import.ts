@@ -1,4 +1,4 @@
-// The memory_import tool, extracted from index.ts (#168). Schema, description
+// The memory_import tool, extracted from index.ts. Schema, description
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
@@ -25,7 +25,7 @@ export const register: ToolRegister = (editor, deps) => {
         const { sid } = toolIds(context);
         // Resolve before touching the file: every imported row is re-stamped
         // with the IMPORTING session's repository, so an unresolved caller
-        // would move a whole export into whoever set up last (#152).
+        // would move a whole export into whoever set up last.
         await bindSessionIdentity(sid);
         const ownerless = ownerlessWriter(sid);
         if (ownerless) return await refuseOwnerlessWrite(ownerless, "import");
@@ -51,7 +51,7 @@ export const register: ToolRegister = (editor, deps) => {
                 ? ` ${t.downgraded} open rows downgraded to settled (missing eligible memory_export header or verifiable repo scope).`
                 : "") +
               // Rows that landed without their write_promoted line are
-              // durable but invisible to memory_evidence (#155 review) —
+              // durable but invisible to memory_evidence ( review) —
               // the tally owes the reader the count, not silence.
               (t.unaudited
                 ? ` ${t.unaudited} promoted rows landed without their write_promoted audit line (${t.auditError}); memory_evidence will miss them.`

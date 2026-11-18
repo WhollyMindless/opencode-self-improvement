@@ -1,6 +1,6 @@
 // The init stamp: plugin-internal bookkeeping for /repo-init idempotency.
 //
-// It deliberately does NOT live in the memory store (#374). A store row is
+// It deliberately does NOT live in the memory store. A store row is
 // reachable through `memory_remember` and `memory_import`, and nothing reserved
 // the `init-stamp` tag, so any session could write a `context` row naming the
 // current short HEAD and make every later `memory_init` answer "Already
@@ -18,7 +18,7 @@
 // is ignored, and init re-runs: idempotent, cheap, and the safe answer to a
 // provenance the plugin cannot check. A row that passes the pairing is copied to
 // the file and then retired, and the head it is copied at is the head that
-// evidence line names — never the head the row's own prose claims (#376 review).
+// evidence line names — never the head the row's own prose claims ( review).
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { memoryRoot } from "../core/config/paths.ts";
@@ -110,7 +110,7 @@ function readStampFile(key: string): InitStamp | null {
  * starts at 23:59:59.999 and finishes after midnight splits the pair across two
  * day files, so the row's own day is not enough — the following day has to be
  * read too, or that migration is silently lost every night around midnight
- * (#376 review).
+ * ( review).
  */
 function auditDays(ts: string): string[] {
   const day = /^(\d{4}-\d{2}-\d{2})T/.exec(ts)?.[1];
@@ -132,7 +132,7 @@ function auditDays(ts: string): string[] {
  * mints its stamp timestamp the same way, so two concurrent writes can land on
  * the same millisecond — 42 of 480 rows did in the review's probe. Pairing on
  * `stamp === ts` alone would then let a row that names one head retire a
- * repository's idempotency at a different head, which is the forgery #374 was
+ * repository's idempotency at a different head, which is the forgery was
  * opened to close. Returns null when no line names this ts with a usable head.
  */
 async function initAuditHead(ts: string): Promise<string | null> {
@@ -182,14 +182,14 @@ export interface StampRead {
   /** True when a pre-#374 store row was honoured and copied to the file. */
   migrated: boolean;
   /**
-   * The migration copy could not be written (#376 review). The row was still
+   * The migration copy could not be written ( review). The row was still
    * honoured, so init stays idempotent for this run, but nothing was recorded:
    * the caller must report it the way a failed stamp write is reported, or every
    * later init re-migrates and re-claims success.
    */
   stampError?: string;
   /**
-   * The honoured row is still active (#376 review): its retirement was refused
+   * The honoured row is still active ( review): its retirement was refused
    * or threw. The migration is not lost — the file answers the next read — but
    * the store keeps a row the operator should hear about.
    */
@@ -230,7 +230,7 @@ export async function readStamp(
 }
 
 /**
- * Retire the row a migration just copied (#376 review). The stamp lives in the
+ * Retire the row a migration just copied ( review). The stamp lives in the
  * file now, so leaving the row active would keep a piece of plugin bookkeeping in
  * the store as an ordinary row; `isInjectable` already withholds the tag from
  * every model-facing read, and this takes it out of the store's active set too.
@@ -283,7 +283,7 @@ export function writeStampFile(
     mkdirSync(stampDir(), { recursive: true, mode: 0o700 });
     tightenDirectory(stampDir());
     preparePrivateFile(path);
-    // Per-call temp name (#89): two inits on one store must never rename each
+    // Per-call temp name: two inits on one store must never rename each
     // other's half-written temp over a stamp.
     const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
     writeFileSync(

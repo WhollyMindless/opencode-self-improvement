@@ -1,4 +1,4 @@
-// The memory_evidence tool, extracted from index.ts (#168). Schema, description
+// The memory_evidence tool, extracted from index.ts. Schema, description
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
@@ -19,7 +19,7 @@ export const register: ToolRegister = (editor, deps) => {
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
         const reader = readerFromSid(sid);
-        // #130: the ONE path the schema-validated date can resolve to —
+        // the ONE path the schema-validated date can resolve to —
         // a real calendar day inside the evidence dir, never a traversal
         // into the raw store or the filesystem beyond it.
         const file = evidenceFileFor(args.date);
@@ -30,11 +30,11 @@ export const register: ToolRegister = (editor, deps) => {
           };
         }
         let lines = await readLines(file);
-        // Data partitions too (#131's ownership rule, applied to evidence):
+        // Data partitions too ( ownership rule, applied to evidence):
         // a line stamped to another repository is not this session's data,
         // and a line a NAMED session wrote while unresolved is private to
         // that session — the caller's sid is what the private branch
-        // matches against (#128 re-review).
+        // matches against ( re-review).
         if (reader.kind !== "admin") {
           lines = lines.filter((l) => {
             const fields = parseLine(l);

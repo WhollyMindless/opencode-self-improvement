@@ -1,4 +1,4 @@
-// Contract: opt-in auto-capture at the COMPACTION moment (issue #41, epic #82).
+// Contract: opt-in auto-capture at the COMPACTION moment (, epic ).
 //
 // Compaction is where episodic detail dies (Compaction Cliff: one round keeps
 // 53% of exact-wording rules), so the session.compaction hook additionally
@@ -18,7 +18,7 @@
 //   - a per-session cooldown bounds repeated compactions, and the cooldown is
 //     per-trigger (an idle right after compaction still captures);
 //   - hosts whose hook payload carries no messages fall back to
-//     session.context — the envelope lesson of PR #79;
+//     session.context — the envelope lesson of PR ;
 //   - the trigger adds NO new event subscription, and cleanup makes the hook
 //     inert again.
 // Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
@@ -48,7 +48,7 @@ beforeEach(() => {
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
   resetState();
-  resetCaptureCooldowns(); // cooldown truth is module-level since #108 - and bun test shares module state across files, so a fresh test needs this explicit clear
+  resetCaptureCooldowns(); // cooldown truth is module-level since the cooldown refactor - and bun test shares module state across files, so a fresh test needs this explicit clear
 });
 
 afterEach(() => {
@@ -120,7 +120,7 @@ const FRESH_CONTENT =
   "The staging API rate limit is 120 requests per minute per key as of October 2026.";
 // A second genuinely-new payload: in the two-setups idle test BOTH canned replies
 // must append, so the store assertion does not depend on which loop wins the
-// shared cooldown (#117).
+// shared cooldown.
 const FRESH_CONTENT_B =
   "The nightly archive job runs at 02:30 UTC and keeps fourteen days of tarballs.";
 
@@ -410,14 +410,14 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
   });
 });
 
-// #108: cooldown state used to live inside setup()'s closure, and the file's
+//: cooldown state used to live inside setup()'s closure, and the file's
 // own Bun-floor comment records that setup runs for more than one location.
 // Two live registrations meant one compaction reached two cooldown maps that
 // were strangers: two generate.text calls on one transcript - the gate
 // collapses the duplicate rows, so store state was safe while the TOKENS
 // were not. The truth is now module-level (the `turns` shape from lock.ts),
 // keyed `${trigger}:${sid}`.
-describe("cooldown shared across setup() registrations (#108)", () => {
+describe("cooldown shared across setup() registrations", () => {
   test("one compaction, two live setups, exactly ONE model call", async () => {
     seed("pattern", "build", DUP_CONTENT);
     const a = await loadPlugin(liveRoot, {
@@ -479,7 +479,7 @@ describe("cooldown shared across setup() registrations (#108)", () => {
     // Both replies are genuinely new: the harness bus queues both subscribers
     // independently, so which loop wins the shared cooldown is scheduling luck -
     // with a DUP twin on either side, a collapse could legitimately leave the
-    // store at one row and the assertion was red on correct code (#117). The
+    // store at one row and the assertion was red on correct code. The
     // one-spend invariant this test pins is the CALL COUNT, not the content.
     a.capture.generate.response = JSON.stringify([
       { type: "learning", scope: "api", content: FRESH_CONTENT },
@@ -515,7 +515,7 @@ describe("cooldown shared across setup() registrations (#108)", () => {
     // Completion signal: the evidence line is recorded after runWriteGate
     // returns, i.e. once the append has hit disk. The naked sleep this replaces
     // doubled as the whole append budget and lost it on a loaded Windows
-    // runner; the compaction twin above already waits on evidence (#117).
+    // runner; the compaction twin above already waits on evidence.
     await waitFor(() =>
       evidence().some((l) => String(l.ev).startsWith("auto_capture_")),
     );

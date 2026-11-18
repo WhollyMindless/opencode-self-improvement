@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeStore } from "./helpers/remove-store.ts";
 
-describe("viewer exposure warning (#13)", () => {
+describe("viewer exposure warning", () => {
   test.each([
     { name: "default", allowed: "", host: "127.0.0.1", warns: false },
     {
@@ -78,7 +78,7 @@ describe("viewer exposure warning (#13)", () => {
     try {
       // A fresh process reads the startup env, starts a real server, then stops
       // it after an actual HTTP request. Capture stderr rather than replacing console.warn.
-      // #223: an exposed viewer now refuses the unauthenticated request with
+      //: an exposed viewer now refuses the unauthenticated request with
       // 401 instead of serving the page; a loopback-only one still serves it.
       const expectedStatus = warns ? 401 : 200;
       const result = Bun.spawnSync(

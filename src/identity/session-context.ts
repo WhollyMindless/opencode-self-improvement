@@ -1,4 +1,4 @@
-// Per-setup session binding and caller context (#168). The host object is kept
+// Per-setup session binding and caller context. The host object is kept
 // intact so optional API methods retain their receiver and are read at call time.
 import type { GateContext } from "../gate/gate.ts";
 import { captureEvidenceContext, record } from "../evidence/record.ts";
@@ -40,7 +40,7 @@ export function createSessionContext(
 ) {
   const gateContext = (sid?: string): GateContext => {
     // Every session-scoped member resolves for the CALLER's session when it
-    // knows one (#116): capture awaits a model call between setCurrent and
+    // knows one: capture awaits a model call between setCurrent and
     // persistence, and on a multi-session server the global current moves
     // during that await. Falling back to getCurrent() is exactly today's
     // behavior for callers whose current IS their session (tool hooks).
@@ -65,7 +65,7 @@ export function createSessionContext(
     };
   };
 
-  // A durable write needs an OWNER (#152). Reads already fail closed for a
+  // A durable write needs an OWNER. Reads already fail closed for a
   // session whose repository never resolved — it sees global rows and nothing
   // else — so such a session may not write either: the alternatives were the
   // last setup's repository or an unstamped (hence global) row. This answers
@@ -91,14 +91,14 @@ export function createSessionContext(
   // execute a per-call ToolContext carrying sessionID; the harness and any
   // host that omits it fall back to the ambient current, which is correct
   // exactly because execute.before ran immediately before this tool with
-  // no await between (#116's documented fallback). Never re-read the global
-  // after an await to learn who is calling (#127).
+  // no await between ( documented fallback). Never re-read the global
+  // after an await to learn who is calling.
   const toolIds = (context?: unknown): { sid: string; call: string } => {
     const { sessionID: fromCtx, callID: call } = toolIdentity(context);
     // Entry binding: a session this instance has never seen is resolved to
     // THIS workspace (provisional — a firm event/API identity still
     // replaces it), so the tool's reader partitions by the repository the
-    // call reached, not by the last setup's module scope (#127).
+    // call reached, not by the last setup's module scope.
     if (fromCtx && fromCtx !== "?") {
       bindSessionProvisional(fromCtx, instanceDir);
     }
@@ -185,7 +185,7 @@ export function createSessionContext(
   // host cannot describe (fresh, or a host without the lookup) is bound to
   // THIS instance's workspace — the caller's repository as the flow knows
   // it, and strictly better than an unbound read inheriting the module
-  // scope of whoever loaded last (#127's multi-setup residue).
+  // scope of whoever loaded last ( multi-setup residue).
   async function bindSessionIdentity(sid: string | undefined): Promise<void> {
     if (!sid || sid === "?" || sessionDirFirm(sid)) return;
     await bindSessionFromMessages(sid);

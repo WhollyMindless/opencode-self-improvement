@@ -4,7 +4,7 @@
 //     since the snapshot, listing them; file untouched;
 //   - merge: restore the snapshot AND keep the divergent rows (superset);
 //   - force: exact rollback (the pre-fix behavior, now opt-in), minus rows
-//     whose content carries a rejection tombstone (#307, decision #214 A).
+//     whose content carries a rejection tombstone (decision A).
 //   - a bare snapshot name (as printed by list) resolves against snapshots/.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
@@ -185,7 +185,7 @@ describe("restoreSnapshot modes", () => {
     expect(lines()).toEqual([]);
   });
 
-  test("merge does not resurrect a forgotten row either; force omits it (#307)", async () => {
+  test("merge does not resurrect a forgotten row either; force omits it", async () => {
     seed([row(1)]);
     const forgotten = await prune("demo", "learning", "remove leaked secret");
     const forgottenSnapshot = forgotten.snapshot[0];
@@ -204,7 +204,7 @@ describe("restoreSnapshot modes", () => {
       memoryRoot(),
       "force",
     );
-    // #214 A overturned the pre-fix contract ("force does" resurrect): the
+    //A overturned the pre-fix contract ("force does" resurrect): the
     // prune left a rejection tombstone on the row's content, so force reports
     // the row in rejectedOmitted and leaves it non-recallable.
     expect(forced.deletedOmitted).toEqual([]);
@@ -354,7 +354,7 @@ describe("memory_undo tool guidance", () => {
 });
 
 describe("memory_undo force and rejection tombstones (#307, decision #214 A)", () => {
-  // #35's stated property: no tool lifts a rejection. FORCE is the only mode
+  // stated property: no tool lifts a rejection. FORCE is the only mode
   // that republishes rows deleted since the snapshot, so it alone must consult
   // the rejection tombstones — a restore that reinstates a tombstoned value
   // leaves the store holding an active row it also records as rejected.

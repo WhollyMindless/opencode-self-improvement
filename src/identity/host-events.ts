@@ -90,7 +90,7 @@ export interface SessionUsage {
   read: number;
   write: number;
   /**
-   * Completion tokens the session generated (#387). Absent from the envelope
+   * Completion tokens the session generated. Absent from the envelope
    * before this, so the plugin could report what the prompt cache cost but
    * never what the session itself produced — and `input` is only the UNCACHED
    * remainder, so the two together understate a session by most of its size.
@@ -102,7 +102,7 @@ export interface SessionUsage {
   /**
    * The message this receipt belongs to — the `message.updated` compatibility
    * path only. Streaming updates for the same message overwrite each other;
-   * they must not overwrite another message's receipt (#394 review).
+   * they must not overwrite another message's receipt ( review).
    */
   messageID?: string;
   /**
@@ -145,7 +145,7 @@ export function sessionUsageEvent(raw: unknown): SessionUsage | undefined {
   };
 }
 
-// #394 review: on the `message.updated` compatibility path each receipt is
+// review: on the `message.updated` compatibility path each receipt is
 // ONE message's usage, not the session's. Overwriting the session total with
 // the last message displayed 90 completion tok where two messages produced
 // 160. Streaming updates arrive repeatedly per message, so the latest receipt

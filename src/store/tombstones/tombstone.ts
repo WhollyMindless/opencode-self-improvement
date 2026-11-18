@@ -1,5 +1,5 @@
-// tombstone — split from src/tombstones.ts (#168 domain restructure). Declaration bodies are unchanged.
-// Value-keyed rejection tombstones (#35).
+// tombstone — split from src/tombstones.ts ( domain restructure). Declaration bodies are unchanged.
+// Value-keyed rejection tombstones.
 //
 // The blocklist keys on `ts` — ROW identity. memory_forget/prune deletes the
 // row outright. Neither survives re-ingestion: replay the original source (a
@@ -297,7 +297,7 @@ export async function tombstones(): Promise<Tombstone[]> {
  * The heavy concurrent scenario on the Windows runner failed 2/2 with that shape
  * (run 41112466339). At that time, lock-budget expiry let a writer proceed
  * unlocked, losing rows behind a long read-modify-write. LOCK_WRITE now refuses
- * on timeout (#196); batching still reduces lock contention and its I/O cost.
+ * on timeout; batching still reduces lock contention and its I/O cost.
  *
  * Still idempotent by `ch`, and de-duplicated WITHIN the batch too, so a forget
  * that removes fifty rows carrying the same content records one tombstone.
@@ -315,7 +315,7 @@ export async function tombstoneMany(
   const at = new Date().toISOString();
   // An audit reason is human prose (prune passes the caller's straight through),
   // and this is the boundary where it becomes durable — the same rule the
-  // deletion audit and the evidence log apply (#128). Scrubbing here rather than
+  // deletion audit and the evidence log apply. Scrubbing here rather than
   // at each call site is what keeps a future caller from forgetting to.
   const reason = redactSecrets(opts.reason);
   const fresh: string[] = [];
@@ -395,7 +395,7 @@ export async function removeTombstone(ch: string): Promise<boolean> {
         const row = parseLine(l);
         return !(row && row.ch === ch);
       });
-      // A no-op must report as a no-op (#209): unknown ch lifts nothing, so
+      // A no-op must report as a no-op: unknown ch lifts nothing, so
       // return false and skip the rewrite rather than republishing the file
       // and reporting a withdrawal that never happened.
       if (kept.length === lines.length) return false;

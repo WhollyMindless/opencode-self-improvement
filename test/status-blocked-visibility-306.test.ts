@@ -1,4 +1,4 @@
-// #306 (decision #213 B): the recent-blocked-writes list follows the SAME
+//(decision  B): the recent-blocked-writes list follows the SAME
 // evidence-visibility rule as memory_evidence. RED on main: a `write_blocked`
 // line stamped to repository B — distinctive sid — printed inside a repository
 // -A session's memory_status, leaking B's session ids and gate reasons. GREEN:
@@ -103,7 +103,7 @@ test("repo-A memory_status omits a repo-B blocked line and shows its own (#306 R
   expect(content).toContain("ses-OWNED-A-306");
 });
 
-test("admin reader sees every blocked line; repo-B sees its own, not A's (#306)", async () => {
+test("admin reader sees every blocked line; repo-B sees its own, not A's", async () => {
   const scopeA = resolveRepo(a);
   const scopeB = resolveRepo(b);
   seedBlocked("ses-BLEEDS-306", "ambiguous_memory", scopeB.key, scopeB.path);
@@ -123,7 +123,7 @@ test("admin reader sees every blocked line; repo-B sees its own, not A's (#306)"
   expect(content).not.toContain("ses-OWNED-A-306");
 });
 
-test("aggregate STORE counts are identical for every reader — machine-wide by decision (#306)", async () => {
+test("aggregate STORE counts are identical for every reader — machine-wide by decision", async () => {
   const scopeA = resolveRepo(a);
   const scopeB = resolveRepo(b);
   seedBlocked("ses-BLEEDS-306", "ambiguous_memory", scopeB.key, scopeB.path);

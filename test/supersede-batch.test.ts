@@ -1,4 +1,4 @@
-// Batch supersession (#61): decay and the gate's neutralization loops used to
+// Batch supersession: decay and the gate's neutralization loops used to
 // call markSuperseded per row - N full lock/read/rewrite/snapshot/publish
 // cycles, N undo points for one logical operation. markManySuperseded does one
 // pass per file: N rows, ONE snapshot, ONE publish. These tests pin:
@@ -204,8 +204,8 @@ describe("markManySuperseded (batch supersession, #61)", () => {
   });
 });
 
-// #106: the batch path shipped in #102 published WITHOUT the fileIdentity
-// anchor #89 made standard for whole-file read-modify-writes. On Windows,
+//: the batch path shipped in  published WITHOUT the fileIdentity
+// anchor  made standard for whole-file read-modify-writes. On Windows,
 // mandatory locking refuses the handover rename while any reader still holds
 // the destination, so an unanchored batch publish either dies on the refusal
 // (losing an ordinary retirement to contention) or - if it retried blind -
@@ -215,7 +215,7 @@ describe("markManySuperseded (batch supersession, #61)", () => {
 // the pre-fix red leg is windows-latest CI, and this file's Linux behavior is
 // byte-identical with or without the anchor.
 describe.skipIf(process.platform !== "win32")(
-  "batch publish under Windows reader contention (#106)",
+  "batch publish under Windows reader contention",
   () => {
     function held(file: string): { release: () => void } {
       const fd = openSync(file, "r"); // node shares read/write but NOT delete: rename is blocked
@@ -241,7 +241,7 @@ describe.skipIf(process.platform !== "win32")(
       setTimeout(h.release, 400); // the anchored retry window reopens the rename before it closes
       // Red pre-fix: writeAtomic with no anchor does ONE rename, hits the
       // refusal, and throws the retirement away - the exact deadline-shape
-      // #89 fixed for stampRow, in the batch that bypassed it.
+      //fixed for stampRow, in the batch that bypassed it.
       expect(await markManySuperseded(batch([ts]))).toBe(1);
       expect((await loadAll()).find((m) => m.ts === ts)!.superseded_by).toBe(
         "batch",

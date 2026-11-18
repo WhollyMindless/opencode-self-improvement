@@ -1,11 +1,11 @@
-// run — split from src/init.ts (#168 domain restructure). Declaration bodies are unchanged.
+// run — split from src/init.ts ( domain restructure). Declaration bodies are unchanged.
 // Repository init: re-derive build/test command memories through the write gate
 // and record an init stamp keyed on git HEAD. Deterministic (no model calls):
 // manifests are parsed locally and every write goes through the 4-gate pipeline
 // with the `trusted` flag (plugin-authored bookkeeping, not model claims).
 // Degrades gracefully when git is absent, so install-from-scratch still writes
-// script memories. The codebase-memory graph integration was removed (#231).
-// The stamp is a file under the memory root, not a memory row (#374): see
+// script memories. The codebase-memory graph integration was removed.
+// The stamp is a file under the memory root, not a memory row: see
 // src/init/stamp.ts for why a row was forgeable.
 import { basename } from "node:path";
 import { readerFromSid } from "../store/model/visibility.ts";
@@ -27,7 +27,7 @@ import { readStamp, writeStampFile } from "./stamp.ts";
 export interface InitArgs {
   liveRoot: string;
   force?: boolean;
-  // The calling session (#127): rows this writes are stamped for the CALLER,
+  // The calling session: rows this writes are stamped for the CALLER,
   // resolved after runInit's own awaits (git probing) rather than from the
   // ambient current, which a concurrent session may have moved.
   sessionID?: string;
@@ -51,7 +51,7 @@ export interface InitSummary {
   stampMigrated?: boolean;
   /**
    * A honoured pre-#374 row is still active: its retirement did not land
-   * (#376 review). The migration itself is durable; the row is inert either
+   * ( review). The migration itself is durable; the row is inert either
    * way, and the operator hears about it instead of reading a clean migration.
    */
   stampRetireError?: string;
@@ -76,12 +76,12 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
     ...writeEvidence(args.sessionID ?? getCurrent().sid),
     hasGateCheck: hasGateCheck(args.sessionID ?? getCurrent().sid),
     // Stamps land on the caller's session even though runInit awaits git
-    // probing before the gate writes (#127 / #121's write-side root cause).
+    // probing before the gate writes ( / write-side root cause).
     sessionID: args.sessionID,
     trusted: true,
   };
 
-  // #375: repair rows written before #372 screened init's output. This runs
+  // repair rows written before screened init's output. This runs
   // BEFORE the stamp check on purpose — the common poisoned store belongs to a
   // repository init has already stamped, and returning early would leave the
   // poisoned row live forever. The scan is one store read and five regexes per
@@ -89,7 +89,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
   const retag = await retagQuarantinedRows(gateCtx);
 
   // The stamp is read from (and written to) a file named for the repository
-  // identity key, never from a row a model could write (#374). The write target
+  // identity key, never from a row a model could write. The write target
   // already holds that identity, so the common path spends no git probes here.
   // Scope is still a basename, so two "api" checkouts stay apart: the key, not
   // the name, decides which stamp a repository reads.
@@ -109,7 +109,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
         head,
         since: prior.ts,
         migrated: migrated || undefined,
-        // #376 review: a migration that honoured the row but could not write the
+        // review: a migration that honoured the row but could not write the
         // file, or could not retire it, is a fault the skip line has to carry.
         // Without it every later init re-migrates and re-claims success with no
         // audit trail saying the file was never there.
@@ -152,7 +152,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
   let written = 0;
   let collapsed = 0;
   let blocked = 0;
-  // Promoted rows whose write_promoted audit line fell (#155 review: the
+  // Promoted rows whose write_promoted audit line fell ( review: the
   // fault must be visible to every writer, bookkeeping included).
   let unaudited = 0;
   for (const s of scripts) {
@@ -160,7 +160,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
     // Auto-capture and import both screen their candidate for injection-shaped
     // text; init's rows are external text too — the scope is the checkout
     // directory basename and the command comes from the manifest — so they get
-    // the same scan (#302). A match is still stored, tagged `quarantine`, and
+    // the same scan. A match is still stored, tagged `quarantine`, and
     // withheld from recall and injection.
     const outcome = await runWriteGate(
       quarantineCandidate({
@@ -179,7 +179,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
   }
 
   // The stamp is bookkeeping about this run, not a claim for the model to read,
-  // so it is a file rather than a gated row (#374). A fault is reported, never
+  // so it is a file rather than a gated row. A fault is reported, never
   // swallowed: the honest consequence is "init will run again", and saying so
   // beats a stamp the operator believes was written.
   const stampTs = new Date().toISOString();
@@ -198,7 +198,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
       unaudited,
       stamp: stampError ? "-" : stampTs,
       stamp_error: stampError,
-      // A migration that copied the row but could not retire it (#376 review).
+      // A migration that copied the row but could not retire it ( review).
       stamp_retire_error: retireError,
       migrated: migrated || undefined,
       retagged: retag.retagged || undefined,

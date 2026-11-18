@@ -7,7 +7,7 @@ export const REDACTED_SECRET = "[redacted]";
 // PEM redaction is a linear marker-pair scan, not one lazy regex. The old
 // /-----BEGIN...[\s\S]*?-----END.../g re-scanned to end-of-input at every
 // unmatched BEGIN, so a large tool output of repeated BEGIN lines with no END
-// line stalled the hook for seconds per megabyte (#290). The marker regexes
+// line stalled the hook for seconds per megabyte. The marker regexes
 // below are anchored (sticky) and never span lines, so each probe is bounded.
 const PRIVATE_KEY_BEGIN = "-----BEGIN";
 const PRIVATE_KEY_END = "-----END";

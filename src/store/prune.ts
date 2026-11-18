@@ -10,7 +10,7 @@ export async function pruneMemory(
   scope: string,
   type: string,
   reason: string,
-  // The calling session (#127): the repo floor on prune must follow the
+  // The calling session: the repo floor on prune must follow the
   // CALLER's identity, captured at tool entry, not the ambient current the
   // locked file walk may outlive. "?" / undefined keep ambient semantics.
   sid?: string,

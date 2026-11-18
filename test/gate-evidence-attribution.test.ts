@@ -1,4 +1,4 @@
-// #208 pins: GATE-2 evidence and promoted.supersedes must attribute only the
+//pins: GATE-2 evidence and promoted.supersedes must attribute only the
 // supersessions the call actually performed. When a concurrent session (or the
 // viewer) retires a planned row between the gate's scope read and the batch
 // publish, the batch skips that row (it re-reads under the lock), so `marked`

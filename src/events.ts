@@ -1,4 +1,4 @@
-// Host hook registration and measured-usage listener (#168). Setup owns the
+// Host hook registration and measured-usage listener. Setup owns the
 // returned controller and supplies the live compaction-capture callback.
 import type { PluginCtx } from "./core/host.ts";
 import type { guarded as Guarded } from "./core/hooks.ts";
@@ -112,7 +112,7 @@ export async function registerHooks(
       // Evidence lines written below stamp the RECORDING repository. Bind
       // an unbound caller to this instance first (SYNC provisional; the
       // prompt hook / events bind firmly in production) so a tool_result
-      // can never carry another instance's stamp (#127).
+      // can never carry another instance's stamp.
       if (typeof event?.sessionID === "string") {
         bindSessionProvisional(event.sessionID, instanceDir);
       }
@@ -153,12 +153,12 @@ export async function registerHooks(
       // Route store reads in this hook through the right session's scope:
       // the sid is captured from the event BEFORE any await and carried
       // explicitly — the global current set here is legacy bookkeeping
-      // only, never the identity this flow filters with (#127).
+      // only, never the identity this flow filters with.
       const sid =
         typeof event?.sessionID === "string" ? event.sessionID : undefined;
       setCurrent({ sessionID: event?.sessionID });
       if (typeof sid === "string") sessions.touch(sid);
-      // #139: SessionRequest declares a readonly model, so the host already
+      // SessionRequest declares a readonly model, so the host already
       // tells us which model this session runs on. Remember it: an omitted
       // captureModel inherits it in capture/runtime.ts.
       if (typeof sid === "string") recordSessionModel(sid, event?.model);
@@ -167,7 +167,7 @@ export async function registerHooks(
       // and silently lose its own frontier rows. SYNC provisional bind to
       // this instance's workspace — the prompt hook (or an event) has
       // already bound firmly in production, so no host lookup belongs in
-      // this hot path (#127).
+      // this hot path.
       if (typeof sid === "string") bindSessionProvisional(sid, instanceDir);
       await sessions.deliver(sid, (text) =>
         event?.system?.push?.({ type: "text", text }),
@@ -202,7 +202,7 @@ export async function registerHooks(
   // parts (visible to the summarizer model, which runs AFTER hooks) so the
   // summary preserves the facts. Never sets event.result — that would skip
   // the summarizer call entirely. Also fires the context-death auto-capture
-  // (issue #41, opt-in; see the capture section): the transcript is mined
+  // (issue, opt-in; see the capture section): the transcript is mined
   // while it still exists, BEFORE the summarizer replaces it.
   await ctx.session?.hook("compaction", (event: any) =>
     guarded("session.compaction (onCompacting)", async () => {
@@ -211,7 +211,7 @@ export async function registerHooks(
       setCurrent({ sessionID: event?.sessionID });
       // The anchor read and the capture pass below partition by the session's
       // repository; SYNC provisional bind only — a host lookup from this
-      // hook would violate the zero-token promise (#127, see capture).
+      // hook would violate the zero-token promise (, see capture).
       if (typeof sid === "string") bindSessionProvisional(sid, instanceDir);
       await onCompacting({ sessionID: event?.sessionID });
       if (typeof event?.sessionID === "string") {
@@ -265,7 +265,7 @@ export async function registerHooks(
           if (!usage) continue;
           const { sessionID } = usage;
           sessions.touch(sessionID);
-          // #394 review: fold, do not overwrite — on the compatibility path a
+          // review: fold, do not overwrite — on the compatibility path a
           // receipt is per-message, and the last message is not the session.
           measuredTurns.set(
             sessionID,

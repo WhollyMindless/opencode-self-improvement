@@ -1,4 +1,4 @@
-// #224: the ledgers that grow with work are bounded. Pins four contracts:
+//: the ledgers that grow with work are bounded. Pins four contracts:
 // (1) the sessions Map evicts beyond SESSION_CAP (a resident server must not
 //     hold a SessionState per session forever);
 // (2) the per-session calls ledger is capped at CALLS_CAP while the lifetime
@@ -34,7 +34,7 @@ import {
 import { ev, readEvidenceLog as evidence } from "./helpers/logfmt.ts";
 import { removeStore } from "./helpers/remove-store.ts";
 
-// Pinned literal of src/capture/triggers.ts's CALLS_CAP (#224), captured the
+// Pinned literal of src/capture/triggers.ts's CALLS_CAP, captured the
 // way boundaries.test.ts captures the wire contract: a deliberate move of the
 // cap has to be said out loud here. Literal (not import) so this file also
 // compiles and fails BEHAVIORALLY at the merge-base, where the ledgers were
@@ -148,7 +148,7 @@ test("repokey session cache evicts at the shared SESSION_CAP (no drift)", () => 
   // fixture directory (removed by afterEach) pins the same eviction. Distinct
   // mkdtemp dirs made every insert resolve through real `git` subprocesses:
   // that loop took 5684.99ms on the Windows runner and timed out the 5s
-  // default (#287 review F1), and leaked its dirs outside `root`.
+  // default ( review F1), and leaked its dirs outside `root`.
   for (let i = 0; i <= SESSION_CAP; i++)
     rememberSessionDir(`osi-224-rk-${i}`, root);
   expect(sessionDirFirm("osi-224-rk-0")).toBeUndefined();

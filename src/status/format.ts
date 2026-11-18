@@ -1,4 +1,4 @@
-// format — split from src/status.ts (#168 domain restructure). Declaration bodies are unchanged.
+// format — split from src/status.ts ( domain restructure). Declaration bodies are unchanged.
 
 import { type Measured, type StatusPayload } from "./payload.ts";
 

@@ -1,4 +1,4 @@
-// The recall window's default size (#409, RESULTS §12 and §14).
+// The recall window's default size.
 //
 // Lane 0 joined 1,090 live `memory_recall` events to their session transcripts
 // and asked whether the returned rows were used: a row at rank 1 goes on to be
@@ -56,7 +56,7 @@ afterEach(() => {
   removeStore(root);
 });
 
-describe("the recall window default (#409)", () => {
+describe("the recall window default", () => {
   test("a query returns 5 rows by default, not 20", async () => {
     const { tool } = await loadPlugin(root);
     await seedTwelve();

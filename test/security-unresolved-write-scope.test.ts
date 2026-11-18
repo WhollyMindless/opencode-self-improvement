@@ -1,4 +1,4 @@
-// #152 — the WRITE-side twin of #127/#133. A server-style plugin instance
+// The WRITE-side twin of the read-side identity fix. A server-style plugin instance
 // (setup with no `location`) cannot bind a fresh session when neither the
 // context API nor the session row describes it. Reads already fail closed for
 // that caller: `readerForSession` gives it `global-only`, never the module
@@ -301,7 +301,7 @@ test("control: a bound caller still stores private memory only for its own repo"
 });
 
 // A plugin instance that DOES know its workspace keeps resolving an unknown
-// session to that workspace (the provisional binding #127 introduced): one
+// session to that workspace (the provisional binding  introduced): one
 // project per instance is the ordinary shape and must stay frictionless.
 test("a session-unknown call into a workspace-bound instance still writes there", async () => {
   const pa = await load(a);

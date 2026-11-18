@@ -1,4 +1,4 @@
-// Contract (#207): deleting a row must not silently drop the metadata that
+// Contract: deleting a row must not silently drop the metadata that
 // controls its visibility. The deletion audit line is the only record a
 // deleted row has, so it must carry tags, keywords, issue and status — and
 // the viewer's restore-entry must resolve them from that line (the store's
@@ -208,7 +208,7 @@ test("restore-entry resolves the authoritative origin — a forged repo stamp lo
 });
 
 test("legacy audit lines without metadata restore unchanged — the documented fallback", async () => {
-  // An audit line written before #207: type/scope/content/repo only.
+  // An audit line from before deletion metadata: type/scope/content/repo only.
   const scopeA = resolveRepo(a);
   const ts = "2026-10-01T00:00:00.000Z";
   const { appendLog } = await import("../src/core/logfmt/publish.ts");
@@ -305,7 +305,7 @@ test("restore-entry with an UNKNOWN explicit ts still resolves a known quarantin
 
 test("restore-entry without ts and without any audit record keeps the legacy client-replay fallback", async () => {
   // A row whose deletion predates the deletion audit: no line can be
-  // resolved, so the #129 client replay of the origin stamp survives —
+  // resolved, so the  client replay of the origin stamp survives —
   // the documented fallback for legacy RECORDS (not legacy requests).
   const scopeB = resolveRepo(b);
   const v = await startAdminViewer();

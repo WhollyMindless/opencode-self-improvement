@@ -1,4 +1,4 @@
-// Contract (#128): a recognized credential in ordinary tool output never
+// Contract: a recognized credential in ordinary tool output never
 // persists in durable evidence and never rides back into the model through
 // memory_evidence — with auto-capture OFF (the default configuration this
 // leaked in) or ON. The scrub lives at the write boundaries: record() scrubs
@@ -6,7 +6,7 @@
 // summarize() folds/truncates, so a token cannot survive as a prefix fragment
 // past the 80-char cut and PEM END markers cannot be cut off before matching.
 // Audit reasons (deletions.logfmt) carry the same rule. Fixing NEW writes says
-// nothing about old files — remediation stays separate (#74).
+// nothing about old files — remediation stays separate.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -55,7 +55,7 @@ beforeEach(() => {
   resetSessionScopes();
   resetCaptureCooldowns();
   setRepoScope(resolveRepo(a));
-  // ses-a IS a session OF repo-a — bound, not module-scope-borrowed (#127).
+  // ses-a IS a session OF repo-a — bound, not module-scope-borrowed.
   rememberSessionDir("ses-a", a);
   setCurrent({ sessionID: "ses-a" });
 });
@@ -135,7 +135,7 @@ test("multiline private-key material is scrubbed whole, not folded into fragment
 });
 
 test("deletion audit records scrub a credential carried in the reason", async () => {
-  // The audit/reason family is the same write-boundary class (#128): a human
+  // The audit/reason family is the same write-boundary class: a human
   // reason like "rotated ghp_..." must not persist the secret verbatim.
   const ts = await appendMemory({
     type: "context",

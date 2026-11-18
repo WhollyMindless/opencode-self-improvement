@@ -1,11 +1,11 @@
-// Review follow-ups on #133 (probes 1, 3, 4 of the a8c5b7a follow-up review).
+// Review follow-ups on  (probes 1, 3, 4 of the a8c5b7a follow-up review).
 // A server process can host MORE THAN ONE plugin instance (multi-workspace
 // host): setup() runs once per instance and the LAST one wins the module
 // scope. Nothing a session's flow reads may then resolve through that module
 // scope — the caller's own repository is either bound (session map) or this
 // instance's own setup location, never "whoever loaded last". And a supersede
 // field carried verbatim into a daily row must scrub at the write boundary
-// like every other durable string (#128's rule, one line short).
+// like every other durable string ( rule, one line short).
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
   mkdirSync,
@@ -135,7 +135,7 @@ test("memory_evidence answers from the caller's repository only", async () => {
   expect(out).not.toContain("B_PROBE3_PRIVATE_RESULT");
 });
 
-// Probe 4: the merge reason is scrubbed in the evidence line (#128) but
+// Probe 4: the merge reason is scrubbed in the evidence line but
 // rides into the LOSER'S daily row verbatim through the supersede fields.
 // The store row is durable data too — scrub it at the same boundary.
 test("a credential in a supersede reason never reaches the daily row", async () => {
@@ -181,7 +181,7 @@ test("a credential in a supersede reason never reaches the daily row", async () 
   expect(evidence).not.toContain(TOKEN);
 });
 
-// Probe 2 (#131 through the #127 lens): the merge authorization resolves the
+// Probe 2 (seen through the  lens): the merge authorization resolves the
 // caller through the same identity plumbing — with A loaded FIRST and B's
 // repository sitting in the shared store, A's real merge tool called for an
 // unbound session must not get to retire B's rows. Red at c9791ed, where

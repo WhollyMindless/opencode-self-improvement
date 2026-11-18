@@ -1,4 +1,4 @@
-// Contract (#130, 2026-10-26 security review, medium): `memory_evidence`'s
+// Contract (, 2026-10-26 security review, medium): `memory_evidence`'s
 // `date` is a DATE, not a path. The tool used to join whatever string arrived
 // onto evidenceDir(), so a caller could read `<root>/../outside.logfmt` (any
 // accessible .logfmt path) or `../YYYY-MM-DD` — the RAW daily memory file,
@@ -108,7 +108,7 @@ test("today's evidence stays readable, implicit and explicit", async () => {
   plugin = await loadPlugin(repo);
   // ses-130 is a session OF this workspace: bound, like every session that
   // reaches a plugin instance. An UNBOUND named session's fresh evidence is
-  // private to that session (#128 re-review) — a control for THIS contract
+  // private to that session ( re-review) — a control for THIS contract
   // must present a resolved identity, not exploit the missing-stamp path.
   rememberSessionDir("ses-130", repo);
   await record(

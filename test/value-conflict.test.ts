@@ -1,4 +1,4 @@
-// Contract (#390): a correction retires the row it corrects IN THE DATA. R3
+// Contract: a correction retires the row it corrects IN THE DATA. R3
 // (`results-stale-x5/`, 2150 → 1900) kept both values, the correction winning
 // only because the model wrote "this supersedes the earlier 2150 bps figure"
 // and retrieval happened to prefer it. R3c narrowed the exposure to the
@@ -47,7 +47,7 @@ describe("symbolValues", () => {
   });
 
   test("the scan does not depend on which row ran last", () => {
-    // A module-level `g` regex carries lastIndex between calls — the #393 bug.
+    // A module-level `g` regex carries lastIndex between calls — the  bug.
     // A retirement rule whose answer depends on call order is worse than none,
     // because it looks deterministic.
     const a = "The VAT_BPS constant is 2150 basis points.";
@@ -98,7 +98,7 @@ describe("valueConflicts", () => {
   });
 
   test("a history note does not retire the fact it mentions", () => {
-    // The misfire class #393 accepted for a REFUSAL is not accepted for a
+    // The misfire class  accepted for a REFUSAL is not accepted for a
     // RETIREMENT: with the numbers stripped these are different sentences,
     // and the shape floor must stop it.
     const fact = mem(
@@ -164,7 +164,7 @@ describe("valueConflicts", () => {
     ).toEqual([]);
   });
 
-  test("#400 review round 2: unknown qualifiers (tenants) coexist too", () => {
+  test("unknown qualifiers (tenants) coexist too", () => {
     // The counterexample that broke the environment dictionary: both
     // qualifier sets empty, retirement fired anyway. The residual rule needs
     // no dictionary — "tenant", "alpha" and "beta" are words one row says
@@ -207,7 +207,7 @@ describe("valueConflicts", () => {
     expect(valueConflicts(v3, [v2])).toEqual([]);
   });
 
-  test("#400 review round 3: numeric qualifiers are context, not noise", () => {
+  test("numeric qualifiers are context, not noise", () => {
     // The residual matcher dropped EVERY pure number, so "tenant 101" and
     // "tenant 202" differed only in digits the comparison never saw — and
     // tenant 101 retired. Only the two compared values may drop out.
@@ -237,7 +237,7 @@ describe("valueConflicts", () => {
     expect(valueConflicts(fix, [old]).length).toBe(1);
   });
 
-  test("#400 review round 4: a qualifier repeating the value survives", () => {
+  test("a qualifier repeating the value survives", () => {
     // The literal skip deleted every token equal to a compared value, so
     // "tenant 3" vanished with the asserted 3 and the tenants coexisted no
     // more. The excision is positional: only the number next to the symbol

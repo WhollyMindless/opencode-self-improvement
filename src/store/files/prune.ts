@@ -1,4 +1,4 @@
-// prune — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
+// prune — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
 import { basename, join } from "node:path";
 import { parseLine } from "../../core/logfmt/format.ts";
 import { fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts";
@@ -23,7 +23,7 @@ export interface PruneResult {
 // logging every deletion with its reason. Each file is filtered and republished
 // under the store lock, so a row another session appended while we were reading
 // is not quietly filtered out along with the targets. The reader is the
-// caller's captured identity (#127); out-of-plugin callers keep ambient.
+// caller's captured identity; out-of-plugin callers keep ambient.
 export async function prune(
   scope: string,
   type: string,
@@ -32,7 +32,7 @@ export async function prune(
   durable: PruneResult = { deleted: [], snapshot: [] },
 ): Promise<PruneResult> {
   const { deleted, snapshot } = durable;
-  // #206: a later file failing must not undo the bookkeeping an earlier file
+  // a later file failing must not undo the bookkeeping an earlier file
   // already earned, and no bookkeeping may claim a row the store never let go
   // of. So the order per file is: publish, then audit; and the tombstone pass
   // runs over everything committed even when the loop itself threw. Errors are
@@ -45,7 +45,7 @@ export async function prune(
     bookkeepingError = bookkeepingError ? `${bookkeepingError}; ${msg}` : msg;
   };
   try {
-    // #215 narrowed the ts-addressed write paths (supersede, clearSuperseded,
+    // narrowed the ts-addressed write paths (supersede, clearSuperseded,
     // releaseQuarantine) to the day file the row's own ts names. This one keeps
     // the full sweep on purpose: a forget is addressed by scope/type, not by ts,
     // so the only way to know which files match is to look — and a pre-pass that
@@ -90,7 +90,7 @@ export async function prune(
         },
         LOCK_WRITE,
       );
-      // #206 STORE-2: the deletion audit FOLLOWS the publish, as in the viewer's
+      // STORE-2: the deletion audit FOLLOWS the publish, as in the viewer's
       // delete (mutate.ts audits after its locked handover). Auditing inside the
       // read loop claimed rows as deleted when a snapshot/publish failure left
       // them live: the viewer's Deleted panel listed a still-live row, its
@@ -113,7 +113,7 @@ export async function prune(
   } catch (err) {
     loopError = err;
   }
-  // #35: tombstone every forgotten VALUE, keyed on content rather than on the
+  // tombstone every forgotten VALUE, keyed on content rather than on the
   // row's `ts`, so replaying the source cannot store the fact again.
   //
   // ONE batched call, not one per row: `memory_forget` deletes by scope+type and
@@ -124,10 +124,10 @@ export async function prune(
   // the first, and one consistent order across the codebase is what keeps the
   // lock manager from having to reason about nesting at all.
   //
-  // #206 STORE-1: this runs even when the loop threw. The committed rows are
+  // STORE-1: this runs even when the loop threw. The committed rows are
   // already out of the store, so a retry of the forget will never see them
   // again — skipping the tombstone here is how a partial forget quietly
-  // reopened the rejection hole #35 closed. If THIS write fails too, the
+  // reopened the rejection hole closed. If THIS write fails too, the
   // PARTIAL reply names it: the committed rows are gone and unprotected, and
   // only a human (the viewer's reject route) can restore the marker — the
   // agreed recoverable partial-result semantics, pinned by test.

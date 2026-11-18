@@ -198,7 +198,7 @@ describe("relevantKnowledge (memory-first injection)", () => {
       seed("learning", "build", `build output artifact pack step ${i}`);
     seed("learning", "ui", "build output toggle default off");
     seed("learning", "db", "build salt rotation rule");
-    // The rank is asserted on `selected`, not on the block. #388 renders the
+    // The rank is asserted on `selected`, not on the block.  renders the
     // block in canonical order, so the bytes never carry score order; this
     // assertion used to pass on the block only because every seeded row landed
     // in the same millisecond and the sort was stable — an accident, not a
@@ -237,7 +237,7 @@ describe("contextualPull budget", () => {
   });
 });
 
-describe("restatable rows give up injection budget first (#402)", () => {
+describe("restatable rows give up injection budget first", () => {
   // Two rows that answer the same prompt. One the working tree already states.
   // The restatable one is the NEWER row, so without the demotion recency alone
   // would put it in the block: the assertion cannot pass by accident of scoring.

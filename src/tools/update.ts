@@ -1,4 +1,4 @@
-// The memory_update tool, extracted from index.ts (#168). Schema, description
+// The memory_update tool, extracted from index.ts. Schema, description
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 
@@ -56,7 +56,7 @@ export const register: ToolRegister = (editor, deps) => {
         // and writes nothing — the documented fail-closed contract.
         // Flips once a replacement row is durable, so the catch below can
         // never claim "Nothing was written" about a write that happened
-        // (#155's lie).
+        // ( lie).
         let mutated = false;
         // The gate's durable steps: rows GATE-2 retired before a later
         // failure (round-3 probe 3). Non-empty means "Nothing was written"
@@ -79,7 +79,7 @@ export const register: ToolRegister = (editor, deps) => {
               // row happened to be newest in this scope+type.
               let resolved = resolveMemoryTarget(prior, args.query);
               if (resolved.status === "not_found") {
-                // Naming a SUPERSEDED row is not a miss (#155): the retry
+                // Naming a SUPERSEDED row is not a miss: the retry
                 // after a partial update lands here, and when that row's
                 // active successor already carries exactly this content the
                 // honest verdict is the duplicate one, not a dead end. Two
@@ -169,19 +169,19 @@ export const register: ToolRegister = (editor, deps) => {
                 };
               }
               const target = resolved.target;
-              // A prose edit is not a metadata reset (#154): fields the
+              // A prose edit is not a metadata reset: fields the
               // call does not name carry over from the row being
               // replaced, so updating an imported row can no longer
               // launder away its provenance or issue link. kw follows
               // the same rule with an override: omitted keeps the
               // target's, provided replaces. The carry completes to the
-              // five fields of the #129 viewer precedent: STATUS (an
+              // five fields of the viewer precedent: STATUS (an
               // open frontier row stays open) and REPO (updating a
               // global row from one repository must not re-house it out
               // of every other repository's view — "an edit must never
               // widen visibility", and it must never narrow it either).
               // These are also the fields the collapse-completion judges
-              // (review round 3): the fold asks whether the survivor
+              //: the fold asks whether the survivor
               // already carries the REQUESTED state — not the pre-edit
               // target's. An update naming kw:["new-alias"] is not
               // "already standing" on a row holding ["old-alias"].
@@ -220,12 +220,12 @@ export const register: ToolRegister = (editor, deps) => {
                 // The merge_review PARTIAL shape (156e887) applied to
                 // update: the replacement IS durable, so the message says
                 // exactly which follow-up step failed and what a retry does
-                // (#155 — never claim "Nothing was written" from here).
+                // ( — never claim "Nothing was written" from here).
                 const partial = (why: string) => ({
                   content:
                     `memory_update PARTIAL: replacement ${replacement} IS on disk (memory_undo merge or force ` +
                     `restores ${retired}), but ${why}. Re-running this update reports the duplicate.` +
-                    // #215 narrowed a single-row supersede to the day file its ts
+                    // narrowed a single-row supersede to the day file its ts
                     // names, so a busy file now faults HERE instead of faulting
                     // somewhere in the gate's sweep. The gate may still have
                     // retired OTHER rows at GATE-2 (drift, canonical) before that
@@ -276,7 +276,7 @@ export const register: ToolRegister = (editor, deps) => {
                   content: `Remembered: ${args.type} in ${args.scope}${auditCaveat(outcome)}`,
                 };
               if (outcome.action === "collapsed") {
-                // Completion (#155 convergence): when a retry collapses
+                // Completion ( convergence): when a retry collapses
                 // because an ACTIVE row already holds exactly this content
                 // while the row it NAMES is still active (the supersede
                 // step of an earlier PARTIAL attempt never landed), the
@@ -284,7 +284,7 @@ export const register: ToolRegister = (editor, deps) => {
                 // survivor's favor — a bare "Duplicate ignored" would leave
                 // two active rows forever and a retry that never converges.
                 // first-call-wins makes this safe to attempt on any path.
-                // But the fold must not INVERT #154 (review): retiring the
+                // But the fold must not INVERT (review): retiring the
                 // named row is loss-free only when the survivor already
                 // carries what the named row carries — the SAME predicate
                 // GATE-3 uses to call same-prose-different-metadata an
@@ -296,7 +296,7 @@ export const register: ToolRegister = (editor, deps) => {
                 // a human (or an update on the survivor) decides.
                 const survivorTs = outcome.collapsedWith;
                 if (target && survivorTs && survivorTs !== target.ts) {
-                  // #175: the gate can observe a session move after this call captured
+                  // the gate can observe a session move after this call captured
                   // its reader. Recheck before trusting or describing the survivor.
                   const survivor = (await loadAll()).find(
                     (m) =>
@@ -305,17 +305,17 @@ export const register: ToolRegister = (editor, deps) => {
                       isVisibleTo(m, reader),
                   );
                   if (survivor) {
-                    // #175: private rows are visible by key OR path. Equal keys alone
+                    // private rows are visible by key OR path. Equal keys alone
                     // can drop another checkout's access after an origin change.
                     // For global rows, isVisibleTo ignores paths.
                     // Match raw paths like isVisibleTo; filesystem aliases need not
                     // grant the same readers access. This restricts automatic folds;
-                    // explicit merge_review authorizes both seats under #131 instead.
+                    // explicit merge_review authorizes both seats under instead.
                     const samePathVisibility =
                       requested.repo === "global" ||
                       (target.repoPath ?? "") === (survivor.repoPath ?? "");
                     // The predicate is the REQUESTED state vs the survivor
-                    // (round 3): content equality is already proven by the
+                    //: content equality is already proven by the
                     // collapse, so the fold is loss-free only when the
                     // survivor also carries the metadata THIS call asked
                     // for — and stands where the target stands for readers
@@ -406,13 +406,13 @@ export const register: ToolRegister = (editor, deps) => {
           );
         } catch (err) {
           // Everything that still throws here was PRE-WRITE for THIS call's
-          // replacement: the fail-closed lock timeout, the #152 choke-point
+          // replacement: the fail-closed lock timeout, the choke-point
           // refusal, an evidence fault BEFORE the append. Post-append audit
           // failures no longer reach this catch — the gate reports them on
-          // the promoted outcome (#155). mutated is the belt-and-braces
+          // the promoted outcome. mutated is the belt-and-braces
           // truth check: a future post-write throw must report a partial,
           // never a clean nothing. And gateDurable closes the last gap
-          // (round 3): the gate may have RETIRED OTHER rows at GATE-2
+          //: the gate may have RETIRED OTHER rows at GATE-2
           // before the fault that got here — those tombstones are on disk,
           // and naming them beats the "Nothing was written" premise.
           const msg =

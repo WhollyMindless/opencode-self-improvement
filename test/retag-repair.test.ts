@@ -1,4 +1,4 @@
-// #378 review (WhollyMindless): the #375 re-tag repair must not leave the
+// The re-tag repair must not leave the
 // unsafe original live. Two ways it did:
 // (a) an interrupted repair leaves a quarantined twin; the retry's gate write
 //     COLLAPSED into that twin and the old code counted it as blocked, so the

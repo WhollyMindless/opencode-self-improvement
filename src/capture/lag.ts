@@ -1,9 +1,9 @@
-// lag — split from src/capture.ts (#168 domain restructure). Declaration bodies are unchanged.
+// lag — split from src/capture.ts ( domain restructure). Declaration bodies are unchanged.
 
 /**
  * Age of the newest message in a session context, in ms, or null when no
  * message carries a timestamp. Capture uses this to say how stale a transcript
- * was at the moment the model was asked for candidates (#44).
+ * was at the moment the model was asked for candidates.
  */
 export function lagSince(messages: unknown, now = Date.now()): number | null {
   let newest = 0;

@@ -5,7 +5,7 @@
 // appendMemory stamps the WRITING session's repo, visibility follows the
 // READING session, and the server-start window (no ctx.location) WRITES
 // NOTHING for a session whose repository is still unresolved — neither the
-// process cwd nor an unstamped "global" row (#152) — until a session event
+// process cwd nor an unstamped "global" row — until a session event
 // binds the identity.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
@@ -28,7 +28,7 @@ import { removeStore } from "./helpers/remove-store.ts";
 
 const MODULE_SCOPE = { key: "mod111", path: "/work/module" };
 
-// Non-git dirs key by hash of the normalized path (#92) — what the session
+// Non-git dirs key by hash of the normalized path — what the session
 // machinery resolves a plain dir to, independent of this PR's hashing choice.
 const keyOf = (d: string) => resolveRepo(d).key;
 
@@ -148,7 +148,7 @@ describe("server-start window: setup with no location", () => {
     try {
       // Window write: the host named session sW, but nothing has resolved a
       // repository for it. Stamping nothing used to mean "global" — a private
-      // fact published to every project that ever opens this store (#152). An
+      // fact published to every project that ever opens this store. An
       // ownerless write is refused now, so the day file stays untouched.
       await loaded["tool.execute.before"]({
         sessionID: "sW",

@@ -16,7 +16,7 @@
 //     Windows, fcntl F_SETLK on POSIX — so the lock lives in the kernel's
 //     handle table, not in a directory entry.
 //
-// Why this is not a lock file (#407). The previous protocol put the state of
+// Why this is not a lock file. The previous protocol put the state of
 // the lock in the EXISTENCE of a file and released it with unlink. On Windows
 // that entry's lifetime is not ours to decide: DeleteFile marks a file for
 // deletion on close and the name stays in the directory until the last handle
@@ -45,7 +45,7 @@
 // Supported storage. SQLite's locking is byte-range locks plus a journal it
 // renames into place, and neither is dependable on network filesystems. A
 // memory root on SMB, NFS or a OneDrive-mounted folder is therefore
-// unsupported (#407): writes there can report a disk I/O error rather than
+// unsupported: writes there can report a disk I/O error rather than
 // serialise. That is a deliberate cut, not an oversight — the lock is the
 // correctness mechanism for the whole store, so a silently unserialised store
 // on a share was the worse option.
@@ -99,7 +99,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 // reported "locked for 5001ms" while the holder was mid-handover-retry, not
 // wedged. 10 s still fails closed and reports, but stops refusing writes that
 // were simply behind two honest retries.
-// #216: the default policy is fail-closed, the policy #196 moved every
+// the default policy is fail-closed, the policy moved every
 // production writer to. A writer that omits opts must refuse at the deadline,
 // not silently reintroduce the unlocked-proceed row loss the LOCK_WRITE
 // contract retired. "proceed" survives only as an explicit opt-in.
@@ -110,7 +110,7 @@ const MAX_BACKOFF_MS = 25;
 // the hot path, so it gets its own bound rather than the caller's budget.
 const JOURNAL_CONVERT_BUDGET_MS = 5_000;
 
-// The one source of the timeout policy (#216): both give-up paths — the FIFO
+// The one source of the timeout policy: both give-up paths — the FIFO
 // hand-off and the SQLite wait — resolve through here, so the fail-closed
 // default cannot drift between them.
 function timeoutPolicy(opts: LockOptions): "proceed" | "fail" {
@@ -128,7 +128,7 @@ export interface LockOptions {
   timeoutMs?: number;
   /**
    * What waiting past `timeoutMs` means. The default, "fail", refuses the
-   * mutation (#216: fail-closed is the contract every store writer keeps;
+   * mutation (fail-closed is the contract every store writer keeps;
    * LOCK_WRITE and LOCK_RESTORE spell it out). "proceed" runs the write
    * unlocked and can lose acknowledged writes when another caller rewrites
    * the same file — pass it only where that concession is intended.
@@ -140,7 +140,7 @@ export interface LockOptions {
 // Every writer of a shared store file must respect exclusion, INCLUDING
 // appenders: an unlocked append inside a holder's read-modify-write window is
 // overwritten by its publish. Refuse at the deadline so the caller can retry;
-// never acknowledge a mutation performed outside the holder's lock (#196).
+// never acknowledge a mutation performed outside the holder's lock.
 export const LOCK_WRITE: LockOptions = {
   onTimeout: "fail",
   onEvent: (event, waitedMs) => {
@@ -193,7 +193,7 @@ async function timed(prev: Promise<void>, ms: number): Promise<boolean> {
  * correctness, because eviction skips anything in use. Closing is also what
  * lets a test delete a store on Windows — a held handle keeps the file alive —
  * and that is exactly why it happens on eviction and teardown, never per
- * acquisition (#407 is about Windows refusing a delete we do not need to
+ * acquisition ( is about Windows refusing a delete we do not need to
  * attempt).
  */
 interface Pinned {
@@ -491,7 +491,7 @@ async function holdLock<T>(
           throw new Error(busyMessage(file, now() - started));
         }
         // Proceeding without the lock is the explicit "proceed" opt-in
-        // (#216: no longer the default). heldLocks is deliberately NOT touched
+        // (no longer the default). heldLocks is deliberately NOT touched
         // here: a writer that never held the lock must not let a nested call
         // believe it did.
         return await fn();
@@ -551,7 +551,7 @@ async function acquire<T>(
     // Same call chain, same lock: the outer section already excludes everyone
     // else, so re-entering neither starts a second transaction nor queues
     // behind the FIFO the outer section owns. The hook still fires — it counts
-    // which store files a write path touches (#215), and this path touched one.
+    // which store files a write path touches, and this path touched one.
     acquiredHook?.(file);
     return await fn();
   }
@@ -594,12 +594,12 @@ async function acquire<T>(
 }
 
 /**
- * Test seam (#197): refuse the acquisition of chosen files.
+ * Test seam: refuse the acquisition of chosen files.
  *
  * The tests that pin "a batch that published file 1 and then lost file 2 must
  * report file 1 as durable" need a refusal at a chosen point in a sequence.
  * Under the lock file a test could hold one day file and let the batch reach
- * the next one. The lock is per file again (#407 round two), so that driver
+ * the next one. The lock is per file again ( round two), so that driver
  * exists again; this seam remains for the cases that need a refusal at a chosen
  * step rather than a rival that holds a file.
  *
@@ -657,7 +657,7 @@ export async function withStoreBatch<T>(
 }
 
 /**
- * Test seam (#215): observe how many store files a write path locks.
+ * Test seam: observe how many store files a write path locks.
  *
  * The narrowing this ticket asked for is invisible to a functional test — a
  * supersede that sweeps every day file and one that touches a single file both

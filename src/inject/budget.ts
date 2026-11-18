@@ -1,4 +1,4 @@
-// budget — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
+// budget — split from src/inject.ts ( domain restructure). Declaration bodies are unchanged.
 import { type Memory } from "../store/model/memory.ts";
 import { formatMemory } from "./format.ts";
 import { omittedLine } from "../recall/score.ts";

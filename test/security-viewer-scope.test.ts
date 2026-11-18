@@ -1,4 +1,4 @@
-// Contract (#129): the viewer is an explicit ADMIN entry point — it may LIST
+// Contract: the viewer is an explicit ADMIN entry point — it may LIST
 // every repository, but a mutation it performs must never WIDEN a row's
 // visibility. The standalone viewer process has no repository scope, and an
 // edit that let appendMemory resolve the stamp from that null scope turned a
@@ -129,7 +129,7 @@ test("an edit that omits provenance preserves issue, tags and keywords from the 
   });
 
   const v = await startAdminViewer();
-  // The usual UI sends ONLY type/scope/content/reason (#129: the old path
+  // The usual UI sends ONLY type/scope/content/reason (the old path
   // erased provenance and aliases exactly this way).
   const res = await post(v, "/api/edit", {
     ts,
