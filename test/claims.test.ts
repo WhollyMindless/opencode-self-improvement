@@ -20,8 +20,8 @@
 // phrased in a shape none of these patterns knows still passes, and the honest
 // answer to that is the section's own "What is not claimed here" paragraph.
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 
 interface Claim {
   id: string;
@@ -59,20 +59,51 @@ const DATA = JSON.parse(
 ) as ClaimsFile;
 const PUBLISHED = DATA.claims.filter((c) => c.status === "published");
 
-/** True for lines inside a ``` fence; the fence lines themselves count as inside. */
-const FENCED = (() => {
-  const out: boolean[] = [];
-  let open = false;
-  for (const line of LINES) {
-    if (line.trimStart().startsWith("```")) {
-      open = !open;
-      out.push(true);
-      continue;
+/**
+ * Every markdown file a number could be published in: the README plus anything
+ * under `docs/`. A prohibition that guards one file while the prose around it
+ * moves to another leaves an unguarded place to publish a claim, which is the
+ * exact way a documentation reorganisation weakens a check without touching it.
+ */
+interface Doc {
+  name: string;
+  text: string;
+  lines: string[];
+  /** True for lines inside a ``` fence; the fence lines themselves count. */
+  fenced: boolean[];
+}
+
+function markdownDocs(): Doc[] {
+  const root = join(import.meta.dir, "..");
+  const paths = [join(root, "README.md")];
+  const walk = (dir: string): void => {
+    // A missing docs/ is caught by the coverage check below, not by a
+    // filesystem error: "the scan silently guards one file" must fail as a
+    // claim, not as a stack trace.
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else if (entry.name.endsWith(".md")) paths.push(p);
     }
-    out.push(open);
-  }
-  return out;
-})();
+  };
+  walk(join(root, "docs"));
+  return paths.map((p) => {
+    const text = readFileSync(p, "utf8");
+    const lines = text.split("\n");
+    let open = false;
+    const fenced = lines.map((l) => {
+      if (l.trimStart().startsWith("```")) {
+        open = !open;
+        return true;
+      }
+      return open;
+    });
+    return { name: relative(root, p), text, lines, fenced };
+  });
+}
+
+const DOCS = markdownDocs();
 
 /** The section's own lines, up to the next `## ` heading. */
 function section(heading: string): string[] {
@@ -183,15 +214,31 @@ describe("the effectiveness section quotes every published claim", () => {
 });
 
 describe("no cost claim the corrected metric cannot support", () => {
-  test("no dollar figure anywhere in the README", () => {
-    // A local seat has no cache price. Any dollar figure in this file is either
-    // hosted-provider-measured (none exists) or invented. The word spellings
-    // count too — "1.20 USD", "two dollars" and "＄5" are dollar figures —
-    // while fenced code (a shell `$1`) and an explicit denial of money are not.
+  test("the scan covers the docs as well as the README", () => {
+    // The prose this check guards is no longer in one file. If the walk ever
+    // stops finding it, the prohibitions would pass by scanning nothing.
+    expect(DOCS.some((d) => d.name === "README.md")).toBe(true);
+    expect(
+      DOCS.filter((d) => d.name.startsWith("docs/")).length,
+    ).toBeGreaterThan(5);
+  });
+
+  test("no dollar figure in any published markdown", () => {
+    // A local seat has no cache price. Any dollar figure in this repository's
+    // prose is either hosted-provider-measured (none exists) or invented. The
+    // word spellings count too — "1.20 USD", "two dollars" and "＄5" are dollar
+    // figures — while fenced code (a shell `$1`) and an explicit denial of
+    // money are not.
     const money = /\$\s?\d|＄\s?\d|\bUSD\b|\bdollars?\b|\bcents?\b/i;
     const denial = /\bno\b[^.]*\bdollar|\bnot\b[^.]*\bdollar|\bno\b[^.]*\bUSD/i;
-    const hits = LINES.filter(
-      (l, i) => !FENCED[i] && money.test(l) && !denial.test(l),
+    const hits = DOCS.flatMap((d) =>
+      d.lines
+        .map((l, i) =>
+          !d.fenced[i] && money.test(l) && !denial.test(l)
+            ? `${d.name}:${i + 1}: ${l.slice(0, 80)}`
+            : null,
+        )
+        .filter((x): x is string => x !== null),
     );
     expect(hits).toEqual([]);
   });
@@ -207,41 +254,51 @@ describe("no cost claim the corrected metric cannot support", () => {
     const negation = /\b(?:no|not|never|zero)\b/i;
     const hits: string[] = [];
     const indentOf = (l: string) => l.length - l.trimStart().length;
-    LINES.forEach((line, i) => {
-      if (FENCED[i]) return;
-      let text = line;
-      const indent = indentOf(line);
-      for (let j = i + 1; j < LINES.length && !FENCED[j]; j++) {
-        if (LINES[j].trim() === "") break;
-        if (indentOf(LINES[j]) <= indent) break;
-        text += " " + LINES[j];
-      }
-      const m = text.match(saving);
-      if (m && !negation.test(text.slice(0, m.index)))
-        hits.push(`${i + 1}: ${line.slice(0, 90)}`);
-    });
+    for (const d of DOCS) {
+      d.lines.forEach((line, i) => {
+        if (d.fenced[i]) return;
+        let text = line;
+        const indent = indentOf(line);
+        for (let j = i + 1; j < d.lines.length && !d.fenced[j]; j++) {
+          if (d.lines[j].trim() === "") break;
+          if (indentOf(d.lines[j]) <= indent) break;
+          text += " " + d.lines[j];
+        }
+        const m = text.match(saving);
+        if (m && !negation.test(text.slice(0, m.index)))
+          hits.push(`${d.name}:${i + 1}: ${line.slice(0, 80)}`);
+      });
+    }
     expect(hits).toEqual([]);
   });
 
   test("a percentage is never attached to tokens without saying bytes", () => {
     // "12.3% fewer characters" is a byte measurement and must stay labelled as
     // one: bytes on a deterministic workload are not tokens and not a bill.
-    const hits = LINES.filter(
-      (l) =>
-        /\d+(?:\.\d+)?%\s*(?:fewer|less)\b/.test(l) &&
-        /token/i.test(l) &&
-        !/not tokens|bytes/i.test(l),
+    const hits = DOCS.flatMap((d) =>
+      d.lines
+        .map((l, i) =>
+          /\d+(?:\.\d+)?%\s*(?:fewer|less)\b/.test(l) &&
+          /token/i.test(l) &&
+          !/not tokens|bytes/i.test(l)
+            ? `${d.name}:${i + 1}: ${l.slice(0, 80)}`
+            : null,
+        )
+        .filter((x): x is string => x !== null),
     );
     expect(hits).toEqual([]);
   });
 
   test("a figure retracted in the data file never comes back", () => {
     // Each of these was published and withdrawn. The data file keeps them so
-    // the withdrawal is a check and not a memory.
+    // the withdrawal is a check and not a memory — in any file, not just the
+    // one that was corrected.
     const hits: string[] = [];
-    for (const r of DATA.retracted)
-      for (const figure of r.figures)
-        if (README.includes(figure)) hits.push(`${r.id}: ${figure}`);
+    for (const d of DOCS)
+      for (const r of DATA.retracted)
+        for (const figure of r.figures)
+          if (d.text.includes(figure))
+            hits.push(`${d.name}: ${r.id} ${figure}`);
     expect(hits).toEqual([]);
   });
 });
@@ -250,42 +307,46 @@ describe("the word cheaper carries its evidence", () => {
   // The rules list is allowed to NAME the words it bans; that is the only
   // exemption, and it is bounded by the rules block's own extent — the heading
   // plus the bullet block that follows it — so a line parked just past the
-  // block cannot hide in a fixed nine-line window.
-  const rulesStart = LINES.findIndex((l) =>
-    l.includes("**Rules for any cost claim"),
-  );
-
-  function rulesBlockEnd(start: number): number {
+  // block cannot hide in a fixed nine-line window. A document without that
+  // block gets no exemption at all.
+  function rulesBlock(doc: Doc): [number, number] | null {
+    const start = doc.lines.findIndex((l) =>
+      l.includes("**Rules for any cost claim"),
+    );
+    if (start < 0) return null;
     let i = start + 1;
-    while (i < LINES.length && LINES[i].trim() === "") i++;
+    while (i < doc.lines.length && doc.lines[i].trim() === "") i++;
     let end = i - 1;
-    while (i < LINES.length && LINES[i].trim() !== "") {
+    while (i < doc.lines.length && doc.lines[i].trim() !== "") {
       end = i;
       i++;
     }
-    return end;
+    return [start, end];
   }
 
-  test("the rules list exists, so the exemption has an anchor", () => {
-    expect(rulesStart).toBeGreaterThan(0);
+  test("the rules list exists in the README, so the exemption has an anchor", () => {
+    expect(
+      rulesBlock(DOCS.find((d) => d.name === "README.md")!),
+    ).not.toBeNull();
   });
 
   test("every other line with 'cheaper' names an n, a seat and a metric", () => {
-    const blockEnd = rulesBlockEnd(rulesStart);
     const offenders: string[] = [];
-    LINES.forEach((line, i) => {
-      if (!/cheaper/i.test(line)) return;
-      if (i >= rulesStart && i <= blockEnd) return;
-      const hasN = /\bn\s*[=≥>]\s*\d|n=\d+\s*pairs|\dn\b.{0,20}pairs/i.test(
-        line,
-      );
-      const hasSeat = /seat|evo\/|llama|hosted provider/i.test(line);
-      const hasMetric = /work\s*=|generation|uncached|cache read|metric/i.test(
-        line,
-      );
-      if (!(hasN && hasSeat && hasMetric))
-        offenders.push(`${i + 1}: ${line.slice(0, 90)}`);
-    });
+    for (const d of DOCS) {
+      const block = rulesBlock(d);
+      d.lines.forEach((line, i) => {
+        if (!/cheaper/i.test(line)) return;
+        if (block && i >= block[0] && i <= block[1]) return;
+        const hasN = /\bn\s*[=≥>]\s*\d|n=\d+\s*pairs|\dn\b.{0,20}pairs/i.test(
+          line,
+        );
+        const hasSeat = /seat|evo\/|llama|hosted provider/i.test(line);
+        const hasMetric =
+          /work\s*=|generation|uncached|cache read|metric/i.test(line);
+        if (!(hasN && hasSeat && hasMetric))
+          offenders.push(`${d.name}:${i + 1}: ${line.slice(0, 80)}`);
+      });
+    }
     expect(offenders).toEqual([]);
   });
 });
