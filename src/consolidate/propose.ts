@@ -1,4 +1,4 @@
-// propose — split from src/consolidate.ts ( domain restructure). Declaration bodies are unchanged.
+// propose — split from src/consolidate.ts. Declaration bodies are unchanged.
 // Consolidation proposals: episodic rows → one canonical row, proposed and
 // measured, never silently applied.
 //
@@ -25,7 +25,7 @@
 //      reads as the best single member did. "Looks redundant" is not a reason.
 //   3. PROPOSALS, not writes. Nothing here mutates the store. A human resolves a
 //      proposal through memory_merge_review (supersede-not-delete, recoverable).
-//   4. The most recently used member is never a loser ( rule, inherited).
+//   4. The most recently used member is never a loser (the rule, inherited).
 import type { Memory } from "../store/model/memory.ts";
 import type { UseSignal } from "../hits/ledger.ts";
 import { cmpTs } from "../core/cmp-ts.ts";

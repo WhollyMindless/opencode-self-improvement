@@ -1,4 +1,4 @@
-// rejection — split from src/tombstones.ts ( domain restructure). Declaration bodies are unchanged.
+// rejection — split from src/tombstones.ts. Declaration bodies are unchanged.
 import { join } from "node:path";
 import { memoryRoot } from "../../core/config/paths.ts";
 import { contentHash } from "../../evidence/record.ts";

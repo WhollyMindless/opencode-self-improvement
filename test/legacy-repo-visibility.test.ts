@@ -1,4 +1,4 @@
-//: a historical whole-path-folded key is not authority over a distinct
+// a historical whole-path-folded key is not authority over a distinct
 // lowercase sibling. Exercise real retrieval, evidence, and restore filtering.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";

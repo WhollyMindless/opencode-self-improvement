@@ -89,7 +89,7 @@ const ctx = (): GateContext => ({
   trusted: true,
 });
 
-describe("#378 re-tag repair", () => {
+describe("re-tag repair", () => {
   test("clean repair: original retires under its quarantined twin", async () => {
     seedAt("2026-11-01T10:00:00.000Z");
     const out = await retagQuarantinedRows(ctx());

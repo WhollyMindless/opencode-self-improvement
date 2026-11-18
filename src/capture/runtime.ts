@@ -472,7 +472,7 @@ export function configureAutoCapture(
         // past it by the old count.
         const minedWhole = seededMsgs !== undefined;
         // True when the context is no longer the array the cursor counted
-        //: the offset names a transcript that does not exist, so
+        // the offset names a transcript that does not exist, so
         // the window below is the whole context, mined from the beginning.
         let deltaRestart = false;
         if (transcript.length < 200) {
@@ -661,7 +661,7 @@ export function configureAutoCapture(
         // the model phrases it but cannot veto it, and a quote the user never
         // wrote is refused at the write boundary (retriable, not silent).
         // The scanned text is the structured USER turns and nothing else
-        //: assistant output never enters the haystack, so a stored
+        // assistant output never enters the haystack, so a stored
         // quote can only be what the user said. Filtering rendered lines by a
         // `user:` prefix did not do this — it accepted a `user:` label quoted
         // INSIDE an assistant message as provenance.

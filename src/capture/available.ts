@@ -511,7 +511,7 @@ function sentenceSpan(
 }
 
 /**
- * VETO 1b ( review): does this prefix WARN AGAINST the claim that follows?
+ * VETO 1b: does this prefix WARN AGAINST the claim that follows?
  *
  * `Stop assuming the cache supports TTL expiration.` contains the affirmative
  * sentence `The cache supports TTL expiration.` as the object of `stop assuming`.
@@ -695,7 +695,7 @@ export function availabilityIndex(
       // store/secrets.ts matches `AKIA[A-Z0-9]{16}` case-sensitively, so a span
       // normalised before scrubbing keeps a fully recoverable access key: the
       // logged `akia1234567890abcdef` uppercases straight back to the secret
-      // ( review). Redacting `avail.matched` later cannot recover what
+      //. Redacting `avail.matched` later cannot recover what
       // normalisation already destroyed, so this is the only place it can be
       // done. Verdict logic reads `needed`/`first`, never these.
       const safeWhole = norm(redactSecrets(content));

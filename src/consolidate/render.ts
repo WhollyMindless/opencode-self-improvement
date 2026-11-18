@@ -1,4 +1,4 @@
-// render — split from src/consolidate.ts ( domain restructure). Declaration bodies are unchanged.
+// render — split from src/consolidate.ts. Declaration bodies are unchanged.
 
 import { type ProposalReport } from "./propose.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";

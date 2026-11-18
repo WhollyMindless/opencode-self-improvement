@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Comment policy: code comments carry the WHY that code cannot state —
 // invariants, traps, measured defaults. They do not carry history: no issue
-// numbers, no review rounds, no reviewer names, no retracted measurements.
+// numbers, no review narrative, no reviewer names, no retracted measurements.
 // History belongs in docs/adr/ and the git log; a comment that cites a
 // ticket rots the day the ticket is closed, and a war story in `src/` is a
 // changelog competing with git.

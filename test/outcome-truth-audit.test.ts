@@ -105,7 +105,7 @@ function evidenceLines(): Fields[] {
     .filter((f): f is Fields => f !== null);
 }
 
-describe("the collapse-completion keeps #154's rule", () => {
+describe("the collapse-completion keeps its rule", () => {
   test("a survivor that lacks the named row's metadata may not receive the fold — both ids are reported", async () => {
     // The review's probe shape: editing A (OPEN frontier thread, issue link,
     // keywords) with prose that happens to byte-equal a DIFFERENT live row B.
@@ -150,7 +150,7 @@ describe("the collapse-completion keeps #154's rule", () => {
   });
 
   test("when the survivor already carries the metadata, the fold still completes (control)", async () => {
-    // The  convergence path must survive the guard: a retry whose rows
+    // The convergence path must survive the guard: a retry whose rows
     // agree on standing, issue, tags and kw retires exactly as before.
     const PROSE =
       "Session ledger snapshots ride the frozen epoch boundary unchanged";
@@ -342,7 +342,7 @@ describe("a durable row with no audit line is never a clean success", () => {
 describe("the fold judges the REQUESTED state; the gate owns its durable steps", () => {
   // Three probes from the independent recheck of c95c919 ( comment,
   // 2026-10-29T00:22Z) — setup and assertions kept theirs. The fold added
-  // for  convergence judged the PRE-EDIT target against the survivor,
+  // for convergence judged the PRE-EDIT target against the survivor,
   // so it could consume an explicit keyword/status edit (the requested
   // value never landed anywhere) and could retire a GLOBAL row into a
   // repo-private one (other repositories silently lost the fact). The

@@ -1,4 +1,4 @@
-// payload — split from src/status.ts ( domain restructure). Declaration bodies are unchanged.
+// payload — split from src/status.ts. Declaration bodies are unchanged.
 // The status hand-off between the two surface halves. The server plugin writes
 // one status file per session on every epoch recompute AND every measured
 // assistant turn (src/index.ts); the terminal plugin (src/tui.tsx) and the

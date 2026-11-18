@@ -1,4 +1,4 @@
-//: the terminal panel's blocked list must agree with the memory_status
+// the terminal panel's blocked list must agree with the memory_status
 // tool. The TUI process owns no session→repo map, so it resolves the active
 // session's repository from its root directory (blockedReaderFor). This file
 // pins that helper and its agreement with the tool's own reader; it needs the

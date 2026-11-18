@@ -132,7 +132,7 @@ export function mergeGuidedCandidates(
   for (const quote of quotes) {
     const nums = numbers(quote);
     const topics = topicWords(quote);
-    // Two boundaries the first version lacked ( review):
+    // Two boundaries this shape needs:
     // - ONE quote per candidate. Re-matching a candidate that already carries a
     //   quote overwrote the first fact, so three user sentences all stating
     //   10.0 stored a single row.

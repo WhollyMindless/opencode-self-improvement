@@ -1,4 +1,4 @@
-// format — split from src/inject.ts ( domain restructure). Declaration bodies are unchanged.
+// format — split from src/inject.ts. Declaration bodies are unchanged.
 import { type Memory } from "../store/model/memory.ts";
 import { provenanceMarker, provenanceOf } from "../store/model/provenance.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";

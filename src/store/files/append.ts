@@ -1,4 +1,4 @@
-// append — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
+// append — split from src/memory.ts. Declaration bodies are unchanged.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { memoryRoot } from "../../core/config/paths.ts";
@@ -146,7 +146,7 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
     // ambient binding.
     //
     // A NAMED session that never resolved a repository is not an unnamed one
-    //: falling back to the module scope stamped its rows into whatever
+    // falling back to the module scope stamped its rows into whatever
     // workspace set up last, and with no module scope at all it stamped nothing
     // — which every reader calls global. Both outcomes publish private content
     // somewhere its owner can no longer see it, so the store refuses the write

@@ -599,7 +599,7 @@ async function acquire<T>(
  * The tests that pin "a batch that published file 1 and then lost file 2 must
  * report file 1 as durable" need a refusal at a chosen point in a sequence.
  * Under the lock file a test could hold one day file and let the batch reach
- * the next one. The lock is per file again ( round two), so that driver
+ * the next one. The lock is per file again, so that driver
  * exists again; this seam remains for the cases that need a refusal at a chosen
  * step rather than a rival that holds a file.
  *

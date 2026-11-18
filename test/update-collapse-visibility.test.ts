@@ -1,4 +1,4 @@
-//: a duplicate survivor must be visible to the call's captured reader
+// a duplicate survivor must be visible to the call's captured reader
 // and preserve the target's visibility to other readers, including path fallback.
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";

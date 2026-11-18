@@ -85,7 +85,7 @@ function storeLine(content: string): string {
   return i >= 0 ? lines[i + 1]! : "";
 }
 
-test("repo-A memory_status omits a repo-B blocked line and shows its own (#306 RED on main)", async () => {
+test("repo-A memory_status omits a repo-B blocked line and shows its own", async () => {
   const scopeA = resolveRepo(a);
   const scopeB = resolveRepo(b);
   seedBlocked("ses-BLEEDS-306", "ambiguous_memory", scopeB.key, scopeB.path);

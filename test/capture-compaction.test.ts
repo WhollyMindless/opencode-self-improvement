@@ -341,7 +341,7 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
     await loaded.cleanup();
   });
 
-  test("hosts without hook messages fall back to session.context (PR #79 lesson)", async () => {
+  test("hosts without hook messages fall back to session.context", async () => {
     const loaded = await loadPlugin(liveRoot, {
       autoCapture: true,
       captureModel: "fake/model",
@@ -410,7 +410,7 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
   });
 });
 
-//: cooldown state used to live inside setup()'s closure, and the file's
+// cooldown state used to live inside setup()'s closure, and the file's
 // own Bun-floor comment records that setup runs for more than one location.
 // Two live registrations meant one compaction reached two cooldown maps that
 // were strangers: two generate.text calls on one transcript - the gate

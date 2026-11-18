@@ -145,7 +145,7 @@ process.env.OPENCODE_COMMANDS_DIR = dir + "/commands";
 // budget below: two child bun launches (AV-scan slow on Windows) plus
 // readiness polling put real work past Bun's default 5s timeout on a busy
 // Windows runner at --parallel=4 — green runs were measured at 5.3s here.
-// Only time is granted; no assertion moves ( precedent, ).
+// Only time is granted; no assertion moves.
 function spawnRacer(label: string, rows: number): Writer {
   const report = join(root, `${label}.reported`);
   const script = join(root, `${label}.ts`);

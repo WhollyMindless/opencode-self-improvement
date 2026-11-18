@@ -1,4 +1,4 @@
-//: a stale memory_merge_review must not revive a survivor that a later
+// a stale memory_merge_review must not revive a survivor that a later
 // memory_update already retired. The merge handler used to run
 // `markSuperseded(loser, by=survivor)` then `clearSuperseded(survivor)` with no
 // provenance check, so applying a review whose survivor had been superseded in

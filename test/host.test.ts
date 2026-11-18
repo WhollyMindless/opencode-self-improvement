@@ -210,7 +210,7 @@ describe("host compatibility adapters", () => {
     });
   });
 
-  test("#394 review: the two sources are told apart — cumulative replaces, message receipts sum", () => {
+  test("the two sources are told apart — cumulative replaces, message receipts sum", () => {
     // The finding: with message-1 usage 50 answer + 20 reasoning and
     // message-2 usage 60 + 30, the old overwrite rendered 90 "session-wide"
     // although the session produced 160.
@@ -259,7 +259,7 @@ describe("host compatibility adapters", () => {
     expect((fresh.output ?? 0) + (fresh.reasoning ?? 0)).toBe(10);
   });
 
-  test("#387: completion tokens are read, and an older host yields 0 rather than undefined", () => {
+  test("completion tokens are read, and an older host yields 0 rather than undefined", () => {
     expect(
       sessionUsageEvent({ type: "session.usage.updated", data: info }),
     ).toMatchObject({

@@ -198,8 +198,8 @@ describe("relevantKnowledge (memory-first injection)", () => {
       seed("learning", "build", `build output artifact pack step ${i}`);
     seed("learning", "ui", "build output toggle default off");
     seed("learning", "db", "build salt rotation rule");
-    // The rank is asserted on `selected`, not on the block.  renders the
-    // block in canonical order, so the bytes never carry score order; this
+    // The rank is asserted on `selected`, not on the block. The injector
+    // renders the block in canonical order, so the bytes never carry score
     // assertion used to pass on the block only because every seeded row landed
     // in the same millisecond and the sort was stable — an accident, not a
     // contract. `selected` is the documented home of the ranking.

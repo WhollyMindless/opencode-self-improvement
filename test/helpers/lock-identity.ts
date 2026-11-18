@@ -26,7 +26,7 @@ export function lockIdentity(file: string): string {
  *
  * A directory listing cannot tell "nothing happened" from "deleted and
  * recreated": the NAMES come back identical either way. The inodes do not, so
- * this is the witness that makes the  property observable — the mutation
+ * this is the witness that makes the property observable — the mutation
  * that unlinks the database per acquisition survived a listing comparison and
  * dies on this one.
  */

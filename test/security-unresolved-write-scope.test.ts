@@ -301,7 +301,7 @@ test("control: a bound caller still stores private memory only for its own repo"
 });
 
 // A plugin instance that DOES know its workspace keeps resolving an unknown
-// session to that workspace (the provisional binding  introduced): one
+// session to that workspace (the provisional binding): one
 // project per instance is the ordinary shape and must stay frictionless.
 test("a session-unknown call into a workspace-bound instance still writes there", async () => {
   const pa = await load(a);

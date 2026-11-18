@@ -1,4 +1,4 @@
-// import — split from src/portable.ts ( domain restructure). Declaration bodies are unchanged.
+// import — split from src/portable.ts. Declaration bodies are unchanged.
 import { open, readFile } from "node:fs/promises";
 import { allowOutsideStorePaths, memoryRoot } from "../core/config/paths.ts";
 import { resolveContained } from "../store/containment.ts";

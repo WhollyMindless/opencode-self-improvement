@@ -5,7 +5,7 @@
 // scope — the caller's own repository is either bound (session map) or this
 // instance's own setup location, never "whoever loaded last". And a supersede
 // field carried verbatim into a daily row must scrub at the write boundary
-// like every other durable string ( rule, one line short).
+// like every other durable string (the rule, one line short).
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
   mkdirSync,
@@ -181,7 +181,7 @@ test("a credential in a supersede reason never reaches the daily row", async () 
   expect(evidence).not.toContain(TOKEN);
 });
 
-// Probe 2 (seen through the  lens): the merge authorization resolves the
+// Probe 2 (seen through the lens): the merge authorization resolves the
 // caller through the same identity plumbing — with A loaded FIRST and B's
 // repository sitting in the shared store, A's real merge tool called for an
 // unbound session must not get to retire B's rows. Red at c9791ed, where

@@ -340,7 +340,7 @@ describe("tool boundary — malformed calls are clean errors that do nothing", (
     expect(await loadAll()).toHaveLength(0);
   });
 
-  test("kw as a string: rejected, nothing written (#40 — the same floor as tags)", async () => {
+  test("kw as a string: rejected, nothing written (the same floor as tags)", async () => {
     const { tool } = await loadPlugin(root);
     const out = await tool.memory_remember!.execute({
       type: "learning",

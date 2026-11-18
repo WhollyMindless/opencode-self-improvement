@@ -1,4 +1,4 @@
-//: real emit paths must keep their caller's owner while another session
+// real emit paths must keep their caller's owner while another session
 // is ambient. Unresolved owners stay private rather than becoming global.
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";

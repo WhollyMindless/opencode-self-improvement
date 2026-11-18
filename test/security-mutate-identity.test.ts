@@ -1,4 +1,4 @@
-//: the mutating tools that resolve their Reader — memory_merge_review,
+// the mutating tools that resolve their Reader — memory_merge_review,
 // memory_forget, memory_undo — must await `bindSessionIdentity` BEFORE
 // authorizing, the way memory_remember/update/import/init already do. An
 // unseen session is otherwise bound provisionally to the INSTANCE's directory

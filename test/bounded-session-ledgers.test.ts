@@ -1,4 +1,4 @@
-//: the ledgers that grow with work are bounded. Pins four contracts:
+// the ledgers that grow with work are bounded. Pins four contracts:
 // (1) the sessions Map evicts beyond SESSION_CAP (a resident server must not
 //     hold a SessionState per session forever);
 // (2) the per-session calls ledger is capped at CALLS_CAP while the lifetime
@@ -148,7 +148,7 @@ test("repokey session cache evicts at the shared SESSION_CAP (no drift)", () => 
   // fixture directory (removed by afterEach) pins the same eviction. Distinct
   // mkdtemp dirs made every insert resolve through real `git` subprocesses:
   // that loop took 5684.99ms on the Windows runner and timed out the 5s
-  // default ( review F1), and leaked its dirs outside `root`.
+  // default, and leaked its dirs outside `root`.
   for (let i = 0; i <= SESSION_CAP; i++)
     rememberSessionDir(`osi-224-rk-${i}`, root);
   expect(sessionDirFirm("osi-224-rk-0")).toBeUndefined();

@@ -1,4 +1,4 @@
-//: promotion telemetry has a bounded reference window, while grounding
+// promotion telemetry has a bounded reference window, while grounding
 // and attribution keep the complete session ledger. Exercise the real tool
 // entry point so a fix only in a test-built GateContext cannot pass.
 import { afterEach, beforeEach, expect, test } from "bun:test";

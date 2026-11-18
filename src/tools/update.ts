@@ -56,7 +56,7 @@ export const register: ToolRegister = (editor, deps) => {
         // and writes nothing — the documented fail-closed contract.
         // Flips once a replacement row is durable, so the catch below can
         // never claim "Nothing was written" about a write that happened
-        // ( lie).
+        //.
         let mutated = false;
         // The gate's durable steps: rows GATE-2 retired before a later
         // failure (round-3 probe 3). Non-empty means "Nothing was written"
@@ -181,7 +181,7 @@ export const register: ToolRegister = (editor, deps) => {
               // of every other repository's view — "an edit must never
               // widen visibility", and it must never narrow it either).
               // These are also the fields the collapse-completion judges
-              //: the fold asks whether the survivor
+              // the fold asks whether the survivor
               // already carries the REQUESTED state — not the pre-edit
               // target's. An update naming kw:["new-alias"] is not
               // "already standing" on a row holding ["old-alias"].
@@ -315,7 +315,7 @@ export const register: ToolRegister = (editor, deps) => {
                       requested.repo === "global" ||
                       (target.repoPath ?? "") === (survivor.repoPath ?? "");
                     // The predicate is the REQUESTED state vs the survivor
-                    //: content equality is already proven by the
+                    // content equality is already proven by the
                     // collapse, so the fold is loss-free only when the
                     // survivor also carries the metadata THIS call asked
                     // for — and stands where the target stands for readers
@@ -412,7 +412,7 @@ export const register: ToolRegister = (editor, deps) => {
           // the promoted outcome. mutated is the belt-and-braces
           // truth check: a future post-write throw must report a partial,
           // never a clean nothing. And gateDurable closes the last gap
-          //: the gate may have RETIRED OTHER rows at GATE-2
+          // the gate may have RETIRED OTHER rows at GATE-2
           // before the fault that got here — those tombstones are on disk,
           // and naming them beats the "Nothing was written" premise.
           const msg =

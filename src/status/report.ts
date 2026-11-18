@@ -1,4 +1,4 @@
-// report — split from src/status.ts ( domain restructure). Declaration bodies are unchanged.
+// report — split from src/status.ts. Declaration bodies are unchanged.
 import { join } from "node:path";
 import { cacheRate, estTok, fmtBytes, fmtCount, fmtMs } from "./format.ts";
 import {

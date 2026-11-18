@@ -305,7 +305,7 @@ test("restore-entry with an UNKNOWN explicit ts still resolves a known quarantin
 
 test("restore-entry without ts and without any audit record keeps the legacy client-replay fallback", async () => {
   // A row whose deletion predates the deletion audit: no line can be
-  // resolved, so the  client replay of the origin stamp survives —
+  // resolved, so the client replay of the origin stamp survives —
   // the documented fallback for legacy RECORDS (not legacy requests).
   const scopeB = resolveRepo(b);
   const v = await startAdminViewer();

@@ -1,4 +1,4 @@
-// predicates — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
+// predicates — split from src/memory.ts. Declaration bodies are unchanged.
 import { INIT_STAMP_TAG } from "../../core/tags.ts";
 import { isQuarantined } from "../quarantine/quarantine.ts";
 import type { Memory } from "./memory.ts";

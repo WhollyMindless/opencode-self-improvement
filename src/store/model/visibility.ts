@@ -41,7 +41,7 @@ export const ADMIN_READER: Reader = { kind: "admin" };
 // captured synchronously at flow entry. Bound session → its repo; unbound →
 // global-only. The module scope is NOT a fallback here: in a process that
 // loaded more than one plugin instance it belongs to whoever set up LAST,
-// which is another workspace ( multi-setup gap). Plugin flows bind an
+// which is another workspace (multi-setup gap). Plugin flows bind an
 // unbound caller to their OWN setup location at entry (index.ts), so ordinary
 // single-workspace sessions resolve through the session map, never here.
 export function readerForSession(sid?: unknown): Reader {

@@ -206,7 +206,7 @@ describe("epoch freeze (cache-safe injection)", () => {
 
     // A NEW prompt that selects the SAME rows re-scores and adopts: the
     // rendered bytes do not move, so the cache survives and no recompute is
-    // recorded. This is the prompt-reveal half of the  contract.
+    // recorded. This is the prompt-reveal half of the contract.
     const same = await deliveredBlock(
       loaded,
       "ses-frozen",
@@ -232,13 +232,13 @@ describe("epoch freeze (cache-safe injection)", () => {
     expect(String(recomputes[1].reason)).toBe("prompt_reveal");
   });
 
-  // The same-order half of the  contract, stated with enough rows for an
+  // The same-order half of the contract, stated with enough rows for an
   // ORDER to exist — case 1 seeds a single row, so it cannot show one. Both
   // prompts score the two rows identically, so the re-score renders the same
   // bytes and the epoch adopts the new prompt without moving. This is the half
   // that must survive canonical render order; the order-sensitivity of
-  // the current rendering is deliberately NOT pinned here, because  exists
-  // to change it.
+  // the current rendering is deliberately NOT pinned here, because a later
+  // commit is expected to change it.
   test("a prompt that re-selects the same rows in the same order costs ZERO cache busts", async () => {
     seed(
       "pattern",
@@ -585,7 +585,7 @@ describe("epoch freeze (cache-safe injection)", () => {
     const system = await deliveredSystem(loaded, sid);
     expect(epochRecomputes(sid).map((e) => e.reason)).toEqual(["first"]);
 
-    // Relevant ON PURPOSE: under  alone this was adopted on the next
+    // Relevant ON PURPOSE: under relevance alone this was adopted on the next
     // request and re-billed the whole conversation. The model wrote it, so it
     // is already in that transcript — the frozen bytes keep riding.
     await rememberAs(

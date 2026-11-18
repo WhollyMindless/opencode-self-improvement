@@ -1,4 +1,4 @@
-// export — split from src/portable.ts ( domain restructure). Declaration bodies are unchanged.
+// export — split from src/portable.ts. Declaration bodies are unchanged.
 // Portability: JSONL export/import of the durable store, plus the
 // stale-open-thread query that backs memory_decay. Import NEVER writes: every
 // row flows through the caller-provided gate callback (index.ts wires it to
@@ -39,7 +39,7 @@ export interface ExportOptions {
    * Destination, confined to <memory-root>/exports/ (see containment.ts).
    * Defaults to <memory-root>/exports/<stamp>-<unique>.jsonl: a UNIQUE name,
    * created exclusively, so two exports in the same second can never replace
-   * each other's artifact ( review). An explicit `file` keeps the
+   * each other's artifact. An explicit `file` keeps the
    * historical replace semantics backups rely on.
    */
   file?: string;
@@ -60,7 +60,7 @@ export interface ExportResult {
 // Filesystem-safe YYYY-MM-DDTHHMMSS (no colons) plus a unique suffix for each
 // default export. The timestamp alone was second-granular: two sessions
 // exporting in the same second got the SAME path, and O_TRUNC let the later
-// one destroy the earlier one's artifact AND its returned path ( review).
+// one destroy the earlier one's artifact AND its returned path.
 // Milliseconds would still collide; uniqueness comes from the name, not the
 // clock.
 export function stamp(d: Date = new Date()): string {
@@ -163,7 +163,7 @@ export async function exportMemories(
     count: mems.length,
   });
   // An export is a copy at rest, so it must not carry credentials that were
-  // stored before the write-side redaction existed ( slice 1). Redaction is
+  // stored before the write-side redaction existed. Redaction is
   // applied to the value being serialised, never to the row: export stays a
   // read path, and the store remains the byte-of-record for memory_undo.
   // extends the same rule to the metadata fields: `scope`, `tags` and `kw`

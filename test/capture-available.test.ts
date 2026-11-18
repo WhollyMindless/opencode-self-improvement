@@ -6,13 +6,14 @@
 // pays everything (empty store 0/5, seeded 5/5). What separates the two is
 // whether the next session could get the fact by itself.
 //
-// What  changed is the CONSEQUENCE, not the check. The first version dropped
-// a candidate the moment it matched. Measured against this repo's live store it
+// What moved is the CONSEQUENCE, not the check. A rule that DROPPED a matched
+// candidate was measured against this repo's live store: it
 // refused 30 of 1166 real captured rows and 29 of those were wrong — "OpenCode V2
 // (v2.0.26) does NOT run LSP servers" was refused because the row contained the
-// string `bun test` and the project declares a `test` script. History: docs/adr/0008.
-// on  hardened the matcher until it refuses 0 of 1166, which is the other
+// string `bun test` and the project declares a `test` script. Hardening the
+// matcher until it refuses 0 of 1166 is the other
 // half of the same evidence: no lexical rule is defensible as a delete.
+// History: docs/adr/0008.
 //
 // So every test below asserts the same invariant FIRST — the row reaches the
 // store — and the tag is what differs between cases. A wrong verdict now costs
@@ -56,7 +57,7 @@ async function waitFor(fn: () => boolean, ms = 4000): Promise<void> {
 
 const fixture = withTempStore({ prefix: "osi-capture-avail-" });
 
-describe("capture availability tag (#389, #402)", () => {
+describe("capture availability tag", () => {
   let plugin: Awaited<ReturnType<typeof loadPlugin>> | undefined;
 
   /** A git repo whose tracked tree states the tax rule and declares `deploy`. */
@@ -378,14 +379,14 @@ describe("capture availability tag (#389, #402)", () => {
     const tagged = tagFor("style2");
     expect(tagged.length).toBe(1);
     expect(String(tagged[0].reason)).toBe("in_tracked_file");
-    // Both rows exist. Before  the first one did not.
+    // Both rows exist, each with its own ts.
     const style = await rowsWith("style");
     expect(style.length).toBe(1);
     expect(style[0]?.tags ?? []).not.toContain(RESTATABLE_TAG);
     expect((await rowsWith("style2")).length).toBe(1);
   });
 
-  test("a figure the declaration does not carry is a different fact (#402 veto 2)", async () => {
+  test("a figure the declaration does not carry is a different fact (veto 2)", async () => {
     // `core/tokenize.ts`: a changed number is a different fact, not a rephrasing.
     // The manifest says `deploy` runs rsync; it states no count, so "3 times" is
     // new even though every word around the command is filler.
@@ -479,11 +480,11 @@ describe("capture availability tag (#389, #402)", () => {
     ).toBe(false);
   });
 
-  test("the tag lowers injected bytes, not the model call: #389 AC4 cannot hold", async () => {
-    // Criterion 4 of  expected capture's token cost to fall. It cannot.
+  test("the tag lowers injected bytes, not the model call: the cost claim fails", async () => {
+    // Criterion 4 of expected capture's token cost to fall. It cannot.
     // Candidates come FROM the model, so availability can only be evaluated
-    // after the call that produced them.  makes the position honest rather
-    // than arguing it: the check now changes which rows give up injection
+    // after the call that produced them. Pinning the position is honest
+    // rather than arguing it: the check now changes which rows give up
     // budget, never how many tokens the pass spent, and never how many rows
     // exist. Pinned, so a future cost claim about this mechanism has to move a
     // test instead of re-deriving the assumption.
@@ -563,7 +564,7 @@ describe("capture availability tag (#389, #402)", () => {
     expect(rows[0]?.tags ?? []).not.toContain(RESTATABLE_TAG);
   });
 
-  test("a dual-role verb does not mask a scope negation ", async () => {
+  test("a dual-role verb does not mask a scope negation", async () => {
     // The union of the cue list with `polaritySigns` was applied to BOTH sides of
     // the polarity comparison in `findClause`, and that comparison CREATES tags.
     // `polaritySigns` reads the dual-role `removes` as negative in both strings,
@@ -618,7 +619,7 @@ describe("capture availability tag (#389, #402)", () => {
     expect(rows[0]?.tags ?? []).not.toContain(RESTATABLE_TAG);
   });
 
-  test("a control character in a candidate does not reach the audit line raw (#403 review)", async () => {
+  test("a control character in a candidate does not reach the audit line raw", async () => {
     // The candidate is a verbatim declared-command claim with a NUL appended: the
     // availability matcher accepts it, because `norm()` neither strips nor requires
     // the control character. Nothing between that verdict and the day log
@@ -654,7 +655,7 @@ describe("capture availability tag (#389, #402)", () => {
 
   // ──  P0: the scan is lazy and visible ──────────────────────────────────
 
-  test("a pass with no candidates reads no tree (#402 P0)", async () => {
+  test("a pass with no candidates reads no tree", async () => {
     // The build is a synchronous `git ls-files` plus a read of every tracked
     // text file — 108 ms for 218 files in this repo — and the old code paid it
     // before looking at the candidate list, so an empty answer still scanned
@@ -667,7 +668,7 @@ describe("capture availability tag (#389, #402)", () => {
     ).toBe(false);
   });
 
-  test("a pass that checks names what it read (#402 P0)", async () => {
+  test("a pass that checks names what it read", async () => {
     // `scanned()` shipped "for evidence" and was never called, so the tree read
     // had no record at all. One line per pass that built the index.
     await capture(
@@ -686,7 +687,7 @@ describe("capture availability tag (#389, #402)", () => {
     expect(Number(scan?.verdicts)).toBe(1);
   });
 
-  test("a verdict on a row the gate refuses is a verdict, not a tag (#403 review)", async () => {
+  test("a verdict on a row the gate refuses is a verdict, not a tag", async () => {
     // The availability check runs BEFORE the write gate, so a candidate can earn
     // a verdict and then be refused — here for a credential-shaped scope. The
     // first version counted the verdict, so the scan line read `restatements=1`
@@ -732,7 +733,7 @@ describe("capture availability tag (#389, #402)", () => {
     expect(Number(scan?.restatements)).toBe(0);
   });
 
-  test("a warning that QUOTES a claim is not a restatement of it (#403 review)", async () => {
+  test("a warning that QUOTES a claim is not a restatement of it", async () => {
     // Review 4568409650. Narrowing the polarity comparison to the cue list fixed
     // `Do not assume X.` but re-opened a family the cue list does not carry:
     //   Stop assuming the cache supports TTL expiration.
@@ -781,7 +782,7 @@ describe("capture availability tag (#389, #402)", () => {
     expect((await rowsWith("warn3"))[0]?.tags ?? []).toContain(RESTATABLE_TAG);
   });
 
-  test("the logged span cannot carry a credential the stored content redacted (#403 review)", async () => {
+  test("the logged span cannot carry a credential the stored content redacted", async () => {
     // Review 4568409660. `norm()` lowercases before the verdict's `matched` span
     // is cut, and the prefix scrubber matches `AKIA[A-Z0-9]{16}` CASE-SENSITIVELY,
     // so the stored row said `[redacted]` while the evidence line said

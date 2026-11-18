@@ -51,7 +51,7 @@ export const register: ToolRegister = (editor, deps) => {
                 ? ` ${t.downgraded} open rows downgraded to settled (missing eligible memory_export header or verifiable repo scope).`
                 : "") +
               // Rows that landed without their write_promoted line are
-              // durable but invisible to memory_evidence ( review) —
+              // durable but invisible to memory_evidence —
               // the tally owes the reader the count, not silence.
               (t.unaudited
                 ? ` ${t.unaudited} promoted rows landed without their write_promoted audit line (${t.auditError}); memory_evidence will miss them.`

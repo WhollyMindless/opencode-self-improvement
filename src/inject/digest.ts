@@ -1,4 +1,4 @@
-// digest — split from src/inject.ts ( domain restructure). Declaration bodies are unchanged.
+// digest — split from src/inject.ts. Declaration bodies are unchanged.
 import { loadAll } from "../store/files/load.ts";
 import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";

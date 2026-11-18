@@ -50,7 +50,7 @@ beforeEach(() => {
   // anything else would create the root.
   mkdirSync(memoryRoot(), { recursive: true });
   resetState();
-  // Fires a turn-end event for a sid that capture.test.ts also uses ( nit 1):
+  // Fires a turn-end event for a sid that capture.test.ts also uses:
   // bun shares module state across test files, so the cooldown map must be
   // cleared here too or a test order can silently inherit a live window.
   resetCaptureCooldowns();

@@ -320,7 +320,7 @@ describe("capture bills its own call end-to-end", () => {
     // removed, and the cost receipt sits after that check on purpose. So this
     // call's tokens go unbilled: the count undercounts by one at teardown. That
     // is asserted rather than assumed, because an unaccounted call is exactly
-    // the hole  was filed to close — if it ever starts writing, this test
+    // the hole this pin exists to close — if it ever starts writing, this test
     // is where the trade-off gets renegotiated.
     const loaded = await loadPlugin(liveRoot, {
       autoCapture: true,

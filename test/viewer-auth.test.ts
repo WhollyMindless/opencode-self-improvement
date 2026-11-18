@@ -1,4 +1,4 @@
-//: the viewer must not serve the store unauthenticated over a LAN-facing
+// the viewer must not serve the store unauthenticated over a LAN-facing
 // bind. A non-loopback host (bind or allowed-names) mints a startup token and
 // every request — reads included — must present it; loopback-only keeps the
 // token-free flow. Real child process, real HTTP, same pattern as

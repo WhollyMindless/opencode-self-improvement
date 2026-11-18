@@ -479,7 +479,7 @@ export async function runWriteGate(
         action: "blocked",
         reason: "symptom_missing",
         chain,
-        hint: 'learning/blocker rows must open with the observable trigger: "When <symptom>: <fact>". Name the failing command, the error text, or the wrong number — the trigger clause must stay under 160 characters — or write the row as context/decision if it is not trigger-keyed.',
+        hint: 'learning/blocker rows must open with the observable trigger: "When <symptom>: <fact>" (#419). Name the failing command, the error text, or the wrong number — the trigger clause must stay under 160 characters — or write the row as context/decision if it is not trigger-keyed.',
       };
     }
   }

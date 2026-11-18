@@ -167,7 +167,7 @@ describe("deltaMessages", () => {
     expect(deltaMessages([1, 2], 5)).toEqual([1, 2]);
   });
 
-  test("a replaced transcript is told apart from an append (#366 review)", () => {
+  test("a replaced transcript is told apart from an append", () => {
     const five = [
       { type: "user", text: "one detail" },
       { type: "assistant", text: "two detail" },
@@ -285,7 +285,7 @@ describe("the capture cursor", () => {
   });
 });
 
-describe("guidedStatementInWindow (#365 hint-channel guard)", () => {
+describe("guidedStatementInWindow (hint-channel guard)", () => {
   test("a user spec statement in the window is a signal", () => {
     expect(
       guidedStatementInWindow(

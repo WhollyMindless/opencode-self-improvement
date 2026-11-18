@@ -47,7 +47,7 @@ describe("symbolValues", () => {
   });
 
   test("the scan does not depend on which row ran last", () => {
-    // A module-level `g` regex carries lastIndex between calls — the  bug.
+    // A module-level `g` regex carries lastIndex between calls — the bug.
     // A retirement rule whose answer depends on call order is worse than none,
     // because it looks deterministic.
     const a = "The VAT_BPS constant is 2150 basis points.";
@@ -98,7 +98,7 @@ describe("valueConflicts", () => {
   });
 
   test("a history note does not retire the fact it mentions", () => {
-    // The misfire class  accepted for a REFUSAL is not accepted for a
+    // The misfire class accepted for a REFUSAL is not accepted for a
     // RETIREMENT: with the numbers stripped these are different sentences,
     // and the shape floor must stop it.
     const fact = mem(
@@ -112,7 +112,7 @@ describe("valueConflicts", () => {
     expect(valueConflicts(note, [fact])).toEqual([]);
   });
 
-  test("#400 review: two environments are two facts, not a correction", () => {
+  test("two environments are two facts, not a correction", () => {
     // The reviewer's pair, verbatim shape: identical sentence, one symbol,
     // disagreeing numbers, different environment. Guards 1–3 all pass
     // (jaccard 0.71); guard 4 must stop the retirement in both directions.
@@ -128,7 +128,7 @@ describe("valueConflicts", () => {
     expect(valueConflicts(prod, [staging])).toEqual([]);
   });
 
-  test("#400 review: an environment-scoped row does not retire the bare default", () => {
+  test("an environment-scoped row does not retire the bare default", () => {
     // "is 3" may be the default; hiding it behind one environment's value is
     // the same defect as the pair above, so one-sided scoping coexists too.
     const bare = mem("2026-10-01T09:00:00.000Z", "The MAX_RETRIES is 3.");
@@ -140,7 +140,7 @@ describe("valueConflicts", () => {
     expect(valueConflicts(bare, [scoped])).toEqual([]);
   });
 
-  test("#400 review cost check: the same environment still corrects", () => {
+  test("a cost check: the same environment still corrects", () => {
     const old = mem(
       "2026-10-01T09:00:00.000Z",
       "The MAX_RETRIES constant is 3 in production.",
@@ -152,7 +152,7 @@ describe("valueConflicts", () => {
     expect(valueConflicts(fix, [old]).length).toBe(1);
   });
 
-  test("a sign flip is a disagreement, not one fact restated (#399 class)", () => {
+  test("a sign flip is a disagreement, not one fact restated", () => {
     const pos = mem("2026-10-01T09:00:00.000Z", "The TEMP_OFFSET is 5.");
     const neg = mem("2026-10-02T09:00:00.000Z", "The TEMP_OFFSET is -5.");
     expect(valueConflicts(neg, [pos]).length).toBe(1);
@@ -346,7 +346,7 @@ describe("the gate retires a corrected row in the data", () => {
     expect(rows.find((m) => m.ts !== fix.ts)?.content).toContain("2150");
   });
 
-  test("#400 review: the two-write probe leaves both environments injectable", async () => {
+  test("the two-write probe leaves both environments injectable", async () => {
     const prod = await write("The MAX_RETRIES constant is 3 in production.");
     expect(prod.action).toBe("promoted");
     const staging = await write("The MAX_RETRIES constant is 5 in staging.");

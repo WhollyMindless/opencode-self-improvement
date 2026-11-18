@@ -197,7 +197,7 @@ export function createInjectionEpochs({
     // The guided cap rides user-stated rows ahead of the lexical picks;
     // the char budget below still bounds the whole block. The conflict check
     // reads the session's OWN repo directory (its reader's scope) — never an
-    // ambient one ( rule applies to code reads too).
+    // ambient one (the rule applies to code reads too).
     const reader = readerFromSid(sid);
     const sel = await selectRelevant(
       prompt,
@@ -346,7 +346,7 @@ export function createInjectionEpochs({
         // guidedSeen=0 -> capture never wrote the row. guidedSeen>0 with the
         // id absent from `guided` -> the cap (newest-first, 3) dropped it.
         // In `guided` but absent from `guidedRode` -> the budget inside
-        // selectRelevant dropped it ( moved the cap there from capToBudget).
+        // selectRelevant dropped it (cap moved here from capToBudget).
         // In `guidedRode` yet absent from the wire -> render/transport, or a
         // paraphrased needle (now impossible for rows carrying `orig=true`).
         ...(built.guidedSeen ? { guidedSeen: built.guidedSeen } : {}),

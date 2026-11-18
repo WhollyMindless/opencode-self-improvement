@@ -1,8 +1,8 @@
-// The non-regression proof  asks for, run against the SHIPPED eval dataset
+// The non-regression proof the sweep asks for, run against the SHIPPED eval dataset
 // instead of a month of production data: consolidate the bench store, then show
 // recall does not fall while the store gets smaller.
 //
-// The ticket's HOLD was a gate on measurement ("NOOA's reflection records were
+// The hold on this feature is a gate on measurement ("NOOA's reflection records were
 // 22% of rows and ~1% of reads; abstraction hurt pinpoint lookup"). Measurement
 // is what the bench is for, so the bench is what decides — not a calendar.
 import { describe, expect, test } from "bun:test";

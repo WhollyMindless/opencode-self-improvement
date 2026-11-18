@@ -52,7 +52,7 @@ export function jaccard(a: string[], b: string[]): number {
 }
 
 // ---------------------------------------------------------------------------
-// The two things token overlap cannot see ( review).
+// The two things token overlap cannot see.
 //
 // The rejection sketch decides "same statement reworded" from shared tokens, and
 // for the two shapes below that judgement is wrong in the same direction — it

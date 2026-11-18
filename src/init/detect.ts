@@ -1,4 +1,4 @@
-// detect — split from src/init.ts ( domain restructure). Declaration bodies are unchanged.
+// detect — split from src/init.ts. Declaration bodies are unchanged.
 // Repository init: re-derive build/test command memories through the write gate.
 // Deterministic (no model calls): manifests are parsed locally and every write
 // goes through the 4-gate pipeline with the `trusted` flag (plugin-authored

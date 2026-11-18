@@ -1,4 +1,4 @@
-// metrics — split from src/status.ts ( domain restructure). Declaration bodies are unchanged.
+// metrics — split from src/status.ts. Declaration bodies are unchanged.
 import { join } from "node:path";
 import { evidenceDir } from "../core/config/paths.ts";
 import { parseLine } from "../core/logfmt/format.ts";

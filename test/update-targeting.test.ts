@@ -284,14 +284,14 @@ describe("memory_update on conflict-prone rows", () => {
   });
 });
 
-describe("memory_update supersession edges surfaced by the #125 review", () => {
+describe("memory_update supersession edges", () => {
   // The superseded_overlap hint advertises memory_update as THE remedy for a
   // review-gated conflict. These tests pin what that path actually does today.
 
   test("ADVERSARIAL pin: an update swaps its target's value with rival content, no review (the rivalry gate is advisory for updates)", async () => {
     // Same payload through two tools: memory_remember is review-gated, while
     // memory_update on the rival's ts promotes with NO similarity requirement
-    // between update content and target. Per the  ruling the update IS the
+    // between update content and target. Per the ruling the update IS the
     // sanctioned supersession — but that makes gate-3 skippable by any caller
     // that reads the block hint. If updates are ever required to stay near
     // their target's content, this pin flips alongside the hint text.
@@ -329,10 +329,10 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
   });
 
   test("an update whose content byte-equals another live row completes the merge: the target retires in the survivor's favor", async () => {
-    // The  review pinned the OLD shape ("Duplicate ignored": target
+    // The review pinned the OLD shape ("Duplicate ignored": target
     // survives next to the row its content duplicated — two active statements
     // of one fact, and the retry after a supersede-step fault never converged
-    // past it). The follow-up review of  folded the collapse into a real
+    // past it). The follow-up review of folded the collapse into a real
     // supersede, as predicted here: the named target is retired pointing AT
     // the survivor (first-call-wins, so this is safe on every path), and the
     // store ends with exactly one active statement.
@@ -407,7 +407,7 @@ describe("memory_update supersession edges surfaced by the #125 review", () => {
   });
 });
 
-describe("memory_merge_review input integrity (#125 probe)", () => {
+describe("memory_merge_review input integrity", () => {
   // Probed live: merge_review skipped every validation the update path has.
   // A survivor id naming no row retired the loser toward nothing (scope ends
   // with zero active rows) while the tool declared it canonical, and the

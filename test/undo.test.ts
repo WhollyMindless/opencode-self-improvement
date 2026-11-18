@@ -353,7 +353,7 @@ describe("memory_undo tool guidance", () => {
   });
 });
 
-describe("memory_undo force and rejection tombstones (#307, decision #214 A)", () => {
+describe("memory_undo force and rejection tombstones", () => {
   // stated property: no tool lifts a rejection. FORCE is the only mode
   // that republishes rows deleted since the snapshot, so it alone must consult
   // the rejection tombstones — a restore that reinstates a tombstoned value
@@ -412,7 +412,7 @@ describe("memory_undo force and rejection tombstones (#307, decision #214 A)", (
     expect(readFileSync(rejectedFile())).toEqual(tombstonesBefore);
   });
 
-  test("default and merge undo do not resurrect a rejected value through an older identity (#307 F1)", async () => {
+  test("default and merge undo do not resurrect a rejected value through an older identity", async () => {
     // The rejection floor is keyed on the VALUE, not the row identity, so it
     // must hold in every mode. An older snapshot identity can carry a value a
     // human later rejected through a DIFFERENT row: a force rollback drops the

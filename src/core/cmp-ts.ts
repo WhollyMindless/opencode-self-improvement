@@ -1,4 +1,4 @@
-// cmp-ts — split from src/inject.ts ( domain restructure). Declaration bodies are unchanged.
+// cmp-ts — split from src/inject.ts. Declaration bodies are unchanged.
 
 // Numeric compare, with the string compare kept as fallback for non-dates
 // (the ledger hands "" when a row was never used). ISO strings agree with

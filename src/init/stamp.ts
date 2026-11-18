@@ -18,7 +18,7 @@
 // is ignored, and init re-runs: idempotent, cheap, and the safe answer to a
 // provenance the plugin cannot check. A row that passes the pairing is copied to
 // the file and then retired, and the head it is copied at is the head that
-// evidence line names — never the head the row's own prose claims ( review).
+// evidence line names — never the head the row's own prose claims.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { memoryRoot } from "../core/config/paths.ts";
@@ -110,7 +110,7 @@ function readStampFile(key: string): InitStamp | null {
  * starts at 23:59:59.999 and finishes after midnight splits the pair across two
  * day files, so the row's own day is not enough — the following day has to be
  * read too, or that migration is silently lost every night around midnight
- * ( review).
+ *.
  */
 function auditDays(ts: string): string[] {
   const day = /^(\d{4}-\d{2}-\d{2})T/.exec(ts)?.[1];
@@ -182,14 +182,14 @@ export interface StampRead {
   /** True when a pre-#374 store row was honoured and copied to the file. */
   migrated: boolean;
   /**
-   * The migration copy could not be written ( review). The row was still
+   * The migration copy could not be written. The row was still
    * honoured, so init stays idempotent for this run, but nothing was recorded:
    * the caller must report it the way a failed stamp write is reported, or every
    * later init re-migrates and re-claims success.
    */
   stampError?: string;
   /**
-   * The honoured row is still active ( review): its retirement was refused
+   * The honoured row is still active: its retirement was refused
    * or threw. The migration is not lost — the file answers the next read — but
    * the store keeps a row the operator should hear about.
    */
@@ -230,7 +230,7 @@ export async function readStamp(
 }
 
 /**
- * Retire the row a migration just copied ( review). The stamp lives in the
+ * Retire the row a migration just copied. The stamp lives in the
  * file now, so leaving the row active would keep a piece of plugin bookkeeping in
  * the store as an ordinary row; `isInjectable` already withholds the tag from
  * every model-facing read, and this takes it out of the store's active set too.

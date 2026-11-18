@@ -62,7 +62,7 @@ const declaredSet = new Set<string>(
   ].map((m) => m[1]),
 );
 
-describe("host event fidelity (#136, #137, #176)", () => {
+describe("host event fidelity", () => {
   // Controls first: a parser that matched nothing would make every assertion
   // below vacuously true, and a harness that cannot fail does not count.
   test("both sources were actually parsed", () => {
@@ -108,7 +108,7 @@ describe("host event fidelity (#136, #137, #176)", () => {
     expect(CAPTURE_EVENT_TYPES.filter((t) => !declaredSet.has(t))).toEqual([]);
   });
 
-  // The assertion that would have caught  two releases ago.
+  // The assertion that catches a declared event type a live host never sends.
   test("every event type auto-capture reacts to was really observed on a live host", () => {
     const neverSent = CAPTURE_EVENT_TYPES.filter((t) => !observed.has(t));
     expect(neverSent).toEqual([]);

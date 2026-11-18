@@ -1,4 +1,4 @@
-// target — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
+// target — split from src/memory.ts. Declaration bodies are unchanged.
 
 import { type Memory, targetScore } from "../model/memory.ts";
 

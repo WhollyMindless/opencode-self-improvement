@@ -108,7 +108,7 @@ test("today's evidence stays readable, implicit and explicit", async () => {
   plugin = await loadPlugin(repo);
   // ses-130 is a session OF this workspace: bound, like every session that
   // reaches a plugin instance. An UNBOUND named session's fresh evidence is
-  // private to that session ( re-review) — a control for THIS contract
+  // private to that session — a control for THIS contract
   // must present a resolved identity, not exploit the missing-stamp path.
   rememberSessionDir("ses-130", repo);
   await record(

@@ -250,7 +250,7 @@ describe("cache math", () => {
     ).toBe("unknown");
   });
 
-  //: `prompt_reveal` joined the reason values, and the surfaces must not
+  // `prompt_reveal` joined the reason values, and the surfaces must not
   // have to learn new ones. Every reason reaches `/memory` and `memory_status`
   // by interpolation, so a value a later build adds renders as-is instead of
   // blanking or being relabelled as something the plugin did not record.
@@ -427,7 +427,7 @@ describe("renderMemoryReport", () => {
     );
   });
 
-  //: capture off / misconfigured / armed-but-inert must differ on the
+  // capture off / misconfigured / armed-but-inert must differ on the
   // chat surface, not only in the evidence file.
   test("auto-capture line: off is named off", () => {
     const text = renderMemoryReport({
@@ -536,7 +536,7 @@ describe("renderMemoryReport", () => {
   });
 });
 
-//: the metric that reads the evidence file and answers "is capture off,
+// the metric that reads the evidence file and answers "is capture off,
 // misconfigured, armed-and-inert, or alive?" — the evidence file alone must
 // distinguish the states, so this parses only plugin_load + auto_capture_*.
 describe("captureHealth", () => {
@@ -823,7 +823,7 @@ describe("memory_status tool + epoch wiring", () => {
     expect((await readStatus())!.recomputes).toBe(before);
 
     // A new prompt that matches nothing re-scores and MOVES the block
-    //: a recompute with reason=prompt_reveal is recorded, because the
+    // a recompute with reason=prompt_reveal is recorded, because the
     // bytes the provider caches actually changed.
     await p.sessionHooks["prompt"]!({
       sessionID: "ses_status",

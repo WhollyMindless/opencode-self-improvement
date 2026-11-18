@@ -117,7 +117,7 @@ describe("identifier tokenisation", () => {
 
   test("a keyword stored fused still matches the query that cites it", () => {
     // normalizeKeywords lower-cases authored keywords, so `memoryRecallThreshold`
-    // is stored as `memoryrecallthreshold`. The  vocabulary bridge depends
+    // is stored as `memoryrecallthreshold`. The vocabulary bridge depends
     // on the whole form surviving.
     const rows = [
       mem("threshold gates the injection of weak matches", {

@@ -175,7 +175,7 @@ describe("capture repo stamp follows the captured session", () => {
     expect(captured).toBeDefined();
     expect(captured!.repo).toBe(a?.key);
     expect(captured!.repo).not.toBe(b?.key);
-    // The paper-trail half of the same contract ( review note 1): the row
+    // The paper-trail half of the same contract: the row
     // is the durable memory, but the gate's evidence lines are what an
     // operator greps first — and every one of them is appended AFTER the
     // hijack, so on ambient-read code their sid= field carries ses-other.

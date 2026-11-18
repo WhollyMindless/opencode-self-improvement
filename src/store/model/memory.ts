@@ -1,4 +1,4 @@
-// memory — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
+// memory — split from src/memory.ts. Declaration bodies are unchanged.
 
 import { flattenMemoryText } from "../sanitize.ts";
 

@@ -394,7 +394,7 @@ test("a failed publish leaves no phantom deletion audit", async () => {
   expect(audit).not.toContain("action=deleted");
 }, 30_000);
 
-//: failure of the bookkeeping writes themselves must be explicit, not
+// failure of the bookkeeping writes themselves must be explicit, not
 // silent. An audit append failing after a committed publish keeps the row
 // deleted, still tombstones the value, and reports PARTIAL naming the audit.
 test("a failed deletion audit keeps the tombstone and reports PARTIAL", async () => {
@@ -436,7 +436,7 @@ test("a failed tombstone append is reported and the audit stays truthful", async
   expect(audit).toContain(`original_ts=${first}`);
 }, 30_000);
 
-//: both errors survive together — the primary (busy file) and the
+// both errors survive together — the primary (busy file) and the
 // secondary (tombstone append) each appear in the PARTIAL error, so the
 // reply never hides one behind the other.
 test("a busy later file and a failed tombstone append both surface", async () => {

@@ -256,7 +256,7 @@ describe("withStoreLock", () => {
   });
 
   test("the default policy fails closed against another process's lock", async () => {
-    // The DIRECT cross-process path  was about: no in-process queue, so the
+    // The DIRECT cross-process path is the point: no in-process queue, so the
     // give-up happens in the SQLite wait loop, not the hand-off. Reverting this
     // site to an explicit-fail check (`opts.onTimeout === "fail"`) runs THIS
     // write unlocked.
@@ -283,7 +283,7 @@ describe("withStoreLock", () => {
   });
 
   test("an acquisition creates nothing and deletes nothing in the store", async () => {
-    // The  property, stated as an assertion. The lock file protocol created
+    // The property, stated as an assertion. The lock file protocol created
     // a name and then asked the filesystem to remove it, and on Windows that
     // removal could be refused while a third-party handle was open — leaving an
     // entry that meant "held" with nobody holding it. The lock transaction

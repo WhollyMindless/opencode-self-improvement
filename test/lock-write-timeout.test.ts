@@ -1,4 +1,4 @@
-//: a timed-out writer must not acknowledge a mutation that the current
+// a timed-out writer must not acknowledge a mutation that the current
 // lock holder can overwrite. Handshakes fix the ordering; no slow-disk race.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";

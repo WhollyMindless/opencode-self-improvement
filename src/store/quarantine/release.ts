@@ -1,4 +1,4 @@
-// release — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
+// release — split from src/memory.ts. Declaration bodies are unchanged.
 import { type Fields, formatLine } from "../../core/logfmt/format.ts";
 import { filesHoldingTs, memoryFiles } from "../files/load.ts";
 import { stampRow } from "../files/snapshots.ts";

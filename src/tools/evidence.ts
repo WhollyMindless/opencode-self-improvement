@@ -30,11 +30,11 @@ export const register: ToolRegister = (editor, deps) => {
           };
         }
         let lines = await readLines(file);
-        // Data partitions too ( ownership rule, applied to evidence):
+        // Data partitions too (the ownership rule, applied to evidence):
         // a line stamped to another repository is not this session's data,
         // and a line a NAMED session wrote while unresolved is private to
         // that session — the caller's sid is what the private branch
-        // matches against ( re-review).
+        // matches against.
         if (reader.kind !== "admin") {
           lines = lines.filter((l) => {
             const fields = parseLine(l);

@@ -98,7 +98,7 @@ export function resetCaptureCursors(): void {
 }
 
 /**
- * Is this array still the transcript the cursor was counting ( review)?
+ * Is this array still the transcript the cursor was counting?
  *
  * Two shapes say it is not. SHORTER than the count: compaction replaced the
  * transcript, so `since` names an index that no longer exists — a normal event,
@@ -135,7 +135,7 @@ export function transcriptReplaced(
 export function deltaMessages(msgs: unknown, since: number): unknown {
   if (!Array.isArray(msgs) || since <= 0) return msgs;
   // A context that shrank past the cursor is a REPLACED transcript (compaction),
-  // not a window that has been fully mined ( review). Mine what is there:
+  // not a window that has been fully mined. Mine what is there:
   // an empty window here was skipped by the thin-check WITHOUT advancing the
   // cursor, so every later turn was skipped as well until the array grew past
   // the stale count.
@@ -164,7 +164,7 @@ export function guidedStatementInWindow(
   if (!Array.isArray(msgs)) return true;
   const window = msgs.slice(Math.max(0, sinceMsgs));
   if (window.length === 0) return false;
-  // The SAME decode the transcript uses ( review): roles come from
+  // The SAME decode the transcript uses: roles come from
   // `info.role` / `role` / `type`, text from `parts[]` / `content[]` / `text` /
   // a string `content`. Reading one narrow shape here meant a genuine user rule
   // in any other accepted shape got a no-signal skip before generation — the

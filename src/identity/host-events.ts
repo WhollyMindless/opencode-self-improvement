@@ -102,7 +102,7 @@ export interface SessionUsage {
   /**
    * The message this receipt belongs to — the `message.updated` compatibility
    * path only. Streaming updates for the same message overwrite each other;
-   * they must not overwrite another message's receipt ( review).
+   * they must not overwrite another message's receipt.
    */
   messageID?: string;
   /**

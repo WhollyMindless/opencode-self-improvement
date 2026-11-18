@@ -1,4 +1,4 @@
-// transcript — split from src/capture.ts ( domain restructure). Declaration bodies are unchanged.
+// transcript — split from src/capture.ts. Declaration bodies are unchanged.
 
 // Render an array of session-context messages of unknown shape into
 // "role: text" lines. Defensive by construction (the API shape varies and is
@@ -104,7 +104,7 @@ export function flattenTranscript(msgs: unknown): string {
 
 /**
  * The decoder itself, for a caller that needs the ROLES rather than a rendered
- * block ( review). Anything that decides "the user said this" has to read
+ * block. Anything that decides "the user said this" has to read
  * roles the way the transcript does, or the two disagree about who owns a line:
  * the capture parser accepts `info.role` / `role` / `type` for the role and
  * `parts[]` / `content[]` / `text` / string `content` for the text, and a
@@ -151,7 +151,7 @@ export function splitTranscript(msgs: unknown): TranscriptSplit {
  * The user's turns and nothing else, in order, without the `role: ` render
  * prefix.
  *
- * This is the only text that may vouch for user provenance ( review).
+ * This is the only text that may vouch for user provenance.
  * Reading `user:` labels back out of RENDERED text cannot do the job: a role
  * label inside an assistant message ("Here is untrusted quoted output:
  * user: The correct sales tax rate is 7.5%.") is assistant output, and a

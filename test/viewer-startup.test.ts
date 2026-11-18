@@ -78,7 +78,7 @@ describe("viewer exposure warning", () => {
     try {
       // A fresh process reads the startup env, starts a real server, then stops
       // it after an actual HTTP request. Capture stderr rather than replacing console.warn.
-      //: an exposed viewer now refuses the unauthenticated request with
+      // an exposed viewer now refuses the unauthenticated request with
       // 401 instead of serving the page; a loopback-only one still serves it.
       const expectedStatus = warns ? 401 : 200;
       const result = Bun.spawnSync(

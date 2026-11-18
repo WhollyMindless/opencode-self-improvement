@@ -1,4 +1,4 @@
-// The  capture convention, enforced at the write gate: `learning` and
+// The capture convention, enforced at the write gate: `learning` and
 // `blocker` rows must open with the observable trigger ("When <symptom>:").
 // The measured gap justifies enforcement — the same lesson surfaced 0/8 as a
 // session diary and ranked 1-7 symptom-first, because the future searcher
@@ -121,7 +121,7 @@ describe("write gate with the symptom rule on", () => {
     expect(out.action).toBe("promoted");
   });
 
-  test("a metadata-only repair of a legacy row is NOT blocked (#423 review)", async () => {
+  test("a metadata-only repair of a legacy row is NOT blocked", async () => {
     // Seed a pre-convention diary row with the rule off (the legacy state).
     process.env.OPENCODE_MEMORY_SYMPTOM = "off";
     const legacy = await runWriteGate(

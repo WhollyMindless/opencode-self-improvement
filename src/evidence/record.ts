@@ -78,8 +78,7 @@ export function captureEvidenceContext(sessionID?: string): EvidenceContext {
   const cur = getCurrent();
   // An explicitly threaded session outranks the ambient one: gate-authored
   // lines must name the session the gate runs FOR, not whichever setCurrent
-  // fired last during the gate's own awaits ( review note 1 — the rows
-  // were fixed in, these lines were the residue). When the two disagree,
+  // fired last during the gate's own awaits. When the two disagree,
   // the ambient call belongs to the OTHER session's flow, so it is dropped
   // rather than borrowed. With sessionID undefined this captures the ambient
   // session and call at entry by design (maintenance/direct callers). An
@@ -90,7 +89,7 @@ export function captureEvidenceContext(sessionID?: string): EvidenceContext {
   const sid = sessionID ?? cur.sid;
   const call =
     sessionID !== undefined && sessionID !== cur.sid ? undefined : cur.call;
-  // Read-side partitioning of the shared log ( rule, applied to
+  // Read-side partitioning of the shared log (the rule, applied to
   // evidence; the re-review closed the last two gaps in it). A NAMED session
   // is stamped from its OWN resolved scope only — the module scope is never
   // the fallback here: in a process that loaded several plugin instances it

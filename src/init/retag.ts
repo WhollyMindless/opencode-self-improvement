@@ -48,7 +48,7 @@ export interface RetagResult {
   collateral: string[];
   /**
    * Retirement attempts that REJECTED (lock contention) rather than returning
-   * false ( review). The replacement is durable; the original is not.
+   * false. The replacement is durable; the original is not.
    * Counted in `partial`, named here.
    */
   failures: string[];

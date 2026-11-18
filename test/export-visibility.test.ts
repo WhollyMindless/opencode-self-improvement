@@ -120,7 +120,7 @@ describe("memory_export respects repo visibility", () => {
     expect(text).toContain(A_MARK);
     expect(text).toContain(B_MARK);
     expect(text).toContain(G_MARK);
-    // The header still vouches for the file on import ( contract).
+    // The header still vouches for the file on import (the write contract).
     expect(text.split("\n")[0]).toContain("_export");
   });
 

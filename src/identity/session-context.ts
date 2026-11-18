@@ -185,7 +185,7 @@ export function createSessionContext(
   // host cannot describe (fresh, or a host without the lookup) is bound to
   // THIS instance's workspace — the caller's repository as the flow knows
   // it, and strictly better than an unbound read inheriting the module
-  // scope of whoever loaded last ( multi-setup residue).
+  // scope of whoever loaded last (multi-setup residue).
   async function bindSessionIdentity(sid: string | undefined): Promise<void> {
     if (!sid || sid === "?" || sessionDirFirm(sid)) return;
     await bindSessionFromMessages(sid);

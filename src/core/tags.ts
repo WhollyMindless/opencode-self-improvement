@@ -26,7 +26,7 @@ export const CODE_CHECKED_TAG = "code-checked";
 // never a fact for a model to read. `src/init/stamp.ts` retires a row once its
 // audit line confirms the migration; the tag keeps every other row — including
 // one whose audit line is gone, which migration cannot reach — out of the
-// prompt ( review).
+// prompt.
 export const INIT_STAMP_TAG = "init-stamp";
 
 // The public write boundaries reserve this same tag.

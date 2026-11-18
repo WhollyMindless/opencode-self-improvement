@@ -1,4 +1,4 @@
-// decay — split from src/portable.ts ( domain restructure). Declaration bodies are unchanged.
+// decay — split from src/portable.ts. Declaration bodies are unchanged.
 import { open } from "node:fs/promises";
 import { loadAll } from "../store/files/load.ts";
 import { type Memory } from "../store/model/memory.ts";

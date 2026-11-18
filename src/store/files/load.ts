@@ -1,4 +1,4 @@
-// load — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
+// load — split from src/memory.ts. Declaration bodies are unchanged.
 // Durable memory store engine. Reproduces the opencode-memory logfmt format
 // (MIT, github.com/shuans/opencode-memory; license retained under
 // vendor/opencode-memory/LICENSE) and extends it with the fields the write-gate
@@ -168,7 +168,7 @@ export function previousDayName(day: string): string {
 
 /**
  * The day files that could hold a copy of `ts` — the addresses a single-row
- * mutation must try before it may report success ( review).
+ * mutation must try before it may report success.
  *
  * Two files, at most. The one the ts names, plus the previous day's file ONLY
  * when a text scan finds the identity in it: `appendMemory` used to pick the

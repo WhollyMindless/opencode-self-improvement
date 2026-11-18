@@ -1,4 +1,4 @@
-// run — split from src/init.ts ( domain restructure). Declaration bodies are unchanged.
+// run — split from src/init.ts. Declaration bodies are unchanged.
 // Repository init: re-derive build/test command memories through the write gate
 // and record an init stamp keyed on git HEAD. Deterministic (no model calls):
 // manifests are parsed locally and every write goes through the 4-gate pipeline
@@ -51,7 +51,7 @@ export interface InitSummary {
   stampMigrated?: boolean;
   /**
    * A honoured pre-#374 row is still active: its retirement did not land
-   * ( review). The migration itself is durable; the row is inert either
+   *. The migration itself is durable; the row is inert either
    * way, and the operator hears about it instead of reading a clean migration.
    */
   stampRetireError?: string;
@@ -152,7 +152,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
   let written = 0;
   let collapsed = 0;
   let blocked = 0;
-  // Promoted rows whose write_promoted audit line fell ( review: the
+  // Promoted rows whose write_promoted audit line fell (the
   // fault must be visible to every writer, bookkeeping included).
   let unaudited = 0;
   for (const s of scripts) {
@@ -198,7 +198,7 @@ export async function runInit(args: InitArgs): Promise<InitSummary> {
       unaudited,
       stamp: stampError ? "-" : stampTs,
       stamp_error: stampError,
-      // A migration that copied the row but could not retire it ( review).
+      // A migration that copied the row but could not retire it.
       stamp_retire_error: retireError,
       migrated: migrated || undefined,
       retagged: retag.retagged || undefined,

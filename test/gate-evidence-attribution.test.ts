@@ -104,7 +104,7 @@ function ctx(sid: string): GateContext {
   };
 }
 
-describe("#208 — gate evidence attributes only supersessions the call performed", () => {
+describe("gate evidence attributes only supersessions the call performed", () => {
   test("drift interleaving: an out-of-band retirement keeps the other session's pointer", async () => {
     writeFileSync(
       join(liveRoot, "table_manager.ts"),

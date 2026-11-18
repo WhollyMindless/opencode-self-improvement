@@ -444,7 +444,7 @@ describe("flattenTranscript", () => {
 
 // --- splitTranscript / the labelled REQUESTS block -------------------------
 //
-// The framing rows in  were an INPUT fault, not a prompt fault: measured on
+// The framing rows in were an INPUT fault, not a prompt fault: measured on
 // the reproducing fixture, the shipped prompt stored the brief as a durable
 // preference (1 framing row), the same prompt with the user turns removed
 // stored none — and also lost the one real preference in the prose. Routing
@@ -1551,7 +1551,7 @@ describe("turn-end trigger vocabulary", () => {
 
   test("declared-but-never-emitted events do NOT fire: `session.status`", async () => {
     // The protocol declares it; a live host was never observed sending it
-    // (150 s over a turn plus 80 s quiet). Supporting it would be  again.
+    // (150 s over a turn plus 80 s quiet). Supporting it would be speculative.
     expect(
       await modelCallsAfter({
         type: "session.status",

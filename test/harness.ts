@@ -164,7 +164,7 @@ export interface CaptureFakes {
     getCalls: string[];
     row: unknown;
   };
-  //: what the fake ctx.model.default.get() returns (undefined = the host
+  // what the fake ctx.model.default.get() returns (undefined = the host
   // exposes no default model). Tests set this to drive the last-resort
   // inheritance path of an omitted captureModel.
   modelDefault?: { providerID: string; modelID: string };
@@ -309,7 +309,7 @@ export async function loadPlugin(
         return { text: capture.generate.response };
       },
     },
-    //: host default model domain; get() returns whatever the test set.
+    // host default model domain; get() returns whatever the test set.
     model: {
       default: {
         get: () => capture.modelDefault,
@@ -355,7 +355,7 @@ export async function loadPlugin(
     },
     // Drive the real session.context hook (guarded), mapping its text parts
     // back onto the V1 `output.system: string[]` shape. `model` (the V2
-    // SessionRequest ref) rides along so  model inheritance can be
+    // SessionRequest ref) rides along so host model inheritance can be
     // replayed with the ref a real host delivers.
     "experimental.chat.system.transform": async (input: any, output: any) => {
       const parts: Array<{ type: string; text: string }> = [];

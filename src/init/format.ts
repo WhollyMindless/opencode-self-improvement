@@ -1,4 +1,4 @@
-// format — split from src/init.ts ( domain restructure). Declaration bodies are unchanged.
+// format — split from src/init.ts. Declaration bodies are unchanged.
 // Repository init: renders the runInit summary for the tool reply. The
 // codebase-memory graph line is gone with the graph integration.
 import { type InitSummary } from "./run.ts";
@@ -14,7 +14,7 @@ export function formatInit(s: InitSummary): string {
     : "";
   // A retirement that did not land is named, in the same spirit as the re-tag
   // repair's partial count: the migration is durable, the row is still there,
-  // and the operator reads which half failed ( review).
+  // and the operator reads which half failed.
   const retireFault = s.stampRetireError
     ? `Legacy stamp row NOT retired (${s.stampRetireError}); it stays in the store, withheld from recall. Run init again.`
     : "";
@@ -34,7 +34,7 @@ export function formatInit(s: InitSummary): string {
   if (s.skipped) {
     // The skip path can carry a stamp fault of its own: the migration honoured a
     // legacy row and could not write the file, so the next init re-migrates.
-    // Silence here is what let a failed migration report success ( review).
+    // Silence here is what let a failed migration report success.
     const fault = s.stampError
       ? `; stamp NOT recorded (${s.stampError}) — the migration will be retried`
       : "";

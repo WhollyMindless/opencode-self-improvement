@@ -1,4 +1,4 @@
-// format — split from src/logfmt.ts ( domain restructure). Declaration bodies are unchanged.
+// format — split from src/logfmt.ts. Declaration bodies are unchanged.
 
 export const IS_WINDOWS = process.platform === "win32";
 

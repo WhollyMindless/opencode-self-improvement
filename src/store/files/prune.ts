@@ -1,4 +1,4 @@
-// prune — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
+// prune — split from src/memory.ts. Declaration bodies are unchanged.
 import { basename, join } from "node:path";
 import { parseLine } from "../../core/logfmt/format.ts";
 import { fileIdentity, writeAtomic } from "../../core/logfmt/publish.ts";

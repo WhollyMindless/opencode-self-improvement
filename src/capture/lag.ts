@@ -1,4 +1,4 @@
-// lag — split from src/capture.ts ( domain restructure). Declaration bodies are unchanged.
+// lag — split from src/capture.ts. Declaration bodies are unchanged.
 
 /**
  * Age of the newest message in a session context, in ms, or null when no

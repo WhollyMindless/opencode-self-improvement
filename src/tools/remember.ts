@@ -44,7 +44,7 @@ export const register: ToolRegister = (editor, deps) => {
         }
         const outcome = await runWriteGate(candidate, gateContext(sid));
         // A durable row whose audit line fell is NOT a clean success
-        // ( review): the reply says what is missing where it is
+        // the reply says what is missing where it is
         // missing, and the row itself stands.
         if (outcome.action === "promoted")
           return {

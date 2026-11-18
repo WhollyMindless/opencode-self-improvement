@@ -1,4 +1,4 @@
-// snapshots — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
+// snapshots — split from src/memory.ts. Declaration bodies are unchanged.
 import { open, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { snapshotDir } from "../../core/config/paths.ts";

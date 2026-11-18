@@ -1,4 +1,4 @@
-// supersede — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
+// supersede — split from src/memory.ts. Declaration bodies are unchanged.
 
 import { basename } from "node:path";
 import {
@@ -73,7 +73,7 @@ export async function markManySupersededReport(
       file,
       async () => {
         // identity BEFORE the read, like every other whole-file
-        // read-modify-write ( contract) - the publish below may retry a
+        // read-modify-write (the write contract) - the publish below may retry a
         // Windows handover only while the destination still matches this.
         const since = await fileIdentity(file);
         const lines = await readLines(file);
@@ -136,7 +136,7 @@ export async function markManySupersededReport(
     }
   }
   // A ts that appears in more than one file retires in EVERY file that holds it
-  // ( review): reporting a retirement while a live copy stands would be the
+  // reporting a retirement while a live copy stands would be the
   // worse bug, so the neighbour-day scan above exists. `appendMemory` now also
   // refuses to create the collision in the first place; the scan is what keeps a
   // store written before that fix honest.

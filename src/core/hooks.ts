@@ -24,7 +24,7 @@ export async function guarded(
   fn: () => Promise<void>,
   // Optional: "is this failure still worth a receipt?" A caller that owns a
   // lifecycle passes `() => !disposed`. Teardown is not a capture failure
-  //: once cleanup() has returned the caller may have removed the store,
+  // once cleanup() has returned the caller may have removed the store,
   // so mirroring the rejection into evidence is the ENOENT noise that issue was
   // filed about — the same reason the idle capture path checks its abort signal
   // inside its own catch. Omitted, the contract is untouched: every

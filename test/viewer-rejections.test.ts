@@ -1,4 +1,4 @@
-//: viewer writes are trusted admin edits, but do not silently withdraw a
+// viewer writes are trusted admin edits, but do not silently withdraw a
 // value rejection. Exercise the real HTTP endpoints against an isolated store.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {

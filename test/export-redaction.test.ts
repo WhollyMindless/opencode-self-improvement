@@ -51,7 +51,7 @@ function seedLegacy(fields: Record<string, unknown>) {
 
 const SK_TOKEN = "sk-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv";
 
-describe("memory_export redacts stored credentials (#74 slice 1)", () => {
+describe("memory_export redacts stored credentials", () => {
   test("content holding an sk- token exports [redacted], never the token", async () => {
     seedLegacy({ content: `deploy note ${SK_TOKEN} kept for rotation` });
     const res = await exportMemories({ file: "redact-content.jsonl" });
@@ -122,7 +122,7 @@ describe("memory_export redacts stored credentials (#74 slice 1)", () => {
     expect(rows[0].content).toContain(SK_TOKEN);
   });
 
-  //: the same rule has to cover the metadata a row carries. New writes
+  // the same rule has to cover the metadata a row carries. New writes
   // cannot put a credential in scope/tags/kw (the schema and the write boundary
   // refuse it), but a row stored before those checks — or hand-edited into the
   // store — exports into a file meant to leave the machine.

@@ -551,7 +551,7 @@ describe("S4d — an update's supersession target is never its own rival", () =>
   });
 });
 
-describe("S4e — conflict-floor calibration and rival selection (PR #125 review)", () => {
+describe("S4e — conflict-floor calibration and rival selection", () => {
   // The floors are calibrated constants, but S4c alone pins only "0.044 passes"
   // and "0.80 blocks": measured, mutating CONFLICT_OVERLAP_FLOOR 0.3 -> 0.26
   // passes the entire suite. The pairs below are constructed to EXACT jaccard

@@ -164,7 +164,7 @@ describe("memory_undo respects row ownership", () => {
   });
 
   test("contract: a global row appended after the snapshot is in every repo's rollback scope", async () => {
-    // The documented exception to the ownership rule ( review, F2):
+    // The documented exception to the ownership rule:
     // repo=global — and legacy unstamped — rows are visible to EVERY reader,
     // so restore counts them as own rows and a force rollback from A drops a
     // global line written after A's snapshot. Deliberate: "act on exactly

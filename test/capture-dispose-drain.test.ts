@@ -194,7 +194,7 @@ test("control: the same pass with no disposal does promote (so the check is what
   expect(rows[0]?.content).toContain("fourteen days of tarballs");
 });
 
-//: the other side of the same teardown. The pass above is parked IN the
+// the other side of the same teardown. The pass above is parked IN the
 // model call when cleanup runs, so abandoning it is right. A pass that already
 // HOLDS its answer is different work — the gate is local and milliseconds — and
 // on `opencode run` nothing is being torn down at all: the process exits. The
@@ -282,7 +282,7 @@ test("pass disposed during the context read neither receipts nor generates", asy
 // its own failure and checks the signal there; the compaction path runs through
 // the generic `guarded()` reporter, so a rejection that wakes after cleanup
 // bypassed every abort check and appended a `hook_error` line to a store its
-// caller had already torn down ( review, adversarial round).
+// caller had already torn down.
 test("compaction pass whose model call fails after disposal reports nothing", async () => {
   const loaded = await loadPlugin(root, {
     autoCapture: true,
@@ -310,7 +310,7 @@ test("compaction pass whose model call fails after disposal reports nothing", as
 });
 
 // The receipt itself stays: a compaction failure with a live plugin is exactly
-// the invisible-failure class  exists for, so suppressing it must be scoped
+// the invisible-failure class the receipt exists for, so suppressing it
 // to teardown and nothing else.
 test("control: a compaction failure with no disposal still reports hook_error", async () => {
   const loaded = await loadPlugin(root, {

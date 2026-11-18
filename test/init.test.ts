@@ -1,6 +1,6 @@
 // Init phase: memory_init tool behavior. Hermetic — the fixture dir is a plain
 // (non-git) temp tree. The codebase-memory graph integration was removed
-//: nothing in src read the index back, so /repo-init spawns no external
+// nothing in src read the index back, so /repo-init spawns no external
 // binary at all and the suite no longer needs a spawn spy or a fake binary.
 // Scope = directory basename ("repo"), matching the repo-name convention.
 import {
@@ -80,7 +80,7 @@ describe("memory_init", () => {
     expect(patterns.length).toBe(2);
     expect(patterns.every((m) => m.tags?.includes("init"))).toBe(true);
 
-    //: the stamp is plugin bookkeeping, not a memory. A row here was
+    // the stamp is plugin bookkeeping, not a memory. A row here was
     // forgeable by any session, so init writes a file under the memory root.
     expect(mems.some((m) => m.tags?.includes("init-stamp"))).toBe(false);
     const files = readdirSync(stampDir());
@@ -151,7 +151,7 @@ describe("memory_init", () => {
       expect(tags).toContain("quarantine");
       expect(tags.some((t) => t.startsWith("quarantine:"))).toBe(true);
     }
-    //: the stamp is a file, so the basename screen has no stamp row left to
+    // the stamp is a file, so the basename screen has no stamp row left to
     // tag — and screening the rows that ARE written still leaves init idempotent.
     expect(await runInitTool.execute({})).toContain("Already initialized");
     await loaded.cleanup();
@@ -234,7 +234,7 @@ describe("init internals", () => {
   });
 });
 
-//: the stamp used to be a `context` row tagged `init-stamp`. Any session
+// the stamp used to be a `context` row tagged `init-stamp`. Any session
 // could write one with memory_remember, name the current HEAD, and make every
 // later memory_init answer "Already initialized" for that commit — the store
 // talking to itself through a door a model can knock on. It is a file under the
@@ -584,7 +584,7 @@ describe("legacy init-stamp rows are inert, and a migration reports what it did"
   });
 });
 
-//:  screens what init WRITES. A store that already holds an untagged
+//  screens what init WRITES. A store that already holds an untagged
 // injection-shaped row keeps it, and re-running init used to change nothing:
 // GATE-3's exact-duplicate check compares type and content, so the quarantined
 // candidate collapsed into the untagged row, and `force` skips the stamp check,

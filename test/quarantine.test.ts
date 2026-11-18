@@ -147,7 +147,7 @@ describe("untrusted-write scanner", () => {
   ])("does not flag ordinary prose: %s", (content) =>
     expect(quarantinePatterns(content)).toEqual([]),
   );
-  //: scope renders model-facing (inject/format.ts), so the scanner must
+  // scope renders model-facing (inject/format.ts), so the scanner must
   // cover it, not only content.
   test("flags an instruction-shaped scope label and keeps existing tags", () => {
     const scoped = quarantineCandidate({
@@ -823,7 +823,7 @@ test("release distinguishes and audits missing and already-unquarantined rows", 
   );
 });
 
-//: the model-facing scope label was the unscanned half of a row. Both
+// the model-facing scope label was the unscanned half of a row. Both
 // untrusted ingestion routes (import, auto-capture) must quarantine a row whose
 // SCOPE carries instruction-shaped text even when its content is benign, and
 // the row must stay out of every model-facing surface.

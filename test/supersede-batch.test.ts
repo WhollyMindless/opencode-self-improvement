@@ -51,7 +51,7 @@ const snaps = () =>
 const batch = (ts: string[], by = "batch") =>
   ts.map((t) => ({ ts: t, fields: { superseded_by: by, reason: "drift" } }));
 
-describe("markManySuperseded (batch supersession, #61)", () => {
+describe("markManySuperseded (batch supersession)", () => {
   test("rows across two day files retire with ONE snapshot per touched file, not per row", async () => {
     const today: string[] = [];
     for (let i = 0; i < 4; i++) {
@@ -204,8 +204,8 @@ describe("markManySuperseded (batch supersession, #61)", () => {
   });
 });
 
-//: the batch path shipped in  published WITHOUT the fileIdentity
-// anchor  made standard for whole-file read-modify-writes. On Windows,
+// the batch path published WITHOUT the fileIdentity
+// anchor that is standard for whole-file read-modify-writes. On Windows,
 // mandatory locking refuses the handover rename while any reader still holds
 // the destination, so an unanchored batch publish either dies on the refusal
 // (losing an ordinary retirement to contention) or - if it retried blind -

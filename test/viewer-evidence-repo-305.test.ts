@@ -182,8 +182,8 @@ test("viewer edit of a repo=global row still yields a globally visible line", as
 // releaseQuarantine scans the raw day files and releases it anyway. The origin
 // lookup must be unfiltered too, or the quarantine_released line falls back to
 // unstamped/global and the operator's reason leaks to every other repository's
-// memory_evidence — the residual of the very defect  fixes.
-test("release of a BLOCKLISTED repo-B row stamps its evidence with B, not global (#308 F1)", async () => {
+// memory_evidence — the residual of the very defect this path fixes.
+test("release of a BLOCKLISTED repo-B row stamps its evidence with B, not global", async () => {
   const scopeA = resolveRepo(a);
   const scopeB = resolveRepo(b);
   const T1 = "2026-01-05T00:00:00.000Z";
@@ -235,7 +235,7 @@ test("release of a BLOCKLISTED repo-B row stamps its evidence with B, not global
 // F1 on , noop path: a blocklisted row that is not quarantined still
 // exists on disk, so its quarantine_release_noop line must carry its repo
 // too — same leak route as the release path.
-test("noop release of a BLOCKLISTED repo-B row stamps its evidence with B (#308 F1)", async () => {
+test("noop release of a BLOCKLISTED repo-B row stamps its evidence with B", async () => {
   const scopeA = resolveRepo(a);
   const scopeB = resolveRepo(b);
   const T1 = "2026-01-05T00:00:00.000Z";
@@ -260,7 +260,7 @@ test("noop release of a BLOCKLISTED repo-B row stamps its evidence with B (#308 
 // N1 on  (non-blocking finding, fixed with F1): editing a global row in a
 // process that carries an ambient repository must not leave that unrelated
 // repoPath on the globally readable line.
-test("edit of a global row in a repo-B-ambient process leaves no repoB repoPath on the line (#308 N1)", async () => {
+test("edit of a global row in a repo-B-ambient process leaves no repoB repoPath on the line", async () => {
   const scopeB = resolveRepo(b);
   const T1 = "2026-01-05T00:00:00.000Z";
   seed(T1, "global");

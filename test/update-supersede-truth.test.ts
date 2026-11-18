@@ -2,7 +2,7 @@
 // true at every exit, and the row an update replaces must be retired BY that
 // update — not by a drift stamp from a parallel pass, not left active beside a
 // silent replacement, and never reported as unwritten once a row is durable.
-// The five-field carry from the  viewer precedent (issue, tags, kw, STATUS,
+// The five-field carry from the viewer precedent (issue, tags, kw, STATUS,
 // REPO) is the fidelity rule: a prose edit may not launder a row's provenance,
 // silently promote an open frontier row, or re-house a global row into the
 // editor's repository. Every test here is red at 59f537e: markSuperseded's
@@ -490,7 +490,7 @@ describe("an update carries the row's standing with its prose", () => {
   test("a prose edit keeps an open row open", async () => {
     // status was reset on every prose edit: an open frontier row came back
     // settled, and memory_status's open count dropped without anyone closing
-    // anything. (The  viewer precedent carries five fields; this carried
+    // anything. (The viewer precedent carries five fields; this carried
     // three.)
     const pa = await plugin(a);
     const T = await appendMemory({
@@ -553,7 +553,7 @@ describe("an update carries the row's standing with its prose", () => {
   });
 
   test("carried metadata keeps the issue link and provenance tags", async () => {
-    // The original  rule, re-pinned across the widened carry.
+    // The original rule, re-pinned across the widened carry.
     const pa = await plugin(a);
     const T = await appendMemory({
       type: "learning",

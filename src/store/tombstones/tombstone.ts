@@ -1,4 +1,4 @@
-// tombstone — split from src/tombstones.ts ( domain restructure). Declaration bodies are unchanged.
+// tombstone — split from src/tombstones.ts. Declaration bodies are unchanged.
 // Value-keyed rejection tombstones.
 //
 // The blocklist keys on `ts` — ROW identity. memory_forget/prune deletes the

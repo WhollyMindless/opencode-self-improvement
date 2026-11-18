@@ -14,7 +14,7 @@ const fact = {
   content: "The sales tax rate is 8.25 percent after discounts.",
 };
 
-describe("capture guidance provenance (#343a)", () => {
+describe("capture guidance provenance", () => {
   const fixture = withTempStore({ prefix: "osi-capture-guided-" });
   describe("capture contract", () => {
     let plugin: Awaited<ReturnType<typeof loadPlugin>> | undefined;

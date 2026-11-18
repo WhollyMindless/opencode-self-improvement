@@ -1,4 +1,4 @@
-// deletions — split from src/memory.ts ( domain restructure). Declaration bodies are unchanged.
+// deletions — split from src/memory.ts. Declaration bodies are unchanged.
 import { deletionsFile } from "../../core/config/paths.ts";
 import { formatLine } from "../../core/logfmt/format.ts";
 import { appendLog } from "../../core/logfmt/publish.ts";
