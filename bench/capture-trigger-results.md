@@ -24,3 +24,7 @@
 - FAIL — prompt containment: every mined fact really rode the capture prompt (the scripted model reads what the trigger hands it)
 
 Production follow-through: evidence lines `auto_capture_*` (trigger=idle) vs `auto_capture_compaction_*` (trigger=compaction) carry a `trigger` field, and rows carry the auto_capture_compaction tag, so the real-world month-long comparison this simulates a proxy for needs no new plumbing.
+
+---
+
+Runner retired 2026-11-18; recover it with `git log -- bench/runners/capture-trigger-compare.ts`. The numbers above stand as the record.
