@@ -210,6 +210,8 @@ export function makeGuest(
     XDG_STATE_HOME: join(root, "state"),
     XDG_CACHE_HOME: join(root, "cache"),
     OPENCODE_MEMORY_DIR: memoryDir,
+    // Fixtures here are pre-#419 prose; the rule is production default ON.
+    OPENCODE_MEMORY_SYMPTOM: "off",
     OPENCODE_DISABLE_AUTOUPDATE: "1",
     OPENCODE_DISABLE_MODELS_FETCH: "1",
     OPENCODE_DISABLE_FILEWATCHER: "1",
