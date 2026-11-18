@@ -1,5 +1,5 @@
 // candidates — split from src/capture.ts. Declaration bodies are unchanged.
-// Opt-in auto-capture parsing, prompt, and lag helpers. Host access and model
+// Auto-capture parsing, prompt, and lag helpers. Host access and model
 // calls live in src/index.ts. Every candidate that leaves this module flows
 // through runWriteGate in index.ts: capture NEVER writes memories directly,
 // so dupes/stale/canonical rules keep the moat (same as model-authored writes).

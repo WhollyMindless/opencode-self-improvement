@@ -3,7 +3,7 @@
 // Why this file exists. Every other capture test hands the plugin a hand-written
 // event envelope and a scripted `session.context`. That is how this feature shipped
 // dead: the envelope was fabricated, so tests passed for days while no live session
-// ever fired a pass (README, "Auto-capture is experimental"). The questions those
+// ever fired a pass (README, Auto-capture). The questions those
 // tests cannot answer are the ones asked here — does a real `opencode run` turn
 // produce the turn-end event capture subscribes to, and does the pass then write a
 // row through the real gate into the real store?
@@ -281,6 +281,26 @@ describe("auto-capture on the real host", () => {
     expect(scan).toContain("verdicts=");
     expect(scan).toContain("restatements=");
     expect(scan).toContain("files=");
+  }, 240_000);
+
+  test("default options: no key set, and the pass still starts", async () => {
+    // The default is the shipping path, so it is the one that must be shown on a
+    // real host: no `autoCapture`, no `captureModel`, and the pass inherits the
+    // model the session is already using.
+    const g = gitGuest({});
+    scriptCaptureTurn(g);
+    const { ev, started } = await turnUntilCaptureStarts(g);
+    console.log(
+      `[capture-start] default-options test: pass started on attempt ${started}`,
+    );
+    expect(withEv(ev, "plugin_load").at(-1)).toContain("capture=on");
+    expect(
+      started,
+      `no capture pass started in 4 real turns with default options, so an install that sets nothing does not capture — the inherited-model arm is broken`,
+    ).toBeGreaterThan(0);
+    const cost = withEv(ev, "capture_cost").at(-1) ?? "";
+    expect(cost).toContain("trigger=idle");
+    expect(cost).toMatch(/prompt_chars=[1-9]/);
   }, 240_000);
 
   test("control: the same turn with the switch off fires nothing and writes nothing", async () => {

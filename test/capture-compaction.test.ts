@@ -1,4 +1,4 @@
-// Contract: opt-in auto-capture at the COMPACTION moment.
+// Contract: auto-capture at the COMPACTION moment.
 //
 // Compaction is where episodic detail dies (Compaction Cliff: one round keeps
 // 53% of exact-wording rules), so the session.compaction hook additionally
@@ -13,7 +13,7 @@
 //     payload transcript (not a context re-read) is mined, and the payload is
 //     never mutated (RED on src without the compaction trigger);
 //   - the negative control: no compaction event -> nothing captured;
-//   - zero-token default: options OFF -> hook stays model-free;
+//   - autoCapture:false -> hook stays model-free;
 //   - captureOnCompact:false isolates the trigger (idle keeps working);
 //   - a per-session cooldown bounds repeated compactions, and the cooldown is
 //     per-trigger (an idle right after compaction still captures);
@@ -241,8 +241,11 @@ describe("auto-capture end-to-end (session.compaction hook -> gate)", () => {
     await loaded.cleanup();
   });
 
-  test("zero-token default: with options OFF the compaction hook never calls the model", async () => {
-    const loaded = await loadPlugin(liveRoot, { captureOnCompact: true }); // no autoCapture
+  test("autoCapture false: the compaction hook stays model-free", async () => {
+    const loaded = await loadPlugin(liveRoot, {
+      autoCapture: false,
+      captureOnCompact: true,
+    });
     await driveCompaction(loaded, "ses-off", thickMessages());
     await sleep(50);
     expect(loaded.capture.generate.calls.length).toBe(0);

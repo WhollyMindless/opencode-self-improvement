@@ -227,9 +227,10 @@ const impl = {
     );
     // ---- hooks (all fail-closed) -------------------------------------------
     // Seam set by the auto-capture wiring below ONLY when the compaction
-    // trigger is live (autoCapture on, captureOnCompact not false, valid
-    // captureModel). The compaction hook calls it fire-and-forget; undefined
-    // means "off". Declared here because the hook registers before capture.
+    // trigger is live (autoCapture not false, captureOnCompact not false, and a
+    // model that resolves — the option, the session, or the host default). The
+    // compaction hook calls it fire-and-forget; undefined means "off".
+    // Declared here because the hook registers before capture.
     let onCompactCapture:
       | ((sid: string, messages: unknown) => void)
       | undefined;
@@ -246,13 +247,13 @@ const impl = {
       flushStatus,
       getCompactCapture: () => onCompactCapture,
     });
-    // ---- opt-in auto-capture (idle + compaction triggers) ------------------
-    // Default OFF: capture never reads sessions and never calls a model. (The
-    // measured-cache listener above does subscribe to the event stream by
-    // default, but it is zero-model: pure bookkeeping of message usage.) When
-    // enabled (options.autoCapture === true AND a valid captureModel), each
-    // supported turn-end event — and, unless captureOnCompact === false, each
-    // compaction hook call too — runs ONE cheap ctx.generate.text call whose
+    // ---- auto-capture (turn-end + compaction triggers) ---------------------
+    // Armed unless the config sets `autoCapture: false`. (The measured-cache
+    // listener above also subscribes to the event stream, and it is
+    // zero-model: pure bookkeeping of message usage.) While armed — the switch
+    // not false, and a parseable `captureModel` whenever one is given — each
+    // supported turn-end event, and unless `captureOnCompact` is false each
+    // compaction hook call too, runs ONE cheap ctx.generate.text call whose
     // reply is parsed into candidates that go through the SAME runWriteGate as
     // model-authored writes — capture can never bypass the moat, and it only
     // ever writes through the gate. A per-session, per-trigger cooldown bounds
@@ -293,7 +294,9 @@ const impl = {
       } catch {
         // a heartbeat with an unknown version still beats no heartbeat
       }
-      const wantCapture = ctx.options?.autoCapture === true;
+      // Auto-capture is armed unless the config opts it out: an absent key
+      // means on, so the switch is read as a negative opt-out.
+      const wantCapture = ctx.options?.autoCapture !== false;
       // an omitted captureModel is a valid arm — the capture inherits
       // the session's model (session.context) or the host default. Only an
       // explicit but malformed string is invalid_model.

@@ -157,8 +157,8 @@ describe("turn-end trigger vocabulary", () => {
 });
 
 // ---- capture model inheritance ---------------------------------------
-// Requiring captureModel alongside autoCapture was a syntax tax: the opt-in is
-// autoCapture:true, the host already delivers the session's model on every
+// Requiring captureModel alongside autoCapture was a syntax tax: autoCapture is
+// on by default, the host already delivers the session's model on every
 // session hook (SessionRequest.model), and the tax's failure mode was a silent
 // disable. These pin the inheritance chain — explicit option, then the ref the
 // session.context hook carried, then the host default, and only then a skip —
@@ -336,12 +336,21 @@ describe("plugin_load heartbeat", () => {
       .filter((e) => e.ev === "plugin_load")
       .pop();
 
-  test("default options: capture=off, and the subscribed vocabulary is visible", async () => {
+  test("default options: capture=on, and the subscribed vocabulary is visible", async () => {
+    // Absent key means armed: a plain install mines turn ends. The line must
+    // say so, or a user reads "off" in a working install and goes looking for
+    // a bug that is not there.
     const loaded = await loadCapturePlugin({});
     const line = heartbeat();
-    expect(line?.capture).toBe("off");
+    expect(line?.capture).toBe("on");
     expect(String(line?.subscribed)).toContain("session.execution.succeeded");
     expect(typeof line?.version).toBe("string");
+    await loaded.cleanup();
+  });
+
+  test("autoCapture false: capture=off, the one opt-out", async () => {
+    const loaded = await loadCapturePlugin({ autoCapture: false });
+    expect(heartbeat()?.capture).toBe("off");
     await loaded.cleanup();
   });
 
@@ -375,12 +384,21 @@ describe("plugin_load heartbeat", () => {
     await loaded.cleanup();
   });
 
-  test("switch mismatch: captureOnCompact alone is NOT plain off", async () => {
-    // captureOnCompact:true with autoCapture absent warns at setup and does
-    // nothing. The evidence file must name that state, or "off (default)" and
-    // "user set the wrong switch" stay one line.
-    const loaded = await loadCapturePlugin({ captureOnCompact: true });
+  test("switch mismatch: autoCapture false with captureOnCompact true", async () => {
+    // The master switch is off while a trigger behind it is on, so nothing can
+    // fire. The evidence file must name that state, or "the user opted out" and
+    // "the user set a contradictory pair" stay one line.
+    const loaded = await loadCapturePlugin({
+      autoCapture: false,
+      captureOnCompact: true,
+    });
     expect(heartbeat()?.capture).toBe("switch_mismatch");
+    await loaded.cleanup();
+  });
+
+  test("captureOnCompact alone is plain on: no mismatch to report", async () => {
+    const loaded = await loadCapturePlugin({ captureOnCompact: true });
+    expect(heartbeat()?.capture).toBe("on");
     await loaded.cleanup();
   });
 });

@@ -65,7 +65,7 @@ Think of it as a lab notebook the agent keeps for your repo, plus a librarian wh
 - **Surfaces** — a footer badge, the `/memory` panel, `/memory-report` for chat clients, and a browser admin editor. See [Surfaces](#surfaces).
 - **Secret redaction** — credential-shaped values become `[redacted]`. See [Secret redaction](#secret-redaction).
 - **`memory_*` tools** — `memory_remember`, `memory_recall`, `memory_update`, `memory_forget`, `memory_undo`, `memory_status`, `memory_evidence`, `memory_export`, `memory_import`, `memory_decay`, `memory_consolidate`, `memory_merge_review`, `memory_list`, `memory_init`.
-- **Auto-capture (opt-in)** — at the end of a turn, and again at compaction, one cheap model pass reads what just happened and proposes facts worth keeping. They face the same write gates as anything you save by hand. Off by default, so a plain install makes no extra model calls. See [Auto-capture](#auto-capture).
+- **Auto-capture** — at the end of a turn, and again at compaction, one cheap model pass reads what just happened and proposes facts worth keeping. They face the same write gates as anything you save by hand. On by default, and it inherits your session's model; `autoCapture: false` turns it off. See [Auto-capture](#auto-capture).
 
 Memory is stored outside every repository, under `~/.config/opencode/memory` by default (override with `OPENCODE_MEMORY_DIR`). To start over, delete that directory.
 
@@ -94,27 +94,31 @@ Read [docs/flags.md](docs/flags.md) before flipping `OPENCODE_MEMORY_DEDUP`, `OP
 
 Auto-capture is the part that notices facts on its own instead of waiting to be asked. At the end of a turn — and again at compaction, before the summarizer replaces the transcript — one cheap model pass reads what just happened and proposes up to `captureMax` candidates. They face the same four write gates as anything you save by hand, and a 5-minute cooldown per session and trigger bounds the spend.
 
-It is **off by default**, so a plain install makes no extra model call. To turn it on you must also name the model it may use:
+It is **on by default** and needs no model name to run. With `captureModel` unset, each pass uses the model your session is already using, or the host default. Set `autoCapture: false` to stop the plugin reading sessions and calling a model for capture entirely:
 
 ```json
 {
-  "plugins": [{ "package": "opencode-self-improvement", "options": { "autoCapture": true, "captureModel": "provider/id" } }]
+  "plugins": [{ "package": "opencode-self-improvement", "options": { "autoCapture": false } }]
 }
 ```
 
+Name `captureModel` only to pin one model for the pass. An explicit value that is not `provider/id` turns auto-capture off with a startup warning rather than substituting a model you did not choose.
+
+**What that default means for your data.** Because the switch is on, installing this plugin sends a copy of the conversation to your configured model at every turn-end and every compaction. The copy excludes reasoning content and runs through the credential scrubber first, and anything the pass proposes still faces the same write gates as a manual save — but the read itself is real, and it goes out over your provider. Set `autoCapture: false` if you do not want that.
+
 | Option | Default | What it does |
 | --- | --- | --- |
-| `autoCapture` | `false` | Master switch. Off, so a plain install makes no extra model call. |
-| `captureModel` | — | `"provider/id"` model for the pass. Required when capture is on; missing or invalid disables capture with a startup warning. |
+| `autoCapture` | `true` | Master switch. On, so a plain install mines turn ends. Set `false` for no capture model call at all. |
+| `captureModel` | inherits | `"provider/id"` model for the pass. Unset means the session's own model, else the host default. An explicit malformed value disables capture with a startup warning. |
 | `captureMax` | `3` | Maximum candidates proposed per pass. |
-| `captureOnCompact` | `true` | Also mine the transcript at compaction. Its 5-minute cooldown is separate from the turn-end one, so both triggers' hit-rates stay measurable. Setting it while `autoCapture` is off does nothing. |
+| `captureOnCompact` | `true` | Also mine the transcript at compaction. Its 5-minute cooldown is separate from the turn-end one, so both triggers' hit-rates stay measurable. Setting it while `autoCapture` is `false` does nothing. |
 | `captureGuidedRules` | `false` | POC: a deterministic pre-pass marks the values and rules you stated outright — numbers, rates, currency, explicit rule assertions — and attaches your verbatim quote. The capture model may rephrase such a row but cannot clear the flag or invent the quote: a quote you never wrote is refused at the write boundary rather than stripped silently. No extra model calls. |
 
-**The honest caveat.** The trigger fires and the write survives on a real host: `e2e/capture.test.ts` drives `opencode run` and a capture pass starts in 12 of 12 runs. What has not been seen is a live store completing a pass — no `auto_capture_*` line exists anywhere in the maintainer's evidence history — and nothing about quality is measured: what auto-capture would write, how often it duplicates a memory you would have written yourself, and what it costs. So switch it on to try it, not because it is known to pay.
+**The honest caveat.** The trigger fires and the write survives on a real host: `e2e/capture.test.ts` drives `opencode run` and a capture pass starts in 12 of 12 runs. What has not been seen is a live store completing a pass — no `auto_capture_*` line exists anywhere in the maintainer's evidence history — and nothing about quality is measured: what auto-capture would write, how often it duplicates a memory you would have written yourself, and what it costs. Because the switch is on by default, that unmeasured pass runs on every install unless you turn it off; `autoCapture: false` is the one-line answer if you would rather wait for the numbers.
 
 What has been established, and by which kind of evidence, is itemised in [docs/auto-capture-evidence.md](docs/auto-capture-evidence.md). Read that file before quoting any figure in it — two of the entries are defects found in the measuring bench itself, and the corrected numbers are the ones recorded there. `bench/capture-trigger-results.md` is a **bench** simulation of trigger *timing* with a scripted extractor; it answers "which moment is worth mining", not "does this earn its keep".
 
-**Am I armed?** `memory_evidence` answers on the `plugin_load` line: `capture=off` (the option is not on), `invalid_model` (`captureModel` is not `provider/id`), `no_capabilities` (the host did not expose what capture needs) or `capture=on`, next to `subscribed=[…]` listing the event types that subscription really reacts to. On desktop this needs `opencode service restart` after an edit — relaunching the app keeps the old service and its already-parsed options alive, so `capture=` can report a value your config no longer contains. `capture=on` plus no `auto_capture_*` line after a session means the pass did not complete, not that your configuration is wrong; #404 found that mechanism and its fix is merged.
+**Am I armed?** `memory_evidence` answers on the `plugin_load` line: `capture=on` (the default), `capture=off` (`autoCapture: false`), `invalid_model` (`captureModel` is set but is not `provider/id`), `no_capabilities` (the host did not expose what capture needs), or `switch_mismatch` (`captureOnCompact` is on while `autoCapture` is `false`). The same line carries `subscribed=[…]`, listing the event types that subscription really reacts to. On desktop this needs `opencode service restart` after an edit — relaunching the app keeps the old service and its already-parsed options alive, so `capture=` can report a value your config no longer contains. `capture=on` plus no `auto_capture_*` line after a session means the pass did not complete, not that your configuration is wrong; #404 found that mechanism and its fix is merged.
 
 ## How memory is written
 
@@ -340,6 +344,6 @@ How the local commands map to CI job names, what the smoke suite really boots, a
 | `memory store is busy` | A store write exhausted its 5s lock-wait budget, so the mutation is refused rather than run unlocked. Retry after contention clears. An operation spanning several files or steps may have completed earlier steps; refusal is not a rollback of those steps. If the reply reports `PARTIAL`, inspect the named rows and `memory_evidence` / `memory_undo` before retrying. A process that is killed releases the lock when it dies — there is no stale window to wait out. |
 | Writes report a disk I/O error and the store is on a share | The lock's write-ahead log needs mmap'd shared memory, which SQLite does not support on network filesystems. SMB, NFS and OneDrive-mounted roots are unsupported — move `OPENCODE_MEMORY_DIR` to local disk. |
 | Stale plugin after an update | `opencode plugin update opencode-self-improvement` (or bump the pinned `@version` in the `plugins` entry) and restart opencode. On desktop use `opencode service restart`: relaunching the app leaves the background service — and the plugin version and options it already parsed — alive. |
-| Auto-capture does nothing | `memory_evidence` says which case you are in from the `plugin_load` line: `capture=off` (the option is not on), `invalid_model` (`captureModel` must be `provider/id`), `no_capabilities` (the host did not expose what capture needs), or `capture=on`. `capture=on` with no `auto_capture_*` line after a session means the pass did not complete, and is not your configuration — see [Auto-capture](#auto-capture). On desktop, changing any of these options needs `opencode service restart`. |
+| Auto-capture does nothing | `memory_evidence` says which case you are in from the `plugin_load` line: `capture=on` (the default), `capture=off` (you set `autoCapture: false`), `invalid_model`, `no_capabilities` or `switch_mismatch`. `capture=on` with no `auto_capture_*` line after a session means the pass did not complete, and is not your configuration — see [Auto-capture](#auto-capture). On desktop, changing any of these options needs `opencode service restart`. |
 
 `STORE` showing malformed rows, stray lock files in the store, a missing `/repo-init`, a `memory_init` call naming `mode`, `Error: Plugin is not configured` right after `plugin add`, and a clean reset on Windows: [docs/troubleshooting.md](docs/troubleshooting.md).
