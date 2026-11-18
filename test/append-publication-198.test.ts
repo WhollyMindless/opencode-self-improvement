@@ -1,4 +1,4 @@
-// Daily-memory publication boundary and Windows availability tradeoff (#198).
+// Daily-memory publication boundary and Windows availability tradeoff.
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import {
   closeSync,

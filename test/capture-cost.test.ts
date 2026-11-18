@@ -1,4 +1,4 @@
-// Contract (#387): the plugin's own model work is billed, and a zero is never
+// Contract: the plugin's own model work is billed, and a zero is never
 // mistaken for free.
 //
 // Capture is a separate `generate.text` call made after the turn. It appears in
@@ -316,11 +316,11 @@ describe("capture bills its own call end-to-end", () => {
   });
 
   test("a pass disposed mid-model-call writes no cost line, because its store is gone", async () => {
-    // #211 stops a disposed pass before it touches a store the caller may have
+    //stops a disposed pass before it touches a store the caller may have
     // removed, and the cost receipt sits after that check on purpose. So this
     // call's tokens go unbilled: the count undercounts by one at teardown. That
     // is asserted rather than assumed, because an unaccounted call is exactly
-    // the hole #387 was filed to close — if it ever starts writing, this test
+    // the hole this pin exists to close — if it ever starts writing, this test
     // is where the trade-off gets renegotiated.
     const loaded = await loadPlugin(liveRoot, {
       autoCapture: true,

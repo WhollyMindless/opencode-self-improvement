@@ -1,7 +1,7 @@
-// Contract (#211, LIFE-1): auto-capture work that is in flight when the host
+// Contract (LIFE-1): auto-capture work that is in flight when the host
 // disposes the plugin instance must not keep running the write gate.
 //
-// The reproducer the review ran was throwaway; this is the checked-in version.
+// The reproducer is checked in: the failure cannot come back untested.
 // `generate.text` does not take the abort signal, so before the fix a pass
 // parked mid-model-call woke up after `cleanup()` and ran the whole gate
 // against a store its caller had already torn down — gate_start, ref_stale_scan,
@@ -145,7 +145,7 @@ function evidenceSince(ms: number) {
     .map((l) => String(l.ev));
 }
 
-test("compaction pass disposed mid-model-call never reaches the write gate (#211)", async () => {
+test("compaction pass disposed mid-model-call never reaches the write gate", async () => {
   const loaded = await loadPlugin(root, {
     autoCapture: true,
     captureModel: "fake/model",
@@ -194,20 +194,20 @@ test("control: the same pass with no disposal does promote (so the check is what
   expect(rows[0]?.content).toContain("fourteen days of tarballs");
 });
 
-// #404: the other side of the same teardown. The pass above is parked IN the
+// the other side of the same teardown. The pass above is parked IN the
 // model call when cleanup runs, so abandoning it is right. A pass that already
 // HOLDS its answer is different work — the gate is local and milliseconds — and
 // on `opencode run` nothing is being torn down at all: the process exits. The
 // old single-signal drain abandoned those passes too, which is how between a
 // quarter and three quarters of real CLI captures recorded `capture_cost` and no
-// row (#404, A/B/A on 2026-11-13: 12/12 fixed, 6/12 reverted, 12/12 fixed).
+// row (A/B/A on 2026-11-13: 12/12 fixed, 6/12 reverted, 12/12 fixed).
 //
 // What this pins that the real-host scenario cannot: that `cleanup()` resolves
 // with the row already in the store. The scenario asserts the user-visible
 // contract — the row survives the host exiting — but that is a race. Here the
 // ordering is forced by parking the model and releasing it at a known point, and
 // the assertion is checked before any sleep.
-test("a pass that already holds its answer is drained, not abandoned (#404)", async () => {
+test("a pass that already holds its answer is drained, not abandoned", async () => {
   const loaded = await loadPlugin(root, {
     autoCapture: true,
     captureModel: "fake/model",
@@ -247,12 +247,12 @@ test("a pass that already holds its answer is drained, not abandoned (#404)", as
   expect(readEvidenceLog().some((l) => l.ev === "capture_lag")).toBe(true);
 });
 
-// The pre-model path (#211 review): the first abort check sat after the model
+// The pre-model path : the first abort check sat after the model
 // call, so a pass parked in `session.context` woke up AFTER cleanup() returned
 // (the drain expires at its bound rather than hanging on a call that will never
 // land) and then either appended a skip receipt or started a model call against
 // a store its caller had already torn down.
-test("pass disposed during the context read neither receipts nor generates (#211)", async () => {
+test("pass disposed during the context read neither receipts nor generates", async () => {
   const loaded = await loadPlugin(root, {
     autoCapture: true,
     captureModel: "fake/model",
@@ -282,8 +282,8 @@ test("pass disposed during the context read neither receipts nor generates (#211
 // its own failure and checks the signal there; the compaction path runs through
 // the generic `guarded()` reporter, so a rejection that wakes after cleanup
 // bypassed every abort check and appended a `hook_error` line to a store its
-// caller had already torn down (#211 review, adversarial round).
-test("compaction pass whose model call fails after disposal reports nothing (#211)", async () => {
+// caller had already torn down.
+test("compaction pass whose model call fails after disposal reports nothing", async () => {
   const loaded = await loadPlugin(root, {
     autoCapture: true,
     captureModel: "fake/model",
@@ -310,9 +310,9 @@ test("compaction pass whose model call fails after disposal reports nothing (#21
 });
 
 // The receipt itself stays: a compaction failure with a live plugin is exactly
-// the invisible-failure class #138 exists for, so suppressing it must be scoped
+// the invisible-failure class the receipt exists for, so suppressing it
 // to teardown and nothing else.
-test("control: a compaction failure with no disposal still reports hook_error (#138)", async () => {
+test("control: a compaction failure with no disposal still reports hook_error", async () => {
   const loaded = await loadPlugin(root, {
     autoCapture: true,
     captureModel: "fake/model",
@@ -336,7 +336,7 @@ test("control: a compaction failure with no disposal still reports hook_error (#
   expect(String(errors[0]?.hook)).toContain("compaction");
 });
 
-test("idle pass whose model call fails after disposal writes no failure receipt (#211)", async () => {
+test("idle pass whose model call fails after disposal writes no failure receipt", async () => {
   const loaded = await loadPlugin(root, {
     autoCapture: true,
     captureModel: "fake/model",

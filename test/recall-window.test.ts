@@ -1,4 +1,4 @@
-// The recall window's default size (#409, RESULTS §12 and §14).
+// The recall window's default size.
 //
 // Lane 0 joined 1,090 live `memory_recall` events to their session transcripts
 // and asked whether the returned rows were used: a row at rank 1 goes on to be
@@ -8,8 +8,7 @@
 // put in context was statistically worthless.
 //
 // The honest per-query cost, measured through the shipped handler over the 404
-// case-bank queries with adjudicated full-text labels (poc-409/casebank,
-// limit-windows): the window holds an answer for 231 of 404 queries at limit
+// case-bank queries with adjudicated full-text labels: the window holds an answer for 231 of 404 queries at limit
 // 20 and 216 at limit 5 — 15 queries reach their answer only at ranks 6-20
 // (McNemar p<0.001; held-out 131 -> 125, p=0.031). What limit 5 buys: 69%
 // fewer rows and 74% fewer non-answering rows per call. This is a disclosed
@@ -56,7 +55,7 @@ afterEach(() => {
   removeStore(root);
 });
 
-describe("the recall window default (#409)", () => {
+describe("the recall window default", () => {
   test("a query returns 5 rows by default, not 20", async () => {
     const { tool } = await loadPlugin(root);
     await seedTwelve();

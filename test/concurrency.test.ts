@@ -32,8 +32,7 @@ let root: string;
 // A starved Windows worker can spend >5s inside one fs burst (green runs
 // measured supersede racing at 5.5s, lifecycle hooks past 8s), and Bun
 // applies the default 5s to hooks even where the test carries a longer
-// override. 30s budgets for every test and hook here; no assertion changes
-// (#245).
+// override. 30s budgets for every test and hook here; no assertion changes.
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "osi-race-"));
   process.env.OPENCODE_MEMORY_DIR = join(root, "memory");

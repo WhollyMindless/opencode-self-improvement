@@ -35,7 +35,7 @@ const memoryField = z
     message: "must not contain control characters",
   });
 
-// Retrieval keywords (#40). The shape cap mirrors MAX_KEYWORDS in memory.ts,
+// Retrieval keywords. The shape cap mirrors MAX_KEYWORDS in memory.ts,
 // which is the authority at write time (it also lowercases, de-dupes and drops
 // over-long entries rather than rejecting the write).
 const keywordList = z
@@ -233,7 +233,7 @@ export const ReleaseQuarantineBody = z.object({
   ts: isoTs,
   reason: z.string().trim().min(1),
 });
-// #35: lift a value-keyed rejection. `ch` is the 12-hex content hash the gate's
+// lift a value-keyed rejection. `ch` is the 12-hex content hash the gate's
 // block hint names, and the same identifier a `dedup_rejected` evidence line
 // carries — so a human can act on either without reading the store by hand.
 export const UnrejectBody = z.object({
@@ -241,10 +241,10 @@ export const UnrejectBody = z.object({
 });
 // Strict fields by intent: String(body.x ?? "") coercion once let unvalidated
 // POSTs append rows with empty type/scope/content.
-// repo/repoPath (#129): the origin stamp of the DELETED row, replayed from the
+// repo/repoPath: the origin stamp of the DELETED row, replayed from the
 // audit line so a restore-entry keeps the row's original visibility instead of
 // silently landing global. Both absent = the documented legacy global restore.
-// ts (#207): identity of the deleted row. The server resolves the row's
+// ts: identity of the deleted row. The server resolves the row's
 // metadata (tags/kw/issue/status, and the origin stamp) from the deletion
 // audit line itself — by ts when present, falling back to type/scope/content
 // when that ts matches no audit line, else directly by type/scope/content —

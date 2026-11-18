@@ -1,4 +1,4 @@
-// Opt-in capture configuration and dispatch (#168). Cooldowns remain process-wide;
+// Opt-in capture configuration and dispatch. Cooldowns remain process-wide;
 // subscriptions and dispatch closures belong to one setup instance.
 import type { Cleanup } from "@opencode/plugin/promise/plugin";
 import { cmpTs } from "../core/cmp-ts.ts";
@@ -58,7 +58,7 @@ interface CaptureHost {
   };
   generate?: { text: (input: unknown) => Promise<{ text?: string } | string> };
   session?: { context?: (input: { sessionID: string }) => Promise<unknown> };
-  // Host default model (#139): the last-resort source for an omitted
+  // Host default model: the last-resort source for an omitted
   // captureModel. Optional-call everywhere: older/fake hosts expose none.
   model?: {
     default?: {
@@ -84,7 +84,7 @@ interface CaptureDependencies {
   onGuidedPromoted?: (sid: string) => void | Promise<void>;
 }
 
-// Tag on store rows captured by the COMPACTION trigger (issue #41). Rows keep
+// Tag on store rows captured by the COMPACTION trigger. Rows keep
 // the shared "auto-capture" provenance tag (src/inject.ts renders it) and add
 // this one so decay/status can tell which trigger wrote them — the same
 // distinction the auto_capture_compaction_* evidence lines carry.
@@ -118,7 +118,7 @@ async function knownRowsFor(reader: Reader): Promise<string> {
   }
 }
 
-// Auto-capture cooldown, shared by EVERY setup() registration (#108): setup
+// Auto-capture cooldown, shared by EVERY setup() registration: setup
 // runs for more than one location, and per-closure cooldown maps made those
 // registrations strangers - one compaction could pay for two model calls on
 // one transcript. Same module-level shape as `turns` in src/lock.ts; the key
@@ -151,14 +151,14 @@ export function resetCaptureCooldowns(): void {
   lastCaptureRun.clear();
 }
 
-// ---- capture trigger vocabulary (#136) -------------------------------------
+// ---- capture trigger vocabulary -------------------------------------
 // Single source of truth for capture subscriptions. Both turn-end events were
 // observed on the desktop service (test/fixtures/host-events.jsonl).
 // test/event-fidelity.test.ts requires every trigger to appear in both that
 // recording and the installed @opencode/schema manifest: a declared event
-// alone is insufficient evidence that the host emits it (#78, #136).
+// alone is insufficient evidence that the host emits it.
 // Identity triggers have a separate observed check in that test, combining
-// this recording with the 2.2.2 move extract in host-session-move.json (#176).
+// this recording with the 2.2.2 move extract in host-session-move.json.
 export const TURN_END_EVENTS = [
   "session.execution.succeeded",
   "session.execution.interrupted",
@@ -192,7 +192,7 @@ export function configureAutoCapture(
   let captureCleanup: Cleanup | undefined;
   if (ctx.options?.autoCapture === true) {
     const captureModelOpt = ctx.options.captureModel;
-    // #139: an OMITTED captureModel no longer disables the subscription. It
+    // an OMITTED captureModel no longer disables the subscription. It
     // resolves per capture — the per-session ref last seen on session.context,
     // else the host default — and only when both are missing does the pass
     // skip. autoCapture:true is already the explicit opt-in; a second required
@@ -206,7 +206,7 @@ export function configureAutoCapture(
     // picks the default-on arm (FINDINGS 2026-11-08 §4.4).
     const guidedRules = ctx.options?.captureGuidedRules === true;
     const captureOnCompact = ctx.options?.captureOnCompact !== false;
-    // #334: two cost levers, both OFF by default until the benchmark says which
+    // two cost levers, both OFF by default until the benchmark says which
     // way to set them. `captureOnSignal` skips a capture whose turn produced
     // nothing durable; `captureDelta` mines only the turns since the last
     // capture instead of re-reading the whole session every time.
@@ -229,7 +229,7 @@ export function configureAutoCapture(
       );
     } else {
       const controller = new AbortController();
-      // #211 (LIFE-1): passes in flight, tracked so teardown can stop them.
+      // passes in flight, tracked so teardown can stop them.
       // Aborting the subscription is not enough on its own: `generate.text`
       // does not take the signal, so a pass parked mid-model-call when the
       // host disposes this instance wakes up afterwards and used to run the
@@ -248,18 +248,15 @@ export function configureAutoCapture(
       //      generate that outlives the bound is covered by (2), not by the
       //      drain: teardown never waits on the model.
       //
-      // #404 changed (2) from one signal into two phases, because one signal
-      // conflated two different situations and the conflation killed the feature
-      // on the CLI. A pass PARKED in `generate.text` when the host disposes must
-      // never write — that is #211, and the caller may remove the store the
-      // moment cleanup resolves. A pass that already HOLDS its model answer is
-      // different work: the answer exists, the gate is milliseconds of local
-      // work, and on `opencode run` nothing is being removed at all — the process
-      // simply exits. Aborting that pass is why most real CLI passes recorded
-      // `capture_cost` and no row — 9 of 12 in one sample, 6 of 12 in a
-      // controlled A/B (#404): the abort fired on the healthy path, in the only
-      // window capture is allowed to run. Past-model passes are bounded by the
-      // drain instead, which is what the drain is for.
+      // Teardown distinguishes two phases (docs/adr/0005). A pass PARKED in
+      // `generate.text` when the host disposes must never write — the caller
+      // may remove the store the moment cleanup resolves. A pass that already
+      // HOLDS its model answer is different work: the answer exists, the gate
+      // is milliseconds of local work, and on `opencode run` nothing is being
+      // removed at all — the process simply exits. Aborting past-model passes
+      // is why most real CLI passes recorded `capture_cost` and no row (9 of
+      // 12 in one sample, 6 of 12 in a controlled A/B). Past-model passes are
+      // bounded by the drain instead, which is what the drain is for.
       const DRAIN_LIMIT_MS = 1000;
       type PassPhase = {
         /** Set the instant `generate.text` resolves. */
@@ -282,28 +279,28 @@ export function configureAutoCapture(
         return wrapped;
       }
       /**
-       * Teardown, in two phases (#404).
+       * Teardown, in two phases (docs/adr/0005).
        *
        * 1. Abandon every pass that has not answered yet, then drain what is
        *    left, bounded. A parked `generate.text` can outlive any bound, so
-       *    abandoning it is what makes the bound mean something: #211's caller
+       *    abandoning it is what makes the bound mean something: the caller
        *    may remove the store the moment cleanup resolves.
        * 2. A pass that already holds its answer is never abandoned. It is
        *    drained instead, because its remaining work is the gate — local,
        *    milliseconds — and killing it is what lost most real CLI captures
-       *    (#404: 9 of 12 in one sample, 6 of 12 in a controlled A/B).
+       *    (9 of 12 in one sample, 6 of 12 in a controlled A/B).
        *
        * The residual risk is a stated constant, not an accident. If the bound
        * expires while a past-model pass is still working, cleanup returns and at
        * most the gate run already in progress can land afterwards — the drain
        * abandons the pass so its remaining candidates stop at the next boundary.
-       * Before #404 that residual was unbounded in a different way: a generate
-       * that outlived the bound woke up and ran the whole gate, which is what
-       * #211 was filed about. Neither version ever cuts a gate in half.
+       * Without the phase split the residual was unbounded in a different way:
+       * a generate that outlived the bound woke up and ran the whole gate.
+       * Neither version ever cuts a gate in half.
        *
-       * Nothing here writes. #211's tested contract is that a disposed instance
+       * Nothing here writes. The tested contract is that a disposed instance
        * leaves no trace at all after cleanup, and an abandonment receipt would
-       * break it in all four of that issue's cases — `appendLog` calls
+       * break it in all four of that contract's cases — `appendLog` calls
        * `ensureDir`, so the receipt resurrects a directory the caller deleted.
        * An abandoned pass is instead identified by the gap it leaves: a
        * `capture_cost` line with no later `capture_lag` for the same session is
@@ -344,7 +341,7 @@ export function configureAutoCapture(
       const contextFn = (input: { sessionID: string }) =>
         ctx.session?.context?.(input);
 
-      // #139 model resolution: explicit option (captured above) wins; else the
+      // model resolution: explicit option (captured above) wins; else the
       // ref this session's context hook last carried; else the host default.
       // Warn-once per setup when even the last resort is empty — a per-event
       // warn would spam the log for every turn of a model-less session.
@@ -375,11 +372,11 @@ export function configureAutoCapture(
         // Bind the capturing session for the synchronous stretches of this
         // path - but NOT as a promise: the awaits below let another session
         // move current, so the gate context and the persisted rows thread
-        // `sid` explicitly instead of reading it back from the global (#116).
+        // `sid` explicitly instead of reading it back from the global.
         setCurrent({ sessionID: sid });
         // The capture's dedup reads and the rows it writes partition by the
         // CAPTURED session's repository — an unbound sid would otherwise
-        // read global-only and mine duplicates into the store (#127; in
+        // read global-only and mine duplicates into the store (in
         // production the prompt hook already bound it firmly, so this is a
         // no-op there). SYNC only: a lookup call here would break the
         // zero-token promise of the capture tests.
@@ -413,13 +410,13 @@ export function configureAutoCapture(
       ): Promise<void> {
         const captureGate = gate ?? bindCapture(sid);
         const captureReader = captureGate.reader ?? readerFromSid(sid);
-        // #139: resolve the model BEFORE any skip so every capture evidence
+        // resolve the model BEFORE any skip so every capture evidence
         // line below can carry model= (cost attributable to a named model —
         // the real answer to the cost-surprise concern that justified the
         // required captureModel). Resolution itself is token-free.
         const model = modelRef ?? sessionModel(sid) ?? hostDefault();
         const modelTag = model ? `${model.providerID}/${model.id}` : undefined;
-        // #152: an instance with no workspace cannot say which repository the
+        // an instance with no workspace cannot say which repository the
         // mined rows belong to, and rows with no owner are exactly what the
         // store refuses. Skip BEFORE the model call — no tokens spent on a
         // capture that cannot be stored — and leave the reason in evidence.
@@ -450,9 +447,9 @@ export function configureAutoCapture(
           );
           return;
         }
-        // #334: the signal gate. The PORT moved it AFTER the context read
+        // the signal gate. The PORT moved it AFTER the context read
         // (the POC ran it before): a user-stated spec with no tool activity
-        // is exactly the hint channel (#339) and must not be skipped, and
+        // is exactly the hint channel and must not be skipped, and
         // detecting it needs the messages. The read is a local host call;
         // the expensive artifact the gate saves — the capture model call —
         // is still saved.
@@ -460,8 +457,7 @@ export function configureAutoCapture(
         // The turn this pass DESCRIBES. Completion must advance to this number,
         // not to whatever the session has reached by then: a turn delivered
         // while the model call is in flight was never in the prompt, and
-        // consuming it leaves that work unmined with nothing left to ask for it
-        // (#366 review).
+        // consuming it leaves that work unmined with nothing left to ask for it.
         const turnAtStart = session(sid).turns;
         let transcript = seeded;
         let msgs = seededMsgs;
@@ -475,12 +471,12 @@ export function configureAutoCapture(
         // past it by the old count.
         const minedWhole = seededMsgs !== undefined;
         // True when the context is no longer the array the cursor counted
-        // (#366 review): the offset names a transcript that does not exist, so
+        // the offset names a transcript that does not exist, so
         // the window below is the whole context, mined from the beginning.
         let deltaRestart = false;
         if (transcript.length < 200) {
           msgs = await contextFn({ sessionID: sid });
-          // #211: disposed while the host was answering. The drain in cleanup()
+          // disposed while the host was answering. The drain in cleanup()
           // waits a bound, not forever, so this is the normal outcome of a
           // teardown during a slow context read — and everything below writes:
           // the thin-transcript receipt below, then the model call. Silent, for
@@ -546,12 +542,12 @@ export function configureAutoCapture(
           );
           return; // too thin to mine reliably
         }
-        // #44: how stale is a capture? Distance from the newest message of
+        // how stale is a capture? Distance from the newest message of
         // the mined transcript to this instant - measured on whatever the
         // trigger actually mined (the hook payload for compaction, the
         // session context for idle), so both triggers' lag is comparable.
         const lagMs = lagSince(msgs);
-        // #333: partition what was mined, so the user's brief is labelled as
+        // partition what was mined, so the user's brief is labelled as
         // the brief instead of blending into the evidence. Falls back to the
         // single un-partitioned block when the work lines alone are too thin
         // (a seeded transcript with no message array behind it), which keeps
@@ -561,12 +557,12 @@ export function configureAutoCapture(
         const work = partitioned ? split.work : transcript;
         const userProse = partitioned ? split.user : "";
         // The user's turns, decoded from the message array rather than read back
-        // out of rendered text (#364 review). Everything that vouches for "these
+        // out of rendered text. Everything that vouches for "these
         // are the user's own words" goes through this.
         const userTurns = userTurnText(msgs);
         // Hoisted out of the prompt literal so the disposal check below runs
         // BEFORE the model call: this read is awaited, so it is its own window
-        // into a teardown (#211).
+        // into a teardown.
         const knownRows = await knownRowsFor(captureReader);
         if (controller.signal.aborted) return;
         // S1: the ledger's unrecovered gate failures, in the same window the
@@ -578,22 +574,22 @@ export function configureAutoCapture(
         // that nothing failed, and the prompt says so.
         const attested = attestedGateFailures(session(sid), cursor.turn).map(
           (f) =>
-            // Review #384 finding 1: ledger args are raw tool input. A failing
+            // Ledger args are raw tool input. A failing
             // `bun test --token=sk-...` put the credential verbatim into the
             // ATTESTED FAILURES block — the transcript scrub does not cover
             // this input. Redact at construction, so the prompt renders the
             // safe string AND the citation check compares against the same
-            // representation the model was shown.
+            // representation the model was shown (docs/adr/0006).
             redactSecrets(f.arg ? `${f.cmd} — ${f.arg}` : f.cmd),
         );
-        // Review #384 finding 2: `lessonHay.includes(cite)` accepted a lesson
-        // citing `tsc` when the only failure was `bun test
-        // --test-name-pattern tsc` — substring presence cannot establish that
-        // the cited command ran. The list renders `cmd — arg`; a faithful
-        // citation copies a COMPLETE displayed field, so membership is tested
-        // against each whole entry, its cmd, and its arg — never a fragment.
-        // `tsc` is none of those for that failure and is refused; the cmd-only
-        // citation the prompt's own example uses still passes.
+        // A lesson citation must copy a COMPLETE displayed field. Substring
+        // presence cannot establish that the cited command ran:
+        // `includes("tsc")` accepted a lesson citing `tsc` when the only
+        // failure was `bun test --test-name-pattern tsc`. The list renders
+        // `cmd — arg`; membership is tested against each whole entry, its
+        // cmd, and its arg — never a fragment. `tsc` is none of those for
+        // that failure and is refused; the cmd-only citation the prompt's own
+        // example uses still passes.
         const lessonSet = new Set<string>();
         for (const f of attested) {
           lessonSet.add(normWs(f).toLowerCase());
@@ -605,7 +601,7 @@ export function configureAutoCapture(
         }
         // Hoisted so its length can be billed below.
         // Redact the COMPLETE transcript, THEN apply the character budget
-        // (#132). Cropping first can start the window INSIDE a credential:
+        //. Cropping first can start the window INSIDE a credential:
         // a PEM body whose BEGIN marker fell off, or a token whose prefix
         // fell off, matches no pattern — buildCapturePrompt's own scrub
         // (kept, defense in depth) cannot recognize a fragment.
@@ -622,17 +618,17 @@ export function configureAutoCapture(
           prompt: capturePrompt,
         });
         // The phase boundary. From here the answer exists, so cleanup stops
-        // abandoning this pass and drains it instead (#404). Set before the next
+        // abandoning this pass and drains it instead. Set before the next
         // await, so a disposal during anything below cannot be missed.
         phase.pastModel = true;
         const text = typeof out === "string" ? out : (out?.text ?? "");
-        // #211: abandoned while the model call was in flight. Stop here — the
+        // abandoned while the model call was in flight. Stop here — the
         // gate, the rows and the receipts below all write to a store the
         // caller may already have removed. Silent on purpose: a receipt here
         // is the ENOENT teardown noise this check exists to eliminate, and
         // the drain in cleanup means the pass is finished, not lost mid-air.
         if (phase.abandoned) return;
-        // #387: bill our own call. `generate.text` resolves to `{ text }` and
+        // bill our own call. `generate.text` resolves to `{ text }` and
         // nothing else — no `usage`, no `tokens` (probed against the running
         // host) — and capture is not part of any session's event stream, so a
         // meter reading the session reports zero for it. chars/4 is an
@@ -664,7 +660,7 @@ export function configureAutoCapture(
         // the model phrases it but cannot veto it, and a quote the user never
         // wrote is refused at the write boundary (retriable, not silent).
         // The scanned text is the structured USER turns and nothing else
-        // (#364 review): assistant output never enters the haystack, so a stored
+        // assistant output never enters the haystack, so a stored
         // quote can only be what the user said. Filtering rendered lines by a
         // `user:` prefix did not do this — it accepted a `user:` label quoted
         // INSIDE an assistant message as provenance.
@@ -676,7 +672,7 @@ export function configureAutoCapture(
             // no roles there is nothing to vouch for, so the lane stays shut
             // rather than minting a row from prose of unknown origin.
             //
-            // #364 review round 2: the receipt alone does not shut it. A guided
+            // the receipt alone does not shut it. A guided
             // candidate the MODEL supplied would still have been stored with its
             // unverified quote, so with no user turn nothing is attributable and
             // the guided flag plus the quote come off. The distilled prose stays:
@@ -727,7 +723,7 @@ export function configureAutoCapture(
           // Lenient check (default): a guided "original" must appear in the
           // user's own turns. The prompt asks for a quote "copied VERBATIM from
           // a user: line or the REQUESTS block", so the haystack is exactly that
-          // (#364 review: the mined WORK text used to be in here too, which
+          // (review: the mined WORK text used to be in here too, which
           // vouched for a quote lifted out of assistant output). Whitespace is
           // normalised — the model may collapse runs of spaces. A failed check
           // drops the field, never the row: the distilled prose still
@@ -742,15 +738,15 @@ export function configureAutoCapture(
               c.original = undefined;
           }
         }
-        // #389: availability before authority. A candidate that restates a
+        // availability before authority. A candidate that restates a
         // tracked file, or names a command the project already declares, is
         // readable by the next session without a row — and capture costs about a
         // third of a session's own generation.
         //
-        // #402 P0: built on FIRST USE, not on every pass. The build is a
+        // Built on FIRST USE, not on every pass. The build is a
         // synchronous `git ls-files` plus a read of every tracked text file —
         // measured here at 108 ms for 218 files and 2.11 MB — and the pass that
-        // needs it least is the one that used to pay for it: a model answer of
+        // needs it least is the one that would pay for it: a model answer of
         // `[]` still scanned the tree. One build per pass is kept, so the cost is
         // now bounded by the candidates that exist.
         let availableIndex: AvailabilityIndex | undefined;
@@ -783,9 +779,9 @@ export function configureAutoCapture(
         // recall loss here.
         let lessonsKept = 0;
         let lessonsRefused = 0;
-        // #402: rows tagged `restatable` this pass. Counted, never dropped.
+        // rows tagged `restatable` this pass. Counted, never dropped.
         // Two numbers, because they are two different facts and one field that
-        // silently means "verdicts" reads as "rows" (#403 review round 1). A
+        // silently means "verdicts" reads as "rows". A
         // verdict lands on candidates the write gate then refuses — a dup, a
         // credential-shaped scope — and a refused row carries no tag, so the
         // verdict count is an upper bound on the tagged count, never equal by
@@ -821,20 +817,20 @@ export function configureAutoCapture(
           // Between candidates, never inside a gate run: a supersession that
           // half-applied is a store the next session cannot trust. The phase
           // flag, not the signal: this loop only runs once the answer exists,
-          // and cleanup stops abandoning such a pass (#404).
+          // and cleanup stops abandoning such a pass.
           if (phase.abandoned) return;
-          // #402: the availability verdict TAGS the row. It used to `continue`
-          // past the write, and that is the defect #402 exists for. A lexical
-          // match was never strong enough to delete a fact — 29 of the 30 rows
-          // the first version refused were new facts, and a silently dropped
-          // candidate leaves no trace to recover from.
+          // the availability verdict TAGS the row. It used to `continue`
+          // past the write. A lexical match was never strong enough to delete
+          // a fact — 29 of the 30 rows a pure-conflict refusal rejected were
+          // new facts, and a silently dropped candidate leaves no trace to
+          // recover from.
           //
           // The row now goes through the same write gate as every other row, and
           // the tag is what retrieval acts on: `restatable` rows sort last, so a
           // full injection block gives them up first and a spare one keeps them.
           // A wrong verdict costs one row. A right one saves a slot. That is the
-          // first version of this where the two error directions are both
-          // survivable, which is why four rounds of patches could not produce it.
+          // first shape of this where BOTH error directions are survivable:
+          // an earlier one lost facts silently instead of expensively.
           const avail = availability().check(c.content);
           if (avail) {
             availVerdicts++;
@@ -880,7 +876,7 @@ export function configureAutoCapture(
               captureGate.evidenceContext,
             );
           }
-          // #393 AC 2: a numeric claim capture INFERRED (the user did not state
+          // a numeric claim capture INFERRED (the user did not state
           // it) that names a constant the tree also names is checked before it
           // is stored. Only a contradiction refuses; "undecidable" is the
           // transport case and keeps the row, labelled.
@@ -932,9 +928,9 @@ export function configureAutoCapture(
                 ...(original ? { original } : {}),
                 tags: [
                   AUTO_CAPTURE_TAG,
-                  // #402: the tree states this too. Stored anyway, sorted last.
+                  // the tree states this too. Stored anyway, sorted last.
                   ...(avail ? [RESTATABLE_TAG] : []),
-                  // #393: the ONE case that earns `[code-checked]` — an inferred
+                  // the ONE case that earns `[code-checked]` — an inferred
                   // numeric claim that agreed with the tree. Absent everywhere
                   // else, which is what makes `[unverified]` mean something
                   // instead of decorate everything.
@@ -975,7 +971,7 @@ export function configureAutoCapture(
               : `auto_capture_${outcome.action}`,
             // A blocked credential-shaped scope must not reach the evidence log either.
             // The promoted line also carries the audit fault when the
-            // write_promoted line fell (#155 review — capture has no
+            // write_promoted line fell (review — capture has no
             // reply to caveat, so this line is the trail's only note).
             {
               session: sid,
@@ -1022,10 +1018,10 @@ export function configureAutoCapture(
             }
           }
         }
-        // #402 P0: the scan is now visible in the trail. `scanned()` shipped
-        // "for evidence" and was never called, so a synchronous tree read ran
-        // every pass with no record that it happened. One line per pass that
-        // actually built the index, naming files, bytes and milliseconds.
+        // The scan is visible in the trail. A synchronous tree read must
+        // never run every pass with no record that it happened: one line per
+        // pass that actually built the index, naming files, bytes and
+        // milliseconds.
         if (availableIndex) {
           const scan = availableIndex.scanned();
           await record(
@@ -1058,7 +1054,7 @@ export function configureAutoCapture(
           captureGate.evidenceContext,
           modelTag,
         );
-        // #334: the window is consumed. Advance when a capture RAN, whatever it
+        // the window is consumed. Advance when a capture RAN, whatever it
         // found — zero candidates is an answer, and re-mining an answered
         // window every turn is precisely the cost this cursor exists to remove.
         // A skip returns early and leaves the cursor where it was, so the next
@@ -1099,7 +1095,7 @@ export function configureAutoCapture(
             // receipt of repo A's capture as repo B's evidence.
             let opGate: GateContext | undefined;
             // Created before the first await so cleanup can see this pass in the
-            // window before the model call, where #211 still applies in full.
+            // window before the model call, still applies in full.
             const phase = newPhase();
             try {
               opGate = bindCapture(sid);
@@ -1109,7 +1105,7 @@ export function configureAutoCapture(
               );
             } catch (err) {
               // Teardown is not a capture failure: after cleanup the store may
-              // be gone, and a receipt here would be the ENOENT noise #211
+              // be gone, and a receipt here would be the ENOENT noise
               // reports. The abort check inside captureSession is the signal.
               if (controller.signal.aborted) return;
               // Fail-closed for the SESSION, never silent in the store: the
@@ -1139,7 +1135,7 @@ export function configureAutoCapture(
         // The signal stops NEW passes (the subscription checks it before
         // dispatch, and the compaction seam checks it before starting). Passes
         // already started are handled by drainInFlight in two phases: abandon
-        // the unanswered ones, drain the answered ones (#404).
+        // the unanswered ones, drain the answered ones.
         controller.abort();
         await drainInFlight();
       };
@@ -1149,7 +1145,7 @@ export function configureAutoCapture(
       // cooldown names the trigger, so measuring a compaction capture is
       // not confounded by an idle fire moments before - and lives at
       // module level, so a second setup() cannot double-pay one
-      // compaction (#108).
+      // compaction.
       if (captureOnCompact) {
         onCompactCapture = (sid, messages) => {
           if (controller.signal.aborted) return;
@@ -1159,13 +1155,13 @@ export function configureAutoCapture(
           // before guarded() starts awaiting.
           const opGate = bindCapture(sid);
           // Tracked, not just fired: cleanup must be able to drain this pass
-          // (#211), which is the only reason the seam keeps the promise.
+          //, which is the only reason the seam keeps the promise.
           const phase = newPhase();
           void track(
             // The predicate, not just the checks inside the pass: a rejection
             // from the awaited model call skips every abort check that follows
             // it and lands in the generic reporter, which would append
-            // `hook_error` to a store cleanup() has already released (#211).
+            // `hook_error` to a store cleanup() has already released.
             guarded(
               "session.compaction (auto-capture)",
               () =>

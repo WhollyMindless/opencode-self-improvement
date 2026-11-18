@@ -25,7 +25,7 @@ import { removeStore } from "./helpers/remove-store.ts";
 // re-captured for each deliberate move of the model-facing contract — recorded
 // here rather than silently, because this test exists precisely so that a wire
 // change has to be *said* out loud:
-//   * #40 — `kw` added to memory_remember and memory_update (write-time
+//   * `kw` added to memory_remember and memory_update (write-time
 //     retrieval keywords: indexed by the store, never rendered).
 const KW_WIRE = {
   type: "array",
@@ -49,7 +49,7 @@ const EXPECTED_WIRE = {
           "context",
           "pattern",
         ],
-        // Deliberate contract move (#419 enforcement): the trigger-clause rule
+        // Deliberate contract move: the trigger-clause rule
         // is stated where the author chooses a type.
         description:
           'Type of memory. A `learning` or `blocker` row must open its content with the observable trigger: "When <symptom>: <fact>" (#419).',
@@ -196,7 +196,7 @@ const EXPECTED_WIRE = {
   memory_evidence: {
     type: "object",
     properties: {
-      // #130: `date` is a date, not a path — the pattern is wire-visible on
+      // `date` is a date, not a path — the pattern is wire-visible on
       // purpose (the host can surface it before a call is ever made).
       date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
       ev: { type: "string" },
@@ -340,7 +340,7 @@ describe("tool boundary — malformed calls are clean errors that do nothing", (
     expect(await loadAll()).toHaveLength(0);
   });
 
-  test("kw as a string: rejected, nothing written (#40 — the same floor as tags)", async () => {
+  test("kw as a string: rejected, nothing written (the same floor as tags)", async () => {
     const { tool } = await loadPlugin(root);
     const out = await tool.memory_remember!.execute({
       type: "learning",

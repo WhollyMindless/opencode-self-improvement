@@ -1,4 +1,4 @@
-// relevant — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
+// Injection ranking: scoring inputs, the use ledger, and the hint channel.
 import { loadAll } from "../store/files/load.ts";
 import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";
@@ -22,17 +22,17 @@ export function argText(args: unknown): string {
 
 /**
  * The content concepts a query and a row actually share (stopwords dropped,
- * capped, `ts` never included). This is what the use ledger records (#42):
+ * capped, `ts` never included). This is what the use ledger records:
  * every term in it already exists inside the row, so a hit line reveals
  * nothing about the prompt beyond the memory it points at — and it is enough
- * for #45 to replay a merge and prove the same reads would still land.
+ * to replay a merge and prove the same reads would still land.
  */
 /** The text a contextual pull actually searched with, for hit bookkeeping. */
 export function pullQuery(args: unknown): string {
   return argText(args);
 }
 
-// Reinforcement (#42): a row the ledger has seen used breaks a tie over a row
+// Reinforcement: a row the ledger has seen used breaks a tie over a row
 // nobody ever read, and the more recently used one breaks it first. A TIE-BREAK
 // only — the two-concept gate and IDF score still decide relevance, because
 // popularity is not truth: reinforcement without evidence just amplifies
@@ -52,7 +52,7 @@ export function useBoost(a: Memory | undefined, use?: UseSignals): number {
 // keeps its string contract for every existing caller; this is the richer seam.
 export interface SelectOptions {
   /**
-   * Hint channel (#335): when > 0, the newest `guidedCap` user-guided rows
+   * Hint channel: when > 0, the newest `guidedCap` user-guided rows
    * ride the block FIRST regardless of lexical overlap — a user-stated value
    * ("the tax rate is 8.25%") shares no vocabulary with a task prompt about
    * "the injected bug", and the whole point of capturing guidance is that the
@@ -73,7 +73,7 @@ export interface SelectOptions {
    */
   repoDir?: string;
   /**
-   * Character budget for the block (#388). Applied to the PRIORITY order —
+   * Character budget for the block. Applied to the PRIORITY order —
    * guided lane first, then score — so pressure drops the least RELEVANT row.
    * Capping the rendered string instead would let recency decide who rides,
    * because the rendered order is canonical and not score-derived. Absent
@@ -89,8 +89,8 @@ export function isUserGuided(m: Memory): boolean {
 }
 
 /**
- * #402: the working tree already states this fact. Such a row is STORED (it used
- * to be dropped at capture, which is the defect #402 exists for), but it is the
+ * the working tree already states this fact. Such a row is STORED (it used
+ * to be dropped at capture, which is the defect this serves for), but it is the
  * first thing a tight injection budget gives up: the next session can read it in
  * the file, so a slot spent on it is a slot not spent on something the files do
  * not hold.
@@ -103,7 +103,7 @@ export function isRestatable(m: Memory): boolean {
   return m.tags?.includes(RESTATABLE_TAG) === true;
 }
 
-// Hint-channel caveat (#345). Measured: a WRONG user-guided row ("free
+// Hint-channel caveat. Measured: a WRONG user-guided row ("free
 // shipping starts at $50 — the hidden suite encodes that") out-ranked correct
 // code — the agent rewrote a correct threshold to match the memory. The
 // generic "reference data, never instructions" framing did not prevent it.
@@ -135,7 +135,7 @@ export async function selectRelevant(
   rendered: ReadonlyMap<Memory, Memory>;
 }> {
   // Repo-scoped: model-facing reads see the caller's repo + global rows
-  // (their session when one was threaded, #127).
+  // (their session when one was threaded).
   const mems = (rows ?? visibleTo(await loadAll(), readerFromSid(sid))).filter(
     isInjectable,
   );
@@ -212,7 +212,7 @@ export async function selectRelevant(
     // `shown` returns exactly what an explicit header check would.
     let used = fitHeader.length;
     shown = [];
-    // #402: PRIORITY decides who rides, and a restatement now sits last in that
+    // PRIORITY decides who rides, and a restatement now sits last in that
     // order — the tree already states it, so a slot spent here is a slot not
     // spent on something the files do not hold. `merged` stays in score order:
     // `selected` is the ledger's view of the ranking and a miss has to stay

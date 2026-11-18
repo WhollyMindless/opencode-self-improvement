@@ -1,9 +1,8 @@
 // The lock contract: one writer per store across processes and across async
 // tasks inside one process; a dead holder is released by the kernel rather than
 // by age; waiting past the timeout fails closed by default and proceeds only by
-// explicit opt-in (#216); and the lock itself is never created or deleted per
-// acquisition, which is the property the lock file could not keep on Windows
-// (#407).
+// explicit opt-in; and the lock itself is never created or deleted per
+// acquisition, which is the property the lock file could not keep on Windows.
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   existsSync,
@@ -204,7 +203,7 @@ describe("withStoreLock", () => {
     await held;
   });
 
-  test("the default policy fails closed on contention: no opts never proceeds unlocked (#216)", async () => {
+  test("the default policy fails closed on contention: no opts never proceeds unlocked", async () => {
     const file = join(tmp(), "a.logfmt");
     const gate = deferred();
     const held = withStoreLock(file, () => gate.promise);
@@ -227,7 +226,7 @@ describe("withStoreLock", () => {
     await held;
   });
 
-  test("the default policy fails closed when the queue hand-off times out (#216)", async () => {
+  test("the default policy fails closed when the queue hand-off times out", async () => {
     const file = join(tmp(), "a.logfmt");
     const gate = deferred();
     // A takes the lock and runs until the gate; B queues behind A's turn; C
@@ -255,8 +254,8 @@ describe("withStoreLock", () => {
     await Promise.all([a, b]);
   });
 
-  test("the default policy fails closed against another process's lock (#216)", async () => {
-    // The DIRECT cross-process path #196 was about: no in-process queue, so the
+  test("the default policy fails closed against another process's lock", async () => {
+    // The DIRECT cross-process path is the point: no in-process queue, so the
     // give-up happens in the SQLite wait loop, not the hand-off. Reverting this
     // site to an explicit-fail check (`opts.onTimeout === "fail"`) runs THIS
     // write unlocked.
@@ -283,7 +282,7 @@ describe("withStoreLock", () => {
   });
 
   test("an acquisition creates nothing and deletes nothing in the store", async () => {
-    // The #407 property, stated as an assertion. The lock file protocol created
+    // The property, stated as an assertion. The lock file protocol created
     // a name and then asked the filesystem to remove it, and on Windows that
     // removal could be refused while a third-party handle was open — leaving an
     // entry that meant "held" with nobody holding it. The lock transaction
@@ -616,7 +615,7 @@ describe("crash recovery", () => {
 
 describe("deadline races", () => {
   test("contention only ever surfaces the busy refusal, never a raw store error", async () => {
-    // Regression (#107, re-anchored for the SQLite backend): the give-up path
+    // Regression (re-anchored for the SQLite backend): the give-up path
     // must report the policy's outcome, not an error left over from an earlier
     // attempt. A live competing holder is driven here for real, across the
     // deadline, repeatedly.

@@ -1,4 +1,4 @@
-// #393 AC 2: check an inferred claim against the working tree BEFORE storing it.
+// AC 2: check an inferred claim against the working tree BEFORE storing it.
 //
 // The scope is deliberately narrow, and the measurement is why it is narrow.
 // R4's poison rows claimed a fallback VAT rate for a fixture whose config leaves
@@ -13,7 +13,7 @@
 // So this module answers three ways and only one of them refuses. "Undecidable"
 // keeps the row — that is the transport case — and the row then rides injection
 // labelled `[unverified]` (see store/model/provenance.ts), which is the part of
-// #393 the evidence actually supports.
+// the evidence actually supports.
 
 import { findConstant, valuesAgree } from "../recall/conflicts.ts";
 
@@ -85,7 +85,7 @@ export function claimVerdictFromContent(
       );
       // Compare against every number near the symbol: a row may state the value
       // in two units and any one of them agreeing is enough to keep it.
-      // The sign is part of the number (review #399): "-2150" extracted as
+      // The sign is part of the number (review): "-2150" extracted as
       // "2150" agreed with a tree declaring 2150 and shipped the row labelled
       // [code-checked] — an opposite-signed value positively vouched for by a
       // check. `valuesAgree` parses leading [+-] itself, so the extractor must

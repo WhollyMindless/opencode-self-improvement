@@ -87,7 +87,7 @@ function gateOrder(lines: Fields[], chain: string): number[] {
 function ctx(sid: string): GateContext {
   // This gate call runs for `sid` IN liveRoot. A real host states the same
   // thing by handing every tool execute a sessionID this instance resolves;
-  // a named session with no repository has no write target (#152), so the
+  // a named session with no repository has no write target, so the
   // scenario harness has to declare the workspace it is simulating.
   rememberSessionDir(sid, liveRoot);
   return {
@@ -551,7 +551,7 @@ describe("S4d — an update's supersession target is never its own rival", () =>
   });
 });
 
-describe("S4e — conflict-floor calibration and rival selection (PR #125 review)", () => {
+describe("S4e — conflict-floor calibration and rival selection", () => {
   // The floors are calibrated constants, but S4c alone pins only "0.044 passes"
   // and "0.80 blocks": measured, mutating CONFLICT_OVERLAP_FLOOR 0.3 -> 0.26
   // passes the entire suite. The pairs below are constructed to EXACT jaccard

@@ -27,7 +27,7 @@ const keys = ["OPENCODE_MEMORY_DIR", "OPENCODE_COMMANDS_DIR"];
 // The lifecycle hooks await plugin cleanup and the capture tests poll for
 // fire-and-forget evidence; on a busy Windows runner these pass the default
 // 5s budget with real work (green run: 8s on the capture test's hook).
-// 30s budgets across hooks and tests; assertions unchanged (#245).
+// 30s budgets across hooks and tests; assertions unchanged.
 beforeEach(() => {
   saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   root = mkdtempSync(join(tmpdir(), "osi-lifecycle-evidence-"));

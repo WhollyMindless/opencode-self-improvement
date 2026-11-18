@@ -4,7 +4,7 @@
 // through the same loadAll() used by recall/inject (so blocked entries are
 // hidden), and all mutations are non-destructive (snapshot + audit + supersede).
 // I2: serves only file data; never writes into any repo.
-// #223: a non-loopback bind or allowed host mints a startup token (0600, in
+// A non-loopback bind or allowed host mints a startup token (0600, in
 // the store root) and every request must present it; loopback stays open.
 import { basename, join } from "node:path";
 import { linkSync, readFileSync, renameSync, rmSync } from "node:fs";
@@ -104,11 +104,10 @@ function isLoopbackHostname(name: string): boolean {
   return host === "::1" || host === "0:0:0:0:0:0:0:1";
 }
 
-// #223: exposure without authentication was the defect — with a non-loopback
-// bind (or an allowed non-loopback name) every read and mutation was open HTTP
-// for the whole LAN. A token is now minted at startup and every request must
-// present it: the Host/Origin layer stays as the CSRF defence it always was,
-// but it is no longer the only thing between the LAN and the store.
+// A non-loopback bind or allowed host must not expose the store as open HTTP:
+// a token is minted at startup and every request must present it. The
+// Host/Origin layer stays as the CSRF defence it always was, but it is not
+// the only thing between the LAN and the store.
 const TOKEN_FILE = "viewer.token";
 const TOKEN_COOKIE = "osi-viewer";
 const TOKEN_SHAPE = /^[0-9a-f]{64}$/;
@@ -120,26 +119,25 @@ function tokenPath(): string {
 // Reuse a token already in the file so a restart does not invalidate URLs a
 // human has open (and two viewers sharing a store share one token); mint a
 // fresh one otherwise. Concurrent first starts — same process or separate
-// processes — must agree on ONE token (F1, #223 review): the claim is an
-// atomic hard-link of a fully-written 0600 temp, so exactly one starter's
-// content lands at the path (link(2) refuses an existing target), and every
-// loser reads back the winner's complete token instead of overwriting the
-// file with its own.
+// processes — must agree on ONE token: the claim is an atomic hard-link of a
+// fully-written 0600 temp, so exactly one starter's content lands at the path
+// (link(2) refuses an existing target), and every loser reads back the
+// winner's complete token instead of overwriting the file with its own.
 //
-// F1 residual (#223 review round 2): the hard-link claim solves an ABSENT
-// file, not a CORRUPT one — two starters that both read the same corrupt
-// winner used to replace it unconditionally, disagreeing on Linux and
-// throwing EPERM on Windows. Recovery is now serialized twice over: within
-// one process every mint runs through this promise chain, so the second
-// starter re-reads the repaired file instead of racing the repair; across
-// processes an O_EXCL lock file elects one repairman and the others adopt
-// its token. A replacement is never unconditional.
+// The hard-link claim solves an ABSENT file, not a CORRUPT one. Replacing a
+// corrupt file unconditionally makes concurrent starters disagree on Linux and
+// throw EPERM on Windows, so recovery is serialized twice over: within one
+// process every mint runs through this promise chain, so the second starter
+// re-reads the repaired file instead of racing the repair; across processes an
+// O_EXCL lock file elects one repairman and the others adopt its token. A
+// replacement is never unconditional.
 //
-// F3 (#223 review round 2): the reuse path must enforce the 0600 contract
-// too. preparePrivateFile tightens an existing file to owner-only (keeping
-// owner bits, refusing a final-component symlink), so a token file left
-// world-readable is repaired before it is accepted — restoring what the
-// round-1 early return bypassed.
+// The reuse path enforces the 0600 contract too. preparePrivateFile tightens
+// an existing file to owner-only (keeping owner bits, refusing a
+// final-component symlink), so a token file left world-readable is repaired
+// before it is accepted.
+//
+// History: docs/adr/0004.
 let mintTail: Promise<unknown> = Promise.resolve();
 
 function mintViewerToken(): Promise<string> {
@@ -183,16 +181,16 @@ async function mintTokenOnce(): Promise<string> {
 }
 
 // Repair a corrupt token file: exactly one starter replaces the file and the
-// rest adopt its token (F1 residual, #223 review). The repair also keeps Windows
-// from renaming onto a file a rival starter is mid-read — the observed EPERM.
+// rest adopt its token. The repair also keeps Windows from renaming onto a
+// file a rival starter is mid-read — the EPERM that motivated it.
 //
-// It takes the STORE's lock to do it. It used to take its own O_EXCL
-// `.recover` file, which is the #407 shape exactly: the state of the lock lived
-// in a directory entry, and on Windows that entry outlives the holder whenever
-// a third-party handle is open without FILE_SHARE_DELETE. The age-based steal
-// here could not rescue that case either, because the steal is itself an unlink
-// and the same refusal applies to it — a viewer that hit it could never start
-// again.
+// It takes the STORE's lock. Lock state must not live in a directory entry:
+// on Windows an O_EXCL marker outlives the holder whenever a third-party
+// handle is open without FILE_SHARE_DELETE, and an age-based steal cannot
+// rescue that case because the steal is itself an unlink subject to the same
+// refusal — a viewer that hit it could never start again.
+//
+// History: docs/adr/0004.
 async function recoverCorruptToken(
   path: string,
   tmp: string,
@@ -220,8 +218,8 @@ function tokenMatches(candidate: string, expected: string): boolean {
 
 // No decodeURIComponent: the cookie is a fixed-hex token we mint and set
 // verbatim, and decoding junk like `osi-viewer=%` throws URIError on the
-// auth path — a 500 where a malformed credential must simply be refused
-// (N1, #223 review). The raw value cannot match, so it falls through to 401.
+// auth path — a 500 where a malformed credential must simply be refused.
+// The raw value cannot match, so it falls through to 401.
 function cookieValue(req: Request, name: string): string | null {
   for (const part of (req.headers.get("cookie") ?? "").split(";")) {
     const eq = part.indexOf("=");
@@ -270,11 +268,11 @@ interface Row {
   scope: string;
   content: string;
   reason?: string;
-  // Origin stamp (#129): what the row carried when it was deleted, so the
+  // Origin stamp: what the row carried when it was deleted, so the
   // restore-entry round trip can restore the row's ORIGINAL visibility.
   repo?: string;
   repoPath?: string;
-  // #207: the deleted row's metadata, read back from the audit line, so the
+  // the deleted row's metadata, read back from the audit line, so the
   // deleted-entry UI can show WHAT is being restored — in particular whether
   // it is quarantined. Only deletion rows carry these; blocked rows do not.
   tags?: string[];
@@ -291,7 +289,7 @@ function splitScalar(value: unknown): string[] | undefined {
     : undefined;
 }
 
-// The metadata a deletion audit line carries for the deleted row (#207).
+// The metadata a deletion audit line carries for the deleted row.
 // Kept out of the client contract: restore resolves it here, from the store's
 // own record, rather than trusting replayed bytes.
 interface DeletionMeta {
@@ -336,7 +334,7 @@ async function deletedRows(): Promise<Row[]> {
         content: String(f.content ?? ""),
         reason: String(f.reason ?? ""),
         ...meta,
-        // #207: the operator must SEE that a deleted row was quarantined —
+        // the operator must SEE that a deleted row was quarantined —
         // restoring it must not read as a way to release quarantine.
         ...(meta.tags
           ? { quarantined: isQuarantined({ tags: meta.tags }) }
@@ -346,9 +344,9 @@ async function deletedRows(): Promise<Row[]> {
 }
 
 // The authoritative record of what a deleted row carried, keyed by the deleted
-// row's ts (#207). The LAST matching line wins: a row edited then deleted has
-// its newest state last, and that is the state a restore re-adds. Lines
-// written before #207 carry no metadata — the documented fallback.
+// row's ts. The LAST matching line wins: a row edited then deleted has
+// its newest state last, and that is the state a restore re-adds. Audit lines
+// written before deletion metadata existed carry none — the documented fallback.
 async function deletionAuditFor(ts: string): Promise<DeletionMeta | undefined> {
   let found: DeletionMeta | undefined;
   for (const line of await readLines(deletionsFile())) {
@@ -359,7 +357,7 @@ async function deletionAuditFor(ts: string): Promise<DeletionMeta | undefined> {
   return found;
 }
 
-// Same record, keyed by the deleted row's identity instead of its ts (#207 F2).
+// Same record, keyed by the deleted row's identity instead of its ts.
 // A restore request that omits ts is a legacy REQUEST, not a legacy record:
 // if the audit carries a matching line, that line is still the authoritative
 // copy of what the row carried, and resolving it here closes the laundering
@@ -460,7 +458,7 @@ export async function startViewer(port: number = PORT): Promise<ViewerServer> {
         const bootstrap =
           url.pathname === "/" ? url.searchParams.get("token") : null;
         // Validate every presentation instead of taking the first PRESENT
-        // one (F2, #223 review): a stale cookie from before a supported
+        // one (F2): a stale cookie from before a supported
         // token regeneration must not shadow the freshly printed bootstrap
         // URL. A request with no valid credential is still refused.
         const accepted =
@@ -532,7 +530,7 @@ async function loaded(): Promise<Record<string, unknown>> {
     })),
     blocked,
     deleted,
-    // #35: the value-keyed rejections. Hashes and metadata only — the store
+    // the value-keyed rejections. Hashes and metadata only — the store
     // never held the prose, so there is nothing to reveal here either. The
     // sketch is omitted: it is matching machinery, not something a reader can
     // act on.
@@ -626,7 +624,7 @@ async function unblockRoute(
   return json({ unblocked: await unblockMemory(body.ts) });
 }
 
-// The only way a rejection is ever lifted (#35). Human-only: the plugin exposes
+// The only way a rejection is ever lifted. Human-only: the plugin exposes
 // no tool for this, so a session whose write was refused cannot clear the
 // refusal and re-submit the rejected value.
 async function unrejectRoute(
@@ -639,7 +637,7 @@ async function restoreEntryRoute(
   body: z.infer<typeof RestoreEntryBody>,
 ): Promise<Response> {
   await assertViewerWriteAllowed(body.content);
-  // #207: every field that controls visibility or provenance is resolved from
+  // every field that controls visibility or provenance is resolved from
   // the audit line itself — the store's own record — so a restore cannot
   // silently release quarantine (the quarantine tags come back with the row;
   // releasing it stays the deliberate, reason-required release-quarantine
@@ -649,8 +647,8 @@ async function restoreEntryRoute(
   // before any fallback: an unknown explicit ts is an unresolved identity, not
   // permission to replay (F2 residual). Without ts the lookup is by
   // type/scope/content directly. Either way, omitting or missing ts cannot
-  // launder a KNOWN quarantined row back to injectable (F2). The client-replay
-  // fallback (#129 origin stamp, no metadata) survives only for rows the audit
+  // launder a KNOWN quarantined row back to injectable (F2). The origin-stamp
+  // fallback (no metadata) survives only for rows the audit
   // does not carry at all — a legacy record, not a legacy request.
   const src =
     (body.ts && (await deletionAuditFor(body.ts))) ||

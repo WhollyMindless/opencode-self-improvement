@@ -1,4 +1,4 @@
-// #306: the terminal panel's blocked list must agree with the memory_status
+// the terminal panel's blocked list must agree with the memory_status
 // tool. The TUI process owns no session→repo map, so it resolves the active
 // session's repository from its root directory (blockedReaderFor). This file
 // pins that helper and its agreement with the tool's own reader; it needs the
@@ -65,7 +65,7 @@ function seedBlocked(
   );
 }
 
-test("blockedReaderFor resolves the session root to the same reader the tool uses (#306)", () => {
+test("blockedReaderFor resolves the session root to the same reader the tool uses", () => {
   rememberSessionDir("ses-a", a);
   const toolReader = readerFromSid("ses-a"); // what memory_status builds
   const panelReader = blockedReaderFor(a); // what the TUI builds
@@ -73,7 +73,7 @@ test("blockedReaderFor resolves the session root to the same reader the tool use
   expect(panelReader).toEqual({ kind: "repo", scope: resolveRepo(a) });
 });
 
-test("the panel reader and the tool see the same blocked lines (#306)", async () => {
+test("the panel reader and the tool see the same blocked lines", async () => {
   const scopeA = resolveRepo(a);
   const scopeB = resolveRepo(b);
   seedBlocked("ses-BLEEDS-306", "ambiguous_memory", scopeB.key, scopeB.path);
@@ -89,7 +89,7 @@ test("the panel reader and the tool see the same blocked lines (#306)", async ()
   expect(sids).not.toContain("ses-BLEEDS-306");
 });
 
-test("no root fails closed to global-only: private lines hidden, never everything shown (#306)", async () => {
+test("no root fails closed to global-only: private lines hidden, never everything shown", async () => {
   const scopeA = resolveRepo(a);
   seedBlocked("ses-BLEEDS-306", "ambiguous_memory", scopeA.key, scopeA.path);
   seedBlocked("?", "stamped_nowhere");

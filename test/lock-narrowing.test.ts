@@ -1,4 +1,4 @@
-// Contract (#215): a single-row store mutation must not pay one lock per day of
+// Contract: a single-row store mutation must not pay one lock per day of
 // store age. Superseding one row used to lock, read and rewrite-scan EVERY day
 // file, so the cost grew linearly with how long the install had been alive
 // (measured on a synthetic 30 x 10 store: loadAll 4.6 ms, supersede ONE row
@@ -245,7 +245,7 @@ test("contention on the containing day file still refuses the supersede", async 
 
 // The narrowing addresses a row by the day its own ts names, so it is only ever
 // as safe as the claim that a plugin-written row lives in the file its ts names
-// (#373 review). appendMemory picked the file from the clock and bumped a
+// . appendMemory picked the file from the clock and bumped a
 // colliding ts inside the lock, which made the claim false at UTC midnight: two
 // files could hold the same ts, and a retirement that stopped at the first copy
 // reported success while leaving the second live.

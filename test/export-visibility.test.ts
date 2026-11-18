@@ -1,7 +1,7 @@
-// Probe for #143: memory_export must export what the caller can READ and
+// Probe: memory_export must export what the caller can READ and
 // nothing else. Every other read path made all-repository breadth a property of
-// the entry point in #133; the export path still dumped every repo's private
-// rows into a plaintext JSONL. The export twin of #127.
+// the entry point in ; the export path still dumped every repo's private
+// rows into a plaintext JSONL. The export twin of .
 import {
   afterEach,
   beforeEach,
@@ -80,7 +80,7 @@ function exportedText(result: { content: string }): string {
   return readFileSync(path, "utf8");
 }
 
-describe("memory_export respects repo visibility (#143)", () => {
+describe("memory_export respects repo visibility", () => {
   test("an export run by repo A's session omits repo B's private rows", async () => {
     const pa = await plugin(a);
     await plugin(b);
@@ -89,7 +89,7 @@ describe("memory_export respects repo visibility (#143)", () => {
     await seed(b, B_MARK);
     // Unstamped = legacy = global visibility, the one breadth every session
     // sees — seeded with NO module scope in play, or the last setup's repo
-    // would own the stamp (#152's exact quirk; see undo-ownership for why
+    // would own the stamp ( exact quirk; see undo-ownership for why
     // seeds inside plugin sessions carry explicit stamps instead).
     setRepoScope(null);
     await appendMemory({ type: "context", scope: "s", content: G_MARK });
@@ -120,7 +120,7 @@ describe("memory_export respects repo visibility (#143)", () => {
     expect(text).toContain(A_MARK);
     expect(text).toContain(B_MARK);
     expect(text).toContain(G_MARK);
-    // The header still vouches for the file on import (#24's contract).
+    // The header still vouches for the file on import (the write contract).
     expect(text.split("\n")[0]).toContain("_export");
   });
 
@@ -131,13 +131,13 @@ describe("memory_export respects repo visibility (#143)", () => {
     await seed(b, B_MARK);
     const res = await pa.tools.memory_export.execute({}, ctx("ses-never-seen"));
     expect(res.content).toContain("Exported");
-    // Whether A's own rows ride along is the binding's business (#127's
+    // Whether A's own rows ride along is the binding's business (
     // provisional rule); the security property is that B's NEVER do.
     expect(exportedText(res)).not.toContain(B_MARK);
   });
 
   test("two sessions exporting in the same second keep separate artifacts", async () => {
-    // Review finding on #156: default destinations were second-granularity
+    // Review finding: default destinations were second-granularity
     // timestamps opened with O_TRUNC, so B's export silently REPLACED A's
     // file — and reading A's own returned path then yielded B's private
     // rows. The scoping fix leaks through the name. Millisecond stamps

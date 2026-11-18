@@ -1,4 +1,4 @@
-// #177: exercise injection accounting through the registered host hooks and
+// exercise injection accounting through the registered host hooks and
 // public ledger/status surfaces, with the epoch policy inline or extracted.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";

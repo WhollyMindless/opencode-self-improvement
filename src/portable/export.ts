@@ -1,4 +1,4 @@
-// export — split from src/portable.ts (#168 domain restructure). Declaration bodies are unchanged.
+// export — split from src/portable.ts. Declaration bodies are unchanged.
 // Portability: JSONL export/import of the durable store, plus the
 // stale-open-thread query that backs memory_decay. Import NEVER writes: every
 // row flows through the caller-provided gate callback (index.ts wires it to
@@ -39,12 +39,12 @@ export interface ExportOptions {
    * Destination, confined to <memory-root>/exports/ (see containment.ts).
    * Defaults to <memory-root>/exports/<stamp>-<unique>.jsonl: a UNIQUE name,
    * created exclusively, so two exports in the same second can never replace
-   * each other's artifact (#143's review). An explicit `file` keeps the
+   * each other's artifact. An explicit `file` keeps the
    * historical replace semantics backups rely on.
    */
   file?: string;
   /**
-   * The calling session's identity (#143): an export carries exactly the rows
+   * The calling session's identity: an export carries exactly the rows
    * its reader can read — own repo plus global. "?" or absent resolves the
    * AMBIENT reader: out-of-plugin callers (viewer, CLI maintenance) keep the
    * full-store breadth; breadth stays a property of the entry point.
@@ -60,7 +60,7 @@ export interface ExportResult {
 // Filesystem-safe YYYY-MM-DDTHHMMSS (no colons) plus a unique suffix for each
 // default export. The timestamp alone was second-granular: two sessions
 // exporting in the same second got the SAME path, and O_TRUNC let the later
-// one destroy the earlier one's artifact AND its returned path (#143 review).
+// one destroy the earlier one's artifact AND its returned path.
 // Milliseconds would still collide; uniqueness comes from the name, not the
 // clock.
 export function stamp(d: Date = new Date()): string {
@@ -139,7 +139,7 @@ export async function writeExport(
 // where it lives (the original logfmt files + snapshots). The header is always
 // written, even for an empty store, so "has header" is a format invariant.
 //
-// "the live store" means the store AS THE CALLER CAN READ IT (#143): rows are
+// "the live store" means the store AS THE CALLER CAN READ IT: rows are
 // filtered through the caller's Reader, exactly as recall and injection do.
 // Full breadth remains the ambient/admin entry point's, never a missing
 // session's.
@@ -163,10 +163,10 @@ export async function exportMemories(
     count: mems.length,
   });
   // An export is a copy at rest, so it must not carry credentials that were
-  // stored before the write-side redaction existed (#74 slice 1). Redaction is
+  // stored before the write-side redaction existed. Redaction is
   // applied to the value being serialised, never to the row: export stays a
   // read path, and the store remains the byte-of-record for memory_undo.
-  // #300 extends the same rule to the metadata fields: `scope`, `tags` and `kw`
+  // extends the same rule to the metadata fields: `scope`, `tags` and `kw`
   // are free prose a row can carry, and a legacy or hand-edited row can hold a
   // credential in them even though new writes refuse it. `repo`/`repoPath` stay
   // as stored — they are derived stamps, not prose, and rewriting them would

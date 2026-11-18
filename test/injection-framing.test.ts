@@ -46,11 +46,11 @@ beforeEach(() => {
   process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
   liveRoot = join(root, "repo");
   mkdirSync(liveRoot, { recursive: true });
-  // Import files live inside the store (#24); these tests write them before
+  // Import files live inside the store; these tests write them before
   // anything else would create the root.
   mkdirSync(memoryRoot(), { recursive: true });
   resetState();
-  // Fires a turn-end event for a sid that capture.test.ts also uses (#113 nit 1):
+  // Fires a turn-end event for a sid that capture.test.ts also uses:
   // bun shares module state across test files, so the cooldown map must be
   // cleared here too or a test order can silently inherit a live window.
   resetCaptureCooldowns();
@@ -388,7 +388,7 @@ describe("end-to-end: a headerless import cannot plant a frontier instruction", 
       },
     );
     const loaded = await loadPlugin(liveRoot);
-    // The export→hop→import sequence is the shared builder (#228).
+    // The export→hop→import sequence is the shared builder.
     const { importOut } = await roundTripThroughImport(loaded, root, {
       hopName: "round-trip.jsonl",
     });
@@ -442,7 +442,7 @@ describe("end-to-end: auto-captured memories surface their provenance", () => {
 
     // Open status cannot exempt a quarantined row from withholding.
     // fr-cap is a session OF this workspace: bind it, exactly as the prompt
-    // hook does in production (#127: an unbound named sid reads global rows
+    // hook does in production (an unbound named sid reads global rows
     // only, never the module scope).
     rememberSessionDir("fr-cap", liveRoot);
     const system: string[] = [];

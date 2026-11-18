@@ -1,4 +1,4 @@
-// Contract (#24): a path a model names is attacker-selectable text, so the two
+// Contract: a path a model names is attacker-selectable text, so the two
 // model-facing path arguments — memory_export's `file` (an arbitrary WRITE)
 // and memory_import's `file` (an arbitrary READ) — are confined to the store.
 // Exports may only land under <memory-root>/exports; imports may only be read
@@ -86,7 +86,7 @@ function makeLink(target: string, linkPath: string): void {
 // Two fixtures below build a symlink directly — a junction cannot replace them
 // (one must dangle, one must point at a FILE) — and creating a symlink needs
 // Developer Mode or admin on Windows, so on an unprivileged box the fixture's
-// own symlinkSync throws EPERM before resolveContained is ever called (#147).
+// own symlinkSync throws EPERM before resolveContained is ever called.
 // Skip on the machine's actual capability, probed once with the same call the
 // fixtures make — not on the platform label: GitHub's Windows runners hold the
 // privilege (test-windows runs the rest of this file green) and keep executing

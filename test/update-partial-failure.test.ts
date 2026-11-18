@@ -1,4 +1,4 @@
-// Probe for #155: the memory_update twin of the merge_review partial-result
+// Probe: the memory_update twin of the merge_review partial-result
 // fix (156e887). runWriteGate awaits its write_promoted audit AFTER the
 // append, so when that audit throws, the replacement row IS on disk while the
 // tool's catch — whose premise ("only the fail-closed lock timeout throws
@@ -56,7 +56,7 @@ async function plugin(dir: string | null) {
 }
 const ctx = (sessionID: string) => ({ sessionID, id: "uppart-proof" });
 
-describe("memory_update reports post-append failures truthfully (#155)", () => {
+describe("memory_update reports post-append failures truthfully", () => {
   test("a post-append audit failure must not make update claim that nothing was written", async () => {
     const pa = await plugin(a);
     const original = await seedPlanRow(

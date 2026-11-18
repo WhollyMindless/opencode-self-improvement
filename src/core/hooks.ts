@@ -1,6 +1,6 @@
-// Fail-soft wrapper for plugin bookkeeping hooks (#168).
+// Fail-soft wrapper for plugin bookkeeping hooks.
 //
-// Fail-soft must never mean invisible (#138): a plugin whose hook failed on
+// Fail-soft must never mean invisible: a plugin whose hook failed on
 // EVERY turn looked identical to a healthy one in every artifact, because the
 // only trace was a console.warn into the host log. setup() installs a failure
 // reporter that mirrors each swallowed error into the evidence file; the
@@ -24,10 +24,10 @@ export async function guarded(
   fn: () => Promise<void>,
   // Optional: "is this failure still worth a receipt?" A caller that owns a
   // lifecycle passes `() => !disposed`. Teardown is not a capture failure
-  // (#211): once cleanup() has returned the caller may have removed the store,
+  // once cleanup() has returned the caller may have removed the store,
   // so mirroring the rejection into evidence is the ENOENT noise that issue was
   // filed about — the same reason the idle capture path checks its abort signal
-  // inside its own catch. Omitted, the #138 contract is untouched: every
+  // inside its own catch. Omitted, the contract is untouched: every
   // swallowed failure is mirrored.
   reportable?: () => boolean,
 ): Promise<void> {

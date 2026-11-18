@@ -147,7 +147,7 @@ describe("untrusted-write scanner", () => {
   ])("does not flag ordinary prose: %s", (content) =>
     expect(quarantinePatterns(content)).toEqual([]),
   );
-  // #205: scope renders model-facing (inject/format.ts), so the scanner must
+  // scope renders model-facing (inject/format.ts), so the scanner must
   // cover it, not only content.
   test("flags an instruction-shaped scope label and keeps existing tags", () => {
     const scoped = quarantineCandidate({
@@ -160,9 +160,9 @@ describe("untrusted-write scanner", () => {
     expect(scoped.tags).toContain("quarantine:instruction_override");
     expect(scoped.tags).toContain("team");
   });
-  // #364 review: the verbatim quote renders on every injected line
+  //review: the verbatim quote renders on every injected line
   // (inject/format.ts prints it as `(user said: "...")`), so it is a
-  // model-facing field exactly like scope (#205). Benign content used to be
+  // model-facing field exactly like scope. Benign content used to be
   // scanned, the quote beside it was not.
   test("flags an instruction-shaped quote while the content stays clean", () => {
     const quoted = quarantineCandidate({
@@ -823,7 +823,7 @@ test("release distinguishes and audits missing and already-unquarantined rows", 
   );
 });
 
-// #205: the model-facing scope label was the unscanned half of a row. Both
+// the model-facing scope label was the unscanned half of a row. Both
 // untrusted ingestion routes (import, auto-capture) must quarantine a row whose
 // SCOPE carries instruction-shaped text even when its content is benign, and
 // the row must stay out of every model-facing surface.

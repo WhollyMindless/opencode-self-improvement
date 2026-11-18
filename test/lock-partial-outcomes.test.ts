@@ -112,7 +112,7 @@ async function plugin() {
  * Run `run` with acquisitions of `file` refused, as if another writer held it.
  *
  * This used to hold a real in-process lock on `file`, which worked when each day
- * file had its own lock. The lock is per store directory now (#407), so holding
+ * file had its own lock. The lock is per store directory now, so holding
  * one day file holds every one of them and the batch under test could never
  * reach the second file it is supposed to lose. The refusal is injected at the
  * acquisition instead — same timeout policy, same busy message — and the real
@@ -143,7 +143,7 @@ const ctx = { sessionID: "partial-lock", id: "partial-lock-call" };
 // superseded_by read that came back undefined). Bun applies the default 5s to
 // hooks even where the test carries a longer override, so every test AND hook
 // here gets an explicit 30s budget. No assertion moves; only time is granted
-// (#245, following d38e6a7).
+// (following d38e6a7).
 test("a batch retains the first file's durable receipt when the next file is busy", async () => {
   seed(first, "first row");
   seed(second, "second row");
@@ -345,7 +345,7 @@ test.each(["memory_forget", "memory_decay"])(
       ).toBeUndefined();
       if (tool === "memory_forget") {
         expect(rows.map((row) => row.ts)).toEqual([second]);
-        // #206 STORE-1: the row the forget already published must stay
+        //STORE-1: the row the forget already published must stay
         // rejected even though a later file timed out — the rows are gone,
         // so a retry can never tombstone them.
         const chs = (await tombstoneModule.tombstones()).map((t) => t.ch);
@@ -360,7 +360,7 @@ test.each(["memory_forget", "memory_decay"])(
   30_000,
 );
 
-// #206 STORE-2: prune audited every deletion BEFORE republishing the file, so
+//STORE-2: prune audited every deletion BEFORE republishing the file, so
 // a snapshot/publish failure left `action=deleted` lines for rows still on
 // disk — the viewer's Deleted panel listed a live row, restore-entry would
 // duplicate it, and undo treated the ts as intentionally removed. The audit
@@ -394,7 +394,7 @@ test("a failed publish leaves no phantom deletion audit", async () => {
   expect(audit).not.toContain("action=deleted");
 }, 30_000);
 
-// #206: failure of the bookkeeping writes themselves must be explicit, not
+// failure of the bookkeeping writes themselves must be explicit, not
 // silent. An audit append failing after a committed publish keeps the row
 // deleted, still tombstones the value, and reports PARTIAL naming the audit.
 test("a failed deletion audit keeps the tombstone and reports PARTIAL", async () => {
@@ -436,7 +436,7 @@ test("a failed tombstone append is reported and the audit stays truthful", async
   expect(audit).toContain(`original_ts=${first}`);
 }, 30_000);
 
-// #206: both errors survive together — the primary (busy file) and the
+// both errors survive together — the primary (busy file) and the
 // secondary (tombstone append) each appear in the PARTIAL error, so the
 // reply never hides one behind the other.
 test("a busy later file and a failed tombstone append both surface", async () => {

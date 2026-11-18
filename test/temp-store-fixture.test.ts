@@ -1,5 +1,5 @@
 // Exercise fixture hooks in separate real Bun test runs. A failure or unsafe
-// root must not leave the next test pointed at a user's store (#226).
+// root must not leave the next test pointed at a user's store.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
   existsSync,

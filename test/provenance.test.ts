@@ -1,4 +1,4 @@
-// Contract (#393): a row the plugin cannot verify does not reach the model as a
+// Contract: a row the plugin cannot verify does not reach the model as a
 // bare fact. Either it was checked, or it arrives carrying the reason to discount
 // it.
 //
@@ -108,7 +108,7 @@ describe("provenance survives injection", () => {
     );
     // What it can cost an actual request: the relevance block carries at most 5
     // rows plus 3 guided rows, so the ceiling is 8 markers against a 1200-char
-    // budget. That is the number #393 AC 5 asks for, not the store-wide one.
+    // budget. That is the number  AC 5 asks for, not the store-wide one.
     const ceiling = 8 * " [unverified]".length;
     expect(ceiling).toBe(104);
     expect(ceiling / 1200).toBeLessThan(0.09);
@@ -316,7 +316,7 @@ describe("capture checks an inferred claim before storing it", () => {
   });
 
   test("a sign survives extraction: -2150 contradicts a tree declaring 2150", () => {
-    // Review finding (PR #399): the unsigned match passed "2150" to valuesAgree
+    // Review finding (PR ): the unsigned match passed "2150" to valuesAgree
     // for a row saying "-2150", so an opposite-signed value was positively
     // labelled [code-checked]. Agreement must be earned by the number the row
     // actually states.

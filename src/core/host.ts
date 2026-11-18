@@ -1,4 +1,4 @@
-// Structural subset of the OpenCode host used by setup and hook wiring (#168).
+// Structural subset of the OpenCode host used by setup and hook wiring.
 interface ToolDef {
   name: string;
   description: string;

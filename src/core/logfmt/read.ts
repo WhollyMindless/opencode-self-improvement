@@ -1,4 +1,4 @@
-// read — split from src/logfmt.ts (#168 domain restructure). Declaration bodies are unchanged.
+// read — split from src/logfmt.ts. Declaration bodies are unchanged.
 import { readFile } from "node:fs/promises";
 
 export async function readLines(file: string): Promise<string[]> {

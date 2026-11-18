@@ -1,4 +1,4 @@
-// #223: the viewer must not serve the store unauthenticated over a LAN-facing
+// the viewer must not serve the store unauthenticated over a LAN-facing
 // bind. A non-loopback host (bind or allowed-names) mints a startup token and
 // every request — reads included — must present it; loopback-only keeps the
 // token-free flow. Real child process, real HTTP, same pattern as
@@ -42,7 +42,7 @@ try {
     check("cookie accepted", viaCookie.status === 200);
     const apiQuery = await fetch(base + "/api/data?token=" + token);
     check("query token only on /", apiQuery.status === 401);
-    // F2 (#223 review): a stale cookie must not shadow a valid credential.
+    // F2 (): a stale cookie must not shadow a valid credential.
     const stale = "0".repeat(64);
     const staleOnly = await fetch(base + "/", { headers: { cookie: "osi-viewer=" + stale } });
     check("stale cookie alone refused", staleOnly.status === 401);
@@ -50,7 +50,7 @@ try {
     check("bootstrap beats stale cookie", staleBootstrap.status === 200);
     const staleBearer = await fetch(base + "/api/data", { headers: { cookie: "osi-viewer=" + stale, authorization: "Bearer " + token } });
     check("bearer beats stale cookie", staleBearer.status === 200);
-    // N1 (#223 review): malformed cookie encoding is a bad credential, not a 500.
+    // N1 (): malformed cookie encoding is a bad credential, not a 500.
     const malformed = await fetch(base + "/api/data", { headers: { cookie: "osi-viewer=%" } });
     check("malformed cookie refused, not 500", malformed.status === 401);
     const malformedBearer = await fetch(base + "/api/data", { headers: { cookie: "osi-viewer=%", authorization: "Bearer " + token } });
@@ -61,7 +61,7 @@ try {
 } finally { viewer.server.stop(true); }
 `;
 
-// F1 (#223 review): two viewers starting at once against a fresh store must
+// F1 (): two viewers starting at once against a fresh store must
 // agree on the ONE persisted token — a read/claim/write race made them mint
 // different tokens, so each server accepted only its own.
 const EVAL_CONCURRENT = `
@@ -77,7 +77,7 @@ try {
 } finally { a.server.stop(true); b.server.stop(true); }
 `;
 
-// F1 residual (#223 review round 2): the same race on a CORRUPT file — both
+// Reproduced: the same race on a CORRUPT file — both
 // starters read the same corrupt winner and used to replace it
 // unconditionally, so they minted different tokens (Linux) or threw EPERM on
 // the rename (Windows). Recovery must serialize: both starts resolve with
@@ -102,7 +102,7 @@ try {
 } finally { a.server.stop(true); b.server.stop(true); }
 `;
 
-// F3 (#223 review round 2): the valid-token reuse path skipped the 0600
+// Reproduced: the valid-token reuse path skipped the 0600
 // tightening, so a file left world-readable stayed world-readable. Reuse
 // must tighten the existing file before accepting it.
 const EVAL_REUSE_MODE = `
@@ -142,7 +142,7 @@ function runViewer(
   });
 }
 
-describe("viewer token auth (#223)", () => {
+describe("viewer token auth", () => {
   test("loopback-only bind stays token-free and mints no token file", () => {
     const root = mkdtempSync(join(tmpdir(), "osi-viewer-auth-"));
     try {

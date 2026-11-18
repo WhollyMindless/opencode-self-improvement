@@ -1,4 +1,4 @@
-// Hook-level lifecycle contracts for the #168 extraction. These also pass
+// Hook-level lifecycle contracts for the extraction. These also pass
 // with the policy inline: this is a refactor, not a new cache policy.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";

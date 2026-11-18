@@ -1,8 +1,8 @@
-// Contract (follow-up review of #154/#155): an update's SUCCESS claims must be
+// Contract (follow-up review): an update's SUCCESS claims must be
 // true at every exit, and the row an update replaces must be retired BY that
 // update — not by a drift stamp from a parallel pass, not left active beside a
 // silent replacement, and never reported as unwritten once a row is durable.
-// The five-field carry from the #129 viewer precedent (issue, tags, kw, STATUS,
+// The five-field carry from the viewer precedent (issue, tags, kw, STATUS,
 // REPO) is the fidelity rule: a prose edit may not launder a row's provenance,
 // silently promote an open frontier row, or re-house a global row into the
 // editor's repository. Every test here is red at 59f537e: markSuperseded's
@@ -132,7 +132,7 @@ describe("the row an update replaces is retired BY the update", () => {
     // decay / memory_remember's gate / viewer retire rows WITHOUT the
     // update-order lock. When one lands between our resolution and our
     // markSuperseded, the boolean says "not by you" — and an honest success
-    // line cannot be printed over it (#155's shape: two active rows, a
+    // line cannot be printed over it ( shape: two active rows, a
     // confident message, and a retry that claims nothing was ever written).
     const pa = await plugin(a);
     const T = await appendMemory({
@@ -243,7 +243,7 @@ describe("the row an update replaces is retired BY the update", () => {
 describe("the successor verdict tells the truth about content and metadata", () => {
   test("a retry whose successor holds the REDACTED prose reports the duplicate", async () => {
     // Rows pass the scrub on the way in; a retry re-carries the RAW prose, so
-    // raw-vs-stored equality dead-ended exactly where #155's duplicate verdict
+    // raw-vs-stored equality dead-ended exactly where duplicate verdict
     // exists to land.
     const secret = `ghp_${"Ab3dE6fH9jK2mN5pQ8rT1uW4xY7zB0cD3eF6".slice(0, 36)}`;
     const pa = await plugin(a);
@@ -490,7 +490,7 @@ describe("an update carries the row's standing with its prose", () => {
   test("a prose edit keeps an open row open", async () => {
     // status was reset on every prose edit: an open frontier row came back
     // settled, and memory_status's open count dropped without anyone closing
-    // anything. (The #129 viewer precedent carries five fields; this carried
+    // anything. (The viewer precedent carries five fields; this carried
     // three.)
     const pa = await plugin(a);
     const T = await appendMemory({
@@ -553,7 +553,7 @@ describe("an update carries the row's standing with its prose", () => {
   });
 
   test("carried metadata keeps the issue link and provenance tags", async () => {
-    // The original #154 rule, re-pinned across the widened carry.
+    // The original rule, re-pinned across the widened carry.
     const pa = await plugin(a);
     const T = await appendMemory({
       type: "learning",

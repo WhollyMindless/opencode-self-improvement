@@ -16,7 +16,7 @@ async function waitFor(check: () => boolean) {
   }
 }
 
-describe("capture known-row context (#343d)", () => {
+describe("capture known-row context", () => {
   const fixture = withTempStore({ prefix: "osi-capture-known-" });
   describe("capture input", () => {
     let plugin: Awaited<ReturnType<typeof loadPlugin>> | undefined;

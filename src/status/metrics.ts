@@ -1,4 +1,4 @@
-// metrics — split from src/status.ts (#168 domain restructure). Declaration bodies are unchanged.
+// metrics — split from src/status.ts. Declaration bodies are unchanged.
 import { join } from "node:path";
 import { evidenceDir } from "../core/config/paths.ts";
 import { parseLine } from "../core/logfmt/format.ts";
@@ -81,7 +81,7 @@ export async function captureLagLines(days = 30): Promise<string[]> {
 }
 
 /**
- * What the plugin's own model calls cost (#387).
+ * What the plugin's own model calls cost.
  *
  * Capture is a separate `generate.text` call made after the turn, so it appears
  * in NO session's usage: read from the session event stream the plugin's cost
@@ -149,7 +149,7 @@ export function captureCost(
 }
 
 /**
- * Capture health (#138): the answer to "is auto-capture off, misconfigured,
+ * Capture health: the answer to "is auto-capture off, misconfigured,
  * armed-but-inert, or alive?" read from the evidence file ALONE — the
  * `plugin_load` heartbeat names the configured state, `auto_capture_*` lines
  * name the activity. The newest heartbeat wins (a reload with new options
@@ -174,7 +174,7 @@ export interface CaptureHealth {
   /**
    * Newest `capture_lag` completion receipt in the window: proof the capture
    * ran, independent of candidate outcome. A model response of `[]` writes
-   * only this line, so the inert verdict must consult it (#288 F1).
+   * only this line, so the inert verdict must consult it ( F1).
    */
   lastExecuted: string | null;
 }
@@ -218,7 +218,7 @@ export function captureHealth(
     }
     if (ev === "capture_lag") {
       // Completion receipt: the model call finished whether or not it found
-      // candidates. Execution evidence on its own (#288 F1).
+      // candidates. Execution evidence on its own ( F1).
       if (ts && ts >= cutoff && (!lastExecuted || ts > lastExecuted))
         lastExecuted = ts;
       continue;

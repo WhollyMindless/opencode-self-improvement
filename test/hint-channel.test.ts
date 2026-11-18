@@ -7,7 +7,7 @@ import { capToBudget, injectedRows } from "../src/inject/budget.ts";
 import type { Memory } from "../src/store/model/memory.ts";
 import { loadPlugin, withTempStore } from "./harness.ts";
 
-describe("capture-only hint injection (#343b)", () => {
+describe("capture-only hint injection", () => {
   const fixture = withTempStore({ prefix: "osi-hint-channel-" });
   const row = (number: number, extra: Partial<Memory> = {}): Memory => ({
     ts: `2026-11-08T00:00:0${number}.000Z`,

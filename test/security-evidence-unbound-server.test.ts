@@ -1,11 +1,11 @@
-// Follow-up re-review on #133 (posted after the first three probes passed):
+// Follow-up re-review on  (posted after the first three probes passed):
 // fresh evidence written for a session whose repository CANNOT be resolved —
 // the server-style plugin with no setup location — leaked two ways. (1) The
 // line carried `sid=` but no repo stamp, and "no stamp" read as global
 // (the legacy-admin semantics), so any other session's memory_evidence
 // returned it. (2) record()'s `repoScopeFor(sid)` module fallback stamped
 // the line with whoever loaded LAST, so a second instance's correctly
-// scoped reads legitimately returned it. Both are #127's "unknown is never
+// scoped reads legitimately returned it. Both are "unknown is never
 // everything" rule, one boundary late: identity may be unknown, ALL is
 // never the fallback for a NAMED session. Explicit `repo=global` lines and
 // genuinely sid-less lines (legacy, out-of-plugin maintenance) keep their

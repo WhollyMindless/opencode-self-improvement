@@ -1,4 +1,4 @@
-// The cost-claim discipline (#392), enforced rather than hoped for.
+// The cost-claim discipline, enforced rather than hoped for.
 //
 // Three numbers were published and corrected inside one day, because a metric
 // that silently undercounts by 93% still produces a plausible number and a
@@ -6,12 +6,12 @@
 // the fix: they run in CI on every push, they cost nothing, and they fail on the
 // README text itself.
 //
-// A review round then showed that a rule bound to one markdown format binds
+// A later review showed that a rule bound to one markdown format binds
 // nothing: the same claim survived a leading space, a "USD" spelling, a
 // "cuts token use by 30%" rewording, and a line parked one row past a fixed
 // nine-line exemption. These checks match the words a claim can wear, not the
 // table syntax it happens to sit in. They are word-matching, not
-// evidence-checking: what still slips through is listed in the record of #392.
+// evidence-checking: what still slips through is listed in the record of .
 //
 // What they hold:
 //   1. the effectiveness section quotes exactly two results, each with n and
@@ -234,7 +234,7 @@ describe("the rules are written down where contributors hit them", () => {
   });
 
   test("cache state is named as a confounder, because that is what produced the worst claim", () => {
-    // #365's 20,506 -> 10,009 "saving" was two runs in different cache states.
+    // 20,506 -> 10,009 "saving" was two runs in different cache states.
     expect(WORTH.join("\n").toLowerCase()).toContain("cache state");
   });
 

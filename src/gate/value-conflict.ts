@@ -1,4 +1,4 @@
-// Row-vs-row numeric conflict (#390): a correction must retire the row it
+// Row-vs-row numeric conflict: a correction must retire the row it
 // corrects IN THE DATA, not only in its wording.
 //
 // R3 (`results-stale-x5/`, values 2150 → 1900) showed the store keeping BOTH
@@ -23,7 +23,7 @@
 //   2. value — the numbers attached to that anchor must actually disagree
 //      (`valuesAgree === false`); "21.5%" and "2150" are one fact restated.
 //   3. sentence — with the numbers stripped, the two rows must say the SAME
-//      thing (#400 review round 2, WhollyMindless). Every non-numeric word
+//      thing. Every non-numeric word
 //      outside a closed ignore list (prose glue, copulas) must appear in BOTH
 //      rows or in a closed EDITORIAL set — words that narrate the act of
 //      correcting ("corrected", "actually", "supersedes") and nothing about
@@ -35,8 +35,7 @@
 //      open: tenants, regions, editions, customers). Same-context is now
 //      ESTABLISHED, not looked up: a difference the words cannot explain is
 //      a difference in the fact. Retirement requires the correction to be
-//      the only thing that changed; anything coexisting is the pre-#390
-//      state — both rows inject, retrieval prefers the newer — never a
+//      the only thing that changed; anything coexisting is the pre-correction//      state — both rows inject, retrieval prefers the newer — never a
 //      hidden fact.
 import { USER_GUIDED_TAG } from "../core/tags.ts";
 import { STOPWORDS, tokens } from "../core/tokenize.ts";
@@ -54,7 +53,7 @@ export interface ValueConflict {
 }
 
 // How far after a symbol a number may sit and still be that symbol's value.
-// Same window as the capture claim check (#393) on purpose: one rule for
+// Same window as the capture claim check on purpose: one rule for
 // "this number belongs to this name".
 const WINDOW = 48;
 
@@ -104,7 +103,7 @@ const EDITORIAL: ReadonlySet<string> = new Set([
 /**
  * The qualifying content of a row with ONE occurrence removed: the number
  * the given symbol asserts, excised by POSITION before tokenizing. Numbers
- * otherwise STAY (#400 review rounds 3 and 4, WhollyMindless): "tenant 101"
+ * otherwise STAY: "tenant 101"
  * and "tenant 202" are distinguished only by digits, and a literal skip of
  * the compared value also skipped a qualifier carrying the same literal —
  * "is 3 for tenant 3" lost its tenant when the 3 was skipped globally.
@@ -214,9 +213,9 @@ function assertedValueSpan(
  * The value each symbol in a row asserts: the first number within WINDOW
  * after the symbol (falling back to the first before it). Built per call —
  * a module-level `g` regex carries `lastIndex` between calls, which made the
- * #393 check depend on which row was checked last.
+ * check depend on which row was checked last.
  *
- * The sign is part of the value: "-5" and "5" disagree (#399's class — an
+ * The sign is part of the value: "-5" and "5" disagree ( class — an
  * unsigned extractor grants agreement across a sign flip).
  */
 export function symbolValues(content: string): Map<string, string> {

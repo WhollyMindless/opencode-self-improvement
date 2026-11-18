@@ -1,4 +1,4 @@
-// #421, reproduced from @WhollyMindless's post-merge follow-up on #417: the
+// Reproduced: the identifier tokenizer splits a snake_case SCOPE name into words; the
 // identifier tokenizer splits a snake_case SCOPE name into words, and the old
 // contentTokens() built its vocabulary from the whole haystack minus the
 // whole scope/type strings — so the scope's words survived as "content".
@@ -40,7 +40,7 @@ function mem(content: string, ts: string): Memory {
   };
 }
 
-describe("contentTokens vocabulary (#421)", () => {
+describe("contentTokens vocabulary", () => {
   test("a snake_case scope contributes no tokens to a non-Latin row", () => {
     // The leak: words(haystack) kept auth/token/refresh/policy after
     // out.delete() could only remove the whole scope string.
@@ -60,7 +60,7 @@ describe("contentTokens vocabulary (#421)", () => {
   });
 });
 
-describe("memory_recall with dedup on a snake_case scope (#421)", () => {
+describe("memory_recall with dedup on a snake_case scope", () => {
   let root: string;
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "osi-dedup-leak-"));
@@ -77,9 +77,9 @@ describe("memory_recall with dedup on a snake_case scope (#421)", () => {
   });
 
   test("both unrelated non-Latin rows survive the composed handler", async () => {
-    // The report's probe verbatim: query the scope name, default limit,
-    // OPENCODE_MEMORY_DEDUP=0.8. Before #417 both rows returned; on the
-    // integrated release only the newer one did.
+    // Reproduced probe: query the scope name, default limit,
+    // OPENCODE_MEMORY_DEDUP=0.8. A vocabulary built from the haystack returns
+    // only the newer row; both must survive.
     const day = "2026-11-01";
     const file = join(memoryRoot(), `${day}.logfmt`);
     mkdirSync(dirname(file), { recursive: true });

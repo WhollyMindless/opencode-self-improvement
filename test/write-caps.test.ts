@@ -221,7 +221,7 @@ describe("write-side size + type floors", () => {
       legacySecret,
     );
 
-    // An export is a copy of the store, so it lands inside it (#24). #300: that
+    // An export is a copy of the store, so it lands inside it. Note: that
     // copy scrubs the metadata too. The credential-shaped scope still identifies
     // the row on the lookup paths above (recall, forget), but it must not ride
     // out in a file meant to leave the machine.
@@ -235,7 +235,7 @@ describe("write-side size + type floors", () => {
       "[redacted] stays addressable",
     );
     // Forward-only: scrubbing happens on the way out, never in the store, so
-    // the row stays exactly as a pre-#67 build wrote it.
+    // the row stays exactly as a pre- build wrote it.
     expect(readFileSync(file, "utf8")).toContain(scope);
     expect(readFileSync(file, "utf8")).toContain(legacySecret);
     expect(
