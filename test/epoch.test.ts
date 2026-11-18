@@ -214,7 +214,7 @@ describe("epoch freeze (cache-safe injection)", () => {
     );
     expect(same).toBe(first);
 
-    // A new prompt whose vocabulary matches NOTHING abstains (, the
+    // A new prompt whose vocabulary matches NOTHING abstains (the
     // epoch-freeze fix): rows frozen at the FIRST topic must not keep riding
     // a session that has moved on. The block moves, so this DOES recompute.
     const second = await deliveredBlock(

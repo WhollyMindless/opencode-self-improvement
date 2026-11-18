@@ -211,7 +211,7 @@ export async function registerHooks(
       setCurrent({ sessionID: event?.sessionID });
       // The anchor read and the capture pass below partition by the session's
       // repository; SYNC provisional bind only — a host lookup from this
-      // hook would violate the zero-token promise (, see capture).
+      // hook would violate the zero-token promise (see capture).
       if (typeof sid === "string") bindSessionProvisional(sid, instanceDir);
       await onCompacting({ sessionID: event?.sessionID });
       if (typeof event?.sessionID === "string") {

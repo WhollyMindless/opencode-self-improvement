@@ -25,7 +25,7 @@ export interface ImportTally {
   skipped: number;
   /** Open rows downgraded because the file cannot grant that frontier scope. */
   downgraded: number;
-  /** Promoted rows whose write_promoted audit line failed to land (#155 review). */
+  /** Promoted rows whose write_promoted audit line failed to land. */
   unaudited: number;
   /** First audit-fault message, so the reply can name what went wrong. */
   auditError?: string;

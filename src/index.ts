@@ -143,7 +143,7 @@ const impl = {
     setRepoScope(setupRoot ? resolveRepo(setupRoot) : null);
     // THIS instance's own workspace. The module scope says who loaded last;
     // this says who I am. An unbound session that calls into THIS instance
-    // resolves here — never to another instance's scope (, multi-setup).
+    // resolves here — never to another instance's scope (multi-setup).
     const instanceDir =
       typeof setupRoot === "string" && setupRoot ? setupRoot : undefined;
 

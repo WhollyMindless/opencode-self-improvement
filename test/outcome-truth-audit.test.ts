@@ -107,7 +107,7 @@ function evidenceLines(): Fields[] {
 
 describe("the collapse-completion keeps its rule", () => {
   test("a survivor that lacks the named row's metadata may not receive the fold — both ids are reported", async () => {
-    // The review's probe shape: editing A (OPEN frontier thread, issue link,
+    // The shape that matters: editing A (OPEN frontier thread, issue link,
     // keywords) with prose that happens to byte-equal a DIFFERENT live row B.
     // Retiring A into B silently leaves the frontier and destroys metadata no
     // call named; keeping both is merely two rows stating one fact, which a

@@ -830,8 +830,8 @@ export function configureAutoCapture(
           // the tag is what retrieval acts on: `restatable` rows sort last, so a
           // full injection block gives them up first and a spare one keeps them.
           // A wrong verdict costs one row. A right one saves a slot. That is the
-          // first version of this where the two error directions are both
-          // survivable, which is why four rounds of patches could not produce it.
+          // first shape of this where BOTH error directions are survivable:
+          // an earlier one lost facts silently instead of expensively.
           const avail = availability().check(c.content);
           if (avail) {
             availVerdicts++;

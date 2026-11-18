@@ -122,18 +122,19 @@ function auditDays(ts: string): string[] {
 }
 
 /**
- * Did a real init audit this row, and at which head? The pre-#374 run wrote
- * `stamp=<row ts>` and `head=<head>` into its `init_complete` evidence line, so
+ * Did a real init audit this row, and at which head? The legacy store-row
+ * stamp wrote `stamp=<row ts>` and `head=<head>` into its `init_complete`
+ * evidence line, so
  * the pairing is the provenance the row itself cannot supply. Parsed
  * field-by-field: a value that merely contains the text cannot satisfy it.
  *
- * The head comes from the EVIDENCE LINE, never from the row's prose (#376
- * review). `appendMemory` mints `ts` at millisecond resolution and `runInit`
+ * The head comes from the EVIDENCE LINE, never from the row's prose.
+ * `appendMemory` mints `ts` at millisecond resolution and `runInit`
  * mints its stamp timestamp the same way, so two concurrent writes can land on
- * the same millisecond — 42 of 480 rows did in the review's probe. Pairing on
+ * the same millisecond — 42 of 480 rows did in a probe on a live store.
  * `stamp === ts` alone would then let a row that names one head retire a
- * repository's idempotency at a different head, which is the forgery was
- * opened to close. Returns null when no line names this ts with a usable head.
+ * repository's idempotency at a different head — the forgery this check exists
+ * to close. Returns null when no line names this ts with a usable head.
  */
 async function initAuditHead(ts: string): Promise<string | null> {
   for (const day of auditDays(ts)) {
@@ -157,7 +158,7 @@ async function initAuditHead(ts: string): Promise<string | null> {
   return null;
 }
 
-/** The pre-#374 stamp: a `context` row in this scope tagged `init-stamp`. */
+/** The legacy stamp: a `context` row in this scope tagged `init-stamp`. */
 async function legacyStampRow(
   scope: string,
   reader: Reader,
@@ -179,7 +180,7 @@ export interface StampRead {
   stamp: InitStamp | null;
   /** The repository identity key the stamp file is (or would be) named for. */
   key: string;
-  /** True when a pre-#374 store row was honoured and copied to the file. */
+  /** True when a legacy store-row stamp was honoured and copied to the file. */
   migrated: boolean;
   /**
    * The migration copy could not be written. The row was still

@@ -143,7 +143,7 @@ const ctx = { sessionID: "partial-lock", id: "partial-lock-call" };
 // superseded_by read that came back undefined). Bun applies the default 5s to
 // hooks even where the test carries a longer override, so every test AND hook
 // here gets an explicit 30s budget. No assertion moves; only time is granted
-// (, following d38e6a7).
+// (following d38e6a7).
 test("a batch retains the first file's durable receipt when the next file is busy", async () => {
   seed(first, "first row");
   seed(second, "second row");

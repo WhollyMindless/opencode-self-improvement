@@ -329,13 +329,12 @@ describe("memory_update supersession edges", () => {
   });
 
   test("an update whose content byte-equals another live row completes the merge: the target retires in the survivor's favor", async () => {
-    // The review pinned the OLD shape ("Duplicate ignored": target
-    // survives next to the row its content duplicated — two active statements
-    // of one fact, and the retry after a supersede-step fault never converged
-    // past it). The follow-up review of folded the collapse into a real
-    // supersede, as predicted here: the named target is retired pointing AT
-    // the survivor (first-call-wins, so this is safe on every path), and the
-    // store ends with exactly one active statement.
+    // The shape this pins: "Duplicate ignored" once meant the target survives
+    // next to the row its content duplicated — two active statements of one
+    // fact, and a retry after a supersede-step fault never converged past it.
+    // The collapse is now a real supersede: the named target is retired
+    // pointing AT the survivor (first-call-wins, so this is safe on every
+    // path), and the store ends with exactly one active statement.
     const a = await appendMemory({
       type: "pattern",
       scope: "colupd",

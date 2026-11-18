@@ -590,7 +590,7 @@ describe("legacy init-stamp rows are inert, and a migration reports what it did"
 // candidate collapsed into the untagged row, and `force` skips the stamp check,
 // not the dedup. Init now re-tags what it can read.
 describe("init re-tags rows stored before the injection screen", () => {
-  /** A row exactly as a pre-#372 init would have left it: live, untagged. */
+  /** A row exactly as init left it before the injection screen: live, untagged. */
   async function poison(extra: Record<string, unknown> = {}) {
     return appendMemory({
       type: "learning",

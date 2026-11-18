@@ -24,7 +24,7 @@ export interface AppendMemoryInput {
   content: string;
   issue?: string;
   tags?: string[];
-  /** Retrieval keywords (#40); normalised and capped by appendMemory. */
+  /** Retrieval keywords; normalised and capped by appendMemory. */
   kw?: string[];
   status?: MemoryStatus;
   /**

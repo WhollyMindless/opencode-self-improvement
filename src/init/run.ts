@@ -43,19 +43,19 @@ export interface InitSummary {
   written: number;
   collapsed: number;
   blocked: number;
-  /** Written rows whose write_promoted audit line fell (#155 review). */
+  /** Written rows whose write_promoted audit line fell. */
   unaudited?: number;
-  /** The stamp file could not be written; init must be re-run (#374). */
+  /** The stamp file could not be written; init must be re-run. */
   stampError?: string;
-  /** True when a pre-#374 store row was honoured and copied to the file. */
+  /** True when a legacy store-row stamp was honoured and copied to the file. */
   stampMigrated?: boolean;
   /**
-   * A honoured pre-#374 row is still active: its retirement did not land
-   *. The migration itself is durable; the row is inert either
+   * A honoured legacy stamp row is still active: its retirement did not
+   * land. The migration itself is durable; the row is inert either
    * way, and the operator hears about it instead of reading a clean migration.
    */
   stampRetireError?: string;
-  /** Pre-#372 rows re-tagged by the injection screen (#375). */
+  /** Rows stored before the injection screen existed, re-tagged. */
   retag?: RetagResult;
 }
 

@@ -277,7 +277,7 @@ describe("budget pressure keeps relevance, not recency", () => {
   });
 });
 
-// AC 1 of , in the scripted form the ticket states. Six turns against a
+// AC 1, in the scripted form the requirement states. Six turns against a
 // non-empty store. Turns 1-5 are five phrasings of work that selects the SAME
 // rows; turn 6 writes a row, which must still bust.
 //

@@ -1,4 +1,4 @@
-// Contract (, 2026-10-26 security review, medium): `memory_evidence`'s
+// Contract (medium severity): `memory_evidence`'s
 // `date` is a DATE, not a path. The tool used to join whatever string arrived
 // onto evidenceDir(), so a caller could read `<root>/../outside.logfmt` (any
 // accessible .logfmt path) or `../YYYY-MM-DD` — the RAW daily memory file,

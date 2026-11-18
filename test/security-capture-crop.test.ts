@@ -1,4 +1,4 @@
-// Contract (, 2026-10-26 security review, medium): auto-capture redacts
+// Contract (medium severity): auto-capture redacts
 // BEFORE it crops. captureSession used to mine `transcript.slice(-8000)` and
 // let buildCapturePrompt scrub the WINDOW — but a credential straddling the
 // crop boundary arrives as a fragment: a PEM body with its BEGIN marker

@@ -1,4 +1,4 @@
-// Contract: opt-in auto-capture at the COMPACTION moment (, epic ).
+// Contract: opt-in auto-capture at the COMPACTION moment.
 //
 // Compaction is where episodic detail dies (Compaction Cliff: one round keeps
 // 53% of exact-wording rules), so the session.compaction hook additionally

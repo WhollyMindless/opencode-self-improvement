@@ -616,7 +616,7 @@ describe("crash recovery", () => {
 
 describe("deadline races", () => {
   test("contention only ever surfaces the busy refusal, never a raw store error", async () => {
-    // Regression (, re-anchored for the SQLite backend): the give-up path
+    // Regression (re-anchored for the SQLite backend): the give-up path
     // must report the policy's outcome, not an error left over from an earlier
     // attempt. A live competing holder is driven here for real, across the
     // deadline, repeatedly.

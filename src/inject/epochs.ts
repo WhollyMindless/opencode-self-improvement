@@ -38,7 +38,7 @@ interface InjectionEpochOptions {
   // The host listener records usage. Eviction must still drop it with the
   // epoch and request counters, so no measurement outlives its tracked session.
   measuredTurns: Pick<Map<string, Measured>, "get" | "delete">;
-  /** Evict the per-message usage ledger (#394) with the session. */
+  /** Evict the per-message usage ledger with the session. */
   forgetUsage?: (sid: string) => void;
   noteHits: (sid: string, rows: Memory[], query: string) => Promise<void>;
 }
@@ -266,7 +266,7 @@ export function createInjectionEpochs({
     // Cheap pre-check: no injectable row moved AND the frozen bytes were
     // already scored against THIS prompt. Skips re-scoring and the use-ledger
     // write on ordinary turns and on every tool-loop request within a turn.
-    // A new prompt does re-score (, the epoch-freeze flaw): a block
+    // A new prompt does re-score (the epoch-freeze flaw): a block
     // frozen at the first request carried the first topic's rows for the
     // whole session and never picked up the rows a later prompt genuinely
     // matches. Cache is still safe — the epoch only MOVES when the rendered

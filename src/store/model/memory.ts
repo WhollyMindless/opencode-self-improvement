@@ -48,7 +48,7 @@ const CONFLICT_REF_RE = /^[A-Za-z_][A-Za-z0-9_]{1,63}$/;
 
 export const MAX_CLAIM_CHARS = 32;
 
-/** Cap on the verbatim user utterance a guided row may carry (bench #347 follow-up). */
+/** Cap on the verbatim user utterance a guided row may carry. */
 export const MAX_ORIGINAL_CHARS = 300;
 
 /**

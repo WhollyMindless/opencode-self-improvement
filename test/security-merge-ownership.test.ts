@@ -1,4 +1,4 @@
-// Contract (, 2026-10-26 security review, medium): a row id is a pointer,
+// Contract (medium severity): a row id is a pointer,
 // not authority. memory_merge_review used to resolve both seats store-wide and
 // mutate whichever ts the arguments named — a session that learned another
 // repository's timestamp (the separately reported evidence traversal was one

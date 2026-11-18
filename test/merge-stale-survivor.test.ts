@@ -71,7 +71,7 @@ describe("memory_merge_review stale-survivor provenance guard", () => {
     const S = await seed("zeta merge survivor row keeps the bun wording");
 
     // The later supersession: memory_update retires S in favour of S2 AFTER
-    // the review was filed. This is the state the ticket's RED scenario names.
+    // the review was filed — the state this test pins.
     const upd = await (await tools()).memory_update.execute({
       type: "pattern",
       scope: "stalerev",

@@ -40,7 +40,7 @@ export interface RetagResult {
   blocked: number;
   /** Promoted, but the retirement did not land (another supersession won). */
   partial: number;
-  /** Promoted with a fallen `write_promoted` audit line (#155 class). */
+  /** Promoted with a fallen `write_promoted` audit line. */
   unaudited: number;
   /** Hits left unprocessed because the per-run bound was reached. */
   remaining: number;

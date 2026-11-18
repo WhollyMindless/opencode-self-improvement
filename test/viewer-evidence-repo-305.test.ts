@@ -232,7 +232,7 @@ test("release of a BLOCKLISTED repo-B row stamps its evidence with B, not global
   );
 });
 
-// F1 on , noop path: a blocklisted row that is not quarantined still
+// The noop path: a blocklisted row that is not quarantined still
 // exists on disk, so its quarantine_release_noop line must carry its repo
 // too — same leak route as the release path.
 test("noop release of a BLOCKLISTED repo-B row stamps its evidence with B", async () => {

@@ -17,9 +17,9 @@
 //
 // So every test below asserts the same invariant FIRST — the row reaches the
 // store — and the tag is what differs between cases. A wrong verdict now costs
-// one row; a right one saves an injection slot. That is the property four rounds
-// of patches could not produce, because each round patched one matcher instance
-// while the failure mode stayed "silently lose a fact".
+// one row; a right one saves an injection slot. The property is that BOTH
+// error directions are survivable: patching one matcher instance at a time left
+// the failure mode as "silently lose a fact".
 //
 // Fail-open is still the contract on every uncertainty. A missing git, a non-repo
 // workspace, or an unreadable file is not evidence that a fact is available, and

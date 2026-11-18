@@ -1,7 +1,7 @@
-// Contract (, LIFE-1): auto-capture work that is in flight when the host
+// Contract (LIFE-1): auto-capture work that is in flight when the host
 // disposes the plugin instance must not keep running the write gate.
 //
-// The reproducer the review ran was throwaway; this is the checked-in version.
+// The reproducer is checked in: the failure cannot come back untested.
 // `generate.text` does not take the abort signal, so before the fix a pass
 // parked mid-model-call woke up after `cleanup()` and ran the whole gate
 // against a store its caller had already torn down — gate_start, ref_stale_scan,
@@ -200,7 +200,7 @@ test("control: the same pass with no disposal does promote (so the check is what
 // on `opencode run` nothing is being torn down at all: the process exits. The
 // old single-signal drain abandoned those passes too, which is how between a
 // quarter and three quarters of real CLI captures recorded `capture_cost` and no
-// row (, A/B/A on 2026-11-13: 12/12 fixed, 6/12 reverted, 12/12 fixed).
+// row (A/B/A on 2026-11-13: 12/12 fixed, 6/12 reverted, 12/12 fixed).
 //
 // What this pins that the real-host scenario cannot: that `cleanup()` resolves
 // with the row already in the store. The scenario asserts the user-visible

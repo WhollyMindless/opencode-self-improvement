@@ -11,7 +11,7 @@
 // and additionally snapshots the file it replaces, so the state it drops stays
 // undoable (result.safety). Every mode consults the rejection tombstones: a
 // row whose content was rejected by a human is omitted from what it publishes,
-// never revived (, decision A).
+// never revived.
 //
 // A day file is shared across REPOSITORIES too, and foreign rows are outside
 // a caller's reach in every sense: no mode revives them from the
@@ -109,7 +109,7 @@ export interface RestoreResult {
   // ts of rows intentionally deleted after this snapshot. CHECK and MERGE
   // leave them deleted; FORCE is the explicit recovery path — except for rows
   // whose content carries a rejection tombstone, which no mode recovers
-  // (rejectedOmitted): a rejection is absolute (, decision A).
+  // (rejectedOmitted): a rejection is absolute.
   deletedOmitted: string[];
   // ts of caller-owned rows the restore omitted because their content carries a
   // rejection tombstone. Reporting them separately from deletedOmitted is the
@@ -359,7 +359,7 @@ export async function restoreSnapshot(
           .concat(curOwn.filter((l) => !snapByKey.has(rowKey(l))));
       }
 
-      // Rejection is absolute (, decision A): the content-hash floor is
+      // Rejection is absolute: the content-hash floor is
       // the last gate before publishing, applied to the caller-owned rows of
       // EVERY mode. A row whose content carries a tombstone is omitted here and
       // reported in rejectedOmitted, so the store never ends up holding an

@@ -13,7 +13,7 @@ export interface CaptureCandidate {
   scope: string;
   content: string;
   status?: "open" | "settled";
-  /** Retrieval keywords (#40): indexed by the store, never rendered. */
+  /** Retrieval keywords: indexed by the store, never rendered. */
   kw?: string[];
   /** Literal true only when the user stated the fact, not agent inference. */
   guided?: boolean;

@@ -89,7 +89,7 @@ export async function markManySupersededReport(
           if (!fields) continue;
           // Whole line rewritten, not extended: an old-format line comes out in
           // the current format with its values unchanged (as markSuperseded did).
-          // The one exception is SECRET SCRUB (, review probe 4): the
+          // The one exception is SECRET SCRUB: the
           // fields a merge/decay/update copies into the loser's row carry
           // caller-authored prose (the rotation note "key ghp_... rotated"),
           // and content already scrubs at this same boundary (appendMemory
