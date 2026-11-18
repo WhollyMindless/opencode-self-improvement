@@ -122,10 +122,10 @@ async function loadCapturePlugin(options: Record<string, unknown>) {
 }
 
 describe("auto-capture end-to-end (turn end -> gate)", () => {
-  test("default options: only the zero-model measured listener subscribes", async () => {
-    const loaded = await loadCapturePlugin({});
-    // The measured-usage listener subscribes by default (no model calls);
-    // auto-capture itself never does.
+  test("autoCapture false: only the zero-model measured listener subscribes", async () => {
+    // The one supported opt-out. An explicit false is the only way to keep the
+    // plugin from reading sessions or calling a model.
+    const loaded = await loadCapturePlugin({ autoCapture: false });
     expect(loaded.capture.events.subscribeCalls).toBe(1);
     loaded.capture.events.push({
       type: "session.execution.succeeded",
@@ -134,6 +134,14 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
     await sleep(50);
     expect(loaded.capture.generate.calls.length).toBe(0);
     expect(loaded.capture.context.calls.length).toBe(0);
+  });
+
+  test("default options: capture is armed, so the capture listener subscribes", async () => {
+    // Absent key means on: the measured listener plus the capture listener.
+    // No model call is asserted here — that is what an armed plugin does.
+    const loaded = await loadCapturePlugin({});
+    await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+    await loaded.cleanup();
   });
 
   test("autoCapture on but invalid captureModel: capture subscription is not registered", async () => {

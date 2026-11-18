@@ -190,28 +190,29 @@ export function configureAutoCapture(
 ) {
   let onCompactCapture: ((sid: string, messages: unknown) => void) | undefined;
   let captureCleanup: Cleanup | undefined;
-  if (ctx.options?.autoCapture === true) {
-    const captureModelOpt = ctx.options.captureModel;
-    // an OMITTED captureModel no longer disables the subscription. It
+  const options = ctx.options ?? {};
+  if (options.autoCapture !== false) {
+    const captureModelOpt = options.captureModel;
+    // an OMITTED captureModel does not disable the subscription. It
     // resolves per capture — the per-session ref last seen on session.context,
     // else the host default — and only when both are missing does the pass
-    // skip. autoCapture:true is already the explicit opt-in; a second required
-    // config string was a syntax tax whose failure mode was a console.warn
-    // nobody reads. An explicit but INVALID captureModel keeps today's
-    // fail-closed setup behaviour: silently substituting another model than
-    // the one the user typed is worse than the tax it replaces.
+    // skip. autoCapture is on by default, so the switch itself is the consent;
+    // requiring a second config string would be a syntax tax whose failure mode
+    // is a console.warn nobody reads. An explicit but INVALID captureModel
+    // keeps the fail-closed setup behaviour: silently substituting another
+    // model than the one the user typed is worse than the tax it replaces.
     const omitted = captureModelOpt === undefined;
-    const captureMax = Number(ctx.options.captureMax) || 3;
+    const captureMax = Number(options.captureMax) || 3;
     // Deterministic guided-candidate pre-pass (POC): default OFF, the bench
     // picks the default-on arm (FINDINGS 2026-11-08 §4.4).
-    const guidedRules = ctx.options?.captureGuidedRules === true;
-    const captureOnCompact = ctx.options?.captureOnCompact !== false;
+    const guidedRules = options.captureGuidedRules === true;
+    const captureOnCompact = options.captureOnCompact !== false;
     // two cost levers, both OFF by default until the benchmark says which
     // way to set them. `captureOnSignal` skips a capture whose turn produced
     // nothing durable; `captureDelta` mines only the turns since the last
     // capture instead of re-reading the whole session every time.
-    const captureOnSignal = ctx.options?.captureOnSignal === true;
-    const captureDelta = ctx.options?.captureDelta === true;
+    const captureOnSignal = options.captureOnSignal === true;
+    const captureDelta = options.captureDelta === true;
     const modelRef = omitted ? null : parseModelRef(captureModelOpt);
     if (!omitted && !modelRef) {
       // Invalid explicit model: skip registering the whole subscription
@@ -1180,10 +1181,11 @@ export function configureAutoCapture(
         };
       }
     }
-  } else if (ctx.options?.captureOnCompact === true) {
-    // autoCapture is the master switch (zero-token default preserved).
+  } else if (options.captureOnCompact === true) {
+    // autoCapture is the master switch, so an explicit false wins over a
+    // compaction trigger that was never turned off.
     console.warn(
-      "[opencode-self-improvement] captureOnCompact is on but autoCapture is off; compaction capture stays disabled (autoCapture is the master switch).",
+      "[opencode-self-improvement] captureOnCompact is on but autoCapture is false; compaction capture stays disabled (autoCapture is the master switch).",
     );
   }
   return { onCompactCapture, cleanup: captureCleanup };

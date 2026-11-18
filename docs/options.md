@@ -19,10 +19,10 @@ Set them in the object form of the plugin entry in `opencode.json(c)`:
 | `frontierBudget` | `3 × injectBudget` | Character cap on the session-start open-threads block. A thread longer than the budget is not injected and is reported as omitted. Env fallback: `OPENCODE_MEMORY_FRONTIER_BUDGET`. |
 | `contradictionSurface` | `true` | Experimental: compare guided constant claims with bounded source reads and render a class-specific CONFLICT verdict. Set `false` to skip code checks and retain plain guidance. See [docs/contradiction-authority.md](contradiction-authority.md). |
 | `notifyBlocked` | `true` | Terminal (TUI) only: toast when a write gate blocks a write. Blocks are always in `memory_evidence` either way. |
-| `autoCapture` | `false` | Master switch for auto-capture. Off by default, so a plain install makes no extra model call. |
-| `captureModel` | — | `"provider/id"` model used for auto-capture. Required when `autoCapture` is on; missing or invalid disables capture with a startup warning. |
+| `autoCapture` | `true` | Master switch for auto-capture. On, so a plain install mines turn ends and compactions. Set `false` for no capture model call at all. |
+| `captureModel` | inherits | `"provider/id"` model used for auto-capture. Unset means the model the session is using, else the host default. An explicit value that is not `provider/id` disables capture with a startup warning rather than substituting a model. |
 | `captureMax` | `3` | Maximum candidates proposed per capture pass. |
-| `captureOnCompact` | `true` | When `autoCapture` is on, also mine the transcript at compaction, before the summarizer replaces it. Its 5-minute cooldown is separate from the turn-end one, so the two triggers' hit-rates stay measurable. Setting it while `autoCapture` is off does nothing and reports a startup warning. |
+| `captureOnCompact` | `true` | When auto-capture is armed, also mine the transcript at compaction, before the summarizer replaces it. Its 5-minute cooldown is separate from the turn-end one, so the two triggers' hit-rates stay measurable. Setting it while `autoCapture` is `false` does nothing and reports `switch_mismatch` on the `plugin_load` line. |
 | `captureGuidedRules` | `false` | POC: deterministic guided-candidate pre-pass. The user's own lines decide which stated values or rules are guided (numbers, rates, currency, explicit rule assertions) and attach the verbatim quote; the capture model may phrase such a row but cannot clear the flag or the quote, and a guided quote the user never wrote is refused at the write boundary instead of silently stripped. Fires alongside the model pass only — no extra model calls. |
 
 ## Environment variables

@@ -158,18 +158,18 @@ export function attributionLines(p: StatusPayload): string[] {
 export function captureLines(c: CaptureHealth): string[] {
   switch (c.state) {
     case "off":
-      return ["  auto-capture: off (default)"];
+      return ["  auto-capture: off (autoCapture: false)"];
     case "invalid_model":
       return [
-        "  auto-capture: invalid_model — autoCapture is on but captureModel is malformed; nothing fires",
+        '  auto-capture: invalid_model — captureModel is malformed, so auto-capture is disabled; expected "provider/id"',
       ];
     case "no_capabilities":
       return [
-        "  auto-capture: no_capabilities — autoCapture is on but the host lacks event.subscribe/generate.text/session.context",
+        "  auto-capture: no_capabilities — the host lacks event.subscribe/generate.text/session.context, so auto-capture is disabled",
       ];
     case "switch_mismatch":
       return [
-        "  auto-capture: switch_mismatch — captureOnCompact is on but autoCapture is off; nothing fires",
+        "  auto-capture: switch_mismatch — captureOnCompact is on but autoCapture is false; nothing fires",
       ];
     case "on": {
       // Inert means NO execution evidence at all: no candidate line and no

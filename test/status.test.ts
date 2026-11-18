@@ -442,7 +442,7 @@ describe("renderMemoryReport", () => {
         lastExecuted: null,
       },
     });
-    expect(text).toContain("auto-capture: off (default)");
+    expect(text).toContain("auto-capture: off (autoCapture: false)");
   });
 
   test("auto-capture line: misconfiguration is named, not silence", () => {
