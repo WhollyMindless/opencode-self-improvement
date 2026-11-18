@@ -1,4 +1,4 @@
-// The memory_status tool, extracted from index.ts (#168).
+// The memory_status tool, extracted from index.ts.
 // Closure access arrives through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
 import { readLedger } from "../hits/ledger.ts";
@@ -37,7 +37,7 @@ export const register: ToolRegister = (editor, deps) => {
         const status = sid === "?" ? null : await sessions.buildPayload(sid);
         const all = await loadAll();
         const malformed = malformedCount();
-        // Use ledger (#42): how much of the store has never been surfaced.
+        // Use ledger: how much of the store has never been surfaced.
         // Reported, never acted on — retirement is a decision, not a metric.
         const ledger = await readLedger();
         const { active: act, counts: store } = summarizeStore(
@@ -45,7 +45,7 @@ export const register: ToolRegister = (editor, deps) => {
           ledger,
           malformed,
         );
-        // Self-metrics (#44): what the store costs, how fast it grows, and how
+        // Self-metrics: what the store costs, how fast it grows, and how
         // stale a capture is when it fires. Same rule as above — the numbers
         // are the point, not a verdict on them.
         store.bytes = act.reduce(
@@ -58,7 +58,7 @@ export const register: ToolRegister = (editor, deps) => {
         store.rowsPerDay = rowsPerDay(act) ?? undefined;
         const evidenceLines = await captureLagLines();
         store.captureLag = captureLag(evidenceLines);
-        // #387: the plugin's own model calls, billed. Same evidence read, so
+        // the plugin's own model calls, billed. Same evidence read, so
         // the number cannot disagree with the lag line above it.
         store.captureCost = captureCost(evidenceLines);
         return {
@@ -69,7 +69,7 @@ export const register: ToolRegister = (editor, deps) => {
             quarantined: act
               .filter((m) => isVisibleTo(m, reportReader) && isQuarantined(m))
               .map((m) => ({ ts: m.ts, patterns: quarantineReasons(m) })),
-            // #138: capture state read from the same evidence window, so the
+            // capture state read from the same evidence window, so the
             // chat surface distinguishes off / misconfigured / inert / alive.
             capture: captureHealth(evidenceLines),
           }),

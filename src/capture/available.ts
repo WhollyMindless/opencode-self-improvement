@@ -1,4 +1,4 @@
-// #389: capture spends its budget on facts the next session cannot obtain any
+// capture spends its budget on facts the next session cannot obtain any
 // other way.
 //
 // Measured (FINDINGS 2026-11-10, base3 vs base4): reuse does not pay — six pairs,
@@ -9,22 +9,21 @@
 // generation a row that changes nothing is not free.
 //
 // Two availability questions are answerable by a CODE PATH, with no prompt and no
-// model call, which is what #389 criterion 1 demands:
+// model call, which is what criterion 1 demands:
 //
 //   1. Is this text already in the working tree? A row that restates a tracked
 //      file is readable there by the next session.
 //   2. Is this command already declared by the project's own gates? A row that
 //      says "run `make deploy`" is answered by the Makefile.
 //
-// Both produce a TAG, not a refusal (#402). Four adversarial review rounds on
-// #397 each found the same defect — text that was merely short or partly matched
-// was read as already known — and each round patched one instance. Measured
-// against this repo's live store: the original rule refused 30 of 1166 real
-// captured rows and 29 of those were wrong (the note "OpenCode V2 (v2.0.26) does
-// NOT run LSP servers" was refused because it contained the string `bun test` and
-// this project declares a `test` script). The hardened rule refuses 0 of 1166. A
-// check nobody can trust enough to delete with, and nobody can make cheap enough
-// to skip, must not decide anything on its own.
+// Both produce a TAG, not a refusal. A refusal rule was measured here
+// first: it rejected 30 of 1,166 real captured rows and 29 of those were
+// wrong (the note "OpenCode V2 (v2.0.26) does NOT run LSP servers" was
+// refused because it contained the string `bun test` and
+// this project declares a `test` script). A check nobody can trust enough to
+// delete with, and nobody can make cheap enough to skip, must not decide
+// anything on its own. Partial-match and short-fragment traps are pinned by
+// tests; history: docs/adr/0008.
 //
 // So the verdict is now evidence attached to a row that is stored anyway:
 //
@@ -79,13 +78,13 @@ export type AvailabilityVerdict = {
 // verbs whose whole meaning is "this command gets run". A fragment made of
 // nothing but these is a MENTION, and a mention is what the manifest already
 // declares. Everything else is a claim, however short it is — `never` is five
-// characters and it is the entire fact (#397 round 4, WhollyMindless: the length
-// cutoff dropped `Never` and refused the prohibition).
+// characters and it is the entire fact: a length
+// cutoff drops `Never` and refuses the prohibition).
 //
 // This is a whitelist for FILLER, which is the only direction a word list can
 // safely go: a word left off it is read as a claim and the row is kept. The
 // RESTRICTION list this replaces whitelisted what counted as NEW, so every word
-// missing from it lost a fact — that is the defect round 3 reported.
+// missing from it lost a fact.
 //
 // Temporal and conditional words (before, after, until, unless, when, if, only,
 // once) and every modal are deliberately absent: they state a condition, and a
@@ -169,7 +168,7 @@ const FILLER = new Set([
 
 // Assertion boundaries: the edges of the one sentence a match is judged inside.
 // The candidate is split on these, and the text in the tree is walked back to
-// them (#397 round 3). Code 0 is the joiner the scan puts between tracked
+// them. Code 0 is the joiner the scan puts between tracked
 // files, so a clause can never match across two of them.
 function isBoundary(code: number): boolean {
   return (
@@ -184,7 +183,7 @@ function isBoundary(code: number): boolean {
 
 // Words that reverse an assertion. This is deliberately NOT the RESTRICTION
 // list it replaces. That list tried to decide whether a candidate says anything
-// NEW, and an open vocabulary can never do that (#397 round 3, WhollyMindless):
+// NEW, and an open vocabulary can never do that:
 // any word left off the list reopens the class. This one answers one closed
 // question — does the sentence the tree states have the same POLARITY as the
 // clause matched inside it? `We do not use tabs` and `Use tabs` are not the
@@ -194,7 +193,7 @@ const NEGATION =
   /\b(no|not|nor|never|none|cannot|can'?t|don'?t|doesn'?t|didn'?t|won'?t|isn'?t|aren'?t|without|lacks?|lacking|absent|avoid\w*|prohibit\w*|forbid\w*|disallow\w*|refrain\w*|refuses?|instead of|rather than)\b/;
 
 /**
- * VETO 1 (#402): is this sentence reversed?
+ * VETO 1: is this sentence reversed?
  *
  * Two sources, unioned, because they answer different questions:
  *
@@ -237,7 +236,7 @@ function cueNegated(text: string): boolean {
 }
 
 /**
- * VETO 2 (#402): a figure the matched declaration does not carry.
+ * VETO 2: a figure the matched declaration does not carry.
  *
  * `core/tokenize.ts` states the rule and `store/tombstones/tombstone.ts`
  * measures it on this repo's own data: a correction scores HIGHER than an honest
@@ -455,9 +454,9 @@ function gateHit(spans: string[], gates: Gate[]): Gate | null {
  * The assertions in a normalised text: the fragments left after splitting on the
  * sentence boundaries, minus the ones that state nothing.
  *
- * "States nothing" is the FILLER test, not a length. #397 round 4
- * (WhollyMindless): the cutoff here was 16 characters, so `Never` was dropped
- * from `Never \`npm run deploy\`.` and an empty list was then read as proof that
+ * "States nothing" is the FILLER test, not a length: a 16-character
+ * cutoff dropped
+ * `Never` from `Never \`npm run deploy\`.` and an empty list was then read as proof that
  * the whole candidate was restatable. A short fragment is where a prohibition, a
  * window or a number lives; punctuation and "ship with" are what a fragment has
  * to be before it is ignored.
@@ -512,7 +511,7 @@ function sentenceSpan(
 }
 
 /**
- * VETO 1b (#403 review): does this prefix WARN AGAINST the claim that follows?
+ * VETO 1b: does this prefix WARN AGAINST the claim that follows?
  *
  * `Stop assuming the cache supports TTL expiration.` contains the affirmative
  * sentence `The cache supports TTL expiration.` as the object of `stop assuming`.
@@ -555,7 +554,7 @@ function warnsAgainst(prefix: string): boolean {
  * Where the tree states `clause` as its own words, in a sentence of the same
  * polarity. -1 means "not available".
  *
- * #397 round 3 (WhollyMindless): a bare `indexOf` matches INSIDE the opposite
+ * A bare `indexOf` matches INSIDE the opposite
  * assertion. With `We do not use tabs for indentation.` in the README, the
  * candidate `Use tabs for indentation.` was refused as available, so the store
  * would have held the reversal of the rule the gate had just read. A hit now
@@ -677,7 +676,7 @@ export function availabilityIndex(
 
   return {
     check(content: string): AvailabilityVerdict | null {
-      // #397 review (WhollyMindless): matching PART of a candidate does not
+      // Matching PART of a candidate does not
       // establish the WHOLE fact is available. Both rules used to refuse on
       // one hit, which lost new facts riding a restated fragment — exactly
       // the rows this gate exists to preserve:
@@ -696,7 +695,7 @@ export function availabilityIndex(
       // store/secrets.ts matches `AKIA[A-Z0-9]{16}` case-sensitively, so a span
       // normalised before scrubbing keeps a fully recoverable access key: the
       // logged `akia1234567890abcdef` uppercases straight back to the secret
-      // (#403 review). Redacting `avail.matched` later cannot recover what
+      //. Redacting `avail.matched` later cannot recover what
       // normalisation already destroyed, so this is the only place it can be
       // done. Verdict logic reads `needed`/`first`, never these.
       const safeWhole = norm(redactSecrets(content));
@@ -712,11 +711,11 @@ export function availabilityIndex(
           matched: safeFirst.slice(0, 120),
         };
       }
-      // Declared gate. Round 3 (WhollyMindless) removed the LENGTH test: a short
-      // residual used to count as a restatement, so "`npm run deploy` wipes the
-      // staging database." was refused against a manifest that says only that
-      // `deploy` runs rsync. Round 4 found the same defect still open, in two
-      // places that both throw information away BEFORE deciding:
+      // Declared gate. A LENGTH test is never the question: a short
+      // residual is not a restatement, so "`npm run deploy` wipes the
+      // staging database." must not refuse against a manifest that says only
+      // that `deploy` runs rsync. Nor may information be thrown away BEFORE
+      // deciding:
       //   - every command span was stripped after ONE declared gate was found,
       //     so "Before `npm run deploy`, run `aws sso login --profile prod`."
       //     refused with the undeclared AWS prerequisite erased from the row;
@@ -732,7 +731,7 @@ export function availabilityIndex(
       const spans = statedCommands(content);
       const gate = gateHit(spans, gates);
       if (gate) {
-        // VETOES (#402). The manifest states that a command EXISTS. It does not
+        // VETOES. The manifest states that a command EXISTS. It does not
         // state that the command is safe, allowed, or finished, and it carries
         // no figure. So a sentence that forbids the command, or a number the
         // command does not carry, is a claim the declaration cannot answer.

@@ -1,4 +1,4 @@
-// The memory_merge_review tool, extracted from index.ts (#168).
+// The memory_merge_review tool, extracted from index.ts.
 // Closure access arrives through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
 import { memoryRoot } from "../core/config/paths.ts";
@@ -21,7 +21,7 @@ export const register: ToolRegister = (editor, deps) => {
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
-        // Identity before authorization (#260): the entry binding is only
+        // Identity before authorization: the entry binding is only
         // provisional on the INSTANCE's directory. On a serve host the session
         // row is the sole truth, and a tool call can be the first thing this
         // instance sees for a session — resolve it like the write tools do
@@ -41,11 +41,11 @@ export const register: ToolRegister = (editor, deps) => {
               "merge_review blocked: loser and survivor are the same row — nothing to resolve. No evidence written.",
           };
         }
-        // A row id is a pointer, not authority (#131): resolving and
+        // A row id is a pointer, not authority: resolving and
         // authorizing BOTH seats happens against the caller's Reader —
-        // captured at entry, never re-read after an await (#127) — and the
+        // captured at entry, never re-read after an await — and the
         // whole resolve/check/mutate runs under the same update-order lock
-        // memory_update serializes on (#125), so the authorization is
+        // memory_update serializes on, so the authorization is
         // revalidated under the mutation lock instead of against a snapshot
         // a concurrent update could have replaced. Acquisition order is
         // always update-order then store-file locks, never the reverse, so
@@ -53,7 +53,7 @@ export const register: ToolRegister = (editor, deps) => {
         // closed with nothing written.
         const reader = readerFromSid(sid);
         // A batch may publish the loser then refuse a later file. The sink
-        // records that publish before the overall promise settles (#197).
+        // records that publish before the overall promise settles.
         const mergeDurable: string[] = [];
         try {
           return await withStoreBatch(
@@ -75,14 +75,14 @@ export const register: ToolRegister = (editor, deps) => {
               const loserRow = all.find((m) => m.ts === args.loser);
               // loadAll omits blocklisted rows. An unresolved id therefore
               // proves neither existence nor ownership; raw mutation helpers
-              // must not use it to bypass this read boundary (#204).
+              // must not use it to bypass this read boundary.
               if (!loserRow) {
                 return {
                   content:
                     "merge_review blocked: loser is missing or unavailable — nothing to resolve. No evidence written.",
                 };
               }
-              // Visibility is the authorization contract (#131): a session
+              // Visibility is the authorization contract: a session
               // may merge exactly the rows it may read. Global and legacy
               // unstamped rows are visible everywhere and therefore
               // mergeable from anywhere — stated here, not granted
@@ -101,7 +101,7 @@ export const register: ToolRegister = (editor, deps) => {
                     "merge_review blocked: the survivor belongs to another repository — this session may not promote or revive it. Nothing was done. No evidence written.",
                 };
               }
-              // Provenance guard (#126): a survivor carrying a supersession
+              // Provenance guard: a survivor carrying a supersession
               // written by anything OTHER than this review — its marker points
               // at a later row (a memory_update that retired the survivor
               // after the review was filed), and the marker's reason is not
@@ -146,7 +146,7 @@ export const register: ToolRegister = (editor, deps) => {
               // The survivor may itself have been superseded earlier (e.g. by
               // a row this very call just made the loser). Declaring it
               // canonical has to make it recallable, so clear its own marker —
-              // but only the marker this review owns (#126): the guard above
+              // but only the marker this review owns: the guard above
               // already refused anything else, and this re-check runs under the
               // file lock against the line as it is at mutation time.
               const revived = await clearSuperseded(args.survivor, {
@@ -154,7 +154,7 @@ export const register: ToolRegister = (editor, deps) => {
                 reason: args.reason,
               });
               // The response has always claimed "Evidence recorded" — now it
-              // is true, and it names the session the merge ran FOR (#121's
+              // is true, and it names the session the merge ran FOR (
               // residue on this line). The host tool_result hook covers
               // grep/read/edit/shell only, so a merge used to leave zero
               // trace: which reviewer decision, on which reason, reviving

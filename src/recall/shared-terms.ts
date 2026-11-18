@@ -1,4 +1,4 @@
-// shared-terms — split from src/inject.ts (#168 domain restructure). Declaration bodies are unchanged.
+// The query terms a row actually carries, for evidence display.
 import { type Memory } from "../store/model/memory.ts";
 import { QUERY_STOPWORDS, haystack, words } from "./score.ts";
 

@@ -1,4 +1,4 @@
-// #378 review (WhollyMindless): the #375 re-tag repair must not leave the
+// The re-tag repair must not leave the
 // unsafe original live. Two ways it did:
 // (a) an interrupted repair leaves a quarantined twin; the retry's gate write
 //     COLLAPSED into that twin and the old code counted it as blocked, so the
@@ -89,7 +89,7 @@ const ctx = (): GateContext => ({
   trusted: true,
 });
 
-describe("#378 re-tag repair", () => {
+describe("re-tag repair", () => {
   test("clean repair: original retires under its quarantined twin", async () => {
     seedAt("2026-11-01T10:00:00.000Z");
     const out = await retagQuarantinedRows(ctx());

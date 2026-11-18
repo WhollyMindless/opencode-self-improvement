@@ -1,6 +1,6 @@
-// Memory tool registration (#168): one module per tool, registered here in
+// Memory tool registration: one module per tool, registered here in
 // the same order index.ts used before the split. Behavior, schemas and result
-// shapes are pinned by the e2e characterization suite (#241) and the
+// shapes are pinned by the e2e characterization suite and the
 // registration coverage gate (e2e/coverage.test.ts).
 import { register as registerRemember } from "./remember.ts";
 import { register as registerConsolidate } from "./consolidate.ts";

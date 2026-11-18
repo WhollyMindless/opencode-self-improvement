@@ -1,5 +1,5 @@
 // Contract: capture's repo stamp is resolved from the session CAPTURED, not from
-// whichever session happened to call setCurrent last (issue #116).
+// whichever session happened to call setCurrent last (issue ).
 //
 // captureSession binds `setCurrent({ sessionID: sid })` and then AWAITS — context
 // re-reads and, decisively, the generate.text model call. A server hosts many
@@ -129,7 +129,7 @@ function thickMessages(): unknown[] {
   ];
 }
 
-describe("capture repo stamp follows the captured session (#116)", () => {
+describe("capture repo stamp follows the captured session", () => {
   test("another session's setCurrent during the capture's model await cannot hijack the stamp", async () => {
     // Two workspaces, two sessions: the plugin loaded for repo A; repo B's
     // session exists in the server too (a second setup/workspace binds it).
@@ -175,7 +175,7 @@ describe("capture repo stamp follows the captured session (#116)", () => {
     expect(captured).toBeDefined();
     expect(captured!.repo).toBe(a?.key);
     expect(captured!.repo).not.toBe(b?.key);
-    // The paper-trail half of the same contract (#118 review note 1): the row
+    // The paper-trail half of the same contract: the row
     // is the durable memory, but the gate's evidence lines are what an
     // operator greps first — and every one of them is appended AFTER the
     // hijack, so on ambient-read code their sid= field carries ses-other.
@@ -229,7 +229,7 @@ describe("capture repo stamp follows the captured session (#116)", () => {
 
   test("a BLOCKED gate write names the ctx session in its audit lines, ambient be damned", async () => {
     // The recBlocked arm of the same threading, at the direct gate seam (the
-    // one #118's kill-verification used): by the time a hijacked capture's
+    // one kill-verification used): by the time a hijacked capture's
     // gate appends write_blocked, the ambient current IS the hijacker — so
     // poisoning it directly stands in for the interleave, hitting every line
     // runWriteGate writes. Ungrounded + refs 0 blocks as ambiguous_memory.

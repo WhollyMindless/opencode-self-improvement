@@ -1,4 +1,4 @@
-// #126: a stale memory_merge_review must not revive a survivor that a later
+// a stale memory_merge_review must not revive a survivor that a later
 // memory_update already retired. The merge handler used to run
 // `markSuperseded(loser, by=survivor)` then `clearSuperseded(survivor)` with no
 // provenance check, so applying a review whose survivor had been superseded in
@@ -26,7 +26,7 @@ let liveRoot: string;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "osi-stale-"));
   // Seeds are written with a null scope so they stay unstamped (legacy =
-  // global visibility) and the freshly loaded plugin can see them (#149).
+  // global visibility) and the freshly loaded plugin can see them.
   setRepoScope(null);
   process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
   process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
@@ -65,13 +65,13 @@ async function byId(ts: string): Promise<Memory | undefined> {
   return (await rows()).find((m) => m.ts === ts);
 }
 
-describe("memory_merge_review stale-survivor provenance guard (#126)", () => {
+describe("memory_merge_review stale-survivor provenance guard", () => {
   test("a survivor superseded by a later update is NOT revived; the merge refuses and touches nothing", async () => {
     const L = await seed("zeta merge loser row keeps the stale jest wording");
     const S = await seed("zeta merge survivor row keeps the bun wording");
 
     // The later supersession: memory_update retires S in favour of S2 AFTER
-    // the review was filed. This is the state the ticket's RED scenario names.
+    // the review was filed — the state this test pins.
     const upd = await (await tools()).memory_update.execute({
       type: "pattern",
       scope: "stalerev",

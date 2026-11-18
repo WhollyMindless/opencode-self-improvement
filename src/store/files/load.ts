@@ -1,4 +1,4 @@
-// load — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
+// load — split from src/memory.ts. Declaration bodies are unchanged.
 // Durable memory store engine. Reproduces the opencode-memory logfmt format
 // (MIT, github.com/shuans/opencode-memory; license retained under
 // vendor/opencode-memory/LICENSE) and extends it with the fields the write-gate
@@ -26,7 +26,7 @@ const RESERVED = new Set([
   "deleted.logfmt",
   "canonical.logfmt",
   "blocklist.logfmt",
-  // Value-keyed rejection tombstones (#35). Hashes only, never prose — and it
+  // Value-keyed rejection tombstones. Hashes only, never prose — and it
   // must never be ingested as a row, exported, or restored by undo.
   "rejected.logfmt",
   // The use ledger (src/hits.ts): telemetry, not memory. A hit line must never
@@ -122,7 +122,7 @@ export async function memoryFiles(): Promise<string[]> {
  * The day file a row's own ts names, as a `YYYY-MM-DD.logfmt` basename, or null
  * when the string is not an ISO instant. `appendMemory` mints ts at write time
  * and appends to that same day file, so for every row the plugin wrote the ts
- * date IS the file date (#215).
+ * date IS the file date.
  */
 export function dayFileName(ts: string): string | null {
   const m = /^(\d{4}-\d{2}-\d{2})T/.exec(ts);
@@ -130,7 +130,7 @@ export function dayFileName(ts: string): string | null {
 }
 
 /**
- * Day files ordered so the ones these ts values name come first (#215). A
+ * Day files ordered so the ones these ts values name come first. A
  * single-row mutation that stops as soon as it has SEEN the row then locks one
  * file instead of one per day of store age — the cost that made supersing a row
  * 25x a full read on a 30-day store.
@@ -168,7 +168,7 @@ export function previousDayName(day: string): string {
 
 /**
  * The day files that could hold a copy of `ts` — the addresses a single-row
- * mutation must try before it may report success (#373 review).
+ * mutation must try before it may report success.
  *
  * Two files, at most. The one the ts names, plus the previous day's file ONLY
  * when a text scan finds the identity in it: `appendMemory` used to pick the

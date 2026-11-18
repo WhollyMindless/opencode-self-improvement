@@ -1,10 +1,10 @@
-// format — split from src/init.ts (#168 domain restructure). Declaration bodies are unchanged.
+// format — split from src/init.ts. Declaration bodies are unchanged.
 // Repository init: renders the runInit summary for the tool reply. The
-// codebase-memory graph line is gone with the graph integration (#231).
+// codebase-memory graph line is gone with the graph integration.
 import { type InitSummary } from "./run.ts";
 
 export function formatInit(s: InitSummary): string {
-  // #376 review: a migration whose file write failed is not a migration. The row
+  // review: a migration whose file write failed is not a migration. The row
   // was honoured, so this run is still idempotent, but nothing was copied — the
   // reply says so instead of claiming a migration that left no file behind.
   const migrated = s.stampMigrated
@@ -14,11 +14,11 @@ export function formatInit(s: InitSummary): string {
     : "";
   // A retirement that did not land is named, in the same spirit as the re-tag
   // repair's partial count: the migration is durable, the row is still there,
-  // and the operator reads which half failed (#376 review).
+  // and the operator reads which half failed.
   const retireFault = s.stampRetireError
     ? `Legacy stamp row NOT retired (${s.stampRetireError}); it stays in the store, withheld from recall. Run init again.`
     : "";
-  // #375: a repair that did something, or could not finish, is reported. A quiet
+  // a repair that did something, or could not finish, is reported. A quiet
   // "Nothing to do." over a store that still holds a live poisoned row is the
   // failure this ticket exists to remove.
   const r = s.retag;
@@ -34,7 +34,7 @@ export function formatInit(s: InitSummary): string {
   if (s.skipped) {
     // The skip path can carry a stamp fault of its own: the migration honoured a
     // legacy row and could not write the file, so the next init re-migrates.
-    // Silence here is what let a failed migration report success (#376 review).
+    // Silence here is what let a failed migration report success.
     const fault = s.stampError
       ? `; stamp NOT recorded (${s.stampError}) — the migration will be retried`
       : "";

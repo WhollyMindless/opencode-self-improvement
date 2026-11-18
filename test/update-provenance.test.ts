@@ -1,9 +1,9 @@
-// Probe for #154: a prose edit via memory_update must not silently discard
+// Probe: a prose edit via memory_update must not silently discard
 // the target's provenance. The replacement candidate was built from args
 // alone, so an update of an imported/auto-captured row stripped the
 // tags:["import"] marker (and issue/kw), laundering unverified source
 // material into ordinary memory — the update-tool twin of the viewer-edit
-// preservation fixed in #129.
+// preservation fixed in .
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -54,7 +54,7 @@ async function plugin(dir: string | null) {
 }
 const ctx = (sessionID: string) => ({ sessionID, id: "upmeta-proof" });
 
-describe("memory_update preserves omitted metadata (#154)", () => {
+describe("memory_update preserves omitted metadata", () => {
   test("a prose edit keeps import provenance, issue, and keywords", async () => {
     const pa = await plugin(a);
     const original = await seedPlanRow(
@@ -85,7 +85,7 @@ describe("memory_update preserves omitted metadata (#154)", () => {
     expect(replacement.kw ?? []).toContain("queue retention");
   });
 
-  test("a prose edit drops `restatable`: the verdict described the old text (#403)", async () => {
+  test("a prose edit drops `restatable`: the verdict described the old text", async () => {
     // The tag asserts "the working tree states THIS prose". A correction changes
     // the prose, so the verdict no longer describes anything — and unlike a
     // merely wrong verdict, this one is wrong by construction while the row is

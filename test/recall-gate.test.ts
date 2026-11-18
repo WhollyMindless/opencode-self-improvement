@@ -1,17 +1,11 @@
-// #409 case bank: the recall tool's matcher returns any row that shares a single
-// word with the query, so a three-word search is answered by whatever happens to
-// mention one of them. The gate applies the injection path's two-concept rule to
-// the tool, counting whole words — the first version counted substrings and was
-// satisfiable by accidents (`on` inside `context`, `283` inside `build2837`).
-// The property that matters for a release is the first unit test and the
-// first e2e test: with OPENCODE_MEMORY_QUERY_GATE=off the tool's output is
-// unchanged; unset now means the gate is ON (#426).
+// Two-concept admission at the recall tool: a deliberate query must share two
+// whole words with a row to be returned. The release property is the first
+// unit test and the first e2e test: with OPENCODE_MEMORY_QUERY_GATE=off the
+// tool's output is unchanged; unset means the gate is ON.
 //
-// Evidence: poc-409/casebank — 404 real recall queries from 30 days of session
-// transcripts, relevance labelled by two independent readers against a pinned
-// store snapshot, measured through this handler by poc-409/casebank/gate-e2e.ts.
-// The numbers quoted in the PR body are from the full-text relabel; the
-// substring gate's numbers are void.
+// Evidence: 404 real recall queries from 30 days of session transcripts,
+// relevance labelled by two independent readers against a pinned store
+// snapshot, measured through this handler. History: docs/adr/0001.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -62,7 +56,7 @@ const SUBSTRING_TRAP = mem("checkout detached head at build2837", {
 });
 
 describe("gateEnabled", () => {
-  test("unset and empty mean on (default ON, #409 flags)", () => {
+  test("unset and empty mean on", () => {
     expect(gateEnabled({})).toBe(true);
     expect(gateEnabled({ [GATE_ENV]: "" })).toBe(true);
     expect(gateEnabled({ [GATE_ENV]: "  " })).toBe(true);
@@ -101,7 +95,7 @@ describe("queryConcepts", () => {
     expect(queryConcepts("what is the pr on")).toEqual([]);
   });
   test("keeps identifiers whole", () => {
-    // Splitting these into fragments is the regression that blocked PR #417.
+    // Splitting these into fragments breaks exact identifier queries.
     expect(queryConcepts("db_id")).toEqual(["db_id"]);
     expect(queryConcepts("OPENCODE_MEMORY_DIR")).toEqual([
       "opencode_memory_dir",
@@ -129,8 +123,8 @@ describe("sharedConcepts", () => {
       rowConcepts(mem("the db_id column is the join key")).has("db_id"),
     ).toBe(true);
   });
-  test("rowConcepts also emits identifier SEGMENTS (#426 review)", () => {
-    // Default-on must not regress the identifier-to-prose lookup the #417
+  test("rowConcepts also emits identifier SEGMENTS", () => {
+    // Default-on must not regress the identifier-to-prose lookup the
     // tokenizer restored: `discount tiers` has to find the row that names
     // DISCOUNT_TIERS.
     const concepts = rowConcepts(
@@ -143,8 +137,8 @@ describe("sharedConcepts", () => {
     // so 283 is still not a concept of it.
     expect(rowConcepts(SUBSTRING_TRAP).has("283")).toBe(false);
   });
-  test("rowConcepts segments camelCase too (#426 review round 2)", () => {
-    // The scorer tokenizer (#417) handles camel boundaries; admission must
+  test("rowConcepts segments camelCase too", () => {
+    // The scorer tokenizer handles camel boundaries; admission must
     // not be narrower. Lowercasing before tokenizing lost the boundary.
     const concepts = rowConcepts(
       mem("discountTiers controls the pricing schedule"),
@@ -154,10 +148,10 @@ describe("sharedConcepts", () => {
     expect(concepts.has("tiers")).toBe(true);
     expect(rowConcepts(mem("build2837 runaway")).has("283")).toBe(false);
   });
-  test("rowConcepts keeps the exact suffix of a dotted name (round 3)", () => {
+  test("rowConcepts keeps the exact suffix of a dotted name", () => {
     // words() segments at every separator, so `table.db_id` emits
     // table.db_id, table, db, id — never `db_id` whole, and a `db_id` query
-    // is one concept. The pre-round-2 WORD split (underscore inside) is the
+    // is one concept. The WORD split (underscore inside) is the
     // only tokenizer that retains it.
     const concepts = rowConcepts(mem("table.db_id stores the foreign key"));
     expect(concepts.has("table.db_id")).toBe(true);
@@ -280,8 +274,8 @@ describe("memory_recall with the gate", () => {
     await loaded.cleanup();
   });
 
-  test("by default, a prose query finds the row that names an identifier (#426 review)", async () => {
-    // WhollyMindless probe: `discount tiers` returned the row with the gate
+  test("by default, a prose query finds the row that names an identifier", async () => {
+    // Reproduced: `discount tiers` returned the row with the gate
     // off and `No matching memories` with it on — admission kept
     // DISCOUNT_TIERS one word while the query offered two concepts.
     seed(mem("DISCOUNT_TIERS controls the pricing schedule"));
@@ -294,8 +288,8 @@ describe("memory_recall with the gate", () => {
     await loaded.cleanup();
   });
 
-  test("by default, a prose query finds a camelCase identifier (round 2)", async () => {
-    // Round-2 probe: `discount` found `discountTiers controls the pricing
+  test("by default, a prose query finds a camelCase identifier", async () => {
+    // Reproduced: `discount` found `discountTiers controls the pricing
     // schedule` with the gate off and abstained with it on — the segment
     // expansion handled underscores only, and recallHaystack lower-cases
     // before tokenizing, erasing the camel boundary.
@@ -309,8 +303,8 @@ describe("memory_recall with the gate", () => {
     await loaded.cleanup();
   });
 
-  test("by default, an exact identifier finds the row that names it in a dotted name (round 3)", async () => {
-    // Round-3 probe: `db_id` found `table.db_id stores the foreign key`
+  test("by default, an exact identifier finds the row that names it in a dotted name", async () => {
+    // Reproduced: `db_id` found `table.db_id stores the foreign key`
     // with the gate off and abstained with it on — words() splits
     // `table.db_id` into table/db/id, so the underscore-joined suffix
     // never reaches admission whole.

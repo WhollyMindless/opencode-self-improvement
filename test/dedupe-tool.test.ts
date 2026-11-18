@@ -1,4 +1,4 @@
-// Dedup default ON (#426) through the real memory_recall handler. The unit
+// Dedup default ON through the real memory_recall handler. The unit
 // suite pins dedupeWindow directly; without this file, hardcoding `0` at
 // src/tools/recall.ts could pass CI while the shipped default silently
 // stayed off — the exact failure mode the flag flip is meant to end.
@@ -57,7 +57,7 @@ const FRIDAY =
 const MONDAY =
   "the deploy runbook rotates the signing key every monday after the backup window";
 
-describe("memory_recall dedup default (#426)", () => {
+describe("memory_recall dedup default", () => {
   test("by default, the near-copy is suppressed and the newer copy survives", async () => {
     seed(FRIDAY, "2026-01-01T00:00:00.000Z");
     seed(MONDAY, "2026-01-01T00:00:01.000Z");

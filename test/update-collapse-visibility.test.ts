@@ -1,4 +1,4 @@
-// #175: a duplicate survivor must be visible to the call's captured reader
+// a duplicate survivor must be visible to the call's captured reader
 // and preserve the target's visibility to other readers, including path fallback.
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
@@ -195,7 +195,7 @@ test("same-origin checkouts with different paths do not fold even while both can
   expect(reply.content).toContain("explicit reason");
   expect(reply.content).not.toContain("memory_forget");
 
-  // An explicit choice may cross paths (#131); the suggested remedy must
+  // An explicit choice may cross paths; the suggested remedy must
   // retire exactly the named loser, not every row of this scope and type.
   const unrelated = await appendMemory({
     ...fields,

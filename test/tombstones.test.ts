@@ -1,4 +1,4 @@
-// Value-keyed rejection tombstones (#35).
+// Value-keyed rejection tombstones.
 //
 // The promise under test: when a human rejects a value, that value stays
 // rejected — even after the row carrying it is deleted, and even when the
@@ -147,7 +147,7 @@ describe("rejection survives deletion of the row that held it", () => {
     expect(near).toContain("similar to a value rejected");
   });
 
-  // Row-derived text is flattened ONLY at the render seam (#299): the store keeps
+  // Row-derived text is flattened ONLY at the render seam: the store keeps
   // multiline prose, but a refusal hint is one sentence to the model. A forget
   // reason typed with a newline must not splice a real line break into it.
   test("a forget reason carrying a newline still renders a single-line hint", async () => {
@@ -644,7 +644,7 @@ describe("the value dimensions the sketch cannot see", () => {
 //
 // `reason` is the one field of a tombstone that is free prose, and it is the
 // field copied into a model-facing refusal hint. The deletion audit has scrubbed
-// recognized credentials at its own write boundary since #128; this file is a
+// recognized credentials at its own write boundary since ; this file is a
 // second durable record of the SAME human prose, written by a different call
 // site (prune passes its raw reason straight through). Both destinations are
 // pinned separately because they are separately reachable: the file on disk and

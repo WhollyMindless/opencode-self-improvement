@@ -1,5 +1,5 @@
 // Contract: serve-host session identity, replaying payload shapes RECORDED
-// from a real `opencode serve --service` (host 2.1.4, issue #90) — captured
+// from a real `opencode serve --service` (host 2.1.4, issue ) — captured
 // by a probe plugin observing the same stream the plugin sees:
 //   - session.created is never delivered: the service loads the plugin AFTER
 //     the session exists.
@@ -51,7 +51,7 @@ async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
   }
 }
 
-// Plain dirs key by hash of the normalized path (#92); the session row still
+// Plain dirs key by hash of the normalized path; the session row still
 // supplies the PATH, which the scope machinery resolves through this.
 const keyOf = (d: string) => resolveRepo(d).key;
 
@@ -64,7 +64,7 @@ const executionStarted = (sid: string) => ({
   data: { sessionID: sid },
 });
 
-describe("serve-host replay: recorded 2.2.2 session move (#176)", () => {
+describe("serve-host replay: recorded 2.2.2 session move", () => {
   test("rebinds to data.location, not the old outer location, before the next write", async () => {
     const from = join(root, "move-from");
     const to = join(root, "move-to");
@@ -178,7 +178,7 @@ describe("serve-host replay: execution.started carries no location", () => {
       const raw = readFileSync(dayFile(), "utf8");
       expect(raw).toContain(`repo=${keyOf(sessionRepo)}`);
       expect(raw).toContain(`repoPath=${sessionRepo}`);
-      expect(raw).not.toContain(serveRoot); // the #90 signature must not appear
+      expect(raw).not.toContain(serveRoot); // the serve-host signature must not appear
       expect(raw).not.toContain(`repo=${keyOf(serveRoot)}`); // nor its hashed key
     } finally {
       await loaded.cleanup();

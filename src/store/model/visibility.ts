@@ -17,7 +17,7 @@ import type { Memory } from "./memory.ts";
 // in that flow. Resolution must NOT be deferred to filter time: the module
 // global current moves whenever another session's hook or tool dispatches, and
 // a store read awaits filesystem I/O — filtering after the await with the
-// ambient identity injects the OTHER session's repo (#127).
+// ambient identity injects the OTHER session's repo.
 //
 //   repo        — the caller's session resolved a repository (its own when
 //                 bound; the setup location for an unbound session in a
@@ -41,7 +41,7 @@ export const ADMIN_READER: Reader = { kind: "admin" };
 // captured synchronously at flow entry. Bound session → its repo; unbound →
 // global-only. The module scope is NOT a fallback here: in a process that
 // loaded more than one plugin instance it belongs to whoever set up LAST,
-// which is another workspace (#127's multi-setup gap). Plugin flows bind an
+// which is another workspace (multi-setup gap). Plugin flows bind an
 // unbound caller to their OWN setup location at entry (index.ts), so ordinary
 // single-workspace sessions resolve through the session map, never here.
 export function readerForSession(sid?: unknown): Reader {
@@ -66,9 +66,9 @@ export function readerFromSid(sid?: unknown): Reader {
     : readerForAmbient();
 }
 
-// Before #109, path-derived keys on win32/darwin hashed the whole canonical
+// Before, path-derived keys on win32/darwin hashed the whole canonical
 // path in lowercase, even on case-sensitive volumes. Such a key can equal a
-// distinct lowercase sibling's current key (#254). The stored path identifies
+// distinct lowercase sibling's current key. The stored path identifies
 // these legacy stamps without a migration: require the same directory, allowing
 // real symlink/case-insensitive aliases, instead of trusting that key alone.
 // Remote-derived keys still share across clones with different paths. A stamp

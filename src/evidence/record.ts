@@ -18,7 +18,7 @@ import { redactSecrets } from "../store/secrets.ts";
 
 export type EvidenceEvent = string;
 
-// The ONLY path memory_evidence may read (#130): a real calendar date in
+// The ONLY path memory_evidence may read: a real calendar date in
 // YYYY-MM-DD form, resolved INSIDE the evidence directory. The schema layer
 // already refuses non-date strings at the boundary; this is the second door —
 // impossible dates (2026-02-30, which Date would silently roll over) and
@@ -56,7 +56,7 @@ export function evidenceFileFor(date?: string): string | null {
 // Credential scrub at the evidence WRITE boundary. Evidence fields routinely
 // carry caller-authored prose (gate reasons, block reasons, review notes) and
 // tool-derived summaries; a recognized credential must not persist in the
-// durable log no matter which line carried it (#128). redactSecrets is a
+// durable log no matter which line carried it. redactSecrets is a
 // no-op on ordinary text (ids, hashes, paths, counts).
 function scrubFields(fields: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -78,19 +78,18 @@ export function captureEvidenceContext(sessionID?: string): EvidenceContext {
   const cur = getCurrent();
   // An explicitly threaded session outranks the ambient one: gate-authored
   // lines must name the session the gate runs FOR, not whichever setCurrent
-  // fired last during the gate's own awaits (#118 review note 1 — the rows
-  // were fixed in #118, these lines were the residue). When the two disagree,
+  // fired last during the gate's own awaits. When the two disagree,
   // the ambient call belongs to the OTHER session's flow, so it is dropped
   // rather than borrowed. With sessionID undefined this captures the ambient
   // session and call at entry by design (maintenance/direct callers). An
   // explicit "?" keeps the ambient call only when cur.sid is also "?";
   // otherwise it stays absent, even if a later setCurrent supplies a call.
   // Normal tool hooks setCurrent before execute; this snapshot never guesses
-  // a missing operation call from a later hook. See #121 for identity context.
+  // a missing operation call from a later hook. See for identity context.
   const sid = sessionID ?? cur.sid;
   const call =
     sessionID !== undefined && sessionID !== cur.sid ? undefined : cur.call;
-  // Read-side partitioning of the shared log (#131's rule, applied to
+  // Read-side partitioning of the shared log (the rule, applied to
   // evidence; the re-review closed the last two gaps in it). A NAMED session
   // is stamped from its OWN resolved scope only — the module scope is never
   // the fallback here: in a process that loaded several plugin instances it
@@ -98,7 +97,7 @@ export function captureEvidenceContext(sessionID?: string): EvidenceContext {
   // repository. A named session whose repository is unresolvable writes an
   // UNSTAMPED line that stays private to that session (memory.ts
   // evidenceVisibleTo pairs with this choice): "unknown" is never
-  // "everything" (#127), and it is never somebody else's repo either. Only a
+  // "everything", and it is never somebody else's repo either. Only a
   // genuinely session-less line — out-of-plugin maintenance, viewer, CLI —
   // takes the process scope, and unstamped session-less lines (legacy, or a
   // scope-less process) keep their historical global reading.
@@ -111,7 +110,7 @@ export function captureEvidenceContext(sessionID?: string): EvidenceContext {
   });
 }
 
-// #305: evidence ABOUT a specific row inherits the ROW's repository, not the
+// evidence ABOUT a specific row inherits the ROW's repository, not the
 // writing process's. The viewer is an admin entry point with no repository of
 // its own, so its ambient context stamps nothing — and evidenceVisibleTo
 // reads an unstamped, sid-less line as GLOBAL. Without this, editing or
@@ -122,7 +121,7 @@ export function captureEvidenceContext(sessionID?: string): EvidenceContext {
 // becomes an explicit `repo=global` line — same visibility as before, now
 // honest on the line itself. The fields spread last in record(), so they
 // outrank any ambient stamp even in a process that loaded a plugin. The
-// global branch returns an EXPLICIT `repoPath: undefined` (N1 on #308): the
+// global branch returns an EXPLICIT `repoPath: undefined` (N1 on): the
 // spread must also clear an ambient repoPath, or a shared process that
 // happens to hold repo B's scope would leave B's path on a globally readable
 // line about a global row. formatLine drops undefined values, so the key
@@ -175,7 +174,7 @@ export function chainId(): string {
 /**
  * One capture decision, in both directions. `lagMs` is the wall-clock distance
  * from the last message of the transcript to the moment the capture model was
- * asked — the number #44 asks for ("how stale is a capture?"). Negative and
+ * asked — the number asks for ("how stale is a capture?"). Negative and
  * missing values are dropped rather than guessed: a capture with no observed
  * message time has no lag, and inventing 0 would pull p50 toward "instant".
  */
@@ -184,7 +183,7 @@ export async function recordCaptureLag(
   lagMs: number | null,
   outcome: string,
   context?: EvidenceContext,
-  // #139: the model the capture actually ran on, so a cost audit can join a
+  // the model the capture actually ran on, so a cost audit can join a
   // lag line to the model that spent the tokens. Optional: metric tests and
   // any caller without a resolved model keep the old shape.
   model?: string,

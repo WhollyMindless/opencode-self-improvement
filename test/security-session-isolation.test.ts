@@ -1,4 +1,4 @@
-// Contract (#127): a flow's caller identity is an immutable Reader resolved
+// Contract: a flow's caller identity is an immutable Reader resolved
 // at flow entry, NEVER the ambient global re-read after an await. Two sessions
 // sharing one process must not receive each other's repository-private rows in
 // system-prompt injection — the context hook suspends on the store read, and a
@@ -81,7 +81,7 @@ test("a concurrent session dispatching mid-read cannot move this session's injec
   // Both are real registered hooks. A's context hook parks on the store read;
   // B's before-tool hook dispatches while A is suspended and moves the global
   // current. A must still filter with the Reader resolved from ITS OWN sid
-  // before the await (#127).
+  // before the await.
   const eventA: ContextEvent = { sessionID: "ses-a", system: [] };
   const pendingA = plugin.sessionHooks.context(eventA);
   await plugin.toolHooks["execute.before"]({

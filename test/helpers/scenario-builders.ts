@@ -1,5 +1,5 @@
 // Scenario builders for setup sequences that were duplicated verbatim across
-// test files (#228). These are fixtures, not coverage: each builder is called
+// test files. These are fixtures, not coverage: each builder is called
 // by two tests that assert genuinely different properties, so a change to the
 // import path or the plan-row shape needs editing in one place while every
 // test keeps its own clear failure message.
@@ -33,7 +33,7 @@ export async function seedPlanRow(
 
 // Export the live store, hop the file into a fresh store, and import it there.
 // The hop copies the export in first because a store reads only from inside
-// itself (#24) — the step actually moving a file to another machine involves.
+// itself — the step actually moving a file to another machine involves.
 // Returns the tool outputs plus the hop path so callers can re-import the same
 // file. `beforeImport` grounds the session when the seeded rows are ref-free
 // settled ones.

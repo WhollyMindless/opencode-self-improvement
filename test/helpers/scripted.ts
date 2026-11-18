@@ -157,7 +157,7 @@ export async function startScripted(): Promise<Scripted> {
     // A scripted session works in the workspace the plugin was loaded with. A real
     // host says the same thing by handing every tool execute a sessionID this
     // instance can resolve; the store now refuses a write from a named session
-    // whose repository never resolved instead of guessing an owner (#152).
+    // whose repository never resolved instead of guessing an owner.
     rememberSessionDir(sid, workspace);
     return {
       sid,

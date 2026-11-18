@@ -1,5 +1,5 @@
-// propose — split from src/consolidate.ts (#168 domain restructure). Declaration bodies are unchanged.
-// Consolidation proposals (#45): episodic rows → one canonical row, proposed and
+// propose — split from src/consolidate.ts. Declaration bodies are unchanged.
+// Consolidation proposals: episodic rows → one canonical row, proposed and
 // measured, never silently applied.
 //
 // The write-gate already collapses byte-identical restatements and flags >0.9
@@ -25,7 +25,7 @@
 //      reads as the best single member did. "Looks redundant" is not a reason.
 //   3. PROPOSALS, not writes. Nothing here mutates the store. A human resolves a
 //      proposal through memory_merge_review (supersede-not-delete, recoverable).
-//   4. The most recently used member is never a loser (#42's rule, inherited).
+//   4. The most recently used member is never a loser (the rule, inherited).
 import type { Memory } from "../store/model/memory.ts";
 import type { UseSignal } from "../hits/ledger.ts";
 import { cmpTs } from "../core/cmp-ts.ts";
@@ -127,7 +127,7 @@ export function clustersFor(
  * The canonical row of a cluster: the most recently used member, falling back to
  * the newest row when the ledger knows nothing. Recency in the boost is not
  * recency in the ledger — a row that retrieval has actually been landing on is
- * the one worth keeping, and this is #42's rule applied to merges.
+ * the one worth keeping, and this is rule applied to merges.
  */
 export function survivorFor(
   cluster: Memory[],

@@ -1,4 +1,4 @@
-// #45 — consolidation proposals. The rule under test is the one the ticket set:
+//— consolidation proposals. The rule under test is the one the ticket set:
 // a merge is proposed only when replaying the cluster's OWN logged reads proves
 // the merged row catches at least as many reads as the best single member did.
 // Resemblance alone never earns a proposal.
@@ -37,7 +37,7 @@ const B =
 const C =
   "finance reconciles the zebra brasserie ledger nightly and mails a digest before opening";
 
-describe("consolidation clustering (#45)", () => {
+describe("consolidation clustering", () => {
   test("near-duplicate settled rows in one scope and type form one cluster", () => {
     const rows = [
       mem({ content: A }),
@@ -197,7 +197,7 @@ describe("the acceptance rule: reads must survive", () => {
     expect(report.rowsBefore).toBe(3);
     expect(report.rowsAfter).toBe(2);
     // One row leaves the injected budget, and the canonical row does not grow:
-    // keywords are indexed, never rendered (#40).
+    // keywords are indexed, never rendered.
     expect(report.injectedAfter).toBeLessThan(report.injectedBefore);
   });
 });
@@ -217,7 +217,7 @@ describe("proposal rendering", () => {
     expect(text).toContain("STORE  2 rows → 1");
   });
 
-  // Row prose is stored multiline and flattened only when rendered (#299), so a
+  // Row prose is stored multiline and flattened only when rendered, so a
   // proposal block stays one output line per row however its prose is broken.
   test("a multi-line row still renders one output line per row", () => {
     const a = mem({

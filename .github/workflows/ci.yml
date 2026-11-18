@@ -14,14 +14,23 @@ permissions:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    env:
+      # The comment policy compares added lines against the branch under review
+      # started from. A PR checkout is shallow and has no origin/main, so the
+      # base arrives explicitly; without it the lint refuses to run rather than
+      # report green on an empty diff. fetch-depth 0 makes that sha reachable.
+      COMMENT_LINT_BASE: ${{ github.event.pull_request.base.sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
+      - name: Comment policy (no tickets, no review narrative in comments)
+        run: bun run lint:comments
       - name: Typecheck
         run: bun run typecheck
       - name: Lint (biome — errors fail; warnings advisory)

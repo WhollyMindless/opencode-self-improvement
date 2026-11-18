@@ -261,8 +261,8 @@ describe.skipIf(process.platform !== "win32")(
       // deadline. This is the test the sweep's publish-rename-since-blind
       // mutant leans on: shipped aborts in ~ms, blind retries publish stale
       // bytes by ~450ms, and neither outcome waits on 2 seconds of clock.
-      // The residual race, named so it doesn't get "fixed" back (#120 review
-      // nit 1): if a stall delays the 60ms append PAST the 400ms release, the
+      // The residual race, named so it doesn't get "fixed" back: if a stall
+      // delays the 60ms append PAST the 400ms release, the
       // shipped code renames before the destination moves and this goes red on
       // CORRECT code. Deliberate trade: a 6.7x margin with a loud,
       // self-reporting red beats the 1.33x silent-green of the pins above.

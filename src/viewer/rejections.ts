@@ -1,5 +1,5 @@
 // Viewer writes are deliberate admin edits, independent of model grounding
-// gates. They still honor value rejections until an explicit release (#222).
+// gates. They still honor value rejections until an explicit release.
 import { redactSecrets } from "../store/secrets.ts";
 import { probeRejection } from "../store/tombstones/rejection.ts";
 

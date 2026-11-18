@@ -10,7 +10,7 @@ import { isActive } from "../src/store/model/predicates.ts";
 import { loadPlugin, withTempStore } from "./harness.ts";
 import { readEvidenceLog } from "./helpers/logfmt.ts";
 
-describe("capture provenance reservation (#342)", () => {
+describe("capture provenance reservation", () => {
   const store = withTempStore({ prefix: "osi-guidance-provenance-" });
   describe("public entry points", () => {
     let loaded: Awaited<ReturnType<typeof loadPlugin>> | undefined;

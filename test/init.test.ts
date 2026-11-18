@@ -1,6 +1,6 @@
 // Init phase: memory_init tool behavior. Hermetic — the fixture dir is a plain
 // (non-git) temp tree. The codebase-memory graph integration was removed
-// (#231): nothing in src read the index back, so /repo-init spawns no external
+// nothing in src read the index back, so /repo-init spawns no external
 // binary at all and the suite no longer needs a spawn spy or a fake binary.
 // Scope = directory basename ("repo"), matching the repo-name convention.
 import {
@@ -80,7 +80,7 @@ describe("memory_init", () => {
     expect(patterns.length).toBe(2);
     expect(patterns.every((m) => m.tags?.includes("init"))).toBe(true);
 
-    // #374: the stamp is plugin bookkeeping, not a memory. A row here was
+    // the stamp is plugin bookkeeping, not a memory. A row here was
     // forgeable by any session, so init writes a file under the memory root.
     expect(mems.some((m) => m.tags?.includes("init-stamp"))).toBe(false);
     const files = readdirSync(stampDir());
@@ -92,7 +92,7 @@ describe("memory_init", () => {
     expect(typeof stamp.key).toBe("string");
   });
 
-  test("no external binary is spawned: the graph integration is gone (#231)", async () => {
+  test("no external binary is spawned: the graph integration is gone", async () => {
     // The whole point of the removal: /repo-init is local-only. A spy on
     // Bun.spawn proves no child process is launched for any argument set.
     const calls: string[][] = [];
@@ -119,7 +119,7 @@ describe("memory_init", () => {
     expect(
       mems.filter((m) => m.type === "pattern" && m.scope === "repo").length,
     ).toBe(2);
-    // The stamp is one file per repository (#374), never a row.
+    // The stamp is one file per repository, never a row.
     expect(mems.some((m) => m.tags?.includes("init-stamp"))).toBe(false);
     expect(readdirSync(stampDir()).length).toBe(1);
   });
@@ -127,7 +127,7 @@ describe("memory_init", () => {
   // Init mines repo-derived text: the scope is the checkout directory basename
   // and the command comes from the manifest. A clone directory named to match an
   // injection pattern used to promote with no quarantine tag and no provenance
-  // marker, then ride into every later session of that repo (#302).
+  // marker, then ride into every later session of that repo.
   test("a directory name matching an injection pattern quarantines the script row", async () => {
     const nasty = join(root, "eval (x)");
     mkdirSync(nasty, { recursive: true });
@@ -151,7 +151,7 @@ describe("memory_init", () => {
       expect(tags).toContain("quarantine");
       expect(tags.some((t) => t.startsWith("quarantine:"))).toBe(true);
     }
-    // #374: the stamp is a file, so the basename screen has no stamp row left to
+    // the stamp is a file, so the basename screen has no stamp row left to
     // tag — and screening the rows that ARE written still leaves init idempotent.
     expect(await runInitTool.execute({})).toContain("Already initialized");
     await loaded.cleanup();
@@ -193,7 +193,7 @@ describe("init internals", () => {
   // row it produces is tagged init/package.json, so it carries no [via ...]
   // provenance marker and rides into every later session of the repo — long
   // after the branch that shipped the key is gone. Make/Just targets were
-  // already restricted; package.json was the detector without a filter (#301).
+  // already restricted; package.json was the detector without a filter.
   test("a crafted script key is not stored as a command", async () => {
     const dir = join(root, "crafted");
     mkdirSync(dir, { recursive: true });
@@ -234,12 +234,12 @@ describe("init internals", () => {
   });
 });
 
-// #374: the stamp used to be a `context` row tagged `init-stamp`. Any session
+// the stamp used to be a `context` row tagged `init-stamp`. Any session
 // could write one with memory_remember, name the current HEAD, and make every
 // later memory_init answer "Already initialized" for that commit — the store
 // talking to itself through a door a model can knock on. It is a file under the
 // memory root now, read and written only by src/init/.
-describe("init stamp is plugin state, not a memory (#374)", () => {
+describe("init stamp is plugin state, not a memory", () => {
   test("a hand-written init-stamp row cannot suppress init", async () => {
     const ts = await appendMemory({
       type: "context",
@@ -312,7 +312,7 @@ describe("init stamp is plugin state, not a memory (#374)", () => {
     expect(await init.execute({})).toContain("Already initialized");
   });
 
-  // #376 review: a stamp file whose `key` names a different repository is not
+  //review: a stamp file whose `key` names a different repository is not
   // this repository's stamp. The file name is the identity, and the header
   // comment promises that a component the plugin did not mint is not authority,
   // so the field has to be checked and not merely written.
@@ -337,15 +337,15 @@ describe("init stamp is plugin state, not a memory (#374)", () => {
   });
 });
 
-// #376 review of this migration. Three things were wrong: the honoured row kept
+//review of this migration. Three things were wrong: the honoured row kept
 // riding the prompt until the migration retired it (and never, in a store whose
 // audit line is gone); a stamp file that could not be written still reported a
 // successful migration; and the audit pairing took the HEAD from the row's own
 // prose, so a row landing on the same millisecond as a real init's stamp could
 // suppress init for a head no init ever stamped at. These are the pins.
-describe("legacy init-stamp rows are inert, and a migration reports what it did (#376)", () => {
+describe("legacy init-stamp rows are inert, and a migration reports what it did", () => {
   /**
-   * A row exactly as the pre-#374 release left it, plus the `init_complete` line
+   * A row exactly as the pre- release left it, plus the `init_complete` line
    * that audited it. `evidenceHead` is what the AUDIT says; the row's prose says
    * whatever the caller passes, which is the seam the head test needs.
    */
@@ -481,7 +481,7 @@ describe("legacy init-stamp rows are inert, and a migration reports what it did 
         const s = await runInit({ liveRoot: fixture });
         // The row is still honoured, so this run stays idempotent — but nothing
         // was copied, and the reply has to say so instead of claiming a
-        // migration (#376 review).
+        // migration .
         expect(s.stampError).toBeTruthy();
         expect(s.skipped).toBe(true);
         expect(readdirSync(stampDir())).toEqual([]);
@@ -584,13 +584,13 @@ describe("legacy init-stamp rows are inert, and a migration reports what it did 
   });
 });
 
-// #375: #372 screens what init WRITES. A store that already holds an untagged
+//  screens what init WRITES. A store that already holds an untagged
 // injection-shaped row keeps it, and re-running init used to change nothing:
 // GATE-3's exact-duplicate check compares type and content, so the quarantined
 // candidate collapsed into the untagged row, and `force` skips the stamp check,
 // not the dedup. Init now re-tags what it can read.
-describe("init re-tags rows stored before the injection screen (#375)", () => {
-  /** A row exactly as a pre-#372 init would have left it: live, untagged. */
+describe("init re-tags rows stored before the injection screen", () => {
+  /** A row exactly as init left it before the injection screen: live, untagged. */
   async function poison(extra: Record<string, unknown> = {}) {
     return appendMemory({
       type: "learning",

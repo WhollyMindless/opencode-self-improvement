@@ -1,4 +1,4 @@
-// Provenance: how a row was obtained (#393).
+// Provenance: how a row was obtained.
 //
 // R4 (`benchmark-tests/ocsi/results-poison-x5/`, n=5) is why this exists. With an
 // empty store the agent produced no artifact in 3 of 5 runs and never invented a

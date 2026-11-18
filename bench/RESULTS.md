@@ -36,9 +36,25 @@ D injects 12.3% fewer characters than the naive policy.
 Compaction anchor (capped at 2500 chars): 2304 chars,
 pushed once per compaction rather than per turn.
 
+## Mutation sweep — 2026-11-18 (hygiene branch, post-poc-409)
+
+Canonical mutation score: **49/52 = 94.2%** (53 mutants; 1 equivalent excluded, 0 load errors). Wall 5169 s (baseline 91.6 s + 53 mutants × suite on one scratch worktree). `--validate` and `--selftest` green beforehand.
+
+Unpinned invariants (survivors):
+
+| mutant | class | invariant nothing killed |
+| --- | --- | --- |
+| `publish-rename-since-blind` | D2 | anchored retry re-checks the destination before renaming: a premise that moved aborts |
+| `viewer-snapshot-grammar-off` | D3 | restore names are pinned to the snapshot grammar at the wire |
+| `restore-escapes-root` | D3 | a restore cannot write outside the memory root |
+
+Equivalent mutant (excluded): `budget-header-fit-boundary` — when the header alone fills the budget, both builds produce identical observable block content; pinning it would pin the `">"` token, not a behavior.
+
+Follow-up: the two D3 survivors concern the restore path and get tests in the phase-4 follow-up; `publish-rename-since-blind` needs a store with a destination that moves mid-retry.
+
 ## Survivor follow-up — the three unpinned invariants (2026-11-18)
 
-The 2026-11-18 sweep (49/52 = 94.2%) left three unpinned invariants. Each is
+The sweep above left three unpinned invariants. Each is
 now resolved; a targeted `--mutant=` run on this branch gives the evidence.
 
 | mutant | outcome | evidence |

@@ -4,7 +4,7 @@
 //     since the snapshot, listing them; file untouched;
 //   - merge: restore the snapshot AND keep the divergent rows (superset);
 //   - force: exact rollback (the pre-fix behavior, now opt-in), minus rows
-//     whose content carries a rejection tombstone (#307, decision #214 A).
+//     whose content carries a rejection tombstone (decision A).
 //   - a bare snapshot name (as printed by list) resolves against snapshots/.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
@@ -185,7 +185,7 @@ describe("restoreSnapshot modes", () => {
     expect(lines()).toEqual([]);
   });
 
-  test("merge does not resurrect a forgotten row either; force omits it (#307)", async () => {
+  test("merge does not resurrect a forgotten row either; force omits it", async () => {
     seed([row(1)]);
     const forgotten = await prune("demo", "learning", "remove leaked secret");
     const forgottenSnapshot = forgotten.snapshot[0];
@@ -204,7 +204,7 @@ describe("restoreSnapshot modes", () => {
       memoryRoot(),
       "force",
     );
-    // #214 A overturned the pre-fix contract ("force does" resurrect): the
+    //A overturned the pre-fix contract ("force does" resurrect): the
     // prune left a rejection tombstone on the row's content, so force reports
     // the row in rejectedOmitted and leaves it non-recallable.
     expect(forced.deletedOmitted).toEqual([]);
@@ -353,8 +353,8 @@ describe("memory_undo tool guidance", () => {
   });
 });
 
-describe("memory_undo force and rejection tombstones (#307, decision #214 A)", () => {
-  // #35's stated property: no tool lifts a rejection. FORCE is the only mode
+describe("memory_undo force and rejection tombstones", () => {
+  // stated property: no tool lifts a rejection. FORCE is the only mode
   // that republishes rows deleted since the snapshot, so it alone must consult
   // the rejection tombstones — a restore that reinstates a tombstoned value
   // leaves the store holding an active row it also records as rejected.
@@ -412,7 +412,7 @@ describe("memory_undo force and rejection tombstones (#307, decision #214 A)", (
     expect(readFileSync(rejectedFile())).toEqual(tombstonesBefore);
   });
 
-  test("default and merge undo do not resurrect a rejected value through an older identity (#307 F1)", async () => {
+  test("default and merge undo do not resurrect a rejected value through an older identity", async () => {
     // The rejection floor is keyed on the VALUE, not the row identity, so it
     // must hold in every mode. An older snapshot identity can carry a value a
     // human later rejected through a DIFFERENT row: a force rollback drops the

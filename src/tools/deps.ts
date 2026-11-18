@@ -1,4 +1,4 @@
-// Shared dependency surface for the memory tools (#168). The tools module is
+// Shared dependency surface for the memory tools. The tools module is
 // a leaf: host wiring stays in index.ts and arrives through this interface,
 // so a tool file never reaches into the plugin setup closure.
 import type { GateContext } from "../gate/gate.ts";

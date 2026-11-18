@@ -1,6 +1,6 @@
-// One-time repair for rows stored before #372 screened init's writes (#375).
+// One-time repair for rows stored before screened init's writes.
 //
-// #372 made `/repo-init` run the injection screen over the rows it writes, so a
+// made `/repo-init` run the injection screen over the rows it writes, so a
 // checkout sitting in a directory named `eval (x)` now gets its command memories
 // tagged `quarantine`. That covers writes made after it shipped. A store that
 // already holds an untagged poisoned row keeps it, and re-running init cannot
@@ -40,7 +40,7 @@ export interface RetagResult {
   blocked: number;
   /** Promoted, but the retirement did not land (another supersession won). */
   partial: number;
-  /** Promoted with a fallen `write_promoted` audit line (#155 class). */
+  /** Promoted with a fallen `write_promoted` audit line. */
   unaudited: number;
   /** Hits left unprocessed because the per-run bound was reached. */
   remaining: number;
@@ -48,7 +48,7 @@ export interface RetagResult {
   collateral: string[];
   /**
    * Retirement attempts that REJECTED (lock contention) rather than returning
-   * false (#378 review). The replacement is durable; the original is not.
+   * false. The replacement is durable; the original is not.
    * Counted in `partial`, named here.
    */
   failures: string[];
@@ -134,7 +134,7 @@ export async function retagQuarantinedRows(
       out.blocked++;
       continue;
     }
-    // #378 review (WhollyMindless): two ways the unsafe original survived.
+    // Two ways the unsafe original survived.
     // (a) COLLAPSED is not "nothing happened" here — it means a quarantined
     //     twin from an earlier interrupted repair is already durable, and the
     //     only missing step is retiring the original. Refusing to act on the
@@ -146,7 +146,7 @@ export async function retagQuarantinedRows(
     // (b) markSuperseded can REJECT (lock contention), not just return false.
     //     The twin is durable either way, so the failure lands in `partial`
     //     with its reason instead of escaping as if nothing was written —
-    //     the #155 lesson, applied to the repair path.
+    //     the lesson, applied to the repair path.
     const successor =
       outcome.action === "collapsed" ? outcome.collapsedWith : outcome.ts;
     if (successor === undefined) {
@@ -175,7 +175,7 @@ export async function retagQuarantinedRows(
       if (!out.collateral.includes(ts)) out.collateral.push(ts);
     if (!retired) {
       // The replacement IS durable. Name which half did not land, in the shape
-      // memory_update uses (#155), instead of counting a clean re-tag.
+      // memory_update uses, instead of counting a clean re-tag.
       out.partial++;
       continue;
     }

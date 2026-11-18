@@ -1,4 +1,4 @@
-// memory — split from src/memory.ts (#168 domain restructure). Declaration bodies are unchanged.
+// memory — split from src/memory.ts. Declaration bodies are unchanged.
 
 import { flattenMemoryText } from "../sanitize.ts";
 
@@ -48,7 +48,7 @@ const CONFLICT_REF_RE = /^[A-Za-z_][A-Za-z0-9_]{1,63}$/;
 
 export const MAX_CLAIM_CHARS = 32;
 
-/** Cap on the verbatim user utterance a guided row may carry (bench #347 follow-up). */
+/** Cap on the verbatim user utterance a guided row may carry. */
 export const MAX_ORIGINAL_CHARS = 300;
 
 /**
@@ -96,7 +96,7 @@ export interface Memory {
   content: string;
   issue?: string;
   tags?: string[];
-  // Retrieval keywords (#40): author-supplied aliases, verb forms and synonyms
+  // Retrieval keywords: author-supplied aliases, verb forms and synonyms
   // for this row, written at capture time. They widen the scoring haystack
   // ONLY — a row is never rendered through them, so injection bytes and the
   // content cap stay exactly what the prose says. This is the zero-embedding
@@ -117,7 +117,7 @@ export interface Memory {
   // authority (klass). Injection reads the code at render time — deterministically,
   // no model call — and a collision renders one CONFLICT line whose Action is
   // fixed by the class: behavior class trusts the code, spec class fixes it.
-  // #345 measured the alternative: a wrong guided row rewrote correct code.
+  // measured the alternative: a wrong guided row rewrote correct code.
   ref?: string;
   claim?: string;
   klass?: "spec" | "behavior";

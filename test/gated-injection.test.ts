@@ -50,7 +50,7 @@ afterEach(() => {
 function ctx(sid: string): GateContext {
   // The gate call below runs for this session IN liveRoot — a real host says
   // the same thing by handing every tool execute a sessionID this instance can
-  // resolve (#152). Without the binding the writer has no repository and the
+  // resolve. Without the binding the writer has no repository and the
   // store refuses its write rather than guessing an owner.
   rememberSessionDir(sid, liveRoot);
   return {

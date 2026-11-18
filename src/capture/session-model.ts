@@ -1,11 +1,11 @@
-// Per-session model registry (#139). The SDK's SessionRequest declares a
+// Per-session model registry. The SDK's SessionRequest declares a
 // readonly `model: Model.Ref`, so EVERY session hook the plugin registers
 // already carries the session's actual model — the session.context hook reads
 // event.sessionID and never event.model, and auto-capture required a second
 // config key (captureModel) it could have inherited for free. This module is
 // the seam: events.ts records the ref the host delivered, capture/runtime.ts
 // resolves an omitted captureModel through it before falling back to the host
-// default. Module-level like `lastCaptureRun` in runtime.ts (#108): setup runs
+// default. Module-level like `lastCaptureRun` in runtime.ts: setup runs
 // for more than one location, and a per-closure map would make those
 // registrations strangers to the model the host just told them.
 export interface SessionModelRef {

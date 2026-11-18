@@ -10,7 +10,7 @@
 //          origin (fresh or remote-less): sha1 of the NORMALIZED resolved
 //          path instead, so repo= is always a bare token — a raw path with
 //          a space gets logfmt-quoted, which breaks naive field extraction
-//          and can't be hash-compared (#92). path stays the human-readable
+//          and can't be hash-compared. path stays the human-readable
 //          secondary, so rows stamped before the hash keep matching.
 // Rows carry no stamp when their writer had no scope (viewer process,
 // tests) and legacy rows predate the field: both read as GLOBAL — visible
@@ -60,7 +60,7 @@ function git(args: string[], cwd: string): string | null {
   }
 }
 
-// --- case-sensitivity probe (#109) --------------------------------------------
+// --- case-sensitivity probe --------------------------------------------
 // Folding case by PLATFORM leaked rows across directories: a case-SENSITIVE
 // APFS volume is a legitimate macOS choice (and NTFS has per-directory
 // sensitivity), where "Foo" and "foo" really are two dirs that must not share
@@ -149,7 +149,7 @@ export function isCaseInsensitivePath(dir: string): boolean | null {
 // Normalize a directory for hashing: symlinks, junctions, and Windows 8.3
 // aliases collapse to the real path (realpath), separators unify to "/",
 // a trailing separator disappears, and case folds ONLY where the probe says
-// the volume folds names itself (#109) — never trusting the platform alone.
+// the volume folds names itself — never trusting the platform alone.
 export function normalizeDirPath(p: string): string {
   let r = p;
   try {
@@ -186,7 +186,7 @@ export function resolveRepo(startDir: string): RepoScope {
 // --- per-session identity -----------------------------------------------------
 // Learned from session events (created / execution.started / moved). Bounded
 // by the shared session cap imported from core/lru.ts, so the two caps cannot
-// drift (#224): a long-lived server must not grow this with every session
+// drift: a long-lived server must not grow this with every session
 // ever seen.
 const byDir = new Map<string, RepoScope>();
 const bySession = new Map<string, { dir: string; scope: RepoScope }>();
@@ -213,7 +213,7 @@ export function rememberSessionDir(sid: string, dir: string): void {
 // plugin instance may resolve an UNKNOWN session to its own setup location —
 // the caller reached this instance, so this workspace is the caller's repo as
 // far as the flow can know (never the module scope, which belongs to whoever
-// loaded LAST, #127's residual multi-setup gap). Real identity from the event
+// loaded LAST, residual multi-setup gap). Real identity from the event
 // stream or the session-row API always replaces a provisional binding.
 const provisional = new Set<string>();
 
@@ -252,7 +252,7 @@ export function repoScopeFor(sid?: string): RepoScope | null {
 // The scope of a session bound from the event stream / session-row API, with
 // NO module-scope fallback. Read paths that carry a caller's session identity
 // resolve through this: an unbound session must fail closed to global rows
-// (#127), never inherit a module scope that belongs to another workspace (or
+//, never inherit a module scope that belongs to another workspace (or
 // is null, which the ambient reader has always read as "everything").
 export function sessionScope(sid?: unknown): RepoScope | undefined {
   if (!isNamedSid(sid)) return undefined;
@@ -264,7 +264,7 @@ export function isNamedSid(sid: unknown): sid is string {
   return typeof sid === "string" && sid !== "" && sid !== "?";
 }
 
-// The repository a DURABLE WRITE belongs to (#152) — the write-side twin of
+// The repository a DURABLE WRITE belongs to — the write-side twin of
 // sessionScope, and deliberately not `repoScopeFor`: that helper's last resort
 // is the module scope, which is the identity of whoever called setup() LAST.
 // Reading with the wrong owner can only ever show too little (an unbound

@@ -1,44 +1,23 @@
-// Two-concept admission for the recall tool's matcher (#409, case bank).
+// Two-concept admission for the recall tool's matcher.
 //
-// The tool scores a row by counting how many of the query's words appear in it
-// as substrings, and returns anything that scores above zero. One shared word is
-// enough, so `watermark 283 287 head` returns every row that mentions a head,
-// and `fixer ready tickets queue blocked` returns rows about the GitHub CLI and
-// about npm publishing. Measured on 404 real recall queries taken from 30 days of
-// session transcripts and labelled by two independent readers (poc-409/casebank),
-// a large share of what the tool returned was judged irrelevant rather than
-// answering.
+// A query of LONG_QUERY_TOKENS concepts or more is a deliberate search: a row
+// must share two whole-word concepts with it to be returned. Shorter queries
+// keep the matcher's permissive one-concept admission. This is the rule the
+// injection path already applies (LONG_QUERY_TOKENS in score.ts); the two
+// paths must agree on when nothing is a good enough answer. Admission only:
+// ranking, scoring and window size are untouched.
 //
-// The injection path already refuses single-concept matches once a query is long
-// enough to be a deliberate search (LONG_QUERY_TOKENS in score.ts). This applies
-// that rule to the tool, so the two paths agree on when nothing is a good enough
-// answer. It changes admission only: ranking, scoring and the window size are
-// untouched. ON by default — the two paths disagreeing was the bug, and a
-// quality fix that nobody flips on is not a fix. Explicit opt-out:
+// ON by default. Off only for an explicit negative (see gateEnabled): a
+// quality fix that nobody flips on is not a fix, and a typo must not disable
+// it.
 //
-//   OPENCODE_MEMORY_QUERY_GATE=off   (also 0 / no / n / false)
+// TRAP: admission counts whole words; the scorer counts substrings on
+// purpose. A substring is not a concept — `on` occurs inside `context`, `pr`
+// inside `preference`, `283` inside `build2837` — so the gate must not reuse
+// the matcher's own substring test. Whole words keep number queries exact:
+// the concept `277` matches a row citing that number and not `2830`.
 //
-// WHY THE GATE COUNTS WORDS AND THE SCORER COUNTS SUBSTRINGS
-//
-// These are different questions, and using the tool's own substring test here was
-// the first version's mistake. Scoring asks how strongly a row matches, and
-// substring matching is deliberate there: it is how `getUserAccount` finds a row
-// written `get_user_account`. Admission asks how many DISTINCT CONCEPTS the query
-// and the row share, and a substring is not a concept. Counting substrings made
-// the gate satisfiable by two accidents: `on` occurs inside `context` and inside
-// `decision`, so every row of those types shared it; `pr` occurs inside
-// `preference`; and `283` occurs inside `build2837`, so the query that motivated
-// this change, `watermark 283 287 head`, still admitted the row it was supposed to
-// refuse. The gate therefore compares whole words, and drops the query's stopwords
-// and fragments, which is exactly the vocabulary the injection scorer counts.
-//
-// Whole words are also what makes the number queries work. `#277` tokenises to
-// `277`, so a PR-number search still matches the row that cites it, while `283` no
-// longer matches `#2830`.
-//
-// STATUS: measured on the case bank; see the PR for the current numbers. The
-// first version's numbers were measured with substring counting and are void.
-// See https://github.com/abogartz/opencode-self-improvement/issues/409.
+// History and measurements: docs/adr/0001.
 import type { Memory } from "../store/model/memory.ts";
 import { LONG_QUERY_TOKENS, QUERY_STOPWORDS, words } from "./score.ts";
 
@@ -80,8 +59,8 @@ export function recallHaystack(m: Memory): string {
 
 // Split into whole words at whitespace and punctuation. Underscore stays inside a
 // word so the identifier a user searches for — `db_id`, `OPENCODE_MEMORY_DIR` —
-// survives as the single concept it is (splitting it is the regression that
-// blocked PR #417); a dash separates, because prose writes `get-user-account` as
+// survives as the single concept it is (splitting it breaks exact identifier
+// queries); a dash separates, because prose writes `get-user-account` as
 // the three words it means. `build2837` stays one word, which is why `283` can no
 // longer match it.
 const WORD = /[^a-z0-9_]+/;
@@ -101,7 +80,7 @@ export function queryConcepts(query: string): string[] {
 
 /** The row's concepts, as a set for whole-word membership tests. */
 export function rowConcepts(m: Memory): Set<string> {
-  // Union of two vocabularies (#426 review). The #417 scorer tokenizer over
+  // Union of two vocabularies. The scorer tokenizer over
   // the ORIGINAL-case haystack carries whole identifiers plus camel/separator
   // segments, so a prose query is admitted against an identifier written in
   // any style. But words() segments at EVERY separator: `table.db_id` yields

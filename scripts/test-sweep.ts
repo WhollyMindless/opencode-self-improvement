@@ -408,11 +408,16 @@ export const MUTANTS: Mutant[] = [
     // moments earlier are part of the copy. Snapshotting after the publish
     // captures the new state and the rollback restores what the restore itself
     // wrote.
+    //
+    // NOTE: `find` spans a comment block, so editing that prose breaks this
+    // entry. `--validate` fails loudly when it happens — the pattern applies to
+    // 0 sites — which is the only reason a comment-only change to the undo store
+    // cannot silently drop this mutant from the next sweep.
     find: `      const safety =
         mode === "force" ? (await snapshotFiles([target]))[0] : undefined;
 
       // Foreign live lines are re-admitted verbatim in every mode, appended at
-      // the end — line content preserved, position not (#153). Under the admin
+      // the end — line content preserved, position not. Under the admin
       // reader curForeign is empty and the write is the historical whole-file
       // restore, byte for byte — modulo the rejected-row omission above, which
       // applies to every reader and every mode: a rejection is absolute, not

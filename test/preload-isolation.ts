@@ -1,18 +1,18 @@
-// Global test-isolation net (#149).
+// Global test-isolation net.
 //
 // The plugin keeps identity in module globals: the ambient session/call state
 // (src/state.ts) and the session -> repository map that entry binding fills
-// (src/repokey.ts, #127). Both outlive a test FILE, so any file that binds a
+// (src/repokey.ts, ). Both outlive a test FILE, so any file that binds a
 // session and does not release it silently changes the next file's write stamp
 // and read scope — a failure that depends purely on which file the runner ran
-// first. Per-file resets keep missing one (#149 is the third instance).
+// first. Per-file resets keep missing one ( is the third instance).
 //
 // Clearing both registries after every test makes file order irrelevant. A
 // file that needs identity sets it in its own beforeEach (or per test), which
 // is what the existing suites already do; nothing may rely on identity
 // surviving a test boundary.
 //
-// The rejection tombstone cache (#35) joins them for the same reason: it is a
+// The rejection tombstone cache joins them for the same reason: it is a
 // module global keyed on the tombstone file's change token, and every test file
 // points OPENCODE_MEMORY_DIR at a different temp store. It is invalidated on
 // every write, so this is belt-and-braces against a verdict surviving a store
@@ -22,7 +22,7 @@ import { resetSessionScopes } from "../src/identity/repokey.ts";
 import { resetState } from "../src/core/state.ts";
 import { resetTombstoneCache } from "../src/store/tombstones/tombstone.ts";
 
-// Most fixtures in this suite are pre-#419 prose, so the symptom-clause rule
+// Most fixtures in this suite are pre- prose, so the symptom-clause rule
 // (production default ON) is pinned off for the whole run.
 // test/gate-symptom.test.ts sets it explicitly for both states.
 process.env.OPENCODE_MEMORY_SYMPTOM ??= "off";

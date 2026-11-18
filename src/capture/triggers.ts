@@ -42,14 +42,14 @@ const ENGAGEMENT_TOOLS = new Set([
 ]);
 
 const RECENT_EVIDENCE_CALLS = 10;
-// #224: the retained call tail. A resident server must not grow one session's
+// the retained call tail. A resident server must not grow one session's
 // ledger without bound; past the cap the OLDEST entries drop. Everything the
 // pipeline needs past the cap is recorded on SessionState as it happens
 // (callsTotal, reDerives, firstCallTs, sawEngagement, sawGateCheck), so
 // telemetry counts, grounding signals and ms_to_tap keep their full-session
 // meaning; attribution (callsFor) sees the retained tail.
 // The cap sits ABOVE the 2,000-call scale pinned by write-evidence.test.ts
-// (#163: the full ledger stays available at that scale), so that contract
+// (the full ledger stays available at that scale), so that contract
 // keeps holding; the bound is the point — a pathological resident session
 // grows this to hundreds of thousands of entries, and 4,096 is where the
 // tail is cut.
@@ -87,7 +87,7 @@ function trackCall(s: SessionState, rec: ToolResult): void {
 
 // True once the session has exercised the codebase (the FAIL->PASS signals use
 // the same whitelist, so engagement == "a tool_result was recorded for a code
-// tool"). Sticky (#224): the CALLS_CAP tail dropping the original engagement
+// tool"). Sticky: the CALLS_CAP tail dropping the original engagement
 // call must not un-ground a session that demonstrably engaged.
 export function hasEngagement(sid: string): boolean {
   return session(sid).sawEngagement;
@@ -165,7 +165,7 @@ export async function afterTool(
   const call = typeof input.callID === "string" ? input.callID : "?";
   const cmd = argString(input.args);
   const text = typeof out.output === "string" ? out.output : "";
-  // Redact the COMPLETE tool text before folding/truncating (#128): summarize
+  // Redact the COMPLETE tool text before folding/truncating: summarize
   // first would cut a token at the 80-char boundary or strip a PEM END marker,
   // and the surviving fragment would persist byte-for-byte in evidence.
   const safeText = text ? redactSecrets(text) : "";
@@ -186,7 +186,7 @@ export async function afterTool(
 
   // Generic capture (data, not chat). The output_summary is telemetry about
   // the call (tool name + a short, redacted glimpse); the session/repo scoping
-  // of evidence reads is tracked separately (#128 acceptance, #130).
+  // of evidence reads is tracked separately ( acceptance,).
   if (
     ["grep", "glob", "read", "edit", "write", "bash", "shell"].includes(tool)
   ) {
@@ -289,7 +289,7 @@ export async function onCompacting(input: AfterInput): Promise<void> {
 }
 
 // IDs for callers that explicitly need the ledger: the retained tail (capped
-// at CALLS_CAP, oldest dropped first — #224). Production write contexts use
+// at CALLS_CAP, oldest dropped first —). Production write contexts use
 // writeEvidence so they do not allocate this growing list.
 export function evidenceCalls(sid: string): string[] {
   return session(sid).calls.map((c) => c.call);
@@ -316,7 +316,7 @@ export function writeEvidence(sid: string): {
 
 // The per-session tool ledger for memory attribution (src/attribution.ts):
 // the retained tail, capped at CALLS_CAP with the oldest calls dropped first
-// (#224), so a resident server bounds memory instead of holding every call.
+//, so a resident server bounds memory instead of holding every call.
 export function callsFor(sid: string): ToolResult[] {
   return session(sid).calls;
 }
