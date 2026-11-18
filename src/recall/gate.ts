@@ -40,7 +40,7 @@
 // first version's numbers were measured with substring counting and are void.
 // See https://github.com/abogartz/opencode-self-improvement/issues/409.
 import type { Memory } from "../store/model/memory.ts";
-import { LONG_QUERY_TOKENS, QUERY_STOPWORDS } from "./score.ts";
+import { LONG_QUERY_TOKENS, QUERY_STOPWORDS, words } from "./score.ts";
 
 export const GATE_ENV = "OPENCODE_MEMORY_QUERY_GATE";
 
@@ -69,9 +69,13 @@ export function gateEnabled(
  * another. Distinct from score.ts's `haystack`, which orders the same fields for
  * the injection scorer.
  */
-export function recallHaystack(m: Memory): string {
+function recallHaystackRaw(m: Memory): string {
   const kw = m.kw?.length ? ` ${m.kw.join(" ")}` : "";
-  return `${m.type} ${m.scope} ${m.content}${kw}`.toLowerCase();
+  return `${m.type} ${m.scope} ${m.content}${kw}`;
+}
+
+export function recallHaystack(m: Memory): string {
+  return recallHaystackRaw(m).toLowerCase();
 }
 
 // Split into whole words at whitespace and punctuation. Underscore stays inside a
@@ -97,19 +101,13 @@ export function queryConcepts(query: string): string[] {
 
 /** The row's concepts, as a set for whole-word membership tests. */
 export function rowConcepts(m: Memory): Set<string> {
-  const out = new Set<string>();
-  for (const w of recallHaystack(m).split(WORD)) {
-    if (w.length > 2) out.add(w);
-    // Identifier SEGMENTS are concepts too (#426 review): the #417 scorer
-    // tokenizer splits `discount_tiers`, so a prose query must be admitted
-    // against it — default-on admission that refuses the match the scorer
-    // ranks is a regression, not a filter. The whole word is kept, so an
-    // identifier query still hits; splitting is word-level, so `build2837`
-    // (no separator) still shares nothing with `283`.
-    if (w.includes("_"))
-      for (const seg of w.split("_")) if (seg.length > 2) out.add(seg);
-  }
-  return out;
+  // The #417 scorer tokenizer over the ORIGINAL-case haystack: whole
+  // identifiers plus camel/separator segments, so a prose query is admitted
+  // against an identifier written in any style (#426 review). Lower-casing
+  // before tokenizing was what lost the camel boundary; recallHaystack stays
+  // the lower-cased scoring string. Whole forms are kept, so `build2837`
+  // still shares nothing with `283` and an identifier query still hits.
+  return new Set(words(recallHaystackRaw(m)));
 }
 
 /** How many of `concepts` the row contains as whole words (or identifier segments). */

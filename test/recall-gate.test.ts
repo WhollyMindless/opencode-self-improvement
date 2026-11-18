@@ -143,6 +143,17 @@ describe("sharedConcepts", () => {
     // so 283 is still not a concept of it.
     expect(rowConcepts(SUBSTRING_TRAP).has("283")).toBe(false);
   });
+  test("rowConcepts segments camelCase too (#426 review round 2)", () => {
+    // The scorer tokenizer (#417) handles camel boundaries; admission must
+    // not be narrower. Lowercasing before tokenizing lost the boundary.
+    const concepts = rowConcepts(
+      mem("discountTiers controls the pricing schedule"),
+    );
+    expect(concepts.has("discounttiers")).toBe(true); // whole, protections kept
+    expect(concepts.has("discount")).toBe(true);
+    expect(concepts.has("tiers")).toBe(true);
+    expect(rowConcepts(mem("build2837 runaway")).has("283")).toBe(false);
+  });
 });
 
 describe("admitsRow", () => {
@@ -270,6 +281,21 @@ describe("memory_recall with the gate", () => {
       limit: 5,
     });
     expect(out).toContain("DISCOUNT_TIERS");
+    await loaded.cleanup();
+  });
+
+  test("by default, a prose query finds a camelCase identifier (round 2)", async () => {
+    // Round-2 probe: `discount` found `discountTiers controls the pricing
+    // schedule` with the gate off and abstained with it on — the segment
+    // expansion handled underscores only, and recallHaystack lower-cases
+    // before tokenizing, erasing the camel boundary.
+    seed(mem("discountTiers controls the pricing schedule"));
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "discount",
+      limit: 5,
+    });
+    expect(out).toContain("discountTiers");
     await loaded.cleanup();
   });
 });
