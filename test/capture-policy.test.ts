@@ -77,7 +77,7 @@ describe("captureSignalSince", () => {
     expect(captureSignalSince(s, 2).why).toBe("gateRecovered");
   });
 
-  test("a gate that only failed is not a recovery", () => {
+  test("an unrecovered gate failure is a signal without edits or successes", () => {
     const s = state([
       call({
         tool: "bash",
@@ -87,7 +87,47 @@ describe("captureSignalSince", () => {
         status: "FAIL",
       }),
     ]);
-    expect(captureSignalSince(s, 2).ok).toBe(false);
+    expect(captureSignalSince(s, 2)).toEqual({
+      ok: true,
+      why: "gateUnrecovered",
+    });
+    // Once this turn was captured, its still-red gate must not keep paying
+    // for a capture on later read-only turns.
+    expect(captureSignalSince(s, 3)).toEqual({ ok: false, why: "no-signal" });
+  });
+
+  test("a previous pass does not hide a new failure after the cursor", () => {
+    const s = state([
+      call({
+        tool: "bash",
+        turn: 1,
+        gateCheck: true,
+        cmd: "test",
+        status: "PASS",
+      }),
+      call({
+        tool: "bash",
+        turn: 3,
+        gateCheck: true,
+        cmd: "test",
+        status: "FAIL",
+      }),
+    ]);
+    expect(captureSignalSince(s, 2)).toEqual({
+      ok: true,
+      why: "gateUnrecovered",
+    });
+  });
+
+  test("a failed non-gate command or an unattested gate is not a signal", () => {
+    for (const failed of [
+      call({ tool: "bash", turn: 3, cmd: "grep", status: "FAIL" }),
+      call({ tool: "bash", turn: 3, gateCheck: true, status: "FAIL" }),
+    ])
+      expect(captureSignalSince(state([failed]), 2)).toEqual({
+        ok: false,
+        why: "no-signal",
+      });
   });
 
   test("a gate that passed and then passed again is not a recovery", () => {
