@@ -151,30 +151,81 @@ for (const ev of events) {
 // the window for its grounding query; (b) must keep every ledger window the
 // old row was in. A proposal that adds no new keyword cannot change any
 // window — it is dropped here, honestly, as no-op.
+//
+// BATCH semantics (#424 review): repairs are applied together, so replay is
+// CUMULATIVE — each proposal is evaluated against the store with all
+// previously accepted rewrites already in place (strongest grounding first),
+// and the accepted set is then re-verified as a whole against the final
+// store, dropping proposals a competing repair invalidated, until stable.
+// Per-proposal replay against the ORIGINAL store was the first version's
+// mistake: two repairs could each pass alone and then evict each other.
+const rankedProposals = [...proposals.values()].sort(
+  (a, b) => b.shared - a.shared,
+);
+let working = rows;
 const eligible: Proposal[] = [];
 let vetoed = 0;
 let noOp = 0;
-for (const p of proposals.values()) {
+for (const p of rankedProposals) {
   if (p.mergedKw.length === (p.row.kw?.length ?? 0)) {
     noOp++;
     continue;
   }
   const rewritten: Memory = { ...p.row, kw: p.mergedKw };
   const swap = (m: Memory) => (m.ts === p.row.ts ? rewritten : m);
-  const enters = scoreMemories(p.query.join(" "), rows.map(swap), WINDOW).some(
-    (m) => m.ts === p.row.ts,
-  );
+  const enters = scoreMemories(
+    p.query.join(" "),
+    working.map(swap),
+    WINDOW,
+  ).some((m) => m.ts === p.row.ts);
   let keeps = true;
   for (const ev of events) {
     if (!ev.mem.includes(p.row.ts)) continue;
-    const win = scoreMemories(ev.terms.join(" "), rows.map(swap), WINDOW);
+    const win = scoreMemories(ev.terms.join(" "), working.map(swap), WINDOW);
     if (!win.some((m) => m.ts === p.row.ts)) {
       keeps = false;
       break;
     }
   }
-  if (enters && keeps) eligible.push(p);
-  else vetoed++;
+  if (enters && keeps) {
+    eligible.push(p);
+    working = working.map(swap);
+  } else vetoed++;
+}
+
+// Final batch verification: score the FULLY rewritten store; a survivor that
+// no longer enters its grounding window (or lost an old window to a sibling
+// repair) is removed, and the store is re-scored without it. Conflicts are
+// rare, so this normally stabilizes in one pass; the loop is bounded.
+let batchDropped = 0;
+for (let pass = 0; pass < 4; pass++) {
+  const finalStore = rows.map((m) => {
+    const p = eligible.find((q) => q.row.ts === m.ts);
+    return p ? { ...p.row, kw: p.mergedKw } : m;
+  });
+  const lost = eligible.filter((p) => {
+    if (
+      !scoreMemories(p.query.join(" "), finalStore, WINDOW).some(
+        (m) => m.ts === p.row.ts,
+      )
+    )
+      return true;
+    for (const ev of events) {
+      if (!ev.mem.includes(p.row.ts)) continue;
+      if (
+        !scoreMemories(ev.terms.join(" "), finalStore, WINDOW).some(
+          (m) => m.ts === p.row.ts,
+        )
+      )
+        return true;
+    }
+    return false;
+  });
+  if (!lost.length) break;
+  batchDropped += lost.length;
+  const lostTs = new Set(lost.map((p) => p.row.ts));
+  for (let i = eligible.length - 1; i >= 0; i--)
+    if (lostTs.has(eligible[i]!.row.ts)) eligible.splice(i, 1);
 }
 
 console.log(`store: ${root}  mode: ${APPLY ? "APPLY" : "dry-run"}`);
@@ -187,10 +238,10 @@ console.log(
   `grounded proposals (>=2 shared rare tokens, row not used): ${proposals.size}`,
 );
 console.log(`no new keyword vocabulary (no-op, dropped): ${noOp}`);
-console.log(
-  `replay-eligible (enters grounding window, loses no old window): ${eligible.length}`,
-);
+console.log(`replay-eligible (cumulative, batch-verified): ${eligible.length}`);
 console.log(`vetoed by replay: ${vetoed}`);
+if (batchDropped)
+  console.log(`dropped by final batch verification: ${batchDropped}`);
 
 if (!APPLY) {
   const examples = eligible
@@ -227,6 +278,18 @@ if (!APPLY) {
           (target.kw ?? []).join("\u0000") !== (p.row.kw ?? []).join("\u0000")
         )
           return "drift (kw changed since replay)";
+        // Revalidate against the CURRENT store under the lock: earlier
+        // applied repairs are already on disk, so this prices the real
+        // remaining batch, not the snapshot the replay saw (#424 review).
+        const probe = scoreMemories(
+          p.query.join(" "),
+          fresh.map((m) =>
+            m.ts === target.ts ? { ...target, kw: p.mergedKw } : m,
+          ),
+          WINDOW,
+        );
+        if (!probe.some((m) => m.ts === target.ts))
+          return "stale (no longer enters the grounding window under the current store)";
         const out = await runWriteGate(
           {
             type: target.type,
