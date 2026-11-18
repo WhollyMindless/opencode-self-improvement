@@ -8,8 +8,7 @@
 // put in context was statistically worthless.
 //
 // The honest per-query cost, measured through the shipped handler over the 404
-// case-bank queries with adjudicated full-text labels (poc-409/casebank,
-// limit-windows): the window holds an answer for 231 of 404 queries at limit
+// case-bank queries with adjudicated full-text labels: the window holds an answer for 231 of 404 queries at limit
 // 20 and 216 at limit 5 — 15 queries reach their answer only at ranks 6-20
 // (McNemar p<0.001; held-out 131 -> 125, p=0.031). What limit 5 buys: 69%
 // fewer rows and 74% fewer non-answering rows per call. This is a disclosed
