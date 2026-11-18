@@ -109,8 +109,7 @@ function readStampFile(key: string): InitStamp | null {
  * the evidence line to whatever day it is when the line lands. An init that
  * starts at 23:59:59.999 and finishes after midnight splits the pair across two
  * day files, so the row's own day is not enough — the following day has to be
- * read too, or that migration is silently lost every night around midnight
- *.
+ * read too, or that migration is silently lost every night around midnight.
  */
 function auditDays(ts: string): string[] {
   const day = /^(\d{4}-\d{2}-\d{2})T/.exec(ts)?.[1];

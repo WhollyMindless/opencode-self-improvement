@@ -457,8 +457,7 @@ export function configureAutoCapture(
         // The turn this pass DESCRIBES. Completion must advance to this number,
         // not to whatever the session has reached by then: a turn delivered
         // while the model call is in flight was never in the prompt, and
-        // consuming it leaves that work unmined with nothing left to ask for it
-        //.
+        // consuming it leaves that work unmined with nothing left to ask for it.
         const turnAtStart = session(sid).turns;
         let transcript = seeded;
         let msgs = seededMsgs;

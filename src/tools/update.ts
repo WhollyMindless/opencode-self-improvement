@@ -55,8 +55,7 @@ export const register: ToolRegister = (editor, deps) => {
         // then re-resolves under the lock, finds its target already retired,
         // and writes nothing — the documented fail-closed contract.
         // Flips once a replacement row is durable, so the catch below can
-        // never claim "Nothing was written" about a write that happened
-        //.
+        // never claim "Nothing was written" about a write that happened.
         let mutated = false;
         // The gate's durable steps: rows GATE-2 retired before a later
         // failure (round-3 probe 3). Non-empty means "Nothing was written"
@@ -180,8 +179,8 @@ export const register: ToolRegister = (editor, deps) => {
               // global row from one repository must not re-house it out
               // of every other repository's view — "an edit must never
               // widen visibility", and it must never narrow it either).
-              // These are also the fields the collapse-completion judges
-              // the fold asks whether the survivor
+              // These are also the fields the collapse-completion judges: the
+              // fold asks whether the survivor
               // already carries the REQUESTED state — not the pre-edit
               // target's. An update naming kw:["new-alias"] is not
               // "already standing" on a row holding ["old-alias"].

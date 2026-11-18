@@ -2,8 +2,7 @@
 // tasks inside one process; a dead holder is released by the kernel rather than
 // by age; waiting past the timeout fails closed by default and proceeds only by
 // explicit opt-in; and the lock itself is never created or deleted per
-// acquisition, which is the property the lock file could not keep on Windows
-//.
+// acquisition, which is the property the lock file could not keep on Windows.
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   existsSync,

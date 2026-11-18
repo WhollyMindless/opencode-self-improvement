@@ -16,10 +16,13 @@
 
 const REPO = `${import.meta.dir}/..`;
 
-function git(args: string[]): string {
+// `ok` is kept separate from the output on purpose. Collapsing a nonzero exit
+// to an empty string turns a FAILED comparison into an empty diff, and an empty
+// diff reports clean — a policy check that silently checks nothing and still
+// goes green. Callers that can fall back say so; the diff cannot.
+function git(args: string[]): { ok: boolean; out: string } {
   const p = Bun.spawnSync(["git", ...args], { cwd: REPO, stdout: "pipe" });
-  if (p.exitCode !== 0) return "";
-  return p.stdout.toString();
+  return { ok: p.exitCode === 0, out: p.stdout.toString() };
 }
 
 function isCommit(ref: string): boolean {
@@ -46,7 +49,8 @@ function baseRef(): { base: string; how: string } | null {
     process.exit(2);
   }
   for (const candidate of ["origin/main", "main"]) {
-    const out = git(["merge-base", candidate, "HEAD"]).trim();
+    const probe = git(["merge-base", candidate, "HEAD"]);
+    const out = probe.ok ? probe.out.trim() : "";
     if (out) return { base: out, how: `merge-base with ${candidate}` };
   }
   return null;
@@ -76,7 +80,7 @@ if (!resolved) {
 }
 const { base, how } = resolved;
 
-const diff = git([
+const compared = git([
   "diff",
   "--unified=0",
   `${base}...HEAD`,
@@ -84,6 +88,16 @@ const diff = git([
   "*.ts",
   "*.tsx",
 ]);
+if (!compared.ok) {
+  console.error(
+    `comment-lint: \`git diff ${base}...HEAD\` FAILED. Refusing to report clean:\n` +
+      `a failed comparison is not an empty one. The base is a commit but it cannot\n` +
+      `be compared with HEAD — usually no common ancestor, or history this clone\n` +
+      `does not have (fetch deeper, or pass the base the branch really started at).`,
+  );
+  process.exit(2);
+}
+const diff = compared.out;
 const violations: string[] = [];
 let file = "";
 let scanned = 0;
