@@ -101,13 +101,17 @@ export function queryConcepts(query: string): string[] {
 
 /** The row's concepts, as a set for whole-word membership tests. */
 export function rowConcepts(m: Memory): Set<string> {
-  // The #417 scorer tokenizer over the ORIGINAL-case haystack: whole
-  // identifiers plus camel/separator segments, so a prose query is admitted
-  // against an identifier written in any style (#426 review). Lower-casing
-  // before tokenizing was what lost the camel boundary; recallHaystack stays
-  // the lower-cased scoring string. Whole forms are kept, so `build2837`
-  // still shares nothing with `283` and an identifier query still hits.
-  return new Set(words(recallHaystackRaw(m)));
+  // Union of two vocabularies (#426 review). The #417 scorer tokenizer over
+  // the ORIGINAL-case haystack carries whole identifiers plus camel/separator
+  // segments, so a prose query is admitted against an identifier written in
+  // any style. But words() segments at EVERY separator: `table.db_id` yields
+  // table/db/id, never `db_id` whole, and an exact `db_id` query is one
+  // concept — so the WORD split (underscore inside, everything else a
+  // separator) is unioned back in. Both sides keep their length floor, so
+  // `build2837` still shares nothing with `283` and admission stays word-level.
+  const out = new Set(words(recallHaystackRaw(m)));
+  for (const w of recallHaystack(m).split(WORD)) if (w.length > 2) out.add(w);
+  return out;
 }
 
 /** How many of `concepts` the row contains as whole words (or identifier segments). */

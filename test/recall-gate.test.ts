@@ -154,6 +154,16 @@ describe("sharedConcepts", () => {
     expect(concepts.has("tiers")).toBe(true);
     expect(rowConcepts(mem("build2837 runaway")).has("283")).toBe(false);
   });
+  test("rowConcepts keeps the exact suffix of a dotted name (round 3)", () => {
+    // words() segments at every separator, so `table.db_id` emits
+    // table.db_id, table, db, id — never `db_id` whole, and a `db_id` query
+    // is one concept. The pre-round-2 WORD split (underscore inside) is the
+    // only tokenizer that retains it.
+    const concepts = rowConcepts(mem("table.db_id stores the foreign key"));
+    expect(concepts.has("table.db_id")).toBe(true);
+    expect(concepts.has("db_id")).toBe(true);
+    expect(rowConcepts(mem("build2837 runaway")).has("283")).toBe(false);
+  });
 });
 
 describe("admitsRow", () => {
@@ -296,6 +306,21 @@ describe("memory_recall with the gate", () => {
       limit: 5,
     });
     expect(out).toContain("discountTiers");
+    await loaded.cleanup();
+  });
+
+  test("by default, an exact identifier finds the row that names it in a dotted name (round 3)", async () => {
+    // Round-3 probe: `db_id` found `table.db_id stores the foreign key`
+    // with the gate off and abstained with it on — words() splits
+    // `table.db_id` into table/db/id, so the underscore-joined suffix
+    // never reaches admission whole.
+    seed(mem("table.db_id stores the foreign key", { scope: "schema" }));
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "db_id",
+      limit: 5,
+    });
+    expect(out).toContain("db_id");
     await loaded.cleanup();
   });
 });
