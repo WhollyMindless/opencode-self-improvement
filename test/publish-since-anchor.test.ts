@@ -49,6 +49,14 @@ describe.skipIf(skip)(
         "ts=2026-01-01T00:00:00.000Z a=2\n",
         since,
       );
+      // Attach the outcome handler NOW. The correct behaviour is to reject
+      // during the waits below, and an awaited-later rejection is an unhandled
+      // one: Bun tears the fixture down mid-test and the leak lands on the
+      // next test's shared state.
+      const settled = ours.then(
+        () => ({ ok: true as const }),
+        () => ({ ok: false as const }),
+      );
 
       // The first rename fails on the handle; append out of band inside the
       // window so the identity check on the next pass sees a moved file.
@@ -59,7 +67,7 @@ describe.skipIf(skip)(
       await new Promise((r) => setTimeout(r, 100));
       closeSync(holds.pop()!);
 
-      await expect(ours).rejects.toThrow();
+      expect((await settled).ok).toBe(false);
       const text = readFileSync(file, "utf8");
       expect(text).toInclude("foreign=1"); // the retry must NOT bury the append
       expect(text).not.toInclude("a=2"); // and our stale copy must not land
@@ -76,9 +84,13 @@ describe.skipIf(skip)(
         "ts=2026-01-02T00:00:00.000Z a=2\n",
         since,
       );
+      const settled = ours.then(
+        () => ({ ok: true as const }),
+        () => ({ ok: false as const }),
+      );
       await new Promise((r) => setTimeout(r, 150));
       closeSync(holds.pop()!); // the blocker was a bare reader: retry lands
-      await ours;
+      expect((await settled).ok).toBe(true);
       expect(readFileSync(file, "utf8")).toInclude("a=2");
     });
   },

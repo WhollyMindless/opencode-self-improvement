@@ -260,6 +260,12 @@ export const MUTANTS: Mutant[] = [
     // racing the release timer against the 2s deadline (1.33x margin); the
     // third handover test verdicts it in ~450ms, 4x inside - that is the
     // kill this catalog entry leans on.
+    //
+    // SCORING NOTE: the retry only runs when IS_WINDOWS, so a POSIX sweep
+    // cannot score this mutant at all - it survives for want of a reachable
+    // path, not for want of a test. test/publish-since-anchor.test.ts pins it
+    // directly (touched mid-window aborts, bare reader lands) and runs on
+    // windows-latest CI.
     find: `      if ((await fileIdentity(file)) !== since) throw err; // destination moved; our copy is stale`,
     replace: `      if (false) throw err; // MUTANT: since-gate off, retry blind`,
     invariant:
@@ -495,6 +501,12 @@ export const MUTANTS: Mutant[] = [
     replace: `if (false && !/` + SNAPSHOT_GRAMMAR + `/.test(name)) {`,
     invariant: "restore names are pinned to the snapshot grammar at the wire",
     class: "D3", // gate-bypass: files planted inside snapshots/ - #70 finding 2
+    // Killed by the no-echo assertion: with the wire check off, the request
+    // reaches the store, whose rejection repeats the submitted name (for `..`
+    // a directory name, so a path lands in the HTTP body). A status/message
+    // substring does NOT distinguish the two layers - the store refuses the
+    // same inputs with the same 400 and a message that CONTAINS the wire
+    // string. Pin the exact body, or this mutant survives.
   },
   {
     id: "viewer-host-guard-off",
@@ -599,6 +611,17 @@ export const MUTANTS: Mutant[] = [
     replace: `  if (false && !isWithin(rootReal, realTarget)) {`,
     invariant: "a restore cannot write outside the memory root",
     class: "D3",
+    // Unreachable by construction, so no test can distinguish it: the target
+    // name is the `<YYYY-MM-DD>.logfmt` capture from SNAPSHOT_NAME, which
+    // cannot carry a separator, so resolve(rootReal, original) is always a
+    // direct child of rootReal and the containment check is always true. It
+    // is a backstop behind the grammar, and the grammar is pinned
+    // (test/snapshot-restore-grammar.test.ts, which also pins that an accepted
+    // snapshot restores exactly one file inside the root). Widen SNAPSHOT_NAME
+    // and this entry flips to a live kill - the sweep warns when an
+    // equivalent-marked mutant dies.
+    equivalent:
+      "the snapshot-name grammar above it admits only `<YYYY-MM-DD>.logfmt`, so the guarded condition cannot be reached; defense-in-depth behind a pinned grammar",
   },
   {
     id: "row-ts-any",
