@@ -97,14 +97,22 @@ export function queryConcepts(query: string): string[] {
 
 /** The row's concepts, as a set for whole-word membership tests. */
 export function rowConcepts(m: Memory): Set<string> {
-  return new Set(
-    recallHaystack(m)
-      .split(WORD)
-      .filter((w) => w.length > 2),
-  );
+  const out = new Set<string>();
+  for (const w of recallHaystack(m).split(WORD)) {
+    if (w.length > 2) out.add(w);
+    // Identifier SEGMENTS are concepts too (#426 review): the #417 scorer
+    // tokenizer splits `discount_tiers`, so a prose query must be admitted
+    // against it — default-on admission that refuses the match the scorer
+    // ranks is a regression, not a filter. The whole word is kept, so an
+    // identifier query still hits; splitting is word-level, so `build2837`
+    // (no separator) still shares nothing with `283`.
+    if (w.includes("_"))
+      for (const seg of w.split("_")) if (seg.length > 2) out.add(seg);
+  }
+  return out;
 }
 
-/** How many of `concepts` the row contains as whole words. */
+/** How many of `concepts` the row contains as whole words (or identifier segments). */
 export function sharedConcepts(
   m: Memory,
   concepts: readonly string[],

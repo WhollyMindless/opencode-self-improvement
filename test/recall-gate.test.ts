@@ -129,6 +129,20 @@ describe("sharedConcepts", () => {
       rowConcepts(mem("the db_id column is the join key")).has("db_id"),
     ).toBe(true);
   });
+  test("rowConcepts also emits identifier SEGMENTS (#426 review)", () => {
+    // Default-on must not regress the identifier-to-prose lookup the #417
+    // tokenizer restored: `discount tiers` has to find the row that names
+    // DISCOUNT_TIERS.
+    const concepts = rowConcepts(
+      mem("DISCOUNT_TIERS controls the pricing schedule"),
+    );
+    expect(concepts.has("discount_tiers")).toBe(true);
+    expect(concepts.has("discount")).toBe(true);
+    expect(concepts.has("tiers")).toBe(true);
+    // Segmenting is word-level, not substring: build2837 has no underscore,
+    // so 283 is still not a concept of it.
+    expect(rowConcepts(SUBSTRING_TRAP).has("283")).toBe(false);
+  });
 });
 
 describe("admitsRow", () => {
@@ -242,6 +256,20 @@ describe("memory_recall with the gate", () => {
       limit: 5,
     });
     expect(out).toContain("head of the release branch");
+    await loaded.cleanup();
+  });
+
+  test("by default, a prose query finds the row that names an identifier (#426 review)", async () => {
+    // WhollyMindless probe: `discount tiers` returned the row with the gate
+    // off and `No matching memories` with it on — admission kept
+    // DISCOUNT_TIERS one word while the query offered two concepts.
+    seed(mem("DISCOUNT_TIERS controls the pricing schedule"));
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "discount tiers",
+      limit: 5,
+    });
+    expect(out).toContain("DISCOUNT_TIERS");
     await loaded.cleanup();
   });
 });
