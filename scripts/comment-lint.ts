@@ -7,9 +7,10 @@
 // changelog competing with git.
 //
 // The lint checks ADDED comment lines in `git diff <base>...HEAD` for
-// TypeScript/TSX sources, where base is the merge-base with origin/main (or
-// main). A violation fails the merge gate with the offending line. Lines
-// linking docs/adr/ are exempt.
+// TypeScript/TSX sources. The base comes from `--base=<ref>` or
+// COMMENT_LINT_BASE (CI passes the PR's base sha), else the merge-base with
+// origin/main or main. A violation fails the merge gate with the offending
+// line. Lines linking docs/adr/ are exempt.
 //
 // Escape hatch: SKIP_COMMENT_LINT=1 (record the reason in the PR body).
 
@@ -21,10 +22,31 @@ function git(args: string[]): string {
   return p.stdout.toString();
 }
 
-function baseRef(): string | null {
+function isCommit(ref: string): boolean {
+  const p = Bun.spawnSync(["git", "cat-file", "-e", `${ref}^{commit}`], {
+    cwd: REPO,
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  return p.exitCode === 0;
+}
+
+// A pull-request checkout is shallow and carries no `origin/main`, so an
+// automatic merge-base silently fails there and the lint would skip its own
+// enforcement. CI passes the base sha explicitly; the source is logged either
+// way, because a check that quietly does nothing still reports green.
+function baseRef(): { base: string; how: string } | null {
+  const cli = process.argv.find((a) => a.startsWith("--base="));
+  const explicit = cli?.slice("--base=".length) || process.env.COMMENT_LINT_BASE;
+  if (explicit) {
+    if (isCommit(explicit))
+      return { base: explicit, how: cli ? "--base" : "COMMENT_LINT_BASE" };
+    console.error(`comment-lint: --base=${explicit} is not a commit`);
+    process.exit(2);
+  }
   for (const candidate of ["origin/main", "main"]) {
     const out = git(["merge-base", candidate, "HEAD"]).trim();
-    if (out) return out;
+    if (out) return { base: out, how: `merge-base with ${candidate}` };
   }
   return null;
 }
@@ -42,11 +64,16 @@ if (process.env.SKIP_COMMENT_LINT === "1") {
   process.exit(0);
 }
 
-const base = baseRef();
-if (!base) {
-  console.log("comment-lint: no merge-base with main; skipping");
-  process.exit(0);
+const resolved = baseRef();
+if (!resolved) {
+  console.error(
+    "comment-lint: no base to compare against (no --base, no COMMENT_LINT_BASE,\n" +
+      "no merge-base with origin/main or main). Refusing to report green without\n" +
+      "checking anything: fetch the base, or pass --base=<ref>.",
+  );
+  process.exit(2);
 }
+const { base, how } = resolved;
 
 const diff = git([
   "diff",
@@ -58,6 +85,7 @@ const diff = git([
 ]);
 const violations: string[] = [];
 let file = "";
+let scanned = 0;
 for (const line of diff.split("\n")) {
   if (line.startsWith("+++ b/")) {
     file = line.slice(6);
@@ -68,6 +96,7 @@ for (const line of diff.split("\n")) {
   const t = added.trimStart();
   if (!t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*"))
     continue;
+  scanned++;
   if (added.includes("docs/adr")) continue;
   const why = TICKET.test(added)
     ? "issue reference"
@@ -80,10 +109,13 @@ for (const line of diff.split("\n")) {
 if (violations.length) {
   console.error(
     `comment-lint: ${violations.length} added comment line(s) break the policy\n` +
-      `(no issue numbers, no review history in code comments — state the\n` +
-      `contract forward-looking, and put history in docs/adr/):\n`,
+      `(checked against ${how}; no issue numbers, no review history in code\n` +
+      `comments — state the contract forward-looking, put history in docs/adr/):\n`,
   );
   for (const v of violations) console.error("  " + v);
   process.exit(1);
 }
-console.log("comment-lint: clean");
+console.log(
+  `comment-lint: clean (${scanned} added comment line(s) checked against ` +
+    `${how})`,
+);
