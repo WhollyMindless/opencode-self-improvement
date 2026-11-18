@@ -12,9 +12,11 @@
 // the threshold, keeping the NEWEST copy of a clash (§17's adoption rule: the
 // live duplicates are stale cursors and superseded snapshots, so the row that
 // survives is the one written last, not the one that ranked highest). No model,
-// no new index, and nothing changes unless the flag is set:
+// no new index, and ON by default — a window padded with near-copies of the top
+// hit is paid-for context nobody reads, and a quality fix behind an opt-in flag
+// is not a fix. Explicit opt-out:
 //
-//   OPENCODE_MEMORY_DEDUP=0.8   (unset or 0 = shipped behavior, byte-identical)
+//   OPENCODE_MEMORY_DEDUP=0   (the plain top-limit slice, byte-identical)
 //
 // Threshold guidance from the live replay (§17): 0.5-0.7 suppresses rows that
 // are merely related (92% of them at 0.5) and forces the window deep into the
@@ -57,6 +59,13 @@ export const MIN_THRESHOLD = 0.5;
 export const MIN_CONTENT = 4;
 
 /**
+ * The default when the flag is unset: 0.8 is the live-replay point that
+ * suppresses only near-identical copies (§17) — it touched 17% of calls,
+ * never changed top-1, and never dropped a term's last carrier.
+ */
+export const DEFAULT_THRESHOLD = 0.8;
+
+/**
  * Tokens that reverse a row's meaning. If exactly one row of a candidate pair
  * carries any of them, the rows disagree, and disagreement is not duplication.
  * Only words that survive `words()` (lower-case, length > 2) are listed;
@@ -75,12 +84,17 @@ export const POLARITY_WORDS = new Set([
   "banned",
 ]);
 
-/** Threshold from the environment. Unset, empty, unparsable, < MIN_THRESHOLD or > 1 means off. */
+/**
+ * Threshold from the environment. Unset or empty means DEFAULT_THRESHOLD (on).
+ * `0` means off — the documented escape hatch. An explicit value that is
+ * unparsable, < MIN_THRESHOLD or > 1 is a misconfiguration and turns the pass
+ * off rather than silently running something the user did not ask for.
+ */
 export function dedupeThreshold(
   env: Record<string, string | undefined> = process.env,
 ): number {
   const raw = env[DEDUPE_ENV];
-  if (!raw) return 0;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_THRESHOLD;
   const n = Number(raw);
   return Number.isFinite(n) && n >= MIN_THRESHOLD && n <= 1 ? n : 0;
 }
@@ -155,11 +169,31 @@ export function dedupeWindow(
   threshold: number,
 ): Memory[] {
   if (threshold <= 0 || ranked.length <= 1) return ranked.slice(0, limit);
-  const tokenSets = ranked.map(contentTokens);
-  const polarity = tokenSets.map(hasPolarity);
+  // Token sets are built lazily and cached per index: the loop stops once
+  // `limit` rows are kept, so eager tokenization of every candidate costs
+  // 1.7ms/12.5ms/96.4ms at 200/2k/10k candidates on every query recall
+  // (review #426). Lazy cost is window-sized.
+  const tokenCache = new Map<number, Set<string>>();
+  const tokensOf = (i: number): Set<string> => {
+    let t = tokenCache.get(i);
+    if (t === undefined) {
+      t = contentTokens(ranked[i]!);
+      tokenCache.set(i, t);
+    }
+    return t;
+  };
+  const polarityCache = new Map<number, boolean>();
+  const polarityOf = (i: number): boolean => {
+    let p = polarityCache.get(i);
+    if (p === undefined) {
+      p = hasPolarity(tokensOf(i));
+      polarityCache.set(i, p);
+    }
+    return p;
+  };
   const kept: number[] = [];
   for (let i = 0; i < ranked.length && kept.length < limit; i++) {
-    if (tokenSets[i]!.size < MIN_CONTENT) {
+    if (tokensOf(i).size < MIN_CONTENT) {
       kept.push(i);
       continue;
     }
@@ -168,10 +202,10 @@ export function dedupeWindow(
       const k = kept[pos]!;
       if (
         ranked[k]!.scope === ranked[i]!.scope &&
-        tokenSets[k]!.size >= MIN_CONTENT &&
-        polarity[k] === polarity[i] &&
+        tokensOf(k).size >= MIN_CONTENT &&
+        polarityOf(k) === polarityOf(i) &&
         sameDroppedChunks(ranked[k]!, ranked[i]!) &&
-        jaccard(tokenSets[i]!, tokenSets[k]!) >= threshold
+        jaccard(tokensOf(i), tokensOf(k)) >= threshold
       ) {
         clash = pos;
         break;

@@ -142,7 +142,7 @@ for (const c of cases) {
   const scope = dir ? (scopeCache.get(dir) ?? resolveRepo(dir)) : null;
   if (dir) scopeCache.set(dir, scope!);
   setRepoScope(scope);
-  delete process.env.OPENCODE_MEMORY_DEDUP;
+  process.env.OPENCODE_MEMORY_DEDUP = "0"; // explicit off: unset now means 0.8 (#426)
   const off = returnedRows(
     String(
       await loaded.tool.memory_recall!.execute({
@@ -160,7 +160,7 @@ for (const c of cases) {
       }),
     ),
   );
-  delete process.env.OPENCODE_MEMORY_DEDUP;
+  process.env.OPENCODE_MEMORY_DEDUP = "0"; // explicit off: unset now means 0.8 (#426)
   if (!off || !on) {
     unparsed++;
     continue;

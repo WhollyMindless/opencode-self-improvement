@@ -3,8 +3,9 @@
 // mention one of them. The gate applies the injection path's two-concept rule to
 // the tool, counting whole words — the first version counted substrings and was
 // satisfiable by accidents (`on` inside `context`, `283` inside `build2837`).
-// The property that matters for a release is the first unit test and the first
-// e2e test: with the flag unset the tool's output is unchanged.
+// The property that matters for a release is the first unit test and the
+// first e2e test: with OPENCODE_MEMORY_QUERY_GATE=off the tool's output is
+// unchanged; unset now means the gate is ON (#426).
 //
 // Evidence: poc-409/casebank — 404 real recall queries from 30 days of session
 // transcripts, relevance labelled by two independent readers against a pinned
@@ -61,26 +62,28 @@ const SUBSTRING_TRAP = mem("checkout detached head at build2837", {
 });
 
 describe("gateEnabled", () => {
-  test("unset, empty and the documented off values mean off", () => {
-    expect(gateEnabled({})).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "" })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "  " })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "0" })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "FALSE" })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "off" })).toBe(false);
+  test("unset and empty mean on (default ON, #409 flags)", () => {
+    expect(gateEnabled({})).toBe(true);
+    expect(gateEnabled({ [GATE_ENV]: "" })).toBe(true);
+    expect(gateEnabled({ [GATE_ENV]: "  " })).toBe(true);
   });
-  test("only an explicit affirmative means on", () => {
+  test("explicit off words and any zero mean off", () => {
+    expect(gateEnabled({ [GATE_ENV]: "off" })).toBe(false);
+    expect(gateEnabled({ [GATE_ENV]: "no" })).toBe(false);
+    expect(gateEnabled({ [GATE_ENV]: "n" })).toBe(false);
+    expect(gateEnabled({ [GATE_ENV]: "FALSE" })).toBe(false);
+    expect(gateEnabled({ [GATE_ENV]: "0" })).toBe(false);
+    // A shell user writes these meaning off; they must mean off.
+    expect(gateEnabled({ [GATE_ENV]: "00" })).toBe(false);
+    expect(gateEnabled({ [GATE_ENV]: "0.0" })).toBe(false);
+  });
+  test("affirmatives and anything else mean on", () => {
     expect(gateEnabled({ [GATE_ENV]: "1" })).toBe(true);
     expect(gateEnabled({ [GATE_ENV]: "true" })).toBe(true);
     expect(gateEnabled({ [GATE_ENV]: "YES" })).toBe(true);
     expect(gateEnabled({ [GATE_ENV]: "On" })).toBe(true);
-  });
-  test("values a user writes meaning off stay off", () => {
-    // The first version deny-listed, so these all enabled the gate.
-    expect(gateEnabled({ [GATE_ENV]: "no" })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "n" })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "00" })).toBe(false);
-    expect(gateEnabled({ [GATE_ENV]: "0.0" })).toBe(false);
+    // A typo must not silently disable a default-ON quality path.
+    expect(gateEnabled({ [GATE_ENV]: "tureh" })).toBe(true);
   });
 });
 
@@ -126,6 +129,41 @@ describe("sharedConcepts", () => {
       rowConcepts(mem("the db_id column is the join key")).has("db_id"),
     ).toBe(true);
   });
+  test("rowConcepts also emits identifier SEGMENTS (#426 review)", () => {
+    // Default-on must not regress the identifier-to-prose lookup the #417
+    // tokenizer restored: `discount tiers` has to find the row that names
+    // DISCOUNT_TIERS.
+    const concepts = rowConcepts(
+      mem("DISCOUNT_TIERS controls the pricing schedule"),
+    );
+    expect(concepts.has("discount_tiers")).toBe(true);
+    expect(concepts.has("discount")).toBe(true);
+    expect(concepts.has("tiers")).toBe(true);
+    // Segmenting is word-level, not substring: build2837 has no underscore,
+    // so 283 is still not a concept of it.
+    expect(rowConcepts(SUBSTRING_TRAP).has("283")).toBe(false);
+  });
+  test("rowConcepts segments camelCase too (#426 review round 2)", () => {
+    // The scorer tokenizer (#417) handles camel boundaries; admission must
+    // not be narrower. Lowercasing before tokenizing lost the boundary.
+    const concepts = rowConcepts(
+      mem("discountTiers controls the pricing schedule"),
+    );
+    expect(concepts.has("discounttiers")).toBe(true); // whole, protections kept
+    expect(concepts.has("discount")).toBe(true);
+    expect(concepts.has("tiers")).toBe(true);
+    expect(rowConcepts(mem("build2837 runaway")).has("283")).toBe(false);
+  });
+  test("rowConcepts keeps the exact suffix of a dotted name (round 3)", () => {
+    // words() segments at every separator, so `table.db_id` emits
+    // table.db_id, table, db, id — never `db_id` whole, and a `db_id` query
+    // is one concept. The pre-round-2 WORD split (underscore inside) is the
+    // only tokenizer that retains it.
+    const concepts = rowConcepts(mem("table.db_id stores the foreign key"));
+    expect(concepts.has("table.db_id")).toBe(true);
+    expect(concepts.has("db_id")).toBe(true);
+    expect(rowConcepts(mem("build2837 runaway")).has("283")).toBe(false);
+  });
 });
 
 describe("admitsRow", () => {
@@ -163,7 +201,7 @@ describe("memory_recall with the gate", () => {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "osi-gate-"));
     process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
-    // An ambient flag in the CI shell must not flip the flag-off tests on.
+    // An ambient off-switch in the CI shell must not flip the default-on tests.
     delete process.env[GATE_ENV];
     resetState();
     setRepoScope(null);
@@ -193,8 +231,9 @@ describe("memory_recall with the gate", () => {
     });
   }
 
-  test("flag off, a one-concept row is still returned", async () => {
+  test("opted out, a one-concept row is still returned", async () => {
     seed(ONE_CONCEPT, TWO_CONCEPTS);
+    process.env[GATE_ENV] = "off";
     const loaded = await loadPlugin(root);
     const out = await loaded.tool.memory_recall!.execute({
       query: "head watermark 283",
@@ -205,9 +244,8 @@ describe("memory_recall with the gate", () => {
     await loaded.cleanup();
   });
 
-  test("flag on, the one-concept row is dropped and the two-concept row stays", async () => {
+  test("by default, the one-concept row is dropped and the two-concept row stays", async () => {
     seed(ONE_CONCEPT, TWO_CONCEPTS);
-    process.env[GATE_ENV] = "1";
     const loaded = await loadPlugin(root);
     const out = await loaded.tool.memory_recall!.execute({
       query: "head watermark 283",
@@ -239,6 +277,50 @@ describe("memory_recall with the gate", () => {
       limit: 5,
     });
     expect(out).toContain("head of the release branch");
+    await loaded.cleanup();
+  });
+
+  test("by default, a prose query finds the row that names an identifier (#426 review)", async () => {
+    // WhollyMindless probe: `discount tiers` returned the row with the gate
+    // off and `No matching memories` with it on — admission kept
+    // DISCOUNT_TIERS one word while the query offered two concepts.
+    seed(mem("DISCOUNT_TIERS controls the pricing schedule"));
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "discount tiers",
+      limit: 5,
+    });
+    expect(out).toContain("DISCOUNT_TIERS");
+    await loaded.cleanup();
+  });
+
+  test("by default, a prose query finds a camelCase identifier (round 2)", async () => {
+    // Round-2 probe: `discount` found `discountTiers controls the pricing
+    // schedule` with the gate off and abstained with it on — the segment
+    // expansion handled underscores only, and recallHaystack lower-cases
+    // before tokenizing, erasing the camel boundary.
+    seed(mem("discountTiers controls the pricing schedule"));
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "discount",
+      limit: 5,
+    });
+    expect(out).toContain("discountTiers");
+    await loaded.cleanup();
+  });
+
+  test("by default, an exact identifier finds the row that names it in a dotted name (round 3)", async () => {
+    // Round-3 probe: `db_id` found `table.db_id stores the foreign key`
+    // with the gate off and abstained with it on — words() splits
+    // `table.db_id` into table/db/id, so the underscore-joined suffix
+    // never reaches admission whole.
+    seed(mem("table.db_id stores the foreign key", { scope: "schema" }));
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "db_id",
+      limit: 5,
+    });
+    expect(out).toContain("db_id");
     await loaded.cleanup();
   });
 });

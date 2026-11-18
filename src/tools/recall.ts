@@ -51,9 +51,9 @@ export const register: ToolRegister = (editor, deps) => {
           results = results.filter((m) => m.scope.includes(args.scope!));
         if (args.type) results = results.filter((m) => m.type === args.type);
         if (args.query) {
-          // Flag off, this is the shipped filter. Flag on, a row also has to
-          // share two whole words of the query — the concepts rule, not the
-          // scorer's substring test (src/recall/gate.ts, #409).
+          // Default on: a row must share two whole words of the query — the
+          // concepts rule, not the scorer's substring test (src/recall/gate.ts,
+          // #409). OPENCODE_MEMORY_QUERY_GATE=off restores the old matcher.
           const gate = gateEnabled();
           const concepts = gate ? queryConcepts(args.query) : [];
           results = results
@@ -71,9 +71,10 @@ export const register: ToolRegister = (editor, deps) => {
         // Non-positive or fractional limits are coerced, never trusted: a
         // negative slice(0, n) / slice(-n) silently returns MORE rows, not fewer.
         const limit = args.limit && args.limit > 0 ? Math.floor(args.limit) : 5;
-        // #409 dedup lane (RESULTS §17): flag off, this is the same slice as
-        // before. Flag on, near-duplicate copies are skipped so the window
-        // fills with distinct rows instead of repeats of the top hit.
+        // #409 dedup lane (RESULTS §17): default on at 0.8 — near-duplicate
+        // copies are skipped so the window fills with distinct rows instead of
+        // repeats of the top hit. OPENCODE_MEMORY_DEDUP=0 restores the plain
+        // slice.
         const dedupeAt = dedupeThreshold();
         const limited = args.query
           ? dedupeWindow(results, limit, dedupeAt)
