@@ -89,6 +89,8 @@ Zero configuration is the default. To tune, use the object form of the plugin en
 | `OPENCODE_VIEWER_PORT` | Admin editor port (default `8787`). |
 | `OPENCODE_VIEWER_ALLOWED_HOSTS` | Comma-separated hosts beyond loopback. See [Surfaces](#surfaces). |
 
+`OPENCODE_MEMORY_DEDUP`, `OPENCODE_MEMORY_SYMPTOM` and `OPENCODE_MEMORY_QUERY_GATE` switch behaviour a measurement decided, and each has an invalid-value rule the table above has no room for — an out-of-range `DEDUP` turns the pass off rather than clamping, and a metadata-only `memory_update` is exempt from `SYMPTOM`. Full behaviour and the evidence behind each: [docs/flags.md](docs/flags.md).
+
 ## Auto-capture is experimental
 
 **Status: in progress, and not working yet.** Auto-capture has never been observed firing on a live opencode 2.x store. It is shipped behind `autoCapture` because the plumbing is finished — the trigger, the model pass, the gates, the cooldown — not because the outcome has been verified. Treat it as a switch that may cost model calls and store nothing.
