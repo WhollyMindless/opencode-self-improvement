@@ -17,19 +17,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { record } from "../src/telemetry/record.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { resetState } from "../src/core/state.ts";
+import { evidenceDir } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { record } from "../../src/telemetry/record.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { resetState } from "../../src/core/state.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let repo: string;

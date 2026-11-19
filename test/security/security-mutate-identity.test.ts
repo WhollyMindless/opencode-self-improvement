@@ -11,18 +11,18 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { snapshotFiles } from "../src/store/files/snapshots.ts";
-import { resetState } from "../src/core/state.ts";
+import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { snapshotFiles } from "../../src/store/files/snapshots.ts";
+import { resetState } from "../../src/core/state.ts";
 import {
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { resetCaptureCooldowns } from "../src/index.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { resetCaptureCooldowns } from "../../src/index.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let a: string; // where the plugin instance loads (serve launch dir)

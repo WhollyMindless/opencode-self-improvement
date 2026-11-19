@@ -11,20 +11,20 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { type Memory } from "../src/store/model/memory.ts";
-import { isActive } from "../src/store/model/predicates.ts";
-import { isVisibleHere } from "../src/store/model/visibility.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { type Memory } from "../../src/store/model/memory.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
+import { isVisibleHere } from "../../src/store/model/visibility.ts";
 import {
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { resetState } from "../src/core/state.ts";
-import { deletionsFile } from "../src/core/config/paths.ts";
-import { startViewer, type ViewerServer } from "../src/viewer/server.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { resetState } from "../../src/core/state.ts";
+import { deletionsFile } from "../../src/core/config/paths.ts";
+import { startViewer, type ViewerServer } from "../../src/viewer/server.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let a: string;
