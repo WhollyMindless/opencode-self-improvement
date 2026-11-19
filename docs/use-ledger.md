@@ -7,6 +7,17 @@ earning its place, or has nothing touched it in six months?
 The ledger is `<memory-root>/hits.logfmt`: append-only, rotated at 2 MB, never
 ingested as a memory, and reported in `memory_status` and the `/memory` panel.
 
+## What it looks like
+
+Illustrative output — shape, not a measurement:
+
+```
+STORE
+  41 active · 12 superseded · 4 open · 6 scopes
+  retrieved 33 rows in the last 30d; never retrieved 8 (20%) — reported, not acted on
+  24.1 KB total · 604 B per row · 1.3 rows/day (30d)
+```
+
 ## What counts as use
 
 Credit comes from three distinct sources, because "the model asked" and "the
