@@ -29,7 +29,6 @@ const COVERED_CROSS_CUTTING = new Set([
   "status",
   "store",
   "telemetry",
-  "tools",
   "tui",
   "viewer",
 ]);
