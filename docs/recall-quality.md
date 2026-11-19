@@ -34,7 +34,7 @@ ask on purpose.
 
 ### Explicit exact-keyword lookup
 
-See the [transport lookup benchmark](../bench/transport-lookup-results.md) for explicit recall and automatic injection on the same queries.
+See the [transport lookup benchmark](https://github.com/abogartz/opencode-self-improvement/blob/64c494a26866851077ed2d59504c62a4f7809b56/bench/transport-lookup-results.md) for explicit recall and automatic injection on the same queries.
 
 ## Why the default window is 5 rows
 
