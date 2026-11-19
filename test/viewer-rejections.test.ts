@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deletionsFile, snapshotDir } from "../src/core/config/paths.ts";
 import { resetState } from "../src/core/state.ts";
-import { contentHash } from "../src/evidence/record.ts";
+import { contentHash } from "../src/telemetry/record.ts";
 import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll, memoryFiles } from "../src/store/files/load.ts";

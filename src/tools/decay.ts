@@ -2,7 +2,7 @@
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
-import { captureEvidenceContext, record } from "../evidence/record.ts";
+import { captureEvidenceContext, record } from "../telemetry/record.ts";
 import { snapshotFiles } from "../store/files/snapshots.ts";
 import { markManySuperseded } from "../store/files/supersede.ts";
 import { findStaleOpen } from "../portable/decay.ts";

@@ -2,7 +2,7 @@
 // Closure access arrives through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
 import { memoryRoot } from "../core/config/paths.ts";
-import { record } from "../evidence/record.ts";
+import { record } from "../telemetry/record.ts";
 import { withStoreBatch } from "../store/lock.ts";
 import { loadAll } from "../store/files/load.ts";
 import { clearSuperseded, markSuperseded } from "../store/files/supersede.ts";

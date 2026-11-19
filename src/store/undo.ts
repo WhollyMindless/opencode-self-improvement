@@ -36,7 +36,7 @@ import {
   writeAtomic,
 } from "../core/logfmt/publish.ts";
 import { readLines } from "../core/logfmt/read.ts";
-import { contentHash } from "../evidence/record.ts";
+import { contentHash } from "../telemetry/record.ts";
 import { isWithin } from "./containment.ts";
 import { snapshotFiles } from "./files/snapshots.ts";
 import { LOCK_RESTORE, withStoreLock } from "./lock.ts";

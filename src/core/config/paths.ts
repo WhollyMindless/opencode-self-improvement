@@ -53,7 +53,7 @@ export function canonicalFile(): string {
   return join(memoryRoot(), "canonical.logfmt");
 }
 
-// The use ledger (src/hits.ts). Lives in the store root beside the day files
+// The use ledger (src/telemetry/ledger.ts). Lives in the store root beside the day files
 // but is NOT a memory file: memory.ts's RESERVED set keeps it out of loadAll().
 export const HITS_FILENAME = "hits.logfmt";
 

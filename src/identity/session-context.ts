@@ -1,7 +1,7 @@
 // Per-setup session binding and caller context. The host object is kept
 // intact so optional API methods retain their receiver and are read at call time.
 import type { GateContext } from "../gate/gate.ts";
-import { captureEvidenceContext, record } from "../evidence/record.ts";
+import { captureEvidenceContext, record } from "../telemetry/record.ts";
 import { unresolvedWriteMessage } from "../store/files/append.ts";
 import { readerFromSid } from "../store/model/visibility.ts";
 import { getCurrent } from "../core/state.ts";

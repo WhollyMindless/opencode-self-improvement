@@ -13,7 +13,7 @@ import {
   chainId,
   contentHash,
   targetRepoFields,
-} from "../evidence/record.ts";
+} from "../telemetry/record.ts";
 import { removeTombstone, tombstone } from "../store/tombstones/tombstone.ts";
 import { redactSecrets } from "../store/secrets.ts";
 import { formatLine, parseLine } from "../core/logfmt/format.ts";
