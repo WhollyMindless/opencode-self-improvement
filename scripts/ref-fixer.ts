@@ -94,12 +94,10 @@ export function applyRefFixes(
  * asserts something about a module that no longer exists in the shape the
  * sentence describes.
  *
- * `reused` holds source paths occupied by more than one generation. Two shapes
- * reach it: renamed more than once, and renamed away then touched again by a
- * later commit. The second leaves no second rename record at all, so counting
- * rename records misses it — a file moved away, recreated with different
- * content and later deleted reads as a clean single rename, and a row about the
- * second occupant would be repointed onto the first occupant's new path.
+ * `reused` holds source paths occupied by more than one generation, decided by
+ * counting how many times history CREATED each one. See the creations pass
+ * below: it is the single question that catches every wrong-repoint shape,
+ * including the two a rename count cannot see.
  */
 export function indexRenames(
   renameLog: string,
@@ -112,51 +110,47 @@ export function indexRenames(
   const renamed = new Map<string, string>();
   const hopScore = new Map<string, number>();
   const reused = new Set<string>();
-  const counts = new Map<string, number>();
-  const renameCommit = new Map<string, string>();
-  let commit = "";
   for (const line of renameLog.split("\n")) {
-    if (!line.trim()) continue;
     // `--format=%H` emits the hash on its own line ahead of that commit's
     // name-status rows, which carry tabs.
-    if (!line.includes("\t")) {
-      commit = line.trim();
-      continue;
-    }
+    if (!line.includes("\t")) continue;
     const p = line.split("\t");
     if (!p[0]?.startsWith("R") || !p[1] || !p[2]) continue;
-    counts.set(p[1], (counts.get(p[1]) ?? 0) + 1);
     // git log is newest-first, so the FIRST record for a path is its newest
     // rename. Keeping the last would follow the oldest move in history and
     // land on a path that moved again since.
-    if (renamed.has(p[1]) || hopScore.has(p[1])) continue;
-    renameCommit.set(p[1], commit);
+    if (hopScore.has(p[1])) continue;
     const score = Number(p[0].slice(1));
     hopScore.set(p[1], score);
     if (score >= 90) renamed.set(p[1], p[2]);
   }
-  for (const [p, n] of counts) if (n > 1) reused.add(p);
-  // One pass over the unfiltered log answers "was this path touched after its
-  // newest rename?" for every candidate at once. Newest-first, so the first
-  // record seen for a path is the most recent commit that touched it.
-  const lastTouch = new Map<string, string>();
-  commit = "";
+  // A path held more than one generation when history CREATED it more than
+  // once — an add, or a rename or copy landing on it. Every wrong-repoint shape
+  // reduces to that count, and it catches the shapes a rename count cannot see:
+  //
+  //   A ......... R away    one creation: a clean move, safe to follow
+  //   A ......... R away, A  moved away then occupied again, later deleted
+  //   A, D, A ... R away    first occupant retired, second one moved
+  //
+  // The middle row leaves no second rename record and its re-add is the path's
+  // newest touch; the last row has the rename as its newest touch. Asking
+  // "was it touched after the rename" gets the second wrong and asking "was it
+  // renamed twice" gets both wrong, because a path cannot be moved, deleted or
+  // written again without being created again first. Creations is the one
+  // question that answers all three.
+  const creations = new Map<string, number>();
   for (const line of fullLog.split("\n")) {
-    if (!line.trim()) continue;
-    if (!line.includes("\t")) {
-      commit = line.trim();
-      continue;
-    }
+    if (!line.includes("\t")) continue;
     const p = line.split("\t");
     const kind = p[0]?.[0];
-    for (const q of kind === "R" || kind === "C" ? [p[1], p[2]] : [p[1]]) {
-      if (q && !lastTouch.has(q)) lastTouch.set(q, commit);
-    }
+    // The unfiltered log carries no -M, so a move arrives there as a delete
+    // plus an add. R and C are counted defensively, in case that changes.
+    const made =
+      kind === "A" ? p[1] : kind === "R" || kind === "C" ? p[2] : undefined;
+    if (made) creations.set(made, (creations.get(made) ?? 0) + 1);
   }
-  for (const [p, h] of renameCommit) {
-    const touched = lastTouch.get(p);
-    if (touched && touched !== h) reused.add(p);
-  }
+  for (const p of hopScore.keys())
+    if ((creations.get(p) ?? 0) > 1) reused.add(p);
   return { renamed, hopScore, reused };
 }
 
@@ -230,9 +224,17 @@ async function main(): Promise<number> {
     console.error("git log for renames failed — nothing to compare.");
     return 2;
   }
+  const fullLog = git(["log", "--name-status", "--format=%H"]);
+  // Checked, not defaulted to empty: an empty log reads as "no path was ever
+  // created twice", which silently disables the reuse rule and lets the script
+  // repoint a row onto the wrong generation.
+  if (fullLog.code !== 0) {
+    console.error("git log for path history failed — cannot check reuse.");
+    return 2;
+  }
   const { renamed, hopScore, reused } = indexRenames(
     renameLog.out,
-    git(["log", "--name-status", "--format=%H"]).out,
+    fullLog.out,
   );
   // Tracked surface, for "exactly one file ends with this path". Tracked, not
   // a filesystem walk: build output and node_modules must not create a second

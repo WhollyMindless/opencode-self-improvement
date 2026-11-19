@@ -147,9 +147,10 @@ describe("chainEnd", () => {
   });
 });
 
-// The reuse check reads two `git log --name-status --format=%H` passes. These
-// are written out in that format: the rename pass is filtered with -M, the full
-// pass is not, so a move appears there as a delete plus an add.
+// The reuse check reads two `git log --name-status --format=%H` passes: the
+// rename pass is filtered with -M, the full pass is not, so a move appears there
+// as a delete plus an add. Fixtures are written the way git actually prints
+// them, because the rule is a count over exactly that text.
 const renameLog = (hash: string, from: string, to: string, score = 100) =>
   `${hash}\n\nR${score}\t${from}\t${to}\n`;
 
@@ -163,10 +164,11 @@ describe("indexRenames", () => {
     expect(idx.reused.has("src/lock.ts")).toBe(false);
   });
 
+  // The two shapes review found, as a pair: the deletion sits on either side of
+  // the rename, and each one defeats a different rule. Counting rename records
+  // misses the first; asking whether the rename is the newest touch misses the
+  // second. Both are one path with two creations.
   test("renamed away, recreated, then deleted is a reuse", () => {
-    // Two components occupied src/lock.ts and only the first move is a rename,
-    // so counting rename records reports a clean single move and a row about
-    // the second component would be repointed onto the first one's new path.
     const idx = indexRenames(
       renameLog("c2", "src/lock.ts", "legacy/lock.ts"),
       "c4\n\nD\tsrc/lock.ts\nc3\n\nA\tsrc/lock.ts\nc2\n\nD\tsrc/lock.ts\nA\tlegacy/lock.ts\nc1\n\nA\tsrc/lock.ts\n",
@@ -174,10 +176,32 @@ describe("indexRenames", () => {
     expect(idx.reused.has("src/lock.ts")).toBe(true);
   });
 
+  test("deleted, recreated, then renamed is a reuse", () => {
+    // The rename IS the newest touch here, so a "touched after the rename"
+    // check passes and the row about the retired first occupant is repointed
+    // onto the second occupant's new path.
+    const idx = indexRenames(
+      renameLog("c4", "src/lock.ts", "current/lock.ts"),
+      "c4\n\nD\tsrc/lock.ts\nA\tcurrent/lock.ts\nc3\n\nA\tsrc/lock.ts\nc2\n\nD\tsrc/lock.ts\nc1\n\nA\tsrc/lock.ts\n",
+    );
+    expect(idx.renamed.get("src/lock.ts")).toBe("current/lock.ts");
+    expect(idx.reused.has("src/lock.ts")).toBe(true);
+  });
+
   test("renamed more than once is a reuse", () => {
     const idx = indexRenames(
-      "c3\n\nR100\tsrc/lock.ts\told/lock.ts\nc2\n\nR100\tsrc/lock.ts\tlegacy/lock.ts\n",
-      "c3\n\nD\tsrc/lock.ts\nA\told/lock.ts\nc2\n\nD\tsrc/lock.ts\nA\tlegacy/lock.ts\nc1\n\nA\tsrc/lock.ts\n",
+      "c4\n\nR100\tsrc/lock.ts\told/lock.ts\nc2\n\nR100\tsrc/lock.ts\tlegacy/lock.ts\n",
+      "c4\n\nD\tsrc/lock.ts\nA\told/lock.ts\nc3\n\nA\tsrc/lock.ts\nc2\n\nD\tsrc/lock.ts\nA\tlegacy/lock.ts\nc1\n\nA\tsrc/lock.ts\n",
+    );
+    expect(idx.reused.has("src/lock.ts")).toBe(true);
+  });
+
+  test("a path that arrived by rename and was recreated at it is a reuse", () => {
+    // No `A` for the first lifetime: it landed as a rename target. Counting
+    // adds alone would read one creation.
+    const idx = indexRenames(
+      renameLog("c3", "src/lock.ts", "current/lock.ts"),
+      "c3\n\nD\tsrc/lock.ts\nA\tcurrent/lock.ts\nc2\n\nA\tsrc/lock.ts\nc1\n\nD\told/name.ts\nA\tsrc/lock.ts\n",
     );
     expect(idx.reused.has("src/lock.ts")).toBe(true);
   });
