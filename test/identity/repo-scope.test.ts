@@ -6,21 +6,21 @@
 // decay), gate dedup, import/export carry-through, and the /repo-init stamp.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { setRepoScope } from "../src/identity/repokey.ts";
-import { normalizeRemote } from "../src/identity/repokey.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { prune } from "../src/store/files/prune.ts";
-import { systemDigest } from "../src/inject/digest.ts";
-import { contextualPull } from "../src/inject/pull.ts";
-import { storeVersion } from "../src/inject/version.ts";
-import { relevantKnowledge } from "../src/recall/relevant.ts";
-import { findStaleOpen } from "../src/portable/decay.ts";
-import { exportMemories } from "../src/portable/export.ts";
-import { importMemories } from "../src/portable/import.ts";
-import { runWriteGate } from "../src/gate/gate.ts";
-import { withTempStore } from "./harness.ts";
-import { dayFile } from "./helpers/logfmt.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
+import { normalizeRemote } from "../../src/identity/repokey.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { prune } from "../../src/store/files/prune.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
+import { contextualPull } from "../../src/inject/pull.ts";
+import { storeVersion } from "../../src/inject/version.ts";
+import { relevantKnowledge } from "../../src/recall/relevant.ts";
+import { findStaleOpen } from "../../src/portable/decay.ts";
+import { exportMemories } from "../../src/portable/export.ts";
+import { importMemories } from "../../src/portable/import.ts";
+import { runWriteGate } from "../../src/gate/gate.ts";
+import { withTempStore } from "../harness.ts";
+import { dayFile } from "../helpers/logfmt.ts";
 
 const REPO_A = { key: "aaa111", path: "/work/alpha" };
 const REPO_B = { key: "bbb222", path: "/work/beta" };
@@ -98,8 +98,8 @@ describe("visibility at the model-facing sinks", () => {
     );
 
     // A raw legacy row (no repo field on disk) stays visible everywhere.
-    const { formatLine } = await import("../src/core/logfmt/format.ts");
-    const { appendLog } = await import("../src/core/logfmt/publish.ts");
+    const { formatLine } = await import("../../src/core/logfmt/format.ts");
+    const { appendLog } = await import("../../src/core/logfmt/publish.ts");
     await appendLog(
       dayFile(),
       formatLine({

@@ -17,14 +17,14 @@ import {
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { isVisibleHere } from "../src/store/model/visibility.ts";
-import { resetState, setCurrent } from "../src/core/state.ts";
-import { loadPlugin } from "./harness.ts";
-import { dayFile, sleep } from "./helpers/logfmt.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { isVisibleHere } from "../../src/store/model/visibility.ts";
+import { resetState, setCurrent } from "../../src/core/state.ts";
+import { loadPlugin } from "../harness.ts";
+import { dayFile, sleep } from "../helpers/logfmt.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 const MODULE_SCOPE = { key: "mod111", path: "/work/module" };
 

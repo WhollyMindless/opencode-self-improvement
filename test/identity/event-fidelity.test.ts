@@ -16,16 +16,16 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SessionEvent } from "@opencode/schema/session-event";
 import { Schema } from "effect";
-import { CAPTURE_EVENT_TYPES } from "../src/index.ts";
-import { IDENTITY_EVENT_TYPES } from "../src/identity/host-events.ts";
-import moveRecording from "./fixtures/host-session-move.json";
+import { CAPTURE_EVENT_TYPES } from "../../src/index.ts";
+import { IDENTITY_EVENT_TYPES } from "../../src/identity/host-events.ts";
+import moveRecording from "../fixtures/host-session-move.json";
 
 const MANIFEST = join(
   import.meta.dir,
-  "../node_modules/@opencode/schema/dist/event-manifest.d.ts",
+  "../../node_modules/@opencode/schema/dist/event-manifest.d.ts",
 );
-const RECORDING = join(import.meta.dir, "fixtures/host-events.jsonl");
-const SRC = join(import.meta.dir, "../src");
+const RECORDING = join(import.meta.dir, "..", "fixtures/host-events.jsonl");
+const SRC = join(import.meta.dir, "../../src");
 
 // Recorded from a running desktop service (opencode-cli 2.1.4, `GET /api/event`
 // SSE): two complete turns plus 80 s of quiet afterwards. Event NAMES and counts

@@ -3,18 +3,18 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
-import { createSessionContext } from "../src/identity/session-context.ts";
+import { createSessionContext } from "../../src/identity/session-context.ts";
 import {
   resetSessionScopes,
   resolveRepo,
   sessionDir,
   sessionDirFirm,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { snapshotFiles } from "../src/store/files/snapshots.ts";
-import { loadPlugin, type LoadedPlugin, withTempStore } from "./harness.ts";
+} from "../../src/identity/repokey.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { snapshotFiles } from "../../src/store/files/snapshots.ts";
+import { loadPlugin, type LoadedPlugin, withTempStore } from "../harness.ts";
 
 const store = withTempStore({ prefix: "osi-pending-identity-" });
 const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));

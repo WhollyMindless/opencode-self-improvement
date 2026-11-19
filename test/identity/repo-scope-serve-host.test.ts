@@ -22,11 +22,11 @@ import {
   resolveRepo,
   sessionScope,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { loadPlugin } from "./harness.ts";
-import moveRecording from "./fixtures/host-session-move.json";
-import { dayFile, sleep } from "./helpers/logfmt.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { loadPlugin } from "../harness.ts";
+import moveRecording from "../fixtures/host-session-move.json";
+import { dayFile, sleep } from "../helpers/logfmt.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 beforeEach(() => {

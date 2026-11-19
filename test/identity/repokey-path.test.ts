@@ -24,12 +24,12 @@ import {
   resolveRepo,
   resetSessionScopes,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { resetState } from "../src/core/state.ts";
-import { relevantKnowledge } from "../src/recall/relevant.ts";
-import { dayFile } from "./helpers/logfmt.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { resetState } from "../../src/core/state.ts";
+import { relevantKnowledge } from "../../src/recall/relevant.ts";
+import { dayFile } from "../helpers/logfmt.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 const gitToplevel = (dir: string): string | null => {
   try {

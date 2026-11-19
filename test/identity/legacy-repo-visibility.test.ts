@@ -13,26 +13,26 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resetState } from "../src/core/state.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { evidenceFileFor } from "../src/telemetry/record.ts";
+import { resetState } from "../../src/core/state.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { evidenceFileFor } from "../../src/telemetry/record.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { relevantKnowledge } from "../src/recall/relevant.ts";
-import { appendMemory } from "../src/store/files/append.ts";
+} from "../../src/identity/repokey.ts";
+import { relevantKnowledge } from "../../src/recall/relevant.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
 import {
   ADMIN_READER,
   evidenceVisibleTo,
   isVisibleTo,
   lineVisibleTo,
   type Reader,
-} from "../src/store/model/visibility.ts";
-import { loadPlugin } from "./harness.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/store/model/visibility.ts";
+import { loadPlugin } from "../harness.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 const hash = (s: string) =>
   createHash("sha1").update(s).digest("hex").slice(0, 12);
