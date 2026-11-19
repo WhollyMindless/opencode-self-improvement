@@ -9,7 +9,7 @@ import {
   readLedger,
   resetHitThrottle,
   resetLedgerCache,
-} from "../src/hits/ledger.ts";
+} from "../src/telemetry/ledger.ts";
 import { parseLine } from "../src/core/logfmt/format.ts";
 import { readLines } from "../src/core/logfmt/read.ts";
 import { appendMemory } from "../src/store/files/append.ts";

@@ -30,7 +30,7 @@ import {
   resetLedgerCache,
   useSignals,
   usedRecently,
-} from "../src/hits/ledger.ts";
+} from "../src/telemetry/ledger.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { scoreMemories, words } from "../src/recall/score.ts";

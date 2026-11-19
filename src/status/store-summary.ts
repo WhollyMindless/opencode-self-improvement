@@ -1,6 +1,6 @@
 // Shared store counts for epoch payloads and the chat report.
 // Callers own I/O and visibility policy; this summarizes exactly their rows.
-import { neverRetrieved, type UseLedger } from "../hits/ledger.ts";
+import { neverRetrieved, type UseLedger } from "../telemetry/ledger.ts";
 import type { Memory } from "../store/model/memory.ts";
 import { isActive } from "../store/model/predicates.ts";
 import type { StoreCounts } from "./payload.ts";

@@ -3,7 +3,7 @@ import { loadAll } from "../store/files/load.ts";
 import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";
 import { readerFromSid, visibleTo } from "../store/model/visibility.ts";
-import { captureEvidenceContext, record } from "../evidence/record.ts";
+import { captureEvidenceContext, record } from "../telemetry/record.ts";
 import { frontierBudget } from "../core/config/budgets.ts";
 import { SESSION_CAP, SessionLru } from "../core/lru.ts";
 import { dateStr } from "../core/time.ts";

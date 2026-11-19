@@ -12,7 +12,11 @@ import { replaceWithCachedHandle } from "./helpers/cached-handle.ts";
 import { snapshotFiles } from "../src/store/files/snapshots.ts";
 import { type Memory } from "../src/store/model/memory.ts";
 import { removeBlock, blocklistFile } from "../src/store/blocklist.ts";
-import { hitsFile, recordHits, resetHitThrottle } from "../src/hits/ledger.ts";
+import {
+  hitsFile,
+  recordHits,
+  resetHitThrottle,
+} from "../src/telemetry/ledger.ts";
 import { restoreSnapshot } from "../src/store/undo.ts";
 import { importMemories } from "../src/portable/import.ts";
 import { readStatus, statusFile } from "../src/status/write.ts";

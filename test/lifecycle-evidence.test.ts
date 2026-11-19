@@ -8,7 +8,7 @@ import { parseLine } from "../src/core/logfmt/format.ts";
 import { runInit } from "../src/init/run.ts";
 import { resetCaptureCooldowns } from "../src/index.ts";
 import * as gates from "../src/gate/gate.ts";
-import { captureEvidenceContext, record } from "../src/evidence/record.ts";
+import { captureEvidenceContext, record } from "../src/telemetry/record.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
