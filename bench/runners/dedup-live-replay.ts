@@ -175,7 +175,7 @@ console.log(
   `scan set ${label}   rows ${rows.length}${HISTORY ? " (history included)" : " (active only)"}   scopes ${byScope.size}\n` +
     `A  contentTokens + shipped guards : ${A.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${A.max.toFixed(3)}\n` +
     `B  haystack + shipped guards     : ${B.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${B.max.toFixed(3)}\n` +
-    `C  haystack, no guards (pre-fc59b84): ${C.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${C.max.toFixed(3)}\n` +
+    `C  haystack, no guards (approximates pre-fc59b84, today's vocabulary): ${C.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${C.max.toFixed(3)}\n` +
     `   of C's candidates, blocked today by: floor ${attribution.floor}, polarity ${attribution.polarity}, dropped-chunks ${attribution.chunks}\n`,
 );
 
@@ -210,7 +210,7 @@ if (C.hits.length) {
   const bySc = new Map<string, number>();
   for (const h of C.hits) bySc.set(h.scope, (bySc.get(h.scope) ?? 0) + 1);
   console.log(
-    `\nC: the pre-fc59b84 rule would have suppressed ${C.hits.length} pairs, concentrated in:`,
+    `\nC: the old eligibility would have suppressed ${C.hits.length} pairs, concentrated in:`,
   );
   for (const [s, n] of [...bySc].sort((a, b) => b[1] - a[1]).slice(0, 6))
     console.log(`   ${String(n).padStart(4)}x  scope ${s}`);

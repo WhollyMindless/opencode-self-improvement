@@ -28,7 +28,14 @@ rows, and the difference matters — see below.
 | --- | --- | ---: | ---: | ---: |
 | **A** | `contentTokens` + the shipped guards | **2** candidates ≥ 0.8 | **0**, highest 0.647 | 145, of which **143 have a superseded side** |
 | **B** | `haystack` + the shipped guards | 2 | 0, highest 0.667 | 145 |
-| **C** | `haystack`, **no guards** — the rule that actually shipped before `fc59b84` | 108 | 78 | 434 |
+| **C** | `haystack`, **no guards** — an approximation of the rule before `fc59b84`, scored with today's vocabulary | 108 | 78 | 434 |
+
+Arm C is an approximation, not a replay. It applies the old eligibility to today's `haystack()`,
+because the pre-`fc59b84` `haystack()` is a different function and this runner does not carry it. The
+gap is measurable: two unrelated rows in an eight-word hyphenated scope score 0.833 here and 9/11 =
+0.818 under the historical deduper checked out at `3ff96ef`. Both clear 0.8, so nothing in this record
+turns on it, but the counts describe *the old eligibility under today's vocabulary* — narrower than
+"what the old code computed". Replaying the historical tokenizer is what would close it.
 
 ## What the two active candidates are
 
