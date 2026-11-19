@@ -32,7 +32,8 @@
 // store grows, so any number quoted from it needs its date.
 import { existsSync } from "node:fs";
 import { loadAll } from "../../src/store/files/load.ts";
-import { isActive } from "../../src/store/model/predicates.ts";
+import { isActive, isInjectable } from "../../src/store/model/predicates.ts";
+import { isVisibleTo } from "../../src/store/model/visibility.ts";
 import { haystack, words } from "../../src/recall/score.ts";
 import {
   DEFAULT_THRESHOLD,
@@ -72,15 +73,30 @@ if (check.exitCode !== 0) {
 const scopeKey = resolveRepo(repoRoot).key;
 
 const loaded = await loadAll();
-const rows = loaded.filter((m) => {
-  if (!HISTORY && !isActive(m)) return false;
-  return REPO_ONLY ? m.repo === scopeKey : m.repo === scopeKey || !m.repo;
+// The reader repository recall uses, so the population scored here is the
+// population a session can actually be shown. `isActive` plus a hand-rolled
+// `repo === key || !repo` filter admits bookkeeping rows the model never sees —
+// an `init-stamp` pair is a real duplicate and a real nothing — and it misses
+// rows stamped `repo=global` explicitly, which are global but not unstamped.
+const reader = { kind: "repo", scope: resolveRepo(repoRoot) } as const;
+const visible = loaded.filter((m) => isVisibleTo(m, reader));
+const rows = visible.filter((m) => {
+  // The history arm widens past injectability on purpose: superseded rows are
+  // what it is for. It does not widen past the reader.
+  if (HISTORY) return REPO_ONLY ? m.repo === scopeKey : true;
+  if (REPO_ONLY) return m.repo === scopeKey && isInjectable(m);
+  return isInjectable(m);
 });
 
 // Caches are keyed by ARRAY INDEX, never by `m.ts`: ts is not unique. Four ts
 // values cover eight rows in a real store, and a ts-keyed cache makes a row
 // score against itself — a phantom Jaccard of 1.000 for a pair that is nothing
 // of the kind.
+console.log(
+  `reader sees ${visible.length} of ${loaded.length} rows   model-facing (injectable) ${rows.length}${
+    HISTORY ? "  [history arm: injectability not applied]" : ""
+  }`,
+);
 const tok = rows.map((m) => contentTokens(m));
 const leg = rows.map((m) => new Set(words(haystack(m))));
 // Arm C answers "what did the old rule do", so it scores with the old
@@ -183,9 +199,11 @@ for (const list of byScope.values()) {
   }
 }
 
-const label = REPO_ONLY ? scopeKey : `${scopeKey} + global (no repo stamp)`;
+const label = REPO_ONLY
+  ? `${scopeKey} (repo-stamped rows only)`
+  : `${scopeKey} + global (unstamped OR repo=global)`;
 console.log(
-  `scan set ${label}   rows ${rows.length}${HISTORY ? " (history included)" : " (active only)"}   scopes ${byScope.size}\n` +
+  `scan set ${label}   rows ${rows.length}${HISTORY ? " (history included)" : " (injectable only)"}   scopes ${byScope.size}\n` +
     `A  contentTokens + shipped guards : ${A.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${A.max.toFixed(3)}\n` +
     `B  haystack + shipped guards     : ${B.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${B.max.toFixed(3)}\n` +
     `C  pre-fc59b84 tokenizer, no guards (replayed): ${C.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${C.max.toFixed(3)}\n` +
@@ -206,7 +224,8 @@ if (A.hits.length) {
   console.log("A-arm candidates with both rows active, in full — read them:");
   for (const h of A.hits) {
     if (!isActive(h.a) || !isActive(h.b)) continue;
-    const where = (m: Memory): string => (m.repo ? "repo" : "GLOBAL");
+    const where = (m: Memory): string =>
+      m.repo && m.repo !== "global" ? "repo" : "GLOBAL";
     console.log(
       `--- ${h.score.toFixed(3)}  scope ${h.scope}  [${where(h.a)} vs ${where(h.b)}]`,
     );

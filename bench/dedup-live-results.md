@@ -17,18 +17,27 @@ undated replay is not evidence a later reader can check.
 
 ## Scan set
 
-The unit is the recall window, not the store. A repo-scoped read sees the repository's rows **and**
-rows with no repository stamp (`src/recall/relevant.ts`), so both are scanned. Rows stamped for a
-different repository are excluded: they never share this window. `--repo-only` drops the un-stamped
-rows, and the difference matters — see below.
+The unit is the recall window, not the store, and the population is the one a repository reader is
+actually shown: `isVisibleTo(m, {kind: "repo", scope})` for visibility and `isInjectable` for
+eligibility — the same two predicates `src/tools/recall.ts` applies. An earlier version used `isActive`
+plus a hand-rolled `repo === key || !repo`, which differed from production in both directions: it
+admitted rows the model can never see (quarantined, and the `init-stamp` bookkeeping row), and it
+dropped rows stamped `repo=global` explicitly, because "global" is a stamp value, not the absence of
+one. The counts below are unchanged in kind but they are now evidence about the shipped read path
+rather than about a similar-looking population.
+
+Rows stamped for a different repository are excluded: they never share this window. `--repo-only` keeps
+only rows stamped for this repository. `--all` widens past injectability to superseded rows on purpose —
+that is what the history arm is for — but not past the reader. The runner prints all three population
+numbers on every run.
 
 ## Result
 
-| arm | what it scores | active, repo + global<br>1,313 rows / 238 scopes | active, repo only<br>1,261 rows / 231 scopes | history included, repo + global<br>1,658 rows |
+| arm | what it scores | injectable, repo + global<br>1,357 rows / 244 scopes | injectable, repo stamped only<br>1,295 rows / 235 scopes | history included, repo + global<br>1,710 rows |
 | --- | --- | ---: | ---: | ---: |
-| **A** | `contentTokens` + the shipped guards | **2** candidates ≥ 0.8 | **0**, highest 0.647 | 145, of which **143 have a superseded side** |
-| **B** | `haystack` + the shipped guards | 2 | 0, highest 0.667 | 145 |
-| **C** | the **pre-`fc59b84` tokenizer**, **no guards** — replayed with the vendored `words()` | 113 | 83 | 451 |
+| **A** | `contentTokens` + the shipped guards | **2** candidates ≥ 0.8 | **0**, highest 0.647 | 146, of which **144 have a superseded side** |
+| **B** | `haystack` + the shipped guards | 2 | 0, highest 0.667 | 146 |
+| **C** | the **pre-`fc59b84` tokenizer**, **no guards** — replayed with the vendored `words()` | 113 | 83 | 453 |
 
 Arm C replays the old tokenizer rather than approximating it. An earlier version scored the old
 eligibility with today's `haystack()` and `words()`, and that is not the same rule: today's tokenizer
