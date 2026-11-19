@@ -128,11 +128,19 @@ describe("documentation links", () => {
   test("the indexes exist and the README points at them", () => {
     // An index nothing links to leaves the spine dangling: the root README
     // is the one file every reader — on GitHub or in `node_modules` — has.
+    // The check is on the resolved link target, not the visible label, so a
+    // link that still reads "docs/README.md" but lands on some other page
+    // fails here instead of dead-ending for the reader.
     for (const index of INDEXES) {
       expect(existsSync(join(ROOT, index))).toBe(true);
     }
-    const readme = readFileSync(join(ROOT, "README.md"), "utf8");
-    expect(readme).toContain("docs/README.md");
-    expect(readme).toContain("docs/adr/README.md");
+    const fromReadme = new Set(
+      relativeLinks()
+        .filter(({ from }) => from === "README.md")
+        .map(({ to }) => to),
+    );
+    for (const index of INDEXES) {
+      expect(fromReadme.has(index)).toBe(true);
+    }
   });
 });
