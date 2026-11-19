@@ -65,10 +65,7 @@ import {
 } from "./telemetry/ledger.ts";
 import { formatInit } from "./init/format.ts";
 import { runInit } from "./init/run.ts";
-import {
-  ensureInitCommand,
-  ensureMemoryReportCommand,
-} from "./command/ensure.ts";
+import { ensureInitCommand, ensureMemoryReportCommand } from "./init/ensure.ts";
 import { captureLag, captureLagLines, rowsPerDay } from "./status/metrics.ts";
 import { type Measured, type StoreCounts } from "./status/payload.ts";
 import { renderMemoryReport } from "./status/report.ts";
