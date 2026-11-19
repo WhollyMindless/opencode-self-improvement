@@ -20,3 +20,20 @@ The live store carries repeated rows — superseded snapshots, cursor rows diffe
   4. It treated differing numeric facts as duplicates: short tokens are dropped, so "DB 3" and "DB 4" share identical token sets and the older row was suppressed even at threshold 1.
 - Default-ON followed the same rule as ADR 0001: a quality fix behind an opt-in flag is not a fix.
 - Evidence: live-store replay published in the #409 record (§17) and PR #426. The replay's off-arm must set `OPENCODE_MEMORY_DEDUP=0` explicitly — with default-ON, an unset arm measures nothing.
+
+## Addition groups
+
+A clash is not always a copy. `classifyPair` reads the leftover token sets and splits three cases:
+`identical` (nothing left over — one row typed twice), `addition` (one side wholly contained — the
+rows name different things, so both hold), `substitution` (a leftover on each side). Only `addition`
+is decidable from containment, and only `addition` keeps both rows; it takes an extra slot and the
+handler marks the pair with `AMBIGUOUS` rather than deciding silently. Flag:
+`OPENCODE_MEMORY_AMBIGUOUS`, on by default.
+
+`substitution` is an interpretation, not a decision, and its absence of containment is not evidence
+of a correction. Two instructions naming two scripts that both exist — `bun run bench:recall` and
+`bun run bench:write` — leave a leftover on each side, score 0.882, and the older is dropped. That
+predates the split and the split does not fix it: the pass has no way to learn from a row's text that
+both scripts are real. It is the remaining limitation of the rule, and the reason the group marker
+exists at all — where the classifier can see both readings are possible, it says so instead of
+choosing.
