@@ -21,7 +21,7 @@ Run it when you want to know whether the suite still has teeth — after changin
 
 ### Bench artifacts stay out of git
 
-Raw sweep output is regenerable measurement data, and it was the largest tracked content in the repository. It is not committed (#232). A clone carries the published summaries — `bench/RESULTS.md`, `bench/recall-results.md`, `bench/test-sweep-results.md`, `bench/capture-trigger-results.md` — and the inputs those summaries are rebuilt from. History is not rewritten: the old blobs stay in earlier revisions, so this shrinks new checkouts, not the archive.
+Raw sweep output is regenerable measurement data, and it was the largest tracked content in the repository. It is not committed (#232). A clone carries the published summaries — `bench/RESULTS.md` and the `bench/*-results.md` files — and the inputs those summaries are rebuilt from. History is not rewritten: the old blobs stay in earlier revisions, so this shrinks new checkouts, not the archive.
 
 | Artifact | How to get it back |
 | --- | --- |

@@ -1,63 +1,76 @@
 # Window dedup replayed against the live store
 
 Measured 2026-11-19 on the maintainer's store, repository key `5699fad3a258`, Bun 1.4.3, no model and no paid seat.
-Reproduce: `bun bench/runners/dedup-live-replay.ts [repo-path]`. The runner reads the live store, so it is not a CI job.
+
+Reproduce: `bun bench/runners/dedup-live-replay.ts` (active rows), with `--all` to include superseded
+history and `--repo-only` to drop rows that carry no repository stamp. The runner reads the live store,
+so it is not a CI job and its counts are a dated snapshot: this store gained 8 active rows for this
+repository during the day this file was written. Quote a number from here with its date, or not at all.
 
 ## Why this was run
 
-`docs/adr/0002-window-dedup.md` justifies the 0.8 default with a live replay: "0.8 suppresses only near-identical
-copies", evidence cited as the `#409` record section 17 and PR #426. That replay predates the vocabulary change in
-`fc59b84`, which moved the comparison from `haystack()` (which includes the row's own `type` and `scope`) to
-`contentTokens()` (content and keywords only). The ADR cites a live replay without a date or a store, so nobody can
-tell whether the sentence still describes anything.
+`docs/adr/0002-window-dedup.md` justified the 0.8 default with a live replay — "0.8 suppresses only
+near-identical copies" — citing the `#409` record section 17 and PR #426, with no date and no store
+named. The rule's vocabulary changed in `fc59b84`, which moved the comparison from `haystack()` (which
+includes the row's own `type` and `scope`) to `contentTokens()` (content and keywords only). An
+undated replay is not evidence a later reader can check.
 
-## Method
+## Scan set
 
-Group active rows of one repository by scope. For every pair in a scope, apply the shipped guards in the shipped
-order — `MIN_CONTENT` on both sides, same polarity, same dropped chunks — then score the pair twice: with the shipped
-`contentTokens`, and with the pre-`fc59b84` `haystack` vocabulary. A pair is a suppression candidate when a score
-reaches 0.8, because if both rows ever occupy one recall window together, one of them is hidden.
+The unit is the recall window, not the store. A repo-scoped read sees the repository's rows **and**
+rows with no repository stamp (`src/recall/relevant.ts`), so both are scanned. Rows stamped for a
+different repository are excluded: they never share this window. `--repo-only` drops the un-stamped
+rows, and the difference matters — see below.
 
 ## Result
 
-| | shipped `contentTokens` | pre-`fc59b84` `haystack` |
-| --- | ---: | ---: |
-| active rows | 1253 | 1253 |
-| scopes | 230 | 230 |
-| comparable same-scope pairs | 190 | 190 |
-| pairs at or above 0.8 | **0** | **0** |
-| highest score observed | 0.647 | — |
+| arm | what it scores | active, repo + global<br>1,313 rows / 238 scopes | active, repo only<br>1,261 rows / 231 scopes | history included, repo + global<br>1,658 rows |
+| --- | --- | ---: | ---: | ---: |
+| **A** | `contentTokens` + the shipped guards | **2** candidates ≥ 0.8 | **0**, highest 0.647 | 145, of which **143 have a superseded side** |
+| **B** | `haystack` + the shipped guards | 2 | 0, highest 0.667 | 145 |
+| **C** | `haystack`, **no guards** — the rule that actually shipped before `fc59b84` | 108 | 78 | 434 |
 
-Same scan with superseded history included, so 1551 rows:
+## What the two active candidates are
 
-| | count |
-| --- | ---: |
-| pairs at or above 0.8 | 138 |
-| of which at least one side is superseded | **138** |
-| highest score observed | 1.000 |
+Both are rows with no repository stamp, which is why `--repo-only` reports zero and why excluding them
+was wrong.
 
-## What this establishes
+1. **A true duplicate, `gufo-ops`, Jaccard 1.000.** Two active, injectable `context` rows, 742 and 746
+   characters, same timestamp, the same cutover written twice. This is the pass doing its job — and it
+   is the counterexample to any claim that the write gate keeps near-copies from coexisting. It did not
+   keep these two out.
+2. **A false positive, `BabylonDocs`, Jaccard 0.824.** Two active, injectable `pattern` rows:
+   `BabylonDocs build command: run "npm run build" from the repo root` and
+   `BabylonDocs build:example-images command: run "npm run build:example-images" from the repo root`.
+   These are two different commands. They share a scope, a sentence shape and most of their vocabulary,
+   so they clear the threshold, and the pass hides the newer one — the reader never learns
+   `build:example-images` exists. Every shipped guard passes on this pair: both rows are above
+   `MIN_CONTENT`, both carry the same polarity, and their dropped-chunk multisets match.
 
-The active store contains no near-copies at all. The nearest pair in 190 comparable ones sits at 0.647, well under the
-threshold. Every pair that does reach 0.8 lives in supersession history, and all 138 of them have a superseded side.
+So the published sentence is not merely unproven. On the store's own rows, at the shipped threshold,
+0.8 suppresses a pair that is **not** a near-copy.
 
-The reason is structural, not lucky. The write gate's supersede path means a near-copy replaces the row it duplicates
-rather than coexisting with it, so two near-copies are never both active in one scope. Window dedup therefore has
-nothing to do on this store: the condition it was written for is prevented upstream of it.
+## Which guard is load-bearing
+
+Of the 108 active pairs the pre-`fc59b84` rule would have suppressed, today's rule stops: 78 at the
+dropped-chunk guard, 28 at the `MIN_CONTENT` floor, 0 at polarity. In the repository's own rows it is
+78 of 78 at the dropped-chunk guard. The pass is inert on this store because of the **guards**, not
+because the store happens to hold no near-copies.
 
 ## What this does not establish
 
-It does not confirm or refute the 0.8 guidance. A replay over a store with zero suppression candidates measures
-nothing, in either direction — the same trap the ADR already names for the off-arm ("with default-ON, an unset arm
-measures nothing"). The guidance rests on the replay recorded in the `#409` record section 17 on the date it ran, and
-that record is the evidence, not this scan.
+- It does not re-derive the 0.8 threshold. That rests on the dated `#409` section 17 replay, which is
+  the evidence for the number; this scan neither confirms nor refutes it.
+- It does not evaluate the vocabulary change. A and B agree everywhere (2 and 2 active, 145 and 145
+  with history), because the pairs that collide here are content duplicates where metadata adds
+  nothing. The failure `fc59b84` fixed — two unrelated rows in one `snake_case` scope scoring 1.0 on
+  scope tokens alone — needs rows sharing a scope and nothing else, and that condition lives in the
+  test fixture, not in this store.
+- It says nothing about ranking. A candidate pair only loses a slot if both rows reach one window
+  together, which depends on the query.
 
-It also does not evaluate the vocabulary change. Both vocabularies produce the same 138 pairs here, because the pairs
-that collide are true content duplicates where metadata adds nothing. The failure `fc59b84` fixed — two unrelated rows
-in one snake_case scope scoring 1.0 on scope tokens alone — needs rows that share a scope and nothing else, and this
-store's active set does not contain them. The fixture in `test/` is that evidence.
+## Consequence
 
-## Consequence for the ADR
-
-The 0.8 line stays, with its date and its store named, so the next reader does not re-run this scan expecting a result
-from it.
+The ADR keeps its 0.8 line with the date and store named, and no longer publishes counts from this
+scan. The `BabylonDocs` pair is filed as a threshold-quality issue: it is the one thing this replay
+actually measured.
