@@ -51,6 +51,7 @@ export interface StoreCounts {
   useOutcome?: {
     /** Active rows with at least one joined ride. */
     rowsMeasured: number;
+    details?: string[];
     joined: number;
     clean: number;
     failAfter: number;

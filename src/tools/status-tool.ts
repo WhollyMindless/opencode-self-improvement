@@ -47,7 +47,11 @@ export const register: ToolRegister = (editor, deps) => {
           all,
           ledger,
           malformed,
-          { rides: await readRides(), outcomes: await readOutcomes() },
+          {
+            rides: await readRides(),
+            outcomes: await readOutcomes(),
+            visible: (row) => isVisibleTo(row, reportReader),
+          },
         );
         // Self-metrics: what the store costs, how fast it grows, and how
         // stale a capture is when it fires. Same rule as above — the numbers

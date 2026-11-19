@@ -822,6 +822,7 @@ describe("memory_status tool + epoch wiring", () => {
     try {
       const report = await reopened.tools.memory_status.execute({});
       expect(report.content).toContain("1 on turns whose gate failed");
+      expect(report.content).toContain("used=1 clean=0 fail_after=1 unknown=0");
       const summaries = readFileSync(hitsFile(), "utf8")
         .split("\n")
         .filter((line) => line.includes("ev=turn_outcome"));

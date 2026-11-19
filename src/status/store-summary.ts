@@ -28,7 +28,11 @@ export function summarizeStore(
    * absent rather than zero — the caller did not look, which is a different
    * statement from "nothing helped".
    */
-  use?: { rides: HitEntry[]; outcomes: TurnOutcome[] },
+  use?: {
+    rides: HitEntry[];
+    outcomes: TurnOutcome[];
+    visible?: (row: Memory) => boolean;
+  },
 ): { active: Memory[]; counts: StoreCounts } {
   const active = rows.filter(isActive);
   const counts: StoreCounts = {
@@ -41,7 +45,8 @@ export function summarizeStore(
     ledgerSince: ledger.since,
   };
   if (use) {
-    const live = new Set(active.map((m) => m.ts));
+    const live = new Map(active.map((m) => [m.ts, m]));
+    const details: string[] = [];
     const joined = joinUseWithOutcomes(use.rides, use.outcomes);
     let rowsMeasured = 0;
     let sumJoined = 0;
@@ -49,14 +54,24 @@ export function summarizeStore(
     let failAfter = 0;
     let evictCandidates = 0;
     for (const [row, o] of joined) {
-      if (!live.has(row) || o.joined === 0) continue;
+      const memory = live.get(row);
+      if (!memory) continue;
+      const candidate =
+        o.joined > 0 && o.rides >= EVICT_MIN_RIDES && o.clean === 0;
+      if (use.visible?.(memory)) {
+        details.push(
+          `    ${row} used=${o.rides} clean=${o.clean} fail_after=${o.failAfter} unknown=${o.rides - o.joined}${candidate ? " (eviction candidate)" : ""}`,
+        );
+      }
+      if (o.joined === 0) continue;
       rowsMeasured++;
       sumJoined += o.joined;
       clean += o.clean;
       failAfter += o.failAfter;
-      if (o.rides >= EVICT_MIN_RIDES && o.clean === 0) evictCandidates++;
+      if (candidate) evictCandidates++;
     }
     counts.useOutcome = {
+      ...(details.length ? { details } : {}),
       rowsMeasured,
       joined: sumJoined,
       clean,
