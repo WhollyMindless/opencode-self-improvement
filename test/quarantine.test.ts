@@ -17,7 +17,7 @@ import { formatLine, parseLine } from "../src/core/logfmt/format.ts";
 import { writeAtomic } from "../src/core/logfmt/publish.ts";
 import { resetState } from "../src/core/state.ts";
 import { dateStr } from "../src/core/time.ts";
-import { recordHits } from "../src/hits/ledger.ts";
+import { recordHits } from "../src/telemetry/ledger.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,

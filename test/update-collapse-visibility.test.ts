@@ -7,7 +7,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { runWriteGate } from "../src/gate/gate.ts";
 import { exportMemories } from "../src/portable/export.ts";
 import { importMemories } from "../src/portable/import.ts";
-import * as evidence from "../src/evidence/record.ts";
+import * as evidence from "../src/telemetry/record.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { type Memory } from "../src/store/model/memory.ts";

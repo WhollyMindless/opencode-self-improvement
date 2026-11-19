@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import * as evidence from "../src/evidence/record.ts";
+import * as evidence from "../src/telemetry/record.ts";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -18,7 +18,7 @@ import { snapshotFiles } from "../src/store/files/snapshots.ts";
 import { markManySupersededReport } from "../src/store/files/supersede.ts";
 import { pruneMemory } from "../src/store/prune.ts";
 import * as tombstoneModule from "../src/store/tombstones/tombstone.ts";
-import { contentHash } from "../src/evidence/record.ts";
+import { contentHash } from "../src/telemetry/record.ts";
 import {
   LOCK_RESTORE,
   LOCK_WRITE,

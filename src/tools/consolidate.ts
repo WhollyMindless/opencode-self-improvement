@@ -4,8 +4,8 @@
 import type { ToolRegister } from "./deps.ts";
 import { proposeConsolidations } from "../consolidate/propose.ts";
 import { renderProposals } from "../consolidate/render.ts";
-import { captureEvidenceContext, record } from "../evidence/record.ts";
-import { readLedger, readReads } from "../hits/ledger.ts";
+import { captureEvidenceContext, record } from "../telemetry/record.ts";
+import { readLedger, readReads } from "../telemetry/ledger.ts";
 import { loadAll } from "../store/files/load.ts";
 import { isInjectable } from "../store/model/predicates.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";

@@ -26,7 +26,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalFile, evidenceDir } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
-import * as evidence from "../src/evidence/record.ts";
+import * as evidence from "../src/telemetry/record.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { isActive } from "../src/store/model/predicates.ts";

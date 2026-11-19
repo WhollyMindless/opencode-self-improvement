@@ -24,7 +24,7 @@ import { join } from "node:path";
 import { loadPlugin } from "./harness.ts";
 import { memoryRoot } from "../src/core/config/paths.ts";
 import { resetState } from "../src/core/state.ts";
-import { record } from "../src/evidence/record.ts";
+import { record } from "../src/telemetry/record.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { isActive, isInjectable } from "../src/store/model/predicates.ts";

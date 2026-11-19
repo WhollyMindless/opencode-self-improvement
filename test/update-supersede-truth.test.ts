@@ -29,7 +29,7 @@ import {
   setRepoScope,
 } from "../src/identity/repokey.ts";
 import { resetState } from "../src/core/state.ts";
-import * as evidence from "../src/evidence/record.ts";
+import * as evidence from "../src/telemetry/record.ts";
 import { removeStore } from "./helpers/remove-store.ts";
 
 let root: string;

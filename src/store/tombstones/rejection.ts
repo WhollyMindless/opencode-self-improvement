@@ -1,7 +1,7 @@
 // rejection — split from src/tombstones.ts. Declaration bodies are unchanged.
 import { join } from "node:path";
 import { memoryRoot } from "../../core/config/paths.ts";
-import { contentHash } from "../../evidence/record.ts";
+import { contentHash } from "../../telemetry/record.ts";
 import {
   differsIn,
   NEAR_FLOOR,

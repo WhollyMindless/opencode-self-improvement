@@ -10,7 +10,7 @@
 import { basename } from "node:path";
 import { readerFromSid } from "../store/model/visibility.ts";
 import { runWriteGate, type GateContext } from "../gate/gate.ts";
-import { captureEvidenceContext, record } from "../evidence/record.ts";
+import { captureEvidenceContext, record } from "../telemetry/record.ts";
 import { writeEvidence, hasGateCheck } from "../capture/triggers.ts";
 import { writeTarget } from "../identity/repokey.ts";
 import { quarantineCandidate } from "../store/quarantine/quarantine.ts";

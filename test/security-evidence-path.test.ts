@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evidenceDir } from "../src/core/config/paths.ts";
 import { dateStr } from "../src/core/time.ts";
-import { record } from "../src/evidence/record.ts";
+import { record } from "../src/telemetry/record.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { resetState } from "../src/core/state.ts";
 import {

@@ -27,7 +27,7 @@
 //      proposal through memory_merge_review (supersede-not-delete, recoverable).
 //   4. The most recently used member is never a loser (the rule, inherited).
 import type { Memory } from "../store/model/memory.ts";
-import type { UseSignal } from "../hits/ledger.ts";
+import type { UseSignal } from "../telemetry/ledger.ts";
 import { cmpTs } from "../core/cmp-ts.ts";
 import { formatMemory } from "../inject/format.ts";
 import { scoreMemories, words } from "../recall/score.ts";

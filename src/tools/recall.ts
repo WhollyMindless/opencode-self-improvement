@@ -2,7 +2,7 @@
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
-import { record } from "../evidence/record.ts";
+import { record } from "../telemetry/record.ts";
 import { formatMemory } from "../inject/format.ts";
 import {
   admitsRow,

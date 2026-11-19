@@ -3,7 +3,7 @@
 // so a tool file never reaches into the plugin setup closure.
 import type { GateContext } from "../gate/gate.ts";
 import type { createInjectionEpochs } from "../inject/epochs.ts";
-import type { HitSource } from "../hits/ledger.ts";
+import type { HitSource } from "../telemetry/ledger.ts";
 import type { Memory } from "../store/model/memory.ts";
 
 export interface ToolDeps {
