@@ -79,3 +79,8 @@ The failure `fc59b84` actually fixed needs a different shape — two unrelated r
 The ADR keeps its 0.8 line with the date and store named, and no longer publishes counts from this
 scan. The `BabylonDocs` pair is filed as a threshold-quality issue: it is the one thing this replay
 actually measured.
+
+One mechanism worth naming, confirmed independently during review: the write gate's duplicate check is
+exact and keyed by type, while this pass compares across types. Identical prose filed once as a
+`context` and once as a `decision` is therefore promoted twice and stays active twice — which is how
+the `gufo-ops` pair above got there, and why the pass is not redundant with the gate.
