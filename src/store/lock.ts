@@ -54,7 +54,7 @@ import { chmod, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { ensureDir } from "../core/logfmt/publish.ts";
-import { record } from "../evidence/record.ts";
+import { record } from "../telemetry/record.ts";
 
 /**
  * The lock database for ONE store file: `.store-lock.<file>.sqlite`, beside it.

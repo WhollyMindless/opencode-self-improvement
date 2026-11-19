@@ -18,7 +18,7 @@ import {
   tombstoneMany,
   tombstones,
 } from "../src/store/tombstones/tombstone.ts";
-import { contentHash } from "../src/evidence/record.ts";
+import { contentHash } from "../src/telemetry/record.ts";
 import { lockIdentity } from "./helpers/lock-identity.ts";
 import { removeStore } from "./helpers/remove-store.ts";
 

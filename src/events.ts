@@ -4,9 +4,9 @@ import type { PluginCtx } from "./core/host.ts";
 import type { guarded as Guarded } from "./core/hooks.ts";
 import type { createInjectionEpochs } from "./inject/epochs.ts";
 import type { Measured } from "./status/payload.ts";
-import type { HitSource } from "./hits/ledger.ts";
+import type { HitSource } from "./telemetry/ledger.ts";
 import type { Memory } from "./store/model/memory.ts";
-import { useSignals } from "./hits/ledger.ts";
+import { useSignals } from "./telemetry/ledger.ts";
 import { setCurrent } from "./core/state.ts";
 import {
   bindSessionProvisional,

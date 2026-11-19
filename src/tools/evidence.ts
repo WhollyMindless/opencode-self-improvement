@@ -2,7 +2,7 @@
 // and handler are byte-identical to the pre-split source; closure access arrives
 // through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
-import { evidenceFileFor } from "../evidence/record.ts";
+import { evidenceFileFor } from "../telemetry/record.ts";
 import { parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
 import { evidenceVisibleTo, readerFromSid } from "../store/model/visibility.ts";

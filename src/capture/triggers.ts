@@ -2,12 +2,12 @@
 // tool results, never by a model decision. Nothing here injects into chat.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { record } from "../evidence/record.ts";
+import { record } from "../telemetry/record.ts";
 import { evidenceDir } from "../core/config/paths.ts";
 import { parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
 import { redactSecrets } from "../store/secrets.ts";
-import { recordOutcome } from "../hits/ledger.ts";
+import { recordOutcome } from "../telemetry/ledger.ts";
 import {
   session,
   setLastSeenSid,

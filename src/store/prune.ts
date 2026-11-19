@@ -2,7 +2,7 @@
 // reversible (snapshot) and never touches a repo. The `prune` evidence line is
 // emitted after prune() returns so S5 can assert the reason and snapshot.
 import { deletionsFile } from "../core/config/paths.ts";
-import { record } from "../evidence/record.ts";
+import { record } from "../telemetry/record.ts";
 import { type PruneResult, prune } from "./files/prune.ts";
 import { readerFromSid } from "./model/visibility.ts";
 

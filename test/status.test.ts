@@ -42,7 +42,7 @@ import {
 } from "../src/identity/repokey.ts";
 import { addBlock } from "../src/store/blocklist.ts";
 import { createInjectionEpochs } from "../src/inject/epochs.ts";
-import { hitsFile } from "../src/hits/ledger.ts";
+import { hitsFile } from "../src/telemetry/ledger.ts";
 import { loadPlugin } from "./harness.ts";
 import { resetState } from "../src/core/state.ts";
 import { removeStore } from "./helpers/remove-store.ts";

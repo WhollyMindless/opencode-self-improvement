@@ -37,10 +37,10 @@ import { findStaleOpen } from "./portable/decay.ts";
 import { exportMemories } from "./portable/export.ts";
 import { importMemories } from "./portable/import.ts";
 import { listSnapshots, restoreSnapshot } from "./store/undo.ts";
-import { evidenceFileFor, record } from "./evidence/record.ts";
+import { evidenceFileFor, record } from "./telemetry/record.ts";
 import { proposeConsolidations } from "./consolidate/propose.ts";
 import { renderProposals } from "./consolidate/render.ts";
-import { readReads } from "./hits/ledger.ts";
+import { readReads } from "./telemetry/ledger.ts";
 import { formatMemory } from "./inject/format.ts";
 import { sharedTerms } from "./recall/shared-terms.ts";
 import {
@@ -62,13 +62,10 @@ import {
   neverRetrieved,
   recordHits,
   type HitSource,
-} from "./hits/ledger.ts";
+} from "./telemetry/ledger.ts";
 import { formatInit } from "./init/format.ts";
 import { runInit } from "./init/run.ts";
-import {
-  ensureInitCommand,
-  ensureMemoryReportCommand,
-} from "./command/ensure.ts";
+import { ensureInitCommand, ensureMemoryReportCommand } from "./init/ensure.ts";
 import { captureLag, captureLagLines, rowsPerDay } from "./status/metrics.ts";
 import { type Measured, type StoreCounts } from "./status/payload.ts";
 import { renderMemoryReport } from "./status/report.ts";

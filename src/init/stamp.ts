@@ -26,7 +26,7 @@ import { INIT_STAMP_TAG } from "../core/tags.ts";
 import { preparePrivateFile, tightenDirectory } from "../core/permissions.ts";
 import { parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
-import { evidenceFileFor } from "../evidence/record.ts";
+import { evidenceFileFor } from "../telemetry/record.ts";
 import { resolveRepo } from "../identity/repokey.ts";
 import { loadAll } from "../store/files/load.ts";
 import { markSuperseded } from "../store/files/supersede.ts";

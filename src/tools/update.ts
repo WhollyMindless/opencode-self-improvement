@@ -5,7 +5,7 @@
 import { join } from "node:path";
 import { memoryRoot } from "../core/config/paths.ts";
 import { nonCaptureTags } from "../core/guidance.ts";
-import { record } from "../evidence/record.ts";
+import { record } from "../telemetry/record.ts";
 import { auditCaveat, runWriteGate, sameStrList } from "../gate/gate.ts";
 import { loadAll } from "../store/files/load.ts";
 import { markSuperseded } from "../store/files/supersede.ts";

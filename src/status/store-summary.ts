@@ -6,7 +6,7 @@ import {
   type HitEntry,
   type TurnOutcome,
   type UseLedger,
-} from "../hits/ledger.ts";
+} from "../telemetry/ledger.ts";
 import type { Memory } from "../store/model/memory.ts";
 import { isActive } from "../store/model/predicates.ts";
 import type { StoreCounts } from "./payload.ts";

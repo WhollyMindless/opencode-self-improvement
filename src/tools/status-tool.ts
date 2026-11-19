@@ -1,7 +1,7 @@
 // The memory_status tool, extracted from index.ts.
 // Closure access arrives through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
-import { readLedger, readOutcomes, readRides } from "../hits/ledger.ts";
+import { readLedger, readOutcomes, readRides } from "../telemetry/ledger.ts";
 import { formatMemory } from "../inject/format.ts";
 import { loadAll, malformedCount } from "../store/files/load.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
