@@ -23,22 +23,22 @@ import {
   exportsDir,
   memoryRoot,
   snapshotDir,
-} from "../src/core/config/paths.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { resetState } from "../src/core/state.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { isActive } from "../src/store/model/predicates.ts";
-import type { WriteCandidate } from "../src/gate/gate.ts";
-import { findStaleOpen } from "../src/portable/decay.ts";
-import { exportMemories } from "../src/portable/export.ts";
-import { importMemories } from "../src/portable/import.ts";
-import { setRepoScope } from "../src/identity/repokey.ts";
-import { systemDigest } from "../src/inject/digest.ts";
-import { loadPlugin } from "./harness.ts";
-import { readEvidenceLog as evidence } from "./helpers/logfmt.ts";
-import { roundTripThroughImport } from "./helpers/scenario-builders.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { resetState } from "../../src/core/state.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
+import type { WriteCandidate } from "../../src/gate/gate.ts";
+import { findStaleOpen } from "../../src/portable/decay.ts";
+import { exportMemories } from "../../src/portable/export.ts";
+import { importMemories } from "../../src/portable/import.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
+import { loadPlugin } from "../harness.ts";
+import { readEvidenceLog as evidence } from "../helpers/logfmt.ts";
+import { roundTripThroughImport } from "../helpers/scenario-builders.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let liveRoot: string;
