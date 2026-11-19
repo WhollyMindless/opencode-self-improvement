@@ -1,0 +1,353 @@
+// Replays the window-dedup rule over the LIVE store and asks what the shipped
+// guidance actually claims: at OPENCODE_MEMORY_DEDUP=0.8, is every suppressed
+// pair a near-copy?
+//
+// Why a replay and not a fixture: the rule's vocabulary changed in fc59b84. It
+// scored haystack(), which includes the row's own `type` and `scope`, so two
+// rows of one scope shared two free tokens and short rows looked like copies of
+// each other. Guidance written against that vocabulary needs re-reading against
+// the new one, and the store's own scopes are the only honest input, because
+// the failure mode WAS scope metadata.
+//
+// Three arms, because "the old rule" and "the old vocabulary" are different
+// questions and conflating them hides the answer:
+//
+//   A  contentTokens + the shipped guards  — what runs today
+//   B  haystack + the shipped guards       — isolates the vocabulary change
+//   C  haystack, NO guards                 — the rule that shipped before
+//                                          fc59b84: same scope and Jaccard,
+//                                          nothing else
+//
+// A pair is a SUPPRESSION candidate when an arm reaches the threshold: if both
+// rows ever occupy one recall window together, one of them is hidden.
+//
+// Scan set: the repository's rows PLUS rows with no repo stamp, because a
+// repo-scoped read sees both in one window (see src/recall/relevant.ts). Rows
+// stamped for another repository are excluded — they never share this window.
+//
+// "Near-identical" is not asserted by this runner. Every A-arm candidate is
+// printed in full, so the claim is checked by reading the pairs.
+//
+// Reads the live store. Not a CI job, and not a fixture: results drift as the
+// store grows, so any number quoted from it needs its date.
+import { existsSync } from "node:fs";
+import { loadAll } from "../../src/store/files/load.ts";
+import { isActive, isInjectable } from "../../src/store/model/predicates.ts";
+import { isVisibleTo } from "../../src/store/model/visibility.ts";
+import { haystack, words } from "../../src/recall/score.ts";
+import {
+  DEFAULT_THRESHOLD,
+  MIN_CONTENT,
+  POLARITY_WORDS,
+  contentTokens,
+  droppedChunks,
+  jaccard,
+} from "../../src/recall/dedupe.ts";
+import { resolveRepo } from "../../src/identity/repokey.ts";
+import {
+  legacyContentTokens,
+  legacyHaystackTokens,
+  legacyWords,
+} from "../lib/legacy-tokenizer.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
+
+const flags = process.argv.slice(2);
+const HISTORY = flags.includes("--all");
+const REPO_ONLY = flags.includes("--repo-only");
+// The first non-flag argument is the repository path. Taking argv[2] blindly
+// means `--all` becomes the path, and resolveRepo happily hashes a string that
+// is not a directory: the scan then finds nothing and reports a clean zero.
+const repoRoot = flags.find((a) => !a.startsWith("-")) ?? process.cwd();
+if (!existsSync(repoRoot)) {
+  console.error(`not a readable path: ${repoRoot}`);
+  process.exit(2);
+}
+const check = Bun.spawnSync(["git", "-C", repoRoot, "rev-parse", "--git-dir"], {
+  stdout: "pipe",
+  stderr: "ignore",
+});
+if (check.exitCode !== 0) {
+  console.error(`${repoRoot} is not a git repository — no repo key to scan.`);
+  process.exit(2);
+}
+const scopeKey = resolveRepo(repoRoot).key;
+
+const loaded = await loadAll();
+// The reader repository recall uses, so the population scored here is the
+// population a session can actually be shown. `isActive` plus a hand-rolled
+// `repo === key || !repo` filter admits bookkeeping rows the model never sees —
+// an `init-stamp` pair is a real duplicate and a real nothing — and it misses
+// rows stamped `repo=global` explicitly, which are global but not unstamped.
+const reader = { kind: "repo", scope: resolveRepo(repoRoot) } as const;
+const visible = loaded.filter((m) => isVisibleTo(m, reader));
+const rows = visible.filter((m) => {
+  // The history arm widens past injectability on purpose: superseded rows are
+  // what it is for. It does not widen past the reader.
+  if (HISTORY) return REPO_ONLY ? m.repo === scopeKey : true;
+  if (REPO_ONLY) return m.repo === scopeKey && isInjectable(m);
+  return isInjectable(m);
+});
+
+// Caches are keyed by ARRAY INDEX, never by `m.ts`: ts is not unique. Four ts
+// values cover eight rows in a real store, and a ts-keyed cache makes a row
+// score against itself — a phantom Jaccard of 1.000 for a pair that is nothing
+// of the kind.
+console.log(
+  `reader sees ${visible.length} of ${loaded.length} rows   model-facing (injectable) ${rows.length}${
+    HISTORY ? "  [history arm: injectability not applied]" : ""
+  }`,
+);
+const tok = rows.map((m) => contentTokens(m));
+const leg = rows.map((m) => new Set(words(haystack(m))));
+// Arm C answers "what did the old rule do", so it scores with the old
+// tokenizer, vendored in ../lib/legacy-tokenizer.ts. `legOldContent` is the same
+// rows minus `scope` and `type`, with the SAME tokenizer: attribution has to
+// hold the tokenizer fixed, or a pair reads as metadata-driven because the
+// measurement changed between the two sides. Review caught that on a fixture
+// whose content strings score 1.000 historically and 0.667 under today's.
+const legOld = rows.map((m) => legacyHaystackTokens(m));
+const legOldContent = rows.map((m) => legacyContentTokens(m));
+// Element-wise, exactly as the shipped rule compares them, so no separator
+// choice can matter.
+const chunk = rows.map((m) => droppedChunks(m.content));
+const hasPol = (s: Set<string>): boolean => {
+  for (const w of s) if (POLARITY_WORDS.has(w)) return true;
+  return false;
+};
+const pol = tok.map((s) => hasPol(s));
+const sameChunks = (a: number, b: number): boolean => {
+  const x = chunk[a]!;
+  const y = chunk[b]!;
+  if (x.length !== y.length) return false;
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+  return true;
+};
+
+const byScope = new Map<string, number[]>();
+rows.forEach((m, i) => {
+  const k = m.scope ?? "";
+  const list = byScope.get(k) ?? [];
+  list.push(i);
+  byScope.set(k, list);
+});
+
+interface Pair {
+  scope: string;
+  score: number;
+  ai: number;
+  bi: number;
+  a: Memory;
+  b: Memory;
+}
+const collect = (
+  tokens: Array<Set<string>>,
+  guards: boolean,
+): { hits: Pair[]; max: number } => {
+  const hits: Pair[] = [];
+  let max = 0;
+  for (const [scope, list] of byScope) {
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const x = list[i]!;
+        const y = list[j]!;
+        if (guards) {
+          if (tok[x]!.size < MIN_CONTENT || tok[y]!.size < MIN_CONTENT)
+            continue;
+          if (pol[x] !== pol[y]) continue;
+          if (!sameChunks(x, y)) continue;
+        }
+        const s = jaccard(tokens[x]!, tokens[y]!);
+        if (s > max) max = s;
+        if (s >= DEFAULT_THRESHOLD)
+          hits.push({
+            scope,
+            score: s,
+            ai: x,
+            bi: y,
+            a: rows[x]!,
+            b: rows[y]!,
+          });
+      }
+    }
+  }
+  hits.sort((p, q) => q.score - p.score || p.ai - q.ai || p.bi - q.bi);
+  return { hits, max };
+};
+
+const A = collect(tok, true);
+const B = collect(leg, true);
+const C = collect(legOld, false);
+
+// Which guard is load-bearing: every pair the old rule would have suppressed
+// and today's rule does not, attributed to the first guard that stops it.
+// Keyed by index pair — `m.ts` is not unique, so a ts key would compare the
+// wrong rows against each other.
+const aKeys = new Set(A.hits.map((h) => `${h.ai}|${h.bi}`));
+const attribution = { floor: 0, polarity: 0, chunks: 0 };
+for (const list of byScope.values()) {
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const x = list[i]!;
+      const y = list[j]!;
+      if (jaccard(leg[x]!, leg[y]!) < DEFAULT_THRESHOLD) continue;
+      if (aKeys.has(`${x}|${y}`)) continue;
+      if (tok[x]!.size < MIN_CONTENT || tok[y]!.size < MIN_CONTENT)
+        attribution.floor++;
+      else if (pol[x] !== pol[y]) attribution.polarity++;
+      else if (!sameChunks(x, y)) attribution.chunks++;
+    }
+  }
+}
+
+const label = REPO_ONLY
+  ? `${scopeKey} (repo-stamped rows only)`
+  : `${scopeKey} + global (unstamped OR repo=global)`;
+console.log(
+  `scan set ${label}   rows ${rows.length}${HISTORY ? " (history included)" : " (injectable only)"}   scopes ${byScope.size}\n` +
+    `A  contentTokens + shipped guards : ${A.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${A.max.toFixed(3)}\n` +
+    `B  haystack + shipped guards     : ${B.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${B.max.toFixed(3)}\n` +
+    `C  pre-fc59b84 tokenizer, no guards (replayed): ${C.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${C.max.toFixed(3)}\n` +
+    `   of C's candidates, blocked today by: floor ${attribution.floor}, polarity ${attribution.polarity}, dropped-chunks ${attribution.chunks}\n`,
+);
+
+if (A.hits.length) {
+  // With --all the candidate set includes supersession history, and the two
+  // cases mean opposite things: a pair of two ACTIVE rows is the pass having
+  // real work to do (or a false positive), while a pair with a superseded side
+  // is a row the write gate already replaced.
+  const bothActive = A.hits.filter(
+    (h) => isActive(h.a) && isActive(h.b),
+  ).length;
+  console.log(
+    `A-arm: ${bothActive} candidate(s) with BOTH rows active, ${A.hits.length - bothActive} with a superseded side\n`,
+  );
+  console.log("A-arm candidates with both rows active, in full — read them:");
+  for (const h of A.hits) {
+    if (!isActive(h.a) || !isActive(h.b)) continue;
+    const where = (m: Memory): string =>
+      m.repo && m.repo !== "global" ? "repo" : "GLOBAL";
+    console.log(
+      `--- ${h.score.toFixed(3)}  scope ${h.scope}  [${where(h.a)} vs ${where(h.b)}]`,
+    );
+    console.log(`  A: ${h.a.content.slice(0, 160).replace(/\n/g, " ")}`);
+    console.log(`  B: ${h.b.content.slice(0, 160).replace(/\n/g, " ")}`);
+  }
+} else {
+  console.log(
+    "A: no candidate. The shipped pass has nothing to suppress here.",
+  );
+}
+
+if (C.hits.length) {
+  const bySc = new Map<string, number>();
+  for (const h of C.hits) bySc.set(h.scope, (bySc.get(h.scope) ?? 0) + 1);
+  console.log(
+    `\nC: the old eligibility would have suppressed ${C.hits.length} pairs, concentrated in:`,
+  );
+  for (const [s, n] of [...bySc].sort((a, b) => b[1] - a[1]).slice(0, 6))
+    console.log(`   ${String(n).padStart(4)}x  scope ${s}`);
+  // Whether each C candidate is a content near-copy or a METADATA near-copy:
+  // the old vocabulary scored `type` and `scope`, so a pair can reach the
+  // threshold on shared metadata while its content stays distinct.
+  // Same tokenizer on both sides: the historical haystack against the
+  // historical content plus keywords.
+  const metaDriven = C.hits.filter(
+    (h) =>
+      jaccard(legOldContent[h.ai]!, legOldContent[h.bi]!) < DEFAULT_THRESHOLD,
+  );
+  // What the mixed measurement said, kept visible because it is the number an
+  // earlier version of this runner published.
+  const metaDrivenMixed = C.hits.filter(
+    (h) => jaccard(tok[h.ai]!, tok[h.bi]!) < DEFAULT_THRESHOLD,
+  ).length;
+  // The widest gap between what the old vocabulary scored and what the content
+  // alone says, printed rather than eyeballed from the sample below.
+  let widest: { score: number; content: number } | null = null;
+  const metaScopes = new Map<string, number>();
+  for (const h of metaDriven) {
+    const c = jaccard(legOldContent[h.ai]!, legOldContent[h.bi]!);
+    if (!widest || h.score - c > widest.score - widest.content)
+      widest = { score: h.score, content: c };
+    metaScopes.set(h.scope, (metaScopes.get(h.scope) ?? 0) + 1);
+  }
+  // The precondition fc59b84 removed is a scope whose tokens stand in for
+  // content. words() splits on ANY delimiter — underscore, hyphen, space, dot,
+  // slash — so counting underscores is not the test and a store with none of
+  // them is not exempt. Count the scopes that actually yield more than the
+  // whole-scope token, then demonstrate the mechanism on pairs this store does
+  // not contain, so the claim is shown rather than inferred from an absence.
+  // Counted with BOTH tokenizers: the old rule scored scope, so the number that
+  // belongs to this section is the legacy one, and today's count is only here to
+  // show the exemption is not a property of the delimiter either.
+  const standInOld = [...byScope.keys()].filter(
+    (s) => legacyWords(s).length > 1,
+  );
+  const standIn = [...byScope.keys()].filter((s) => words(s).length > 1);
+  console.log(
+    `   metadata-driven (same tokenizer, content + kw below ${DEFAULT_THRESHOLD}): ${metaDriven.length} of ${C.hits.length}; a mixed measurement (today's content tokens) would have said ${metaDrivenMixed}\n` +
+      `   scopes standing in for content under the OLD tokenizer: ${standInOld.length} of ${byScope.size}${
+        standInOld.length ? ` e.g. ${standInOld.slice(0, 3).join(", ")}` : ""
+      }\n` +
+      `   (today's tokenizer would count ${standIn.length}: hyphens split under both, underscores and camelCase under today's only)\n` +
+      (widest
+        ? `   widest metadata-vs-content gap: ${widest.score.toFixed(3)} metadata / ${widest.content.toFixed(3)} content`
+        : "   widest metadata-vs-content gap: none") +
+      [...metaScopes]
+        .sort((a, b) => b[1] - a[1])
+        .map(([s, c]) => `\n     ${c}x scope ${s}`)
+        .join(""),
+  );
+  // The precondition is scope vocabulary DOMINATING row content, not any one
+  // delimiter, so the probe walks the crossing rather than picking scopes by
+  // eye: two unrelated one-word rows sharing one scope, scored on the old
+  // vocabulary. Content alone is 0.000 for these, so the shipped rule keeps
+  // both at every length below.
+  const PROBE_WORDS = [
+    "alpha",
+    "bravo",
+    "charlie",
+    "delta",
+    "echo",
+    "foxtrot",
+    "golf",
+    "hotel",
+  ];
+  const probe = (scope: string): [number, number] => {
+    const base = {
+      ts: "2026-01-01T00:00:00.000Z",
+      type: "context",
+      scope,
+      status: "settled",
+      file: "",
+      index: 0,
+    };
+    const a = { ...base, content: "plum" } as Memory;
+    const b = { ...base, content: "lime" } as Memory;
+    return [
+      jaccard(legacyHaystackTokens(a), legacyHaystackTokens(b)),
+      jaccard(new Set(words(haystack(a))), new Set(words(haystack(b)))),
+    ];
+  };
+  for (const n of [4, 5, 6, 7, 8]) {
+    const [oldScore, todayScore] = probe(PROBE_WORDS.slice(0, n).join("-"));
+    console.log(
+      `   probe ${n} distinct scope words + two unrelated one-word rows: old tokenizer ${oldScore.toFixed(
+        3,
+      )} ${
+        oldScore >= DEFAULT_THRESHOLD ? "SUPPRESSES them" : "keeps both"
+      } (today's tokenizer would say ${todayScore.toFixed(
+        3,
+      )}) (content 0.000, so shipped keeps both)`,
+    );
+  }
+  // Every metadata-driven pair, not a sample: the claim this section rests on
+  // is what these rows actually are, and a sample of five is how the last
+  // version of it went wrong.
+  for (const h of C.hits) {
+    const c = jaccard(legOldContent[h.ai]!, legOldContent[h.bi]!);
+    if (c >= DEFAULT_THRESHOLD) continue;
+    console.log(
+      `     ${h.score.toFixed(3)} haystack / ${c.toFixed(3)} content (same tokenizer; today's content tokenizer ${jaccard(tok[h.ai]!, tok[h.bi]!).toFixed(3)})  scope ${h.scope}  ${h.a.content.slice(0, 60).replace(/\n/g, " ")}`,
+    );
+  }
+}
