@@ -327,6 +327,33 @@ describe("dedupeWindowGrouped", () => {
     expect(out.groups).toEqual([]);
   });
 
+  test("an exact copy never outranks a distinct row for the last slot", () => {
+    // The example-images row is kept as an addition against the plain command,
+    // and its byte-identical copy then arrives. Grouping on the FIRST clash
+    // would keep both copies and drop the prerequisite — the loss this pass
+    // exists to prevent, reintroduced by the grouping rule itself.
+    const copy = mem(
+      "BabylonDocs",
+      BUILD_EXAMPLES.content,
+      "2026-10-18T22:04:02.000Z",
+    );
+    const prereq = mem(
+      "BabylonDocs",
+      "BabylonDocs requires npm >= 11.10.0 per the engines field, the default node fails npm ci, use homebrew node",
+      "2026-10-18T22:04:03.000Z",
+    );
+    const out = dedupeWindowGrouped(
+      [BUILD, BUILD_EXAMPLES, copy, prereq],
+      3,
+      0.8,
+    );
+    expect(out.rows).toEqual([BUILD, copy, prereq]);
+    // The group names the rows that actually ride, not the pair the pass first
+    // saw: the copy took the earlier row's slot.
+    expect(out.groups).toEqual([[BUILD, copy]]);
+    expect(new Set(out.rows.map((m) => m.content)).size).toBe(3);
+  });
+
   test("the cost of the rule, pinned: a longer correction keeps both rows", () => {
     // A row extended in place reads as an addition, so the stale row survives
     // and spends a slot. Accepted: the alternative is deleting a fact that is

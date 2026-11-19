@@ -123,8 +123,15 @@ export type PairClass = "identical" | "addition" | "substitution";
  * - `addition` — one side wholly contained. The rows name different things and
  *   both hold; `build:example-images` tokenises to contain `build`, which is
  *   how a second command reaches 0.82 against the first.
- * - `substitution` — a leftover on each side: the same statement about a
- *   changed world, so the older row is stale.
+ * - `substitution` — a leftover on each side, read as the same statement
+ *   about a changed world, so the older row is stale.
+ *
+ * Only `addition` is decidable from containment. Its absence is NOT evidence
+ * of a correction: two instructions naming two scripts that both exist
+ * (`bun run bench:recall` and `bun run bench:write`) also leave a leftover on
+ * each side, score 0.882, and the older is dropped. That limitation predates
+ * this rule and is recorded in docs/adr/0002; collapsing such a pair is the
+ * pass's existing behavior, not something the split introduces.
  *
  * Only token equality, so the short-chunk guard stays load-bearing: "late 0"
  * and "late 1" tokenise alike and read as `identical` here.
@@ -236,37 +243,74 @@ export function dedupeWindowGrouped(
     return p;
   };
   const kept: number[] = [];
-  const groups: Array<[Memory, Memory]> = [];
   for (let i = 0; i < ranked.length && kept.length < limit; i++) {
     if (tokensOf(i).size < MIN_CONTENT) {
       kept.push(i);
       continue;
     }
-    let clash = -1; // position within `kept`, not the row index
+    // Scan every kept row rather than stopping at the first hit. An additive
+    // clash found early in the window can sit next to its own exact copy later
+    // in it, and grouping on the first match spends a slot on a duplicate
+    // while a distinct row waits outside — the exact loss this pass exists to
+    // prevent. A collapse anywhere therefore outranks a group.
+    let addition = -1; // first clash that names something new
+    let collapse = -1; // a clash that is a copy or a correction
     for (const pos of kept.keys()) {
       const k = kept[pos]!;
       if (
-        ranked[k]!.scope === ranked[i]!.scope &&
-        tokensOf(k).size >= MIN_CONTENT &&
-        polarityOf(k) === polarityOf(i) &&
-        sameDroppedChunks(ranked[k]!, ranked[i]!) &&
-        jaccard(tokensOf(i), tokensOf(k)) >= threshold
+        ranked[k]!.scope !== ranked[i]!.scope ||
+        tokensOf(k).size < MIN_CONTENT ||
+        polarityOf(k) !== polarityOf(i) ||
+        !sameDroppedChunks(ranked[k]!, ranked[i]!) ||
+        jaccard(tokensOf(i), tokensOf(k)) < threshold
       ) {
-        clash = pos;
-        break;
+        continue;
       }
+      if (classifyPair(tokensOf(k), tokensOf(i)) === "addition") {
+        if (addition < 0) addition = pos;
+        continue;
+      }
+      collapse = pos;
+      break;
     }
-    if (clash === -1) kept.push(i);
-    else if (
+    if (
+      collapse < 0 &&
+      addition >= 0 &&
       groupAdditions &&
-      classifyPair(tokensOf(kept[clash]!), tokensOf(i)) === "addition" &&
       kept.length < limit
     ) {
-      groups.push([ranked[kept[clash]!]!, ranked[i]!]);
       kept.push(i);
-    } else if (ranked[i]!.ts > ranked[kept[clash]!]!.ts) kept[clash] = i;
+    } else if (collapse >= 0) {
+      if (ranked[i]!.ts > ranked[kept[collapse]!]!.ts) kept[collapse] = i;
+    } else if (addition >= 0) {
+      if (ranked[i]!.ts > ranked[kept[addition]!]!.ts) kept[addition] = i;
+    } else kept.push(i);
   }
-  return { rows: kept.map((i) => ranked[i]!), groups };
+  const rows = kept.map((i) => ranked[i]!);
+  // Groups are recomputed from the window instead of accumulated during the
+  // pass. A collapse replaces a row in place, so a group recorded earlier can
+  // name a row that no longer rides, and a marker pointing at an absent row
+  // describes nothing. Recomputing also costs nothing: the window is `limit`
+  // rows, so this is a handful of comparisons against cached token sets.
+  const groups: Array<[Memory, Memory]> = [];
+  if (groupAdditions)
+    for (let a = 0; a < kept.length; a++)
+      for (let b = a + 1; b < kept.length; b++) {
+        const x = kept[a]!;
+        const y = kept[b]!;
+        if (
+          ranked[x]!.scope === ranked[y]!.scope &&
+          tokensOf(x).size >= MIN_CONTENT &&
+          tokensOf(y).size >= MIN_CONTENT &&
+          polarityOf(x) === polarityOf(y) &&
+          sameDroppedChunks(ranked[x]!, ranked[y]!) &&
+          jaccard(tokensOf(x), tokensOf(y)) >= threshold &&
+          classifyPair(tokensOf(x), tokensOf(y)) === "addition"
+        ) {
+          groups.push([ranked[x]!, ranked[y]!]);
+        }
+      }
+  return { rows, groups };
 }
 
 /** The window alone, without the groups. See `dedupeWindowGrouped`. */
