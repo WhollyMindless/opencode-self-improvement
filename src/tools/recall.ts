@@ -17,7 +17,8 @@ import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 import type { Memory } from "../store/model/memory.ts";
 import { RecallArgs, validated } from "./schema.ts";
 import { firstFrontierTap, markFrontierTap } from "../capture/triggers.ts";
-import { dedupeThreshold, dedupeWindow } from "../recall/dedupe.ts";
+import { dedupeThreshold, dedupeWindowGrouped } from "../recall/dedupe.ts";
+import { ambiguousLine } from "../recall/ambiguous.ts";
 
 function scoreMemory(m: Memory, q: string): number {
   // Same indexed fields as the injection scorer: a row recalled by one of
@@ -83,11 +84,14 @@ export const register: ToolRegister = (editor, deps) => {
         // dedup lane (RESULTS §17): default on at 0.8 — near-duplicate
         // copies are skipped so the window fills with distinct rows instead of
         // repeats of the top hit. OPENCODE_MEMORY_DEDUP=0 restores the plain
-        // slice.
+        // slice. A clash where one row is wholly contained in the other names a
+        // second thing rather than a corrected one, so both are kept and an
+        // AMBIGUOUS line says so; OPENCODE_MEMORY_AMBIGUOUS=0 collapses those too.
         const dedupeAt = dedupeThreshold();
-        const limited = args.query
-          ? dedupeWindow(results, limit, dedupeAt)
-          : results.slice(-limit);
+        const grouped = args.query
+          ? dedupeWindowGrouped(results, limit, dedupeAt)
+          : { rows: results.slice(-limit), groups: [] };
+        const limited = grouped.rows;
         if (!limited.length) return { content: "No matching memories" };
         const openIn = limited.filter((m) => m.status === "open").length;
         if (openIn > 0) {
@@ -104,8 +108,18 @@ export const register: ToolRegister = (editor, deps) => {
           );
         }
         if (args.query) await noteHits("recall", sid, limited, args.query);
+        const lines = limited.map(formatMemory);
+        // A kept group is named after the rows it describes, numbered to match
+        // the list above. Resolved by object identity rather than by position
+        // arithmetic: the group carries the same objects the window holds.
+        for (const [a, b] of grouped.groups) {
+          const ia = limited.indexOf(a);
+          const ib = limited.indexOf(b);
+          if (ia >= 0 && ib >= 0)
+            lines.push(ambiguousLine(a, b, ia + 1, ib + 1));
+        }
         return {
-          content: `Found ${results.length} (${total} total)\n\n${limited.map(formatMemory).join("\n")}`,
+          content: `Found ${results.length} (${total} total)\n\n${lines.join("\n")}`,
         };
       },
     }),
