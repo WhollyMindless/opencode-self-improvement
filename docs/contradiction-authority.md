@@ -5,7 +5,15 @@ takes sides it has to be sure it is reading a real declaration, so the check is
 deliberately narrow — and what it refuses to decide is the more useful half of
 this document.
 
-The verdict table stays in the README.
+## Who is the authority
+
+Capture records the kind of statement, and the verdict follows the class:
+
+| Captured statement | Class | Verdict on a detected conflict |
+| --- | --- | --- |
+| User states the required value for a declared constant | `spec` | The user is the authority; change the constant to the stated requirement. |
+| User describes how working code behaves | `behavior` | Code is the authority; keep the constant and raise the mismatch with the user. |
+| Authority is unclear | Omit `klass` | Keep plain guidance and its staleness caveat; emit no CONFLICT verdict. |
 
 ## What the check will read
 
