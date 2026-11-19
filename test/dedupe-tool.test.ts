@@ -22,6 +22,7 @@ beforeEach(() => {
   // suite (recall-gate.test.ts).
   process.env.OPENCODE_MEMORY_QUERY_GATE = "off";
   delete process.env.OPENCODE_MEMORY_DEDUP;
+  delete process.env.OPENCODE_MEMORY_AMBIGUOUS;
   resetState();
   setRepoScope(null);
 });
@@ -29,12 +30,13 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.OPENCODE_MEMORY_QUERY_GATE;
   delete process.env.OPENCODE_MEMORY_DEDUP;
+  delete process.env.OPENCODE_MEMORY_AMBIGUOUS;
   setRepoScope(null);
   delete process.env.OPENCODE_MEMORY_DIR;
   removeStore(root);
 });
 
-function seed(content: string, ts: string) {
+function seed(content: string, ts: string, scope = "release") {
   const day = "2026-01-01";
   const file = join(memoryRoot(), `${day}.logfmt`);
   mkdirSync(dirname(file), { recursive: true });
@@ -43,7 +45,7 @@ function seed(content: string, ts: string) {
     `${formatLine({
       ts,
       type: "learning",
-      scope: "release",
+      scope,
       content,
       status: "settled",
     })}\n`,
@@ -82,6 +84,106 @@ describe("memory_recall dedup default", () => {
     });
     expect(out).toContain("every monday");
     expect(out).toContain("every friday");
+    await loaded.cleanup();
+  });
+});
+
+// The pair that motivated the grouping rule, end to end: without this file the
+// rule could pass its unit suite while the shipped tool still returned one
+// command, or return both without ever saying why.
+const BUILD =
+  'BabylonDocs build command: run "npm run build" from the repo root (package.json).';
+const BUILD_EXAMPLES =
+  'BabylonDocs build:example-images command: run "npm run build:example-images" from the repo root (package.json).';
+
+describe("memory_recall additive clash", () => {
+  test("both commands return, with a line naming why", async () => {
+    seed(BUILD, "2026-01-01T00:00:00.000Z", "BabylonDocs");
+    seed(BUILD_EXAMPLES, "2026-01-01T00:00:01.000Z", "BabylonDocs");
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "BabylonDocs build command",
+      limit: 5,
+    });
+    expect(out).toContain("npm run build");
+    expect(out).toContain("npm run build:example-images");
+    expect(out).toContain("AMBIGUOUS (BabylonDocs)");
+    expect(out).toContain("neither supersedes the other");
+    await loaded.cleanup();
+  });
+
+  test("OPENCODE_MEMORY_AMBIGUOUS=0 collapses the pair again", async () => {
+    seed(BUILD, "2026-01-01T00:00:00.000Z", "BabylonDocs");
+    seed(BUILD_EXAMPLES, "2026-01-01T00:00:01.000Z", "BabylonDocs");
+    process.env.OPENCODE_MEMORY_AMBIGUOUS = "0";
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "BabylonDocs build command",
+      limit: 5,
+    });
+    expect(out).toContain("npm run build:example-images");
+    expect(out).not.toContain("AMBIGUOUS");
+    await loaded.cleanup();
+  });
+
+  test("a duplicate of a grouped row does not evict a distinct row", async () => {
+    // Through the handler, where the slot is the thing that matters: the third
+    // row is byte-identical to the second, so it must take the second's slot
+    // rather than the third one.
+    seed(BUILD, "2026-01-01T00:00:01.000Z", "BabylonDocs");
+    seed(BUILD_EXAMPLES, "2026-01-01T00:00:02.000Z", "BabylonDocs");
+    seed(BUILD_EXAMPLES, "2026-01-01T00:00:03.000Z", "BabylonDocs");
+    seed(
+      "BabylonDocs requires npm >= 11.10.0 per the engines field, the default node fails npm ci, use homebrew node",
+      "2026-01-01T00:00:04.000Z",
+      "BabylonDocs",
+    );
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "BabylonDocs build command",
+      limit: 3,
+    });
+    expect(out.match(/npm run build:example-images/g)?.length).toBe(1);
+    expect(out).toContain("npm >= 11.10.0");
+    expect(out.match(/AMBIGUOUS/g)?.length).toBe(1);
+    await loaded.cleanup();
+  });
+
+  test("a chain of nested rows produces one marker, not one per pair", async () => {
+    // Eight rows, each a superset of the last, so every pair inside the window
+    // is additive. A pair-per-marker renderer emitted C(5,2) = 10 lines for
+    // five facts; a family is one line.
+    const common = "deploy runbook for the ingest worker restarts the pod";
+    for (let i = 0; i < 8; i++)
+      seed(
+        `${common} ${Array.from({ length: i + 1 }, (_, j) => `step${j}`).join(" ")}`,
+        `2026-01-01T00:00:${String(i).padStart(2, "0")}.000Z`,
+        "runbook",
+      );
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "deploy runbook ingest worker",
+      limit: 5,
+    });
+    expect(out.match(/AMBIGUOUS/g)?.length).toBe(1);
+    expect(out.match(/Action:/g)?.length).toBe(1);
+    expect(out.match(/^- \[2026-01-01\]/gm)?.length).toBe(5);
+    await loaded.cleanup();
+  });
+
+  test("a corrected fact returns one row and no marker", async () => {
+    // The marker is only for pairs that both hold. A stale row must not come
+    // back wearing one.
+    seed(FRIDAY, "2026-01-01T00:00:00.000Z");
+    seed(MONDAY, "2026-01-01T00:00:01.000Z");
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "deploy runbook signing key",
+      limit: 5,
+    });
+    expect(out).toContain("every monday");
+    expect(out).not.toContain("every friday");
+    expect(out).not.toContain("AMBIGUOUS");
     await loaded.cleanup();
   });
 });

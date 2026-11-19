@@ -24,3 +24,21 @@ The live store carries repeated rows — superseded snapshots, cursor rows diffe
 - Known limitation, from that same replay: 0.8 suppresses a pair that is not a copy. Two active rows naming two different build commands in one scope score 0.824 and pass every guard. Ranking favors recency and the pass keeps the first-ranked row of a clash, so the survivor is the newer, narrower command and the plain build command is what disappears from the reader's view. The threshold trades that against crowding; where a scope holds parallel short facts, it costs real information.
 - Raising the default was evaluated on 2026-11-19 and rejected. The pair worth releasing scores 0.8235; the changed-fact pair pinned in `test/dedupe-tool.test.ts` — the same runbook sentence with `friday` replaced by `monday` — scores 0.8333. Any threshold separating them must sit in a window one hundredth wide, which is a constant fitted to two observations, and 0.9 releases both and removes the recency rule above. The two rows have the same shape: one sentence, one long token swapped out. Whether that swap replaced a fact or added one is not visible in a token overlap, so this is not a threshold problem.
 - The dropped-chunk guard, not the threshold, decides what this pass ever sees. Two rows differing by a timestamp have different dropped fragments and are never compared, so the cursor rows this record names as the motivation are exempt, while prose carrying no short fragments at all is compared and can be suppressed on shape alone.
+
+
+## Addition groups
+
+A clash is not always a copy. `classifyPair` reads the leftover token sets and splits three cases:
+`identical` (nothing left over — one row typed twice), `addition` (one side wholly contained — the
+rows name different things, so both hold), `substitution` (a leftover on each side). Only `addition`
+is decidable from containment, and only `addition` keeps both rows; it takes an extra slot and the
+handler marks the pair with `AMBIGUOUS` rather than deciding silently. Flag:
+`OPENCODE_MEMORY_AMBIGUOUS`, on by default.
+
+`substitution` is an interpretation, not a decision, and its absence of containment is not evidence
+of a correction. Two instructions naming two scripts that both exist — `bun run bench:recall` and
+`bun run bench:write` — leave a leftover on each side, score 0.882, and the older is dropped. That
+predates the split and the split does not fix it: the pass has no way to learn from a row's text that
+both scripts are real. It is the remaining limitation of the rule, and the reason the group marker
+exists at all — where the classifier can see both readings are possible, it says so instead of
+choosing.
