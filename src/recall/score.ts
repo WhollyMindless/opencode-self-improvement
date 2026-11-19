@@ -29,7 +29,7 @@ export function words(text: string): string[] {
   for (const id of ids) {
     // Sentence punctuation is not part of the identifier: a row ending
     // `Join on db_id.` must still carry the token `db_id`. Underscore stays
-    // (the shipped tokenizer kept it), and interior separators stay â€” only
+    // (the shipped tokenizer kept it), and interior separators stay — only
     // the edges are trimmed.
     const whole = id.replace(/^[./-]+|[./-]+$/g, "").toLowerCase();
     if (whole.length > 2) out.push(whole);
@@ -68,7 +68,7 @@ export function words(text: string): string[] {
 
 // Query-side stopwords: bag-of-words scoring has no IDF, so "the/what/how"
 // match a large share of every memory and let a query with ZERO content
-// overlap rank. Dropping them makes the matcher abstain â€” inject nothing â€” when the vocabulary
+// overlap rank. Dropping them makes the matcher abstain — inject nothing — when the vocabulary
 // genuinely has nothing in common, instead of injecting confident noise.
 // Memory-side tokens are never filtered: a memory stating "the" must not
 // gain or lose rank from it, only queries drive matching.
@@ -83,16 +83,16 @@ export const QUERY_STOPWORDS = new Set(
 // share >= 2 distinct concepts with a memory to inject: with a long query
 // vocabulary, one shared token is near-certain coincidence (a live store hit
 // injected a git memory on the word "should", df=1). A keyword-length query
-// is a deliberate search â€” one shared concept suffices. memory_recall and the
+// is a deliberate search — one shared concept suffices. memory_recall and the
 // contextual pull keep single-overlap matches reachable; injection just stays
 // quiet unless the vocabulary genuinely agrees twice.
 export const LONG_QUERY_TOKENS = 3;
 
 // Production relevance ranking. Candidates must clear the concept-overlap
 // gate, then rank by Robertson-IF of the shared tokens (rare concepts beat
-// piles of common ones â€” the same idf form the bench's BM25 row uses).
+// piles of common ones — the same idf form the bench's BM25 row uses).
 // Ties break deliberately, in this order: open threads first (a pinned frontier
-// row beats an equal-scoring settled one â€” that is what the frontier is for),
+// row beats an equal-scoring settled one — that is what the frontier is for),
 // then rows the use ledger has actually retrieved, most-recently-used first
 //, then the newer row (between two equally
 // relevant facts, the one stating what is true NOW is the better guess;
@@ -101,7 +101,7 @@ export const LONG_QUERY_TOKENS = 3;
 // author-supplied aliases indexed at write time (the vocabulary
 // bridge for the bench's strict-paraphrase wall). Keywords are indexed, never
 // rendered, so they cannot change what a block costs.
-// Exported for bench/runners/recall-quality.ts â€” the benchmark measures the shipped
+// Exported for bench/runners/recall-quality.ts — the benchmark measures the shipped
 // matcher.
 //
 // Superseded rows are dropped HERE, not only by the callers. Every model-facing
@@ -111,13 +111,13 @@ export const LONG_QUERY_TOKENS = 3;
 // retired row from diluting the document frequencies the ranking depends on.
 /**
  * The query's distinct concepts. `words()` emits each identifier at two
- * granularities â€” whole form plus camel/separator segments â€” and the admission
+ * granularities — whole form plus camel/separator segments — and the admission
  * gate must count ONE concept per identifier, not one per token: a query
  * citing `memoryRecallThreshold` is a single concept even though it emits
  * four tokens: the flat token count raised needShared from 1 to
  * 2 and a row carrying that keyword fused in `kw` stopped matching its own
- * keyword). Identifiers sharing any token â€” the same concept spelled two ways
- * in one query â€” merge into one group.
+ * keyword). Identifiers sharing any token — the same concept spelled two ways
+ * in one query — merge into one group.
  */
 function queryConcepts(term: string): string[][] {
   const groups: string[][] = [];
