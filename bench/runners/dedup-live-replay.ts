@@ -43,6 +43,11 @@ import {
   jaccard,
 } from "../../src/recall/dedupe.ts";
 import { resolveRepo } from "../../src/identity/repokey.ts";
+import {
+  legacyContentTokens,
+  legacyHaystackTokens,
+  legacyWords,
+} from "../lib/legacy-tokenizer.ts";
 import type { Memory } from "../../src/store/model/memory.ts";
 
 const flags = process.argv.slice(2);
@@ -78,22 +83,14 @@ const rows = loaded.filter((m) => {
 // of the kind.
 const tok = rows.map((m) => contentTokens(m));
 const leg = rows.map((m) => new Set(words(haystack(m))));
-/**
- * The tokenizer as it shipped before `fc59b84`, vendored from
- * `git show 3ff96ef:src/recall/score.ts`. Arm C answers "what did the old rule
- * do", and today's `words()` emits one token the old one never did — the whole
- * identifier form — which shifts every short-row score by one token in both the
- * numerator and the denominator. A published number about the old rule has to
- * be computed with the old tokenizer, so it is carried here rather than
- * approximated with the current one.
- */
-function legacyWords(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9_]+/)
-    .filter((t) => t.length > 2);
-}
-const legOld = rows.map((m) => new Set(legacyWords(haystack(m))));
+// Arm C answers "what did the old rule do", so it scores with the old
+// tokenizer, vendored in ../lib/legacy-tokenizer.ts. `legOldContent` is the same
+// rows minus `scope` and `type`, with the SAME tokenizer: attribution has to
+// hold the tokenizer fixed, or a pair reads as metadata-driven because the
+// measurement changed between the two sides. Review caught that on a fixture
+// whose content strings score 1.000 historically and 0.667 under today's.
+const legOld = rows.map((m) => legacyHaystackTokens(m));
+const legOldContent = rows.map((m) => legacyContentTokens(m));
 // Element-wise, exactly as the shipped rule compares them, so no separator
 // choice can matter.
 const chunk = rows.map((m) => droppedChunks(m.content));
@@ -233,15 +230,23 @@ if (C.hits.length) {
   // Whether each C candidate is a content near-copy or a METADATA near-copy:
   // the old vocabulary scored `type` and `scope`, so a pair can reach the
   // threshold on shared metadata while its content stays distinct.
+  // Same tokenizer on both sides: the historical haystack against the
+  // historical content plus keywords.
   const metaDriven = C.hits.filter(
-    (h) => jaccard(tok[h.ai]!, tok[h.bi]!) < DEFAULT_THRESHOLD,
+    (h) =>
+      jaccard(legOldContent[h.ai]!, legOldContent[h.bi]!) < DEFAULT_THRESHOLD,
   );
+  // What the mixed measurement said, kept visible because it is the number an
+  // earlier version of this runner published.
+  const metaDrivenMixed = C.hits.filter(
+    (h) => jaccard(tok[h.ai]!, tok[h.bi]!) < DEFAULT_THRESHOLD,
+  ).length;
   // The widest gap between what the old vocabulary scored and what the content
   // alone says, printed rather than eyeballed from the sample below.
   let widest: { score: number; content: number } | null = null;
   const metaScopes = new Map<string, number>();
   for (const h of metaDriven) {
-    const c = jaccard(tok[h.ai]!, tok[h.bi]!);
+    const c = jaccard(legOldContent[h.ai]!, legOldContent[h.bi]!);
     if (!widest || h.score - c > widest.score - widest.content)
       widest = { score: h.score, content: c };
     metaScopes.set(h.scope, (metaScopes.get(h.scope) ?? 0) + 1);
@@ -252,12 +257,19 @@ if (C.hits.length) {
   // them is not exempt. Count the scopes that actually yield more than the
   // whole-scope token, then demonstrate the mechanism on pairs this store does
   // not contain, so the claim is shown rather than inferred from an absence.
+  // Counted with BOTH tokenizers: the old rule scored scope, so the number that
+  // belongs to this section is the legacy one, and today's count is only here to
+  // show the exemption is not a property of the delimiter either.
+  const standInOld = [...byScope.keys()].filter(
+    (s) => legacyWords(s).length > 1,
+  );
   const standIn = [...byScope.keys()].filter((s) => words(s).length > 1);
   console.log(
-    `   metadata-driven (content-only Jaccard below ${DEFAULT_THRESHOLD}): ${metaDriven.length} of ${C.hits.length}\n` +
-      `   scopes standing in for content (more than one word under any delimiter): ${standIn.length}${
-        standIn.length ? ` e.g. ${standIn.slice(0, 3).join(", ")}` : ""
+    `   metadata-driven (same tokenizer, content + kw below ${DEFAULT_THRESHOLD}): ${metaDriven.length} of ${C.hits.length}; a mixed measurement (today's content tokens) would have said ${metaDrivenMixed}\n` +
+      `   scopes standing in for content under the OLD tokenizer: ${standInOld.length} of ${byScope.size}${
+        standInOld.length ? ` e.g. ${standInOld.slice(0, 3).join(", ")}` : ""
       }\n` +
+      `   (today's tokenizer would count ${standIn.length}: hyphens split under both, underscores and camelCase under today's only)\n` +
       (widest
         ? `   widest metadata-vs-content gap: ${widest.score.toFixed(3)} metadata / ${widest.content.toFixed(3)} content`
         : "   widest metadata-vs-content gap: none") +
@@ -293,10 +305,7 @@ if (C.hits.length) {
     const a = { ...base, content: "plum" } as Memory;
     const b = { ...base, content: "lime" } as Memory;
     return [
-      jaccard(
-        new Set(legacyWords(haystack(a))),
-        new Set(legacyWords(haystack(b))),
-      ),
+      jaccard(legacyHaystackTokens(a), legacyHaystackTokens(b)),
       jaccard(new Set(words(haystack(a))), new Set(words(haystack(b)))),
     ];
   };
@@ -316,10 +325,10 @@ if (C.hits.length) {
   // is what these rows actually are, and a sample of five is how the last
   // version of it went wrong.
   for (const h of C.hits) {
-    const c = jaccard(tok[h.ai]!, tok[h.bi]!);
+    const c = jaccard(legOldContent[h.ai]!, legOldContent[h.bi]!);
     if (c >= DEFAULT_THRESHOLD) continue;
     console.log(
-      `     ${h.score.toFixed(3)} metadata / ${c.toFixed(3)} content  scope ${h.scope}  ${h.a.content.slice(0, 70).replace(/\n/g, " ")}`,
+      `     ${h.score.toFixed(3)} haystack / ${c.toFixed(3)} content (same tokenizer; today's content tokenizer ${jaccard(tok[h.ai]!, tok[h.bi]!).toFixed(3)})  scope ${h.scope}  ${h.a.content.slice(0, 60).replace(/\n/g, " ")}`,
     );
   }
 }

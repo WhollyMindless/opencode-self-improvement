@@ -33,8 +33,8 @@ rows, and the difference matters — see below.
 Arm C replays the old tokenizer rather than approximating it. An earlier version scored the old
 eligibility with today's `haystack()` and `words()`, and that is not the same rule: today's tokenizer
 emits the whole identifier form as a token, which the old one did not, so every short-row score moves
-by one token in both numerator and denominator. The vendored copy in the runner is `git show
-3ff96ef:src/recall/score.ts`'s `words()`. The counts above are from the replay; under today's tokenizer
+by one token in both numerator and denominator. The vendored copy is `bench/lib/legacy-tokenizer.ts`, taken from
+`git show 3ff96ef:src/recall/score.ts`. The counts above are from the replay; under today's tokenizer
 the same arm reported 108 active and 434 with history. A review fixture pinned the difference: two
 unrelated rows in an eight-word hyphenated scope score 9/11 = 0.818 under the historical deduper, and
 the replay reproduces 0.818 where the approximation printed 0.833.
@@ -70,13 +70,29 @@ because the store happens to hold no near-copies.
 
 ## Is the `fc59b84` failure live in this store?
 
-Not among the pairs examined. The old vocabulary scored `type` and `scope`, so a pair can reach the threshold on shared metadata while its content stays distinct. Of the 113 active C candidates, **19** fall below 0.8 on content alone. The runner prints all 19 with both scores, because the claim in this section is what those rows *are* and a five-row sample is how the previous version of it went wrong. The widest gap is **0.833 metadata against 0.692 content**.
+Not among the pairs examined. The old vocabulary scored `type` and `scope`, so a pair can reach the threshold on shared metadata while its content stays distinct. Of the 113 active C candidates, **11** fall below 0.8 on content alone. The runner prints all 11 with both scores, because the claim in this section is what those rows *are* and a five-row sample is how a previous version of it went wrong. The widest gap is **0.810 haystack against 0.795 content**.
 
-All 19 sit in scope `review`. **18** are `pr-watch` conversation-cursor rows differing by a run timestamp; the nineteenth, the widest one, is a `pr-claim` row — the same PR's head and diff hashes refreshed to a new commit. Same shape: a machine-written cursor rewritten in place, differing by an identifier rather than a clock. Near-copies by any reading, pushed just over the line by shared metadata rather than pulled there by unrelated content — but they are not all `pr-watch`, which an earlier version of this file asserted.
+All 11 sit in scope `review`, and all 11 are `pr-watch` conversation-cursor rows differing by a run
+timestamp: near-copies by any reading, pushed just over the line by shared metadata rather than pulled
+there by unrelated content.
+
+An earlier version of this file counted **19** and included a `pr-claim` row among them. That count was
+wrong in method, not just in number: it scored the historical haystack on one side and **today's**
+content tokenizer on the other, so a pair could be called metadata-driven because the measurement
+changed between the two sides. Attribution has to hold the tokenizer fixed, and the runner now compares
+the historical haystack against historical content plus keywords, printing today's content score beside
+it as a separate column. Under the fixed comparison the `pr-claim` pair scores above 0.8 on content and
+was never metadata-driven, and the widest gap narrows from a spurious 0.833 / 0.692 to 0.810 / 0.795.
 
 The shape `fc59b84` removed is a scope whose tokens stand in for content. An earlier version of this file claimed this store was exempt because it holds no `snake_case` scope, and that claim was **wrong** in two ways, both found by review.
 
-First, `words()` splits on any non-alphanumeric delimiter, and on camelCase, so hyphens and capitals contribute stand-in words exactly as underscores do. **144 of this store's 242 scopes** already yield more than one token — `opencode-self-improvement`, `npm-publish`, `BabylonDocs` among them.
+First, the exemption was never about `snake_case`. The **old** tokenizer splits a scope on hyphens,
+slashes and spaces but keeps underscores whole and never splits camelCase. On that rule **133 of this
+store's 242 scopes** already yield more than one token — `opencode-self-improvement`, `npm-publish`,
+`gufo-ops`, `repo-config` — while `BabylonDocs` and `auth_token_refresh_policy` yield one. Today's
+`words()` emits the whole identifier *plus* segments split on hyphens, underscores and camelCase, which
+takes the count to 144; the runner prints both so the number attached to the old rule is the old one's.
+Either way, most scopes were already contributing stand-in vocabulary.
 
 Second, "more than one word" is not the threshold either. The precondition is scope vocabulary **dominating** row content, and the runner walks the crossing instead of asserting it. Two unrelated one-word rows sharing one scope, scored with the replayed old tokenizer:
 
@@ -88,9 +104,9 @@ Second, "more than one word" is not the threshold either. The precondition is sc
 | 7 | **0.800** | **suppresses them** | 0.818 |
 | 8 | 0.818 | suppresses them | 0.833 |
 
-So a **seven**-word scope is enough to make two unrelated rows look like copies of each other, and the shipped content-only rule keeps both at every length (their content score is 0.000). The crossing sits at seven, not six: the row above it was computed with today's tokenizer, which emits the whole hyphenated form as an extra token and so inflates both sides of the ratio. Review caught it against the historical implementation, and the table now comes from the vendored `words()`.
+So a **seven**-word scope is enough to make two unrelated rows look like copies of each other, and the shipped content-only rule keeps both at every length (their content score is 0.000). The crossing sits at seven, not six: the row above it was computed with today's tokenizer, which emits the whole hyphenated form as an extra token and so inflates both sides of the ratio. Review caught it against the historical implementation, and the table now comes from the vendored tokenizer in `bench/lib/legacy-tokenizer.ts`.
 
-What survives of the original claim is the narrow version: **no candidate in this store is metadata-driven that way**, because the 19 that reach the threshold on metadata are machine-written cursor rows, near-copies by any reading. With 144 scopes already contributing stand-in vocabulary, that is luck of row length, not a structural exemption — which is a weaker claim than the one this file made before, and the correct one.
+What survives of the original claim is the narrow version: **no candidate in this store is metadata-driven that way**, because the 11 that reach the threshold on metadata are machine-written cursor rows, near-copies by any reading. With 133 scopes already contributing stand-in vocabulary under the old rule, that is luck of row length, not a structural exemption — which is a weaker claim than the one this file made before, and the correct one.
 
 ## Why the threshold is not the fix
 
