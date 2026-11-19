@@ -170,9 +170,24 @@ export function extractPathRefs(content: string): string[] {
 // whose match starts just after `$` or `~` — env vars and home paths describe
 // another machine, e.g. in `$BUILD_ROOT/src/a.ts` the regex match is
 // `BUILD_ROOT/src/a.ts`, which the preceding-char check drops.
-export function checkablePathRefs(content: string): string[] {
+/** A checked ref plus the exact half-open span it occupies in the content. */
+export interface PathRefSpan {
+  ref: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * The same refs as `checkablePathRefs`, each with its span. Tooling that
+ * REWRITES a ref needs the offsets: a substring replace over the whole string
+ * also hits the ref nested inside a longer one, so `gate/gate.ts` mangles the
+ * `src/gate/gate.ts` beside it into `src/src/gate/gate.ts`, and it rewrites an
+ * absolute path this function deliberately drops — which the gate can then
+ * never refuse, because it never sees it. Editing spans cannot.
+ */
+export function checkablePathRefSpans(content: string): PathRefSpan[] {
   if (content.length > REGEX_SCAN_MAX_CHARS) return [];
-  const out: string[] = [];
+  const out: PathRefSpan[] = [];
   for (const m of content.matchAll(PATH_RE)) {
     const ref = m[0].replace(/:\d+$/, "");
     const prev = m.index && m.index > 0 ? content[m.index - 1] : "";
@@ -188,8 +203,17 @@ export function checkablePathRefs(content: string): string[] {
     // a repo directory. `.` itself is the legitimate relative root prefix.
     const first = ref.split("/")[0];
     if (first.includes(".") && first !== ".") continue;
-    if (!out.includes(ref)) out.push(ref);
+    // The span covers the ref only, never the `:line` suffix PATH_RE swallowed,
+    // so a rewrite leaves the line number attached to the new path.
+    out.push({ ref, start: m.index, end: m.index + ref.length });
   }
+  return out;
+}
+
+export function checkablePathRefs(content: string): string[] {
+  const out: string[] = [];
+  for (const s of checkablePathRefSpans(content))
+    if (!out.includes(s.ref)) out.push(s.ref);
   return out;
 }
 
