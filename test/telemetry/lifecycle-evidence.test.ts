@@ -2,22 +2,22 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { parseLine } from "../src/core/logfmt/format.ts";
-import { runInit } from "../src/init/run.ts";
-import { resetCaptureCooldowns } from "../src/index.ts";
-import * as gates from "../src/gate/gate.ts";
-import { captureEvidenceContext, record } from "../src/telemetry/record.ts";
+import { evidenceDir } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { parseLine } from "../../src/core/logfmt/format.ts";
+import { runInit } from "../../src/init/run.ts";
+import { resetCaptureCooldowns } from "../../src/index.ts";
+import * as gates from "../../src/gate/gate.ts";
+import { captureEvidenceContext, record } from "../../src/telemetry/record.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { resetState, setCurrent } from "../src/core/state.ts";
-import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { resetState, setCurrent } from "../../src/core/state.ts";
+import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string, a: string, b: string;
 let plugins: LoadedPlugin[];

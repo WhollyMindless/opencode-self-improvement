@@ -17,7 +17,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
 import {
   HITS_FILENAME,
   THROTTLE_MS,
@@ -35,24 +35,24 @@ import {
   resetLedgerCache,
   useSignals,
   usedRecently,
-} from "../src/telemetry/ledger.ts";
-import { markTurn } from "../src/capture/triggers.ts";
-import { peekTurn } from "../src/core/state.ts";
-import { SESSION_CAP } from "../src/core/lru.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { scoreMemories, words } from "../src/recall/score.ts";
-import { sharedTerms } from "../src/recall/shared-terms.ts";
-import { ledgerIsYoung } from "../src/status/metrics.ts";
-import { renderMemoryReport } from "../src/status/report.ts";
+} from "../../src/telemetry/ledger.ts";
+import { markTurn } from "../../src/capture/triggers.ts";
+import { peekTurn } from "../../src/core/state.ts";
+import { SESSION_CAP } from "../../src/core/lru.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { scoreMemories, words } from "../../src/recall/score.ts";
+import { sharedTerms } from "../../src/recall/shared-terms.ts";
+import { ledgerIsYoung } from "../../src/status/metrics.ts";
+import { renderMemoryReport } from "../../src/status/report.ts";
 import {
   EVICT_MIN_RIDES,
   summarizeStore,
-} from "../src/status/store-summary.ts";
-import type { Memory } from "../src/store/model/memory.ts";
-import { LOCK_WRITE, withStoreLock } from "../src/store/lock.ts";
-import { childHolder } from "./helpers/hold-cross-process.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/status/store-summary.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
+import { LOCK_WRITE, withStoreLock } from "../../src/store/lock.ts";
+import { childHolder } from "../helpers/hold-cross-process.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 

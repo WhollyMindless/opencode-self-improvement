@@ -8,11 +8,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { systemDigest } from "../src/inject/digest.ts";
+import { evidenceDir } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
 import {
   checkNewSession,
   finalizeSession,
@@ -21,12 +21,12 @@ import {
   markTurn,
   onCompacting,
   recentConvergenceSummary,
-} from "../src/capture/triggers.ts";
-import { resetState, setCurrent } from "../src/core/state.ts";
-import { setRepoScope } from "../src/identity/repokey.ts";
-import { loadPlugin } from "./harness.ts";
-import { readEvidenceLog as evidence, ev, field } from "./helpers/logfmt.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/capture/triggers.ts";
+import { resetState, setCurrent } from "../../src/core/state.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
+import { loadPlugin } from "../harness.ts";
+import { readEvidenceLog as evidence, ev, field } from "../helpers/logfmt.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let liveRoot: string;
@@ -53,7 +53,7 @@ async function engage(
   tool: string,
 ): Promise<void> {
   setCurrent({ sessionID: sid, callID, tool });
-  const { afterTool } = await import("../src/capture/triggers.ts");
+  const { afterTool } = await import("../../src/capture/triggers.ts");
   await afterTool(
     {
       tool,

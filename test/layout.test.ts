@@ -24,7 +24,6 @@ const COVERED_CROSS_CUTTING = new Set([
   "inject",
   "recall",
   "store",
-  "telemetry",
   "tui",
   "viewer",
 ]);
