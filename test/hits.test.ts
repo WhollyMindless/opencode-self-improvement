@@ -23,6 +23,7 @@ import {
   THROTTLE_MS,
   RETRY_BACKOFF_MS,
   hitsFile,
+  getDroppedOutcomeWrites,
   neverRetrieved,
   readLedger,
   joinUseWithOutcomes,
@@ -35,6 +36,9 @@ import {
   useSignals,
   usedRecently,
 } from "../src/telemetry/ledger.ts";
+import { markTurn } from "../src/capture/triggers.ts";
+import { peekTurn } from "../src/core/state.ts";
+import { SESSION_CAP } from "../src/core/lru.ts";
 import { appendMemory } from "../src/store/files/append.ts";
 import { loadAll } from "../src/store/files/load.ts";
 import { scoreMemories, words } from "../src/recall/score.ts";
@@ -647,17 +651,82 @@ describe("rides carry the turn they landed on", () => {
 });
 
 describe("turn outcomes", () => {
-  test("a passing retry preserves one failed turn with both calls counted", async () => {
-    await recordOutcome("sid", 1, "FAIL", "test");
-    await recordOutcome("sid", 1, "PASS", "test");
-    const lines = readFileSync(hitsFile(), "utf8").trim().split("\n");
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("calls=2 fails=1 outcome=fail");
+  test("each gate appends independently and unknown verdicts are ignored", async () => {
+    await recordOutcome("sid", 1, "FAIL", "test", 10);
+    const first = ledgerText();
+    await recordOutcome("sid", 1, "PASS", "test", 20);
+    expect(ledgerText().startsWith(first)).toBe(true);
+    expect((await readOutcomes()).map((o) => o.outcome)).toEqual([
+      "FAIL",
+      "PASS",
+    ]);
+    writeFileSync(hitsFile(), first.replace("outcome=fail", "outcome=unknown"));
+    expect(await readOutcomes()).toEqual([]);
+  });
+
+  test("legacy summaries retain only verdicts with known timing", async () => {
+    const common =
+      "ev=turn_outcome ts=2026-01-01T00:00:03.000Z sid=s turn=1 calls=2 ";
     writeFileSync(
       hitsFile(),
-      lines[0].replace("outcome=fail", "outcome=unknown"),
+      [
+        common + "fails=1 outcome=fail",
+        common + "fails=2 outcome=fail",
+        common + "fails=1 outcome=fail lastFail=2026-01-01T00:00:02.000Z",
+        common + "fails=0 outcome=clean",
+      ].join("\n"),
     );
-    expect(await readOutcomes()).toEqual([]);
+    expect((await readOutcomes()).map((o) => [o.outcome, o.lastFail])).toEqual([
+      ["FAIL", undefined],
+      ["FAIL", "2026-01-01T00:00:02.000Z"],
+      ["PASS", undefined],
+    ]);
+  });
+
+  test("concurrent gates and a hit survive rotation together", async () => {
+    const filler = ("x".repeat(1023) + "\n").repeat(2000);
+    writeFileSync(hitsFile(), filler);
+    const writes = await Promise.all([
+      recordHits("inject", "s", [row("r")], [], 1, 1, "k"),
+      recordOutcome("s", 1, "FAIL", "test", 2, "k"),
+      recordOutcome("s", 1, "PASS", "lint", 3, "k"),
+    ]);
+    expect(writes).toEqual([true, true, true]);
+    expect(ledgerText().length).toBeLessThan(filler.length);
+    const outcomes = await readOutcomes();
+    expect(outcomes).toHaveLength(2);
+    expect(joinUseWithOutcomes(await readRides(), outcomes).get("r")).toEqual({
+      rides: 1,
+      joined: 1,
+      clean: 0,
+      failAfter: 1,
+    });
+  });
+
+  test("an evicted session can reuse turn one without joining its old ride", async () => {
+    const sid = "evicted";
+    markTurn(sid);
+    const old = peekTurn(sid)!;
+    await recordHits("inject", sid, [row("old")], [], 1, old.turn, old.key);
+    for (let i = 0; i < SESSION_CAP; i++) markTurn("other-" + i);
+    expect(peekTurn(sid)).toBeUndefined();
+    markTurn(sid);
+    const fresh = peekTurn(sid)!;
+    expect(fresh.turn).toBe(old.turn);
+    expect(fresh.key).not.toBe(old.key);
+    await recordOutcome(sid, fresh.turn, "FAIL", "test", 2, fresh.key);
+    expect(
+      joinUseWithOutcomes(await readRides(), await readOutcomes()).get("old")
+        ?.joined,
+    ).toBe(0);
+  });
+
+  test("failed outcome writes are counted only for the current store", async () => {
+    mkdirSync(hitsFile());
+    expect(await recordOutcome("sid", 1, "FAIL", "test")).toBe(false);
+    expect(getDroppedOutcomeWrites()).toBe(1);
+    process.env.OPENCODE_MEMORY_DIR = join(root, "other");
+    expect(getDroppedOutcomeWrites()).toBe(0);
   });
 
   test("only gates after retrieval count, once per row and turn", async () => {
@@ -713,7 +782,6 @@ describe("turn outcomes", () => {
     expect(got).toEqual([
       {
         ts: "2026-06-01T00:00:00.000Z",
-        lastFail: "2026-06-01T00:00:00.000Z",
         sid: "ses-out",
         turn: 2,
         outcome: "FAIL",

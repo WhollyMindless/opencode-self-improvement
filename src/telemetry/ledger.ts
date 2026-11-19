@@ -189,6 +189,13 @@ export async function recordHits(
   }
 }
 
+// Failed outcome writes cannot report their own loss through the ledger.
+const droppedOutcomes = new Map<string, number>();
+
+export function getDroppedOutcomeWrites(): number {
+  return droppedOutcomes.get(hitsFile()) ?? 0;
+}
+
 // --- outcomes -------------------------------------------------------------
 
 /**
@@ -216,50 +223,22 @@ export async function recordOutcome(
       file,
       async () => {
         await rotateIfNeeded();
-        const since = await fileIdentity(file);
-        const lines = await readLines(file);
-        const index = lines.findLastIndex((line) => {
-          if (!line.startsWith("ev=turn_outcome ")) return false;
-          const f = parseLine(line);
-          return (
-            f?.sid === sid && Number(f.turn) === turn && f.turnKey === turnKey
-          );
-        });
-        const previous = index < 0 ? undefined : parseLine(lines[index]);
-        const calls = Number(previous?.calls ?? 0) + 1;
-        const fails = Number(previous?.fails ?? 0) + Number(outcome === "FAIL");
-        const ts = new Date(now).toISOString();
-        const priorTs = String(previous?.ts ?? "");
-        const priorFail = String(
-          previous?.lastFail ??
-            (previous?.outcome === "fail" && previous?.calls === previous?.fails
-              ? priorTs
-              : ""),
-        );
-        const lastFail = outcome === "FAIL" && ts > priorFail ? ts : priorFail;
         const line = formatLine({
-          ev: "turn_outcome",
-          ts: ts > priorTs ? ts : priorTs,
+          ev: "gate_outcome",
+          ts: new Date(now).toISOString(),
           sid,
           turn,
           ...(turnKey ? { turnKey } : {}),
-          calls,
-          fails,
-          outcome: fails ? "fail" : "clean",
+          outcome: outcome === "FAIL" ? "fail" : "clean",
           cmd,
-          ...(lastFail ? { lastFail } : {}),
         });
-        if (index < 0) await appendLog(file, line);
-        else {
-          lines.splice(index, 1);
-          lines.push(line);
-          await writeAtomic(file, lines.join("\n") + "\n", since);
-        }
+        await appendLog(file, line);
       },
       LOCK_WRITE,
     );
     return true;
   } catch {
+    droppedOutcomes.set(file, (droppedOutcomes.get(file) ?? 0) + 1);
     return false;
   }
 }
@@ -268,13 +247,19 @@ export async function readOutcomes(): Promise<TurnOutcome[]> {
   const out: TurnOutcome[] = [];
   for (const line of await readLines(hitsFile())) {
     const f = parseLine(line);
-    if (!f || f.ev !== "turn_outcome") continue;
+    if (!f || (f.ev !== "gate_outcome" && f.ev !== "turn_outcome")) continue;
     const turn = typeof f.turn === "string" ? Number(f.turn) : NaN;
     if (!Number.isFinite(turn)) continue;
     if (f.outcome !== "fail" && f.outcome !== "clean") continue;
     const outcome = f.outcome === "fail" ? "FAIL" : "PASS";
     // Older mixed summaries did not preserve the order of their failures.
-    if (outcome === "FAIL" && !f.lastFail && f.calls !== f.fails) continue;
+    if (
+      f.ev === "turn_outcome" &&
+      outcome === "FAIL" &&
+      !f.lastFail &&
+      f.calls !== f.fails
+    )
+      continue;
     out.push({
       ...(typeof f.lastFail === "string" ? { lastFail: f.lastFail } : {}),
       ts: typeof f.ts === "string" ? f.ts : "",
