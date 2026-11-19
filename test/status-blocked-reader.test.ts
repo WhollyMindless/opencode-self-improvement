@@ -3,7 +3,7 @@
 // session's repository from its root directory (blockedReaderFor). This file
 // pins that helper and its agreement with the tool's own reader; it needs the
 // new export, so it is branch-only (the RED scenario lives in
-// status-blocked-visibility-306.test.ts).
+// status-blocked-visibility.test.ts).
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
