@@ -61,9 +61,24 @@ because the store happens to hold no near-copies.
 
 ## Is the `fc59b84` failure live in this store?
 
-No, and the runner measures it rather than asserting it. The old vocabulary scored `type` and `scope`, so a pair can reach the threshold on shared metadata while its content stays distinct. Of the 108 active C candidates, **12** fall below 0.8 on content alone — the widest gap being 0.813 metadata against 0.792 content. Every one of them is a `pr-watch` cursor row differing by a run timestamp: near-copies by any reading, pushed just over the line by metadata rather than pulled there by unrelated content.
+Not among the pairs examined. The old vocabulary scored `type` and `scope`, so a pair can reach the threshold on shared metadata while its content stays distinct. Of the 108 active C candidates, **12** fall below 0.8 on content alone — the widest gap being 0.813 metadata against 0.792 content. Every one of them is a `pr-watch` cursor row differing by a run timestamp: near-copies by any reading, pushed just over the line by metadata rather than pulled there by unrelated content.
 
-The failure `fc59b84` actually fixed needs a different shape — two unrelated rows sharing one `snake_case` scope, whose tokens the identifier tokenizer splits into words that stand in for content. This store has **zero** scopes containing an underscore, so the shape cannot occur here at all. That is why the fixture, not this replay, is the evidence for that fix.
+The shape `fc59b84` removed is a scope whose tokens stand in for content. An earlier version of this file claimed this store was exempt because it holds no `snake_case` scope, and that claim was **wrong** in two ways, both found by review.
+
+First, `words()` splits on any non-alphanumeric delimiter, and on camelCase, so hyphens and capitals contribute stand-in words exactly as underscores do. **144 of this store's 241 scopes** already yield more than one token — `opencode-self-improvement`, `npm-publish`, `BabylonDocs` among them.
+
+Second, "more than one word" is not the threshold either. The precondition is scope vocabulary **dominating** row content, and the runner now walks the crossing instead of asserting it. Two unrelated one-word rows sharing one scope, scored on the old vocabulary:
+
+| distinct scope words | old-vocabulary score | old rule |
+| ---: | ---: | --- |
+| 4 | 0.750 | keeps both |
+| 5 | 0.778 | keeps both |
+| 6 | **0.800** | **suppresses them** |
+| 8 | 0.833 | suppresses them |
+
+So a six-word scope is enough to make two unrelated rows look like copies of each other, and the shipped content-only rule keeps both at every length (their content score is 0.000). A review fixture confirms the mechanism end to end: `plum` and `lime` in `alpha-bravo-charlie-delta-echo-foxtrot-golf-hotel` score 0.833 on the old vocabulary, and the pre-`fc59b84` deduper kept one row.
+
+What survives of the original claim is the narrow version: **no candidate in this store is metadata-driven that way**, because the 12 that reach the threshold on metadata are `pr-watch` cursor rows, near-copies by any reading. With 144 scopes already contributing stand-in vocabulary, that is luck of row length, not a structural exemption — which is a weaker claim than the one this file made before, and the correct one.
 
 ## Why the threshold is not the fix
 

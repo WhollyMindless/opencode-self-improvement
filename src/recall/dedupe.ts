@@ -112,9 +112,11 @@ function sameDroppedChunks(a: Memory, b: Memory): boolean {
 
 /**
  * A row's own tokens: built DIRECTLY from the content and keyword fields.
- * Never from `haystack()` — the identifier tokenizer splits a snake_case
- * scope like `auth_token_refresh_policy` into auth/token/refresh/policy, and
- * deleting only the whole scope/type strings leaves those words standing in
+ * Never from `haystack()` — the identifier tokenizer splits a multi-word scope
+ * into its parts, and those parts stand in for content. Any delimiter does it:
+ * `auth_token_refresh_policy` and `auth-token-refresh-policy` both yield
+ * auth/token/refresh/policy, so a store holding no underscore is not exempt.
+ * Deleting only the whole scope/type strings leaves those words standing in
  * for content: two unrelated non-Latin rows in one scope then share a
  * Jaccard-1 metadata vocabulary, clear MIN_CONTENT on scope tokens alone,
  * and dedup hides one.

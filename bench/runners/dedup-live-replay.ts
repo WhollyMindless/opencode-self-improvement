@@ -216,17 +216,59 @@ if (C.hits.length) {
     console.log(`   ${String(n).padStart(4)}x  scope ${s}`);
   // Whether each C candidate is a content near-copy or a METADATA near-copy:
   // the old vocabulary scored `type` and `scope`, so a pair can reach the
-  // threshold on shared metadata while its content stays distinct. That is the
-  // failure fc59b84 fixed, and the count here says whether it is live in this
-  // store or only in the fixture.
+  // threshold on shared metadata while its content stays distinct.
   const metaDriven = C.hits.filter(
     (h) => jaccard(tok[h.ai]!, tok[h.bi]!) < DEFAULT_THRESHOLD,
   ).length;
-  const snake = [...byScope.keys()].filter((s) => s.includes("_")).length;
+  // The precondition fc59b84 removed is a scope whose tokens stand in for
+  // content. words() splits on ANY delimiter — underscore, hyphen, space, dot,
+  // slash — so counting underscores is not the test and a store with none of
+  // them is not exempt. Count the scopes that actually yield more than the
+  // whole-scope token, then demonstrate the mechanism on pairs this store does
+  // not contain, so the claim is shown rather than inferred from an absence.
+  const standIn = [...byScope.keys()].filter((s) => words(s).length > 1);
   console.log(
     `   metadata-driven (content-only Jaccard below ${DEFAULT_THRESHOLD}): ${metaDriven} of ${C.hits.length}\n` +
-      `   scopes containing an underscore: ${snake} — the failure fc59b84 fixed needs two unrelated rows sharing one such scope`,
+      `   scopes standing in for content (more than one word under any delimiter): ${standIn.length}${
+        standIn.length ? ` e.g. ${standIn.slice(0, 3).join(", ")}` : ""
+      }`,
   );
+  // The precondition is scope vocabulary DOMINATING row content, not any one
+  // delimiter, so the probe walks the crossing rather than picking scopes by
+  // eye: two unrelated one-word rows sharing one scope, scored on the old
+  // vocabulary. Content alone is 0.000 for these, so the shipped rule keeps
+  // both at every length below.
+  const PROBE_WORDS = [
+    "alpha",
+    "bravo",
+    "charlie",
+    "delta",
+    "echo",
+    "foxtrot",
+    "golf",
+    "hotel",
+  ];
+  const probe = (scope: string): number => {
+    const base = {
+      ts: "2026-01-01T00:00:00.000Z",
+      type: "context",
+      scope,
+      status: "settled",
+      file: "",
+      index: 0,
+    };
+    const a = { ...base, content: "plum" } as Memory;
+    const b = { ...base, content: "lime" } as Memory;
+    return jaccard(new Set(words(haystack(a))), new Set(words(haystack(b))));
+  };
+  for (const n of [4, 5, 6, 8]) {
+    const legacy = probe(PROBE_WORDS.slice(0, n).join("-"));
+    console.log(
+      `   probe ${n} distinct scope words + two unrelated one-word rows: old vocabulary ${legacy.toFixed(
+        3,
+      )} ${legacy >= DEFAULT_THRESHOLD ? "SUPPRESSES them" : "keeps both"} (content 0.000, so shipped keeps both)`,
+    );
+  }
   let shown = 0;
   for (const h of C.hits) {
     const c = jaccard(tok[h.ai]!, tok[h.bi]!);
