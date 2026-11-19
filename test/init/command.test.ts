@@ -10,10 +10,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPlugin } from "./harness.ts";
-import { resetState } from "../src/core/state.ts";
-import { ensureCommand } from "../src/init/ensure.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { loadPlugin } from "../harness.ts";
+import { resetState } from "../../src/core/state.ts";
+import { ensureCommand } from "../../src/init/ensure.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let commandsDirPath: string;
 let root: string;
@@ -40,7 +40,7 @@ describe("ensureInitCommand", () => {
       expect(installed).toMatch(/^---\r?\ndescription: [^\r\n]+\r?\n---\r?\n/);
       expect(installed).toBe(
         readFileSync(
-          join(import.meta.dir, "..", "command", `${name}.md`),
+          join(import.meta.dir, "..", "..", "command", `${name}.md`),
           "utf8",
         ),
       );

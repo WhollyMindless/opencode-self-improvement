@@ -21,18 +21,18 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPlugin } from "./harness.ts";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { resetState } from "../src/core/state.ts";
-import { record } from "../src/telemetry/record.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { isActive, isInjectable } from "../src/store/model/predicates.ts";
-import { selectRelevant } from "../src/recall/relevant.ts";
-import { formatInit } from "../src/init/format.ts";
-import { type InitSummary, runInit } from "../src/init/run.ts";
-import { stampDir } from "../src/init/stamp.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { loadPlugin } from "../harness.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { resetState } from "../../src/core/state.ts";
+import { record } from "../../src/telemetry/record.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { isActive, isInjectable } from "../../src/store/model/predicates.ts";
+import { selectRelevant } from "../../src/recall/relevant.ts";
+import { formatInit } from "../../src/init/format.ts";
+import { type InitSummary, runInit } from "../../src/init/run.ts";
+import { stampDir } from "../../src/init/stamp.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let memoryDir: string;
 let fixture: string;
@@ -181,7 +181,7 @@ describe("memory_init", () => {
 describe("init internals", () => {
   test("gitRootOf/gitHead degrade on non-git dirs", async () => {
     const { gitRootOf, gitHead, detectScripts } = await import(
-      "../src/init/detect.ts"
+      "../../src/init/detect.ts"
     );
     expect(await gitRootOf(fixture)).toBe(fixture);
     expect(await gitHead(fixture)).toBe("-");
@@ -208,7 +208,7 @@ describe("init internals", () => {
         },
       }),
     );
-    const { detectScripts } = await import("../src/init/detect.ts");
+    const { detectScripts } = await import("../../src/init/detect.ts");
     const recs = await detectScripts(dir);
     expect(recs.map((r) => r.key).sort()).toEqual(["lint", "test:ci"]);
     for (const r of recs) expect(r.key).toMatch(/^[A-Za-z0-9._:-]+$/);
@@ -216,8 +216,8 @@ describe("init internals", () => {
   });
 
   test("formatInit renders a readable summary; runInit returns one", async () => {
-    const { formatInit } = await import("../src/init/format.ts");
-    const { runInit } = await import("../src/init/run.ts");
+    const { formatInit } = await import("../../src/init/format.ts");
+    const { runInit } = await import("../../src/init/run.ts");
     const s: InitSummary = {
       scope: "x",
       root: fixture,

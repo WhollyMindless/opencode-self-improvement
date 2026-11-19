@@ -23,7 +23,6 @@ const COVERED_CROSS_CUTTING = new Set([
   "gate",
   "identity",
   "inject",
-  "init",
   "portable",
   "recall",
   "status",

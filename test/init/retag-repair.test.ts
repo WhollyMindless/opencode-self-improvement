@@ -12,20 +12,20 @@ import { afterEach, beforeEach, describe, expect, test, mock } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
-const realModule = await import("../src/store/files/supersede.ts");
+const realModule = await import("../../src/store/files/supersede.ts");
 const real = { ...realModule };
 type BatchEntry = {
   ts: string;
-  fields: import("../src/store/files/supersede.ts").SupersedeFields;
+  fields: import("../../src/store/files/supersede.ts").SupersedeFields;
 };
 
 const throwOn = new Set<string>();
 
-mock.module("../src/store/files/supersede.ts", () => ({
+mock.module("../../src/store/files/supersede.ts", () => ({
   ...real,
   markManySupersededReport: async (
     entries: BatchEntry[],
@@ -39,10 +39,10 @@ mock.module("../src/store/files/supersede.ts", () => ({
   },
 }));
 
-const { retagQuarantinedRows } = await import("../src/init/retag.ts");
-const { loadAll } = await import("../src/store/files/load.ts");
-const { setRepoScope } = await import("../src/identity/repokey.ts");
-type GateContext = import("../src/gate/gate.ts").GateContext;
+const { retagQuarantinedRows } = await import("../../src/init/retag.ts");
+const { loadAll } = await import("../../src/store/files/load.ts");
+const { setRepoScope } = await import("../../src/identity/repokey.ts");
+type GateContext = import("../../src/gate/gate.ts").GateContext;
 
 const POISON =
   "The bootstrap script calls eval(config) before the app starts, so env setup runs first.";
