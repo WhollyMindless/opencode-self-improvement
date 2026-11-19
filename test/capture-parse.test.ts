@@ -250,7 +250,7 @@ describe("buildCapturePrompt", () => {
     expect(p).toContain("never shown to a model");
   });
 
-  //RESULTS §29-30: the same lesson scored OUTSIDE the recall window as
+  //results.md §29-30: the same lesson scored OUTSIDE the recall window as
   // session diary and ranked 1-7 for the terse symptom queries agents actually
   // issue when it opened with the observable trigger. The rule is the write-
   // side half of retrieval alignment; pin it so a prompt refactor cannot drop

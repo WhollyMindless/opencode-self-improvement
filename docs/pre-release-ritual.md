@@ -17,11 +17,11 @@ The output is a canonical mutation score — killed over total, with equivalent 
 
 Run it when you want to know whether the suite still has teeth — after changing tests or coverage, or as a pre-release gate with `bun scripts/test-sweep.ts --fail-on-survivors`, which exits 4 when anything survives. Two lighter checks come first: `bun scripts/test-sweep.ts --validate` confirms every mutation pattern still lands on exactly one source site without running the suite, and `bun scripts/test-sweep.ts --selftest` plants a mutation in a trivially-tested pure function and fails unless the suite kills it — proof the instrument itself can go red.
 
-**Pre-release ritual (decided 2026-11-04, #72):** before pushing a release commit, a human runs `--validate`, then `--selftest`, then `--fail-on-survivors`, and records the mutation score and the survivor list in `bench/RESULTS.md` beside the published evidence. Cadence is pre-release only, run by a person: the sweep is a full suite per mutant and never belongs in CI, where it would cost more than it informs. Survivors become entries on the unpinned-invariant list, not red checks.
+**Pre-release ritual (decided 2026-11-04, #72):** before pushing a release commit, a human runs `--validate`, then `--selftest`, then `--fail-on-survivors`, and records the mutation score and the survivor list in `bench/results.md` beside the published evidence. Cadence is pre-release only, run by a person: the sweep is a full suite per mutant and never belongs in CI, where it would cost more than it informs. Survivors become entries on the unpinned-invariant list, not red checks.
 
 ### Bench artifacts stay out of git
 
-Raw sweep output is regenerable measurement data, and it was the largest tracked content in the repository. It is not committed (#232). A clone carries the published summaries — `bench/RESULTS.md` and the `bench/*-results.md` files — and the inputs those summaries are rebuilt from. History is not rewritten: the old blobs stay in earlier revisions, so this shrinks new checkouts, not the archive.
+Raw sweep output is regenerable measurement data, and it was the largest tracked content in the repository. It is not committed (#232). A clone carries the published summaries — `bench/results.md` and the `bench/*-results.md` files — and the inputs those summaries are rebuilt from. History is not rewritten: the old blobs stay in earlier revisions, so this shrinks new checkouts, not the archive.
 
 | Artifact | How to get it back |
 | --- | --- |

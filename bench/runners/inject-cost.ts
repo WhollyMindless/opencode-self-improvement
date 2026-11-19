@@ -25,7 +25,7 @@
 //
 // Determinism: a fixed-seed LCG generates the store and
 // the prompts; memory timestamps are synthetic (no Date.now()); nothing reads
-// Math.random; RESULTS.md carries no wall-clock stamp — `bun bench/inject-cost.ts`
+// Math.random; results.md carries no wall-clock stamp — `bun bench/inject-cost.ts`
 // is byte-identical across runs.
 //
 // Run: bun bench/runners/inject-cost.ts   (also: bun run bench)
@@ -474,7 +474,7 @@ Compaction anchor (capped at 2500 chars): ${anchor.length} chars,
 pushed once per compaction rather than per turn.
 `;
 
-writeFileSync(join(import.meta.dir, "..", "RESULTS.md"), report);
+writeFileSync(join(import.meta.dir, "..", "results.md"), report);
 console.log(report);
 
 rmSync(tmp, { recursive: true, force: true });

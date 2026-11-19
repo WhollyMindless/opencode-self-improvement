@@ -1,4 +1,4 @@
-// Identifier tokenisation (RESULTS §15).
+// Identifier tokenisation (results.md §15).
 //
 // `words()` is the matcher's single vocabulary: the injection scorer, the
 // credit attribution and the consolidation similarity all read it. It used to
