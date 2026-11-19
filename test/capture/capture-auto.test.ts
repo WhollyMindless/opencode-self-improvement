@@ -8,19 +8,19 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { resetCaptureCursors } from "../src/capture/policy.ts";
-import { buildCapturePrompt } from "../src/capture/prompt.ts";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { resetState } from "../src/core/state.ts";
-import { dateStr } from "../src/core/time.ts";
-import { setRepoScope } from "../src/identity/repokey.ts";
-import { resetCaptureCooldowns, resetSessionModels } from "../src/index.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { isActive } from "../src/store/model/predicates.ts";
-import { loadPlugin } from "./harness.ts";
-import { readEvidenceLog as evidence, sleep } from "./helpers/logfmt.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { resetCaptureCursors } from "../../src/capture/policy.ts";
+import { buildCapturePrompt } from "../../src/capture/prompt.ts";
+import { evidenceDir, memoryRoot } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { resetState } from "../../src/core/state.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
+import { resetCaptureCooldowns, resetSessionModels } from "../../src/index.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
+import { loadPlugin } from "../harness.ts";
+import { readEvidenceLog as evidence, sleep } from "../helpers/logfmt.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let liveRoot: string;
@@ -210,7 +210,7 @@ describe("auto-capture end-to-end (turn end -> gate)", () => {
     // Recorded from a real 2.2.5 server: role under `type`, parts under
     // `content[]`, plus a trailing non-conversation `idle` record.
     loaded.capture.context.messages = await Bun.file(
-      `${import.meta.dir}/fixtures/host-session-context-2.2.5.json`,
+      `${import.meta.dir}/../fixtures/host-session-context-2.2.5.json`,
     ).json();
     loaded.capture.generate.response = "[]";
     loaded.capture.events.push({

@@ -7,18 +7,18 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseCandidates, parseModelRef } from "../src/capture/candidates.ts";
-import { resetCaptureCursors } from "../src/capture/policy.ts";
-import { buildCapturePrompt } from "../src/capture/prompt.ts";
+import { parseCandidates, parseModelRef } from "../../src/capture/candidates.ts";
+import { resetCaptureCursors } from "../../src/capture/policy.ts";
+import { buildCapturePrompt } from "../../src/capture/prompt.ts";
 import {
   flattenTranscript,
   splitTranscript,
   userTurnText,
-} from "../src/capture/transcript.ts";
-import { resetState } from "../src/core/state.ts";
-import { setRepoScope } from "../src/identity/repokey.ts";
-import { resetCaptureCooldowns, resetSessionModels } from "../src/index.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/capture/transcript.ts";
+import { resetState } from "../../src/core/state.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
+import { resetCaptureCooldowns, resetSessionModels } from "../../src/index.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let liveRoot: string;
@@ -330,7 +330,7 @@ describe("flattenTranscript", () => {
   // silence — the reason auto-capture had never fired on a live host.
   test("renders the live 2.2.5 shape: role in `type`, parts in `content[]`", async () => {
     const msgs = await Bun.file(
-      `${import.meta.dir}/fixtures/host-session-context-2.2.5.json`,
+      `${import.meta.dir}/../fixtures/host-session-context-2.2.5.json`,
     ).json();
     const out = flattenTranscript(msgs);
     expect(out).toContain("user: ");

@@ -18,22 +18,22 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { runWriteGate } from "../src/gate/gate.ts";
-import { parseLine, type Fields } from "../src/core/logfmt/format.ts";
-import { resetCaptureCooldowns } from "../src/index.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { runWriteGate } from "../../src/gate/gate.ts";
+import { parseLine, type Fields } from "../../src/core/logfmt/format.ts";
+import { resetCaptureCooldowns } from "../../src/index.ts";
 import {
   rememberSessionDir,
   repoScopeFor,
   resetSessionScopes,
   sessionScope,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { resetState, setCurrent } from "../src/core/state.ts";
-import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { readEvidenceLog as evidence, sleep } from "./helpers/logfmt.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { resetState, setCurrent } from "../../src/core/state.ts";
+import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { readEvidenceLog as evidence, sleep } from "../helpers/logfmt.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let liveRoot: string;

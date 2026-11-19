@@ -18,15 +18,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { parseCandidates } from "../src/capture/candidates.ts";
-import { buildCapturePrompt } from "../src/capture/prompt.ts";
-import { attestedGateFailures } from "../src/capture/policy.ts";
-import { gateCmd } from "../src/capture/triggers.ts";
-import { resetCaptureCooldowns, resetSessionModels } from "../src/index.ts";
-import type { SessionState, ToolResult } from "../src/core/state.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { loadPlugin, withTempStore } from "./harness.ts";
-import { readEvidenceLog } from "./helpers/logfmt.ts";
+import { parseCandidates } from "../../src/capture/candidates.ts";
+import { buildCapturePrompt } from "../../src/capture/prompt.ts";
+import { attestedGateFailures } from "../../src/capture/policy.ts";
+import { gateCmd } from "../../src/capture/triggers.ts";
+import { resetCaptureCooldowns, resetSessionModels } from "../../src/index.ts";
+import type { SessionState, ToolResult } from "../../src/core/state.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { loadPlugin, withTempStore } from "../harness.ts";
+import { readEvidenceLog } from "../helpers/logfmt.ts";
 
 const call = (over: Partial<ToolResult>): ToolResult => ({
   call: `c-${Math.random().toString(36).slice(2, 8)}`,

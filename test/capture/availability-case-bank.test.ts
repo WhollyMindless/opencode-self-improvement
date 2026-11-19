@@ -19,11 +19,11 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { availabilityIndex } from "../src/capture/available.ts";
+import { availabilityIndex } from "../../src/capture/available.ts";
 import {
   AVAILABILITY_CASES,
   type AvailabilityCase,
-} from "../bench/fixtures/availability-cases.ts";
+} from "../../bench/fixtures/availability-cases.ts";
 
 let root = "";
 

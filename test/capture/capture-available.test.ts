@@ -27,13 +27,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { evidenceDir } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { resetCaptureCooldowns, resetSessionModels } from "../src/index.ts";
-import { RESTATABLE_TAG } from "../src/core/tags.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { loadPlugin, withTempStore } from "./harness.ts";
-import { readEvidenceLog } from "./helpers/logfmt.ts";
+import { evidenceDir } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { resetCaptureCooldowns, resetSessionModels } from "../../src/index.ts";
+import { RESTATABLE_TAG } from "../../src/core/tags.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { loadPlugin, withTempStore } from "../harness.ts";
+import { readEvidenceLog } from "../helpers/logfmt.ts";
 
 const README_TEXT =
   "Reorder is inclusive: needsReorder returns true when available stock is at or below reorderPoint, not only strictly below.";
@@ -448,8 +448,8 @@ describe("capture availability tag", () => {
     const repo = makeRepo("monotone");
     // A row the store has always kept, on the same scope the candidate targets.
     const { appendFileSync } = await import("node:fs");
-    const { memoryRoot } = await import("../src/core/config/paths.ts");
-    const { formatLine } = await import("../src/core/logfmt/format.ts");
+    const { memoryRoot } = await import("../../src/core/config/paths.ts");
+    const { formatLine } = await import("../../src/core/logfmt/format.ts");
     const ts = "2026-10-01T09:00:00.000Z";
     const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
     mkdirSync(join(memoryRoot()), { recursive: true });

@@ -17,7 +17,6 @@ const ROOT = join(import.meta.dir, "..");
  * `test/<module>/` with at least one test exists — remove it then.
  */
 const COVERED_CROSS_CUTTING = new Set([
-  "capture",
   "core",
   "tui",
 ]);

@@ -8,8 +8,8 @@ import {
   mergeGuidedCandidates,
   normWs,
   validateGuidedQuotes,
-} from "../src/capture/guided-rules.ts";
-import type { CaptureCandidate } from "../src/capture/prompt.ts";
+} from "../../src/capture/guided-rules.ts";
+import type { CaptureCandidate } from "../../src/capture/prompt.ts";
 
 const T3_HINT =
   "One thing I know about this repo: the correct sales tax rate is 8.25% (0.0825), applied after discounts and rounded to cents at the end — the hidden suite encodes that, so if the code says otherwise, the code is what is broken.";

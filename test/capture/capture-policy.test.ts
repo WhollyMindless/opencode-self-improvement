@@ -12,8 +12,8 @@ import {
   prefixFingerprint,
   resetCaptureCursors,
   transcriptReplaced,
-} from "../src/capture/policy.ts";
-import type { SessionState, ToolResult } from "../src/core/state.ts";
+} from "../../src/capture/policy.ts";
+import type { SessionState, ToolResult } from "../../src/core/state.ts";
 
 const call = (over: Partial<ToolResult>): ToolResult => ({
   call: `c-${Math.random().toString(36).slice(2, 8)}`,
