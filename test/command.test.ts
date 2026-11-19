@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPlugin } from "./harness.ts";
 import { resetState } from "../src/core/state.ts";
-import { ensureCommand } from "../src/command/ensure.ts";
+import { ensureCommand } from "../src/init/ensure.ts";
 import { removeStore } from "./helpers/remove-store.ts";
 
 let commandsDirPath: string;
