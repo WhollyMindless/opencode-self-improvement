@@ -3,22 +3,22 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import * as publish from "../src/core/logfmt/publish.ts";
-import { setCurrent } from "../src/core/state.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import * as publish from "../../src/core/logfmt/publish.ts";
+import { setCurrent } from "../../src/core/state.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
   type RepoScope,
-} from "../src/identity/repokey.ts";
-import { systemDigest } from "../src/inject/digest.ts";
-import { createInjectionEpochs } from "../src/inject/epochs.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { loadPlugin, type LoadedPlugin, withTempStore } from "./harness.ts";
-import { readEvidenceLog } from "./helpers/logfmt.ts";
+} from "../../src/identity/repokey.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
+import { createInjectionEpochs } from "../../src/inject/epochs.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { loadPlugin, type LoadedPlugin, withTempStore } from "../harness.ts";
+import { readEvidenceLog } from "../helpers/logfmt.ts";
 
 const store = withTempStore({ prefix: "osi-emitter-owner-" });
 const first = "2020-01-01T00:00:00.000Z";

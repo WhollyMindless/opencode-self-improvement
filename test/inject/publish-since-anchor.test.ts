@@ -16,8 +16,8 @@ import {
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileIdentity, writeAtomic } from "../src/core/logfmt/publish.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { fileIdentity, writeAtomic } from "../../src/core/logfmt/publish.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 const skip = process.platform !== "win32";
 

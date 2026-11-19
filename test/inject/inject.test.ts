@@ -4,15 +4,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { RESTATABLE_TAG } from "../src/core/tags.ts";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { capToBudget, injectedRows } from "../src/inject/budget.ts";
-import { formatMemory } from "../src/inject/format.ts";
-import { contextualPull } from "../src/inject/pull.ts";
-import { relevantKnowledge, selectRelevant } from "../src/recall/relevant.ts";
-import type { Memory } from "../src/store/model/memory.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { RESTATABLE_TAG } from "../../src/core/tags.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { capToBudget, injectedRows } from "../../src/inject/budget.ts";
+import { formatMemory } from "../../src/inject/format.ts";
+import { contextualPull } from "../../src/inject/pull.ts";
+import { relevantKnowledge, selectRelevant } from "../../src/recall/relevant.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 

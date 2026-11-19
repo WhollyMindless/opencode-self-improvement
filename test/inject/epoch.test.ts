@@ -17,30 +17,30 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { frontierBudget, injectBudget } from "../src/core/config/budgets.ts";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { capToBudget } from "../src/inject/budget.ts";
-import { storeVersion } from "../src/inject/version.ts";
-import { addBlock, removeBlock } from "../src/store/blocklist.ts";
+import { frontierBudget, injectBudget } from "../../src/core/config/budgets.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { capToBudget } from "../../src/inject/budget.ts";
+import { storeVersion } from "../../src/inject/version.ts";
+import { addBlock, removeBlock } from "../../src/store/blocklist.ts";
 import {
   formatLine,
   parseLine,
   type Fields,
-} from "../src/core/logfmt/format.ts";
-import { markSuperseded } from "../src/store/files/supersede.ts";
-import { runWriteGate, type WriteCandidate } from "../src/gate/gate.ts";
+} from "../../src/core/logfmt/format.ts";
+import { markSuperseded } from "../../src/store/files/supersede.ts";
+import { runWriteGate, type WriteCandidate } from "../../src/gate/gate.ts";
 import {
   afterTool,
   evidenceCalls,
   hasEngagement,
   hasGateCheck,
-} from "../src/capture/triggers.ts";
-import { rememberSessionDir } from "../src/identity/repokey.ts";
-import { resetState, setCurrent } from "../src/core/state.ts";
-import { SESSION_CAP } from "../src/core/lru.ts";
-import { loadPlugin } from "./harness.ts";
-import { readEvidenceLog as evidence } from "./helpers/logfmt.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/capture/triggers.ts";
+import { rememberSessionDir } from "../../src/identity/repokey.ts";
+import { resetState, setCurrent } from "../../src/core/state.ts";
+import { SESSION_CAP } from "../../src/core/lru.ts";
+import { loadPlugin } from "../harness.ts";
+import { readEvidenceLog as evidence } from "../helpers/logfmt.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let liveRoot: string;

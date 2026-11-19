@@ -263,7 +263,7 @@ export const MUTANTS: Mutant[] = [
     //
     // SCORING NOTE: the retry only runs when IS_WINDOWS, so a POSIX sweep
     // cannot score this mutant at all - it survives for want of a reachable
-    // path, not for want of a test. test/publish-since-anchor.test.ts pins it
+    // path, not for want of a test. test/inject/publish-since-anchor.test.ts pins it
     // directly (touched mid-window aborts, bare reader lands) and runs on
     // windows-latest CI.
     find: `      if ((await fileIdentity(file)) !== since) throw err; // destination moved; our copy is stale`,

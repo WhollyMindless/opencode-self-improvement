@@ -16,25 +16,25 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { isActive } from "../src/store/model/predicates.ts";
-import { resetState } from "../src/core/state.ts";
-import { resetCaptureCooldowns } from "../src/index.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
+import { resetState } from "../../src/core/state.ts";
+import { resetCaptureCooldowns } from "../../src/index.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { compactionAnchor } from "../src/inject/anchor.ts";
-import { systemDigest } from "../src/inject/digest.ts";
-import { contextualPull } from "../src/inject/pull.ts";
-import { relevantKnowledge } from "../src/recall/relevant.ts";
-import { loadPlugin } from "./harness.ts";
-import { readEvidenceLog as evidence, sleep } from "./helpers/logfmt.ts";
-import { roundTripThroughImport } from "./helpers/scenario-builders.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { compactionAnchor } from "../../src/inject/anchor.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
+import { contextualPull } from "../../src/inject/pull.ts";
+import { relevantKnowledge } from "../../src/recall/relevant.ts";
+import { loadPlugin } from "../harness.ts";
+import { readEvidenceLog as evidence, sleep } from "../helpers/logfmt.ts";
+import { roundTripThroughImport } from "../helpers/scenario-builders.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let liveRoot: string;
