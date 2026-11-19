@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { buildStore, QUERIES } from "../bench/fixtures/recall-dataset.ts";
+import { selectRelevant } from "../src/recall/relevant.ts";
 import { memoryRoot } from "../src/core/config/paths.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
 import { resetState } from "../src/core/state.ts";
@@ -220,10 +222,111 @@ describe("memory_recall with the gate", () => {
           scope: m.scope,
           content: m.content,
           status: m.status,
+          kw: m.kw?.join(","),
         })}\n`,
       );
     });
   }
+
+  test("transport keyword lookup reaches the explicit tool while injection abstains", async () => {
+    const ids = new Set([
+      "m01",
+      "m02",
+      "m04",
+      "m05",
+      "m07",
+      "m08",
+      "m10",
+      "m11",
+      "m12",
+      "m14",
+    ]);
+    const dataset = buildStore(600);
+    const memory = (row: (typeof dataset)[number]) =>
+      mem(row.content, { scope: row.scope, type: row.type, kw: row.kw });
+    const golds = new Map(
+      dataset
+        .filter((d) => ids.has(d.id))
+        .map((d) => [
+          d.id,
+          { ...memory(d), type: "learning" as const, scope: "widget-api" },
+        ]),
+    );
+    const background = dataset
+      .filter(
+        (d) =>
+          !ids.has(d.id.split("#")[0]!) &&
+          d.type !== "decision" &&
+          d.type !== "preference",
+      )
+      .slice(0, 180);
+    seed(...golds.values(), ...background.map(memory));
+    const loaded = await loadPlugin(root);
+    try {
+      const query = "why do my throttling rules never take effect locally";
+      const recall = (q: string) =>
+        loaded.tool.memory_recall!.execute({ query: q, limit: 3 });
+      expect(await recall(query)).toContain(golds.get("m02")!.content);
+      let hits = 0;
+      for (const q of QUERIES.filter((q) => ids.has(q.gold)))
+        if ((await recall(q.q)).includes(golds.get(q.gold)!.content)) hits++;
+      expect(hits).toBeGreaterThanOrEqual(14);
+      const positive = await selectRelevant(
+        "which Redis DB does the rate limiter use",
+        3,
+        undefined,
+        undefined,
+        undefined,
+        { budget: 300 },
+      );
+      expect(positive.block).toContain(golds.get("m02")!.content);
+      for (const q of [
+        query,
+        "trace CPU frequency throttling during compilation",
+        "schedule stadium lighting fixtures replacement",
+      ]) {
+        const { block } = await selectRelevant(
+          q,
+          3,
+          undefined,
+          undefined,
+          undefined,
+          { budget: 300 },
+        );
+        expect(block).toBe("");
+      }
+    } finally {
+      await loaded.cleanup();
+    }
+  });
+
+  test("explicit alias lookup needs a whole keyword unique among the candidates", async () => {
+    const redis = mem("Use Redis DB 3 for rate limits", {
+      scope: "api",
+      kw: ["throttling"],
+    });
+    seed(
+      redis,
+      mem("thermal throttling", { scope: "hardware" }),
+      mem("Compositor timings", { kw: ["frame pacing"] }),
+    );
+    const loaded = await loadPlugin(root);
+    try {
+      const query = "inspect throttling locally tomorrow";
+      const recall = (q: string, scope?: string) =>
+        loaded.tool.memory_recall!.execute({ query: q, scope });
+      expect(await recall(query)).toContain("No matching memories");
+      expect(await recall(query, "api")).toContain(redis.content);
+      expect(await recall("inspect throttling_rules locally", "api")).toContain(
+        "No matching memories",
+      );
+      expect(await recall("inspect pacing locally")).toContain(
+        "No matching memories",
+      );
+    } finally {
+      await loaded.cleanup();
+    }
+  });
 
   test("opted out, a one-concept row is still returned", async () => {
     seed(ONE_CONCEPT, TWO_CONCEPTS);
