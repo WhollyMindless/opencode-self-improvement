@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resetState } from "../src/core/state.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
-import { evidenceFileFor } from "../src/evidence/record.ts";
+import { evidenceFileFor } from "../src/telemetry/record.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,

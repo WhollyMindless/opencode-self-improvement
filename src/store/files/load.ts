@@ -29,7 +29,7 @@ const RESERVED = new Set([
   // Value-keyed rejection tombstones. Hashes only, never prose — and it
   // must never be ingested as a row, exported, or restored by undo.
   "rejected.logfmt",
-  // The use ledger (src/hits.ts): telemetry, not memory. A hit line must never
+  // The use ledger (src/telemetry/ledger.ts): telemetry, not memory. A hit line must never
   // be able to become a row — or to be superseded, exported, or injected.
   HITS_FILENAME,
 ]);

@@ -9,7 +9,7 @@ import {
   RESTATABLE_TAG,
   USER_GUIDED_TAG,
 } from "../core/tags.ts";
-import { record, recordCaptureLag } from "../evidence/record.ts";
+import { record, recordCaptureLag } from "../telemetry/record.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
 import { captureSessionID } from "../identity/host-events.ts";
 import { bindSessionProvisional, writeTarget } from "../identity/repokey.ts";

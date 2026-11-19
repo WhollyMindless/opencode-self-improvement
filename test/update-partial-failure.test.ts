@@ -14,7 +14,7 @@ import { loadAll } from "../src/store/files/load.ts";
 import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
 import { seedPlanRow } from "./helpers/scenario-builders.ts";
 import { resetState } from "../src/core/state.ts";
-import * as evidence from "../src/evidence/record.ts";
+import * as evidence from "../src/telemetry/record.ts";
 import { removeStore } from "./helpers/remove-store.ts";
 
 let root: string;

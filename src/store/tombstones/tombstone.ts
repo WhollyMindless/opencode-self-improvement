@@ -59,7 +59,7 @@ import {
   STOPWORDS,
   tokens,
 } from "../../core/tokenize.ts";
-import { contentHash } from "../../evidence/record.ts";
+import { contentHash } from "../../telemetry/record.ts";
 import { LOCK_WRITE, withStoreLock } from "../lock.ts";
 import { redactSecrets } from "../secrets.ts";
 import {

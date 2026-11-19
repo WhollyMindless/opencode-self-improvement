@@ -25,7 +25,7 @@ import {
   contentHash,
   record,
   recordWriteBlocked,
-} from "../evidence/record.ts";
+} from "../telemetry/record.ts";
 import { getCurrent, noteAuthored } from "../core/state.ts";
 import { MAX_WRITE_EVIDENCE_REFS } from "../capture/triggers.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";

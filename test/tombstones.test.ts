@@ -31,7 +31,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryRoot } from "../src/core/config/paths.ts";
-import { contentHash } from "../src/evidence/record.ts";
+import { contentHash } from "../src/telemetry/record.ts";
 import { runWriteGate } from "../src/gate/gate.ts";
 import { formatLine } from "../src/core/logfmt/format.ts";
 import { loadAll } from "../src/store/files/load.ts";

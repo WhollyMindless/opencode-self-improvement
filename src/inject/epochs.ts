@@ -5,7 +5,7 @@ import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 import { SESSION_CAP, SessionLru } from "../core/lru.ts";
-import { captureEvidenceContext, record } from "../evidence/record.ts";
+import { captureEvidenceContext, record } from "../telemetry/record.ts";
 import { capToBudget, injectedRows } from "./budget.ts";
 import { systemDigest } from "./digest.ts";
 import { storeVersion } from "./version.ts";
@@ -15,7 +15,7 @@ import {
   deriveMemoryRefs,
   type MemoryRefs,
 } from "./attribution.ts";
-import { readLedger, useSignals } from "../hits/ledger.ts";
+import { readLedger, useSignals } from "../telemetry/ledger.ts";
 import { summarizeStore } from "../status/store-summary.ts";
 import {
   emptyStats,

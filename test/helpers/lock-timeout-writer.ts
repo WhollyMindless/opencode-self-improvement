@@ -10,7 +10,7 @@ import {
 import { addBlock, removeBlock } from "../../src/store/blocklist.ts";
 import { deleteMemory, unrejectMemory } from "../../src/viewer/mutate.ts";
 import { tombstoneMany } from "../../src/store/tombstones/tombstone.ts";
-import { contentHash } from "../../src/evidence/record.ts";
+import { contentHash } from "../../src/telemetry/record.ts";
 import { LOCK_WRITE } from "../../src/store/lock.ts";
 import { requireTempPath } from "./temp-root.ts";
 
