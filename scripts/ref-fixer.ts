@@ -82,12 +82,92 @@ export function applyRefFixes(
 }
 
 /**
+ * Rename index built from two `git log --name-status --format=%H` passes: one
+ * filtered to renames, one over the whole history.
+ *
+ * `renamed` maps a source path to its target for the NEWEST rename scoring R90
+ * or above. The floor is measured, not guessed: across this repository's
+ * history renames land in two clusters — R090..R100 is the domain restructure,
+ * where the only content change is the import lines inside the moved file, and
+ * the outliers below R090 (R058, R072, R080, R086, R088) are files git scored
+ * as renames after rewriting much of them. A row repointed onto one of those
+ * asserts something about a module that no longer exists in the shape the
+ * sentence describes.
+ *
+ * `reused` holds source paths occupied by more than one generation. Two shapes
+ * reach it: renamed more than once, and renamed away then touched again by a
+ * later commit. The second leaves no second rename record at all, so counting
+ * rename records misses it — a file moved away, recreated with different
+ * content and later deleted reads as a clean single rename, and a row about the
+ * second occupant would be repointed onto the first occupant's new path.
+ */
+export function indexRenames(
+  renameLog: string,
+  fullLog: string,
+): {
+  renamed: Map<string, string>;
+  hopScore: Map<string, number>;
+  reused: Set<string>;
+} {
+  const renamed = new Map<string, string>();
+  const hopScore = new Map<string, number>();
+  const reused = new Set<string>();
+  const counts = new Map<string, number>();
+  const renameCommit = new Map<string, string>();
+  let commit = "";
+  for (const line of renameLog.split("\n")) {
+    if (!line.trim()) continue;
+    // `--format=%H` emits the hash on its own line ahead of that commit's
+    // name-status rows, which carry tabs.
+    if (!line.includes("\t")) {
+      commit = line.trim();
+      continue;
+    }
+    const p = line.split("\t");
+    if (!p[0]?.startsWith("R") || !p[1] || !p[2]) continue;
+    counts.set(p[1], (counts.get(p[1]) ?? 0) + 1);
+    // git log is newest-first, so the FIRST record for a path is its newest
+    // rename. Keeping the last would follow the oldest move in history and
+    // land on a path that moved again since.
+    if (renamed.has(p[1]) || hopScore.has(p[1])) continue;
+    renameCommit.set(p[1], commit);
+    const score = Number(p[0].slice(1));
+    hopScore.set(p[1], score);
+    if (score >= 90) renamed.set(p[1], p[2]);
+  }
+  for (const [p, n] of counts) if (n > 1) reused.add(p);
+  // One pass over the unfiltered log answers "was this path touched after its
+  // newest rename?" for every candidate at once. Newest-first, so the first
+  // record seen for a path is the most recent commit that touched it.
+  const lastTouch = new Map<string, string>();
+  commit = "";
+  for (const line of fullLog.split("\n")) {
+    if (!line.trim()) continue;
+    if (!line.includes("\t")) {
+      commit = line.trim();
+      continue;
+    }
+    const p = line.split("\t");
+    const kind = p[0]?.[0];
+    for (const q of kind === "R" || kind === "C" ? [p[1], p[2]] : [p[1]]) {
+      if (q && !lastTouch.has(q)) lastTouch.set(q, commit);
+    }
+  }
+  for (const [p, h] of renameCommit) {
+    const touched = lastTouch.get(p);
+    if (touched && touched !== h) reused.add(p);
+  }
+  return { renamed, hopScore, reused };
+}
+
+/**
  * Terminal target of a rename chain, or null when there is no chain, the chain
- * cycles, it is longer than the hop cap, or any hop's source path was renamed
- * more than once. All four mean "a human decides": an unresolved intermediate
- * is a path that no longer exists, and a reused source path — renamed away,
- * recreated, renamed away again — has two generations of rows written against
- * it and no way from the row's text to say which one it describes.
+ * cycles, it is longer than the hop cap, or any hop's source path was occupied
+ * by more than one generation. All of these mean "a human decides": an
+ * unresolved intermediate is a path that no longer exists, and a reused source
+ * path — renamed away and recreated, whether it was renamed away again or
+ * simply deleted — has rows written against each generation citing the same
+ * string and describing different files.
  */
 export function chainEnd(
   from: string,
@@ -139,46 +219,21 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  // Latest qualifying rename wins. The score floor is measured, not guessed:
-  // across this repository's history renames land in two clusters — R090..R100
-  // is the domain restructure, where the only content change is the import
-  // lines inside the moved file, and the outliers below R090 (R058, R072, R080,
-  // R086, R088) are files git scored as renames after rewriting much of them.
-  // A row repointed onto one of those asserts something about a module that no
-  // longer exists in the shape the sentence describes.
-  const renamed = new Map<string, string>();
-  const hopScore = new Map<string, number>();
-  const reused = new Set<string>();
-  {
-    const r = git([
-      "log",
-      "--diff-filter=R",
-      "--name-status",
-      "--format=",
-      "-M",
-    ]);
-    if (r.code !== 0) {
-      console.error("git log for renames failed — nothing to compare.");
-      return 2;
-    }
-    const counts = new Map<string, number>();
-    for (const line of r.out.split("\n")) {
-      const p = line.split("\t");
-      if (!p[0]?.startsWith("R") || !p[1] || !p[2]) continue;
-      // A path renamed more than once was renamed away, recreated, and renamed
-      // away again. Rows written against each generation cite the same string
-      // and describe different files, so no rule can pick between them.
-      counts.set(p[1], (counts.get(p[1]) ?? 0) + 1);
-      // git log is newest-first, so the FIRST record for a path is its newest
-      // rename. Keeping the last would follow the oldest move in history and
-      // land on a path that moved again since.
-      if (renamed.has(p[1]) || hopScore.has(p[1])) continue;
-      const score = Number(p[0].slice(1));
-      hopScore.set(p[1], score);
-      if (score >= 90) renamed.set(p[1], p[2]);
-    }
-    for (const [p, n] of counts) if (n > 1) reused.add(p);
+  const renameLog = git([
+    "log",
+    "--diff-filter=R",
+    "--name-status",
+    "--format=%H",
+    "-M",
+  ]);
+  if (renameLog.code !== 0) {
+    console.error("git log for renames failed — nothing to compare.");
+    return 2;
   }
+  const { renamed, hopScore, reused } = indexRenames(
+    renameLog.out,
+    git(["log", "--name-status", "--format=%H"]).out,
+  );
   // Tracked surface, for "exactly one file ends with this path". Tracked, not
   // a filesystem walk: build output and node_modules must not create a second
   // candidate and turn a safe repoint into a guess.
@@ -284,10 +339,10 @@ async function main(): Promise<number> {
   }
   if (reusedSeen.size)
     console.log(
-      "\nRenamed more than once — moved away, recreated at the same path, moved",
-      "away again. Rows written against each generation cite the same string and",
-      "describe different files, so this script will not pick:\n  " +
-        [...reusedSeen].join(", "),
+      "\nOccupied by more than one generation — moved away and recreated at the",
+      "same path, whether it moved again or was later deleted. Rows written",
+      "against each generation cite the same string and describe different",
+      "files, so this script will not pick:\n  " + [...reusedSeen].join(", "),
     );
 
   if (!APPLY) {

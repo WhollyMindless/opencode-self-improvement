@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyRefFixes, chainEnd } from "../scripts/ref-fixer.ts";
+import { applyRefFixes, chainEnd, indexRenames } from "../scripts/ref-fixer.ts";
 import { checkablePathRefs } from "../src/gate/resolver.ts";
 
 // The rewrite edits the user's stored prose, so it is the dangerous half of
@@ -144,5 +144,59 @@ describe("chainEnd", () => {
     expect(chainEnd("src/lock.ts", m, yes, new Set())).toBe(
       "src/store/lock.ts",
     );
+  });
+});
+
+// The reuse check reads two `git log --name-status --format=%H` passes. These
+// are written out in that format: the rename pass is filtered with -M, the full
+// pass is not, so a move appears there as a delete plus an add.
+const renameLog = (hash: string, from: string, to: string, score = 100) =>
+  `${hash}\n\nR${score}\t${from}\t${to}\n`;
+
+describe("indexRenames", () => {
+  test("a clean single rename is not a reuse", () => {
+    const idx = indexRenames(
+      renameLog("c2", "src/lock.ts", "legacy/lock.ts"),
+      "c2\n\nD\tsrc/lock.ts\nA\tlegacy/lock.ts\nc1\n\nA\tsrc/lock.ts\n",
+    );
+    expect(idx.renamed.get("src/lock.ts")).toBe("legacy/lock.ts");
+    expect(idx.reused.has("src/lock.ts")).toBe(false);
+  });
+
+  test("renamed away, recreated, then deleted is a reuse", () => {
+    // Two components occupied src/lock.ts and only the first move is a rename,
+    // so counting rename records reports a clean single move and a row about
+    // the second component would be repointed onto the first one's new path.
+    const idx = indexRenames(
+      renameLog("c2", "src/lock.ts", "legacy/lock.ts"),
+      "c4\n\nD\tsrc/lock.ts\nc3\n\nA\tsrc/lock.ts\nc2\n\nD\tsrc/lock.ts\nA\tlegacy/lock.ts\nc1\n\nA\tsrc/lock.ts\n",
+    );
+    expect(idx.reused.has("src/lock.ts")).toBe(true);
+  });
+
+  test("renamed more than once is a reuse", () => {
+    const idx = indexRenames(
+      "c3\n\nR100\tsrc/lock.ts\told/lock.ts\nc2\n\nR100\tsrc/lock.ts\tlegacy/lock.ts\n",
+      "c3\n\nD\tsrc/lock.ts\nA\told/lock.ts\nc2\n\nD\tsrc/lock.ts\nA\tlegacy/lock.ts\nc1\n\nA\tsrc/lock.ts\n",
+    );
+    expect(idx.reused.has("src/lock.ts")).toBe(true);
+  });
+
+  test("a rename below the floor is not followed, and is not a reuse either", () => {
+    const idx = indexRenames(
+      renameLog("c2", "src/lock.ts", "legacy/lock.ts", 88),
+      "c2\n\nD\tsrc/lock.ts\nA\tlegacy/lock.ts\n",
+    );
+    expect(idx.renamed.has("src/lock.ts")).toBe(false);
+    expect(idx.hopScore.get("src/lock.ts")).toBe(88);
+    expect(idx.reused.has("src/lock.ts")).toBe(false);
+  });
+
+  test("the newest rename wins when a path has several", () => {
+    const idx = indexRenames(
+      "c3\n\nR100\tsrc/a.ts\tsrc/c.ts\nc2\n\nR100\tsrc/a.ts\tsrc/b.ts\n",
+      "c3\n\nD\tsrc/a.ts\nA\tsrc/c.ts\nc2\n\nD\tsrc/a.ts\nA\tsrc/b.ts\n",
+    );
+    expect(idx.renamed.get("src/a.ts")).toBe("src/c.ts");
   });
 });
