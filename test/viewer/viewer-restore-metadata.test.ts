@@ -11,20 +11,20 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendMemory } from "../src/store/files/append.ts";
-import { logDeletion } from "../src/store/files/deletions.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { type Memory } from "../src/store/model/memory.ts";
-import { isActive, isInjectable } from "../src/store/model/predicates.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { logDeletion } from "../../src/store/files/deletions.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { type Memory } from "../../src/store/model/memory.ts";
+import { isActive, isInjectable } from "../../src/store/model/predicates.ts";
 import {
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { resetState } from "../src/core/state.ts";
-import { deletionsFile } from "../src/core/config/paths.ts";
-import { startViewer, type ViewerServer } from "../src/viewer/server.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { resetState } from "../../src/core/state.ts";
+import { deletionsFile } from "../../src/core/config/paths.ts";
+import { startViewer, type ViewerServer } from "../../src/viewer/server.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let a: string;
@@ -211,8 +211,8 @@ test("legacy audit lines without metadata restore unchanged — the documented f
   // An audit line from before deletion metadata: type/scope/content/repo only.
   const scopeA = resolveRepo(a);
   const ts = "2026-10-01T00:00:00.000Z";
-  const { appendLog } = await import("../src/core/logfmt/publish.ts");
-  const { formatLine } = await import("../src/core/logfmt/format.ts");
+  const { appendLog } = await import("../../src/core/logfmt/publish.ts");
+  const { formatLine } = await import("../../src/core/logfmt/format.ts");
   await appendLog(
     deletionsFile(),
     formatLine({
@@ -330,7 +330,7 @@ test("deleted-entry UI renders the quarantine badge in the row and the restore r
   // harness as test/quarantine.test.ts: eval the shipped scripts, render a
   // deleted quarantined row, inspect rows.innerHTML.
   const page = readFileSync(
-    join(import.meta.dir, "../src/viewer/page.html"),
+    join(import.meta.dir, "../../src/viewer/page.html"),
     "utf8",
   );
   const scripts = [...page.matchAll(/<script(?: [^>]*)?>([\s\S]*?)<\/script>/g)]

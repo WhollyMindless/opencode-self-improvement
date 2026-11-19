@@ -24,7 +24,6 @@ const COVERED_CROSS_CUTTING = new Set([
   "recall",
   "store",
   "tui",
-  "viewer",
 ]);
 
 function srcModules(): string[] {

@@ -8,27 +8,27 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileIdentity } from "../src/core/logfmt/publish.ts";
-import { resetState } from "../src/core/state.ts";
-import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
-import { appendMemory } from "../src/store/files/append.ts";
+import { fileIdentity } from "../../src/core/logfmt/publish.ts";
+import { resetState } from "../../src/core/state.ts";
+import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
 import {
   blocklistFile,
   blockedEntries,
   removeBlock,
-} from "../src/store/blocklist.ts";
-import { rejectedFile } from "../src/store/tombstones/rejection.ts";
+} from "../../src/store/blocklist.ts";
+import { rejectedFile } from "../../src/store/tombstones/rejection.ts";
 import {
   removeTombstone,
   tombstones,
-} from "../src/store/tombstones/tombstone.ts";
+} from "../../src/store/tombstones/tombstone.ts";
 import {
   blockMemory,
   unblockMemory,
   unrejectMemory,
-} from "../src/viewer/mutate.ts";
-import { startViewer, type ViewerServer } from "../src/viewer/server.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/viewer/mutate.ts";
+import { startViewer, type ViewerServer } from "../../src/viewer/server.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 const CONTENT =
   "the deploy pipeline pins the base image digest and verifies the signature before pushing";

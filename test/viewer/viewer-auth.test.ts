@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { removeStore } from "./helpers/remove-store.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 const EVAL = `
 import { startViewer } from "./src/viewer/server.ts";
@@ -129,7 +129,7 @@ function runViewer(
   evalScript = EVAL,
 ) {
   return Bun.spawnSync([process.execPath, "--eval", evalScript], {
-    cwd: join(import.meta.dir, ".."),
+    cwd: join(import.meta.dir, "..", ".."),
     env: {
       ...process.env,
       OPENCODE_MEMORY_DIR: join(root, "memory"),

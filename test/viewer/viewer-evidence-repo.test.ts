@@ -11,25 +11,25 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { loadPlugin, type LoadedPlugin } from "./harness.ts";
+import { loadPlugin, type LoadedPlugin } from "../harness.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { resetState } from "../src/core/state.ts";
-import { resetCaptureCooldowns } from "../src/index.ts";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { formatLine, parseLine } from "../src/core/logfmt/format.ts";
-import { editMemory, releaseQuarantinedMemory } from "../src/viewer/mutate.ts";
-import { addBlock } from "../src/store/blocklist.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { resetState } from "../../src/core/state.ts";
+import { resetCaptureCooldowns } from "../../src/index.ts";
+import { evidenceDir, memoryRoot } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { formatLine, parseLine } from "../../src/core/logfmt/format.ts";
+import { editMemory, releaseQuarantinedMemory } from "../../src/viewer/mutate.ts";
+import { addBlock } from "../../src/store/blocklist.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 import {
   ADMIN_READER,
   evidenceVisibleTo,
-} from "../src/store/model/visibility.ts";
+} from "../../src/store/model/visibility.ts";
 
 let root: string;
 let a: string;

@@ -17,13 +17,13 @@ import {
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { memoryRoot, snapshotDir } from "../src/core/config/paths.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { loadAll, memoryFiles } from "../src/store/files/load.ts";
-import { startViewer, type ViewerServer } from "../src/viewer/server.ts";
-import { blockedTs } from "../src/store/blocklist.ts";
-import { systemDigest } from "../src/inject/digest.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { memoryRoot, snapshotDir } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { loadAll, memoryFiles } from "../../src/store/files/load.ts";
+import { startViewer, type ViewerServer } from "../../src/viewer/server.ts";
+import { blockedTs } from "../../src/store/blocklist.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let vm: ViewerServer;
@@ -483,7 +483,7 @@ type Helpers = {
 
 function loadHelpers(): { h: Helpers; src: string } {
   const src = readFileSync(
-    join(import.meta.dir, "../src/viewer/page.html"),
+    join(import.meta.dir, "../../src/viewer/page.html"),
     "utf8",
   );
   const m = src.match(/<script id="viewer-helpers">([\s\S]*?)<\/script>/);

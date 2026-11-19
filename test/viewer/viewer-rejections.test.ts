@@ -10,19 +10,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deletionsFile, snapshotDir } from "../src/core/config/paths.ts";
-import { resetState } from "../src/core/state.ts";
-import { contentHash } from "../src/telemetry/record.ts";
-import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll, memoryFiles } from "../src/store/files/load.ts";
-import { prune } from "../src/store/files/prune.ts";
-import { redactSecrets } from "../src/store/secrets.ts";
-import { rejectedFile } from "../src/store/tombstones/rejection.ts";
-import { tombstone } from "../src/store/tombstones/tombstone.ts";
-import { editMemory } from "../src/viewer/mutate.ts";
-import { startViewer, type ViewerServer } from "../src/viewer/server.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { deletionsFile, snapshotDir } from "../../src/core/config/paths.ts";
+import { resetState } from "../../src/core/state.ts";
+import { contentHash } from "../../src/telemetry/record.ts";
+import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll, memoryFiles } from "../../src/store/files/load.ts";
+import { prune } from "../../src/store/files/prune.ts";
+import { redactSecrets } from "../../src/store/secrets.ts";
+import { rejectedFile } from "../../src/store/tombstones/rejection.ts";
+import { tombstone } from "../../src/store/tombstones/tombstone.ts";
+import { editMemory } from "../../src/viewer/mutate.ts";
+import { startViewer, type ViewerServer } from "../../src/viewer/server.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 const REJECTED =
   "decided to adopt the express framework for the http layer and terminate tls at the load balancer";

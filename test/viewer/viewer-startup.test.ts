@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { removeStore } from "./helpers/remove-store.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 describe("viewer exposure warning", () => {
   test.each([
@@ -88,7 +88,7 @@ describe("viewer exposure warning", () => {
           `import { startViewer } from "./src/viewer/server.ts"; const viewer = await startViewer(0); try { const response = await fetch("http://127.0.0.1:" + viewer.server.port + "/"); if (response.status !== ${expectedStatus}) throw new Error("viewer HTTP status " + response.status); await response.text(); } finally { viewer.server.stop(true); }`,
         ],
         {
-          cwd: join(import.meta.dir, ".."),
+          cwd: join(import.meta.dir, "..", ".."),
           env: {
             ...process.env,
             OPENCODE_MEMORY_DIR: join(root, "memory"),
