@@ -214,7 +214,14 @@ export async function afterTool(
     // turn can be joined to it. Evidence is the audit trail — pruned and
     // quarantined on its own schedule — so the join cannot live there.
     if (sid && turnKey && rec.turn !== undefined)
-      await recordOutcome(sid, rec.turn, status, family, Date.now(), turnKey);
+      await recordOutcome(
+        sid,
+        rec.turn,
+        status,
+        family,
+        Date.parse(ts),
+        turnKey,
+      );
     if (status === "FAIL") {
       s.pendingGate = { call, cmd: family, chain: [], count: 0 };
     } else if (s.pendingGate && s.pendingGate.cmd === family) {

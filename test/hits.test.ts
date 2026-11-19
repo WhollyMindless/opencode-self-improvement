@@ -501,7 +501,7 @@ describe("the surfaces read the ledger honestly", () => {
       blocked: [],
     });
     expect(withOutcomes).toInclude(
-      "outcome-linked 9 rides over 4 rows: 6 on turns whose gate passed, 3 on turns whose gate failed",
+      "outcome-linked 9 rides over 4 rows: 6 clean row/turns, 3 failed row/turns",
     );
     expect(withOutcomes).toInclude(
       `2 candidates at ≥${EVICT_MIN_RIDES} rides with no clean turn`,
@@ -660,6 +660,36 @@ describe("turn outcomes", () => {
     expect(await readOutcomes()).toEqual([]);
   });
 
+  test("only gates after retrieval count, once per row and turn", async () => {
+    const at = Date.UTC(2026, 5, 1);
+    const early = row("early"),
+      late = row("late"),
+      after = row("after");
+    await recordHits("inject", "s", [early], [], at, 1, "k");
+    await recordHits("recall", "s", [early], [], at + 1, 1, "k");
+    await recordOutcome("s", 1, "FAIL", "test", at + 2, "k");
+    await recordHits("recall", "s", [late], [], at + 3, 1, "k");
+    const summarize = async () =>
+      joinUseWithOutcomes(await readRides(), await readOutcomes());
+    expect((await summarize()).get(late.ts)?.joined).toBe(0);
+    await recordOutcome("s", 1, "PASS", "test", at + 4, "k");
+    await recordHits("recall", "s", [after], [], at + 5, 1, "k");
+    const stats = await summarize();
+    expect(stats.get(early.ts)).toEqual({
+      rides: 2,
+      joined: 2,
+      clean: 0,
+      failAfter: 1,
+    });
+    expect(stats.get(late.ts)).toEqual({
+      rides: 1,
+      joined: 1,
+      clean: 1,
+      failAfter: 0,
+    });
+    expect(stats.get(after.ts)?.joined).toBe(0);
+  });
+
   test("one line per distinct turn, readable back as PASS or FAIL", async () => {
     expect(
       await recordOutcome(
@@ -683,6 +713,7 @@ describe("turn outcomes", () => {
     expect(got).toEqual([
       {
         ts: "2026-06-01T00:00:00.000Z",
+        lastFail: "2026-06-01T00:00:00.000Z",
         sid: "ses-out",
         turn: 2,
         outcome: "FAIL",
@@ -735,8 +766,20 @@ describe("joinUseWithOutcomes claims only what it saw", () => {
     const joined = joinUseWithOutcomes(
       [ride("s", 1, ["a"]), ride("s", 2, ["b"])],
       [
-        { ts: "", sid: "s", turn: 1, outcome: "PASS", cmd: "tsc" },
-        { ts: "", sid: "s", turn: 2, outcome: "FAIL", cmd: "test" },
+        {
+          ts: "2026-07-01T00:00:00.000Z",
+          sid: "s",
+          turn: 1,
+          outcome: "PASS",
+          cmd: "tsc",
+        },
+        {
+          ts: "2026-07-01T00:00:00.000Z",
+          sid: "s",
+          turn: 2,
+          outcome: "FAIL",
+          cmd: "test",
+        },
       ],
     );
     expect(joined.get("a")).toEqual({
@@ -756,7 +799,15 @@ describe("joinUseWithOutcomes claims only what it saw", () => {
   test("a ride with no turn, or in a session with no gate, is a ride only", () => {
     const joined = joinUseWithOutcomes(
       [ride("s", undefined, ["a"]), ride("s", 9, ["b"])],
-      [{ ts: "", sid: "s", turn: 1, outcome: "PASS", cmd: "tsc" }],
+      [
+        {
+          ts: "2026-07-01T00:00:00.000Z",
+          sid: "s",
+          turn: 1,
+          outcome: "PASS",
+          cmd: "tsc",
+        },
+      ],
     );
     expect(joined.get("a")).toEqual({
       rides: 1,
@@ -776,8 +827,20 @@ describe("joinUseWithOutcomes claims only what it saw", () => {
     const joined = joinUseWithOutcomes(
       [ride("s", 4, ["a"])],
       [
-        { ts: "", sid: "s", turn: 4, outcome: "PASS", cmd: "lint" },
-        { ts: "", sid: "s", turn: 4, outcome: "FAIL", cmd: "test" },
+        {
+          ts: "2026-07-01T00:00:00.000Z",
+          sid: "s",
+          turn: 4,
+          outcome: "PASS",
+          cmd: "lint",
+        },
+        {
+          ts: "2026-07-01T00:00:00.000Z",
+          sid: "s",
+          turn: 4,
+          outcome: "FAIL",
+          cmd: "test",
+        },
       ],
     );
     expect(joined.get("a")).toEqual({
@@ -791,7 +854,15 @@ describe("joinUseWithOutcomes claims only what it saw", () => {
   test("the same turn number in a different session does not join", () => {
     const joined = joinUseWithOutcomes(
       [ride("s1", 1, ["a"])],
-      [{ ts: "", sid: "s2", turn: 1, outcome: "FAIL", cmd: "test" }],
+      [
+        {
+          ts: "2026-07-01T00:00:00.000Z",
+          sid: "s2",
+          turn: 1,
+          outcome: "FAIL",
+          cmd: "test",
+        },
+      ],
     );
     expect(joined.get("a")).toEqual({
       rides: 1,
@@ -826,20 +897,26 @@ describe("summarizeStore reports eviction candidates without acting", () => {
     ];
     const outcomes = [
       ...Array.from({ length: 5 }, (_, i) => ({
-        ts: "",
+        ts: "2026-07-01T00:00:00.000Z",
         sid: `s${i}`,
         turn: 1,
         outcome: "FAIL" as const,
         cmd: "test",
       })),
       ...Array.from({ length: 4 }, (_, i) => ({
-        ts: "",
+        ts: "2026-07-01T00:00:00.000Z",
         sid: `t${i}`,
         turn: 1,
         outcome: "FAIL" as const,
         cmd: "test",
       })),
-      { ts: "", sid: "t4", turn: 1, outcome: "PASS" as const, cmd: "test" },
+      {
+        ts: "2026-07-01T00:00:00.000Z",
+        sid: "t4",
+        turn: 1,
+        outcome: "PASS" as const,
+        cmd: "test",
+      },
     ];
     const { counts } = summarizeStore(
       [active("bad"), active("mixed"), active("unseen")],
@@ -854,6 +931,40 @@ describe("summarizeStore reports eviction candidates without acting", () => {
       failAfter: 9,
       evictCandidates: 1,
     });
+  });
+
+  test("the visible details stay bounded and prioritize eviction candidates", () => {
+    const rows = Array.from({ length: 1200 }, (_, i) => active(String(i)));
+    const ride = {
+      ts: "2026-06-01T00:00:00.000Z",
+      sid: "s",
+      turn: 1,
+      src: "inject" as const,
+      terms: [],
+    };
+    const rides = rows.map((m) => ({ ...ride, mems: [m.ts] }));
+    rides.push(...Array(4).fill(rides[1199]));
+    const outcomes = [
+      {
+        ...ride,
+        ts: "2026-06-01T00:00:01.000Z",
+        outcome: "FAIL" as const,
+        cmd: "test",
+      },
+    ];
+    const { counts } = summarizeStore(
+      rows,
+      { byRow: new Map(), since: null, lines: 0 },
+      0,
+      { rides, outcomes, visible: () => true },
+    );
+    expect(counts.useOutcome?.details).toHaveLength(21);
+    expect(counts.useOutcome?.details?.[0]).toContain(
+      "1199 used=5 clean=0 fail_after=1",
+    );
+    expect(counts.useOutcome?.details?.at(-1)).toContain(
+      "1180 more visible rows",
+    );
   });
 
   test("omitting the join leaves the block absent, not zero", () => {

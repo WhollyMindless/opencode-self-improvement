@@ -46,7 +46,10 @@ export function summarizeStore(
   };
   if (use) {
     const live = new Map(active.map((m) => [m.ts, m]));
-    const details: string[] = [];
+    const candidates: string[] = [];
+    const others: string[] = [];
+    let visibleCount = 0;
+    const limit = 20;
     const joined = joinUseWithOutcomes(use.rides, use.outcomes);
     let rowsMeasured = 0;
     let sumJoined = 0;
@@ -58,10 +61,13 @@ export function summarizeStore(
       if (!memory) continue;
       const candidate =
         o.joined > 0 && o.rides >= EVICT_MIN_RIDES && o.clean === 0;
+      const details = candidate ? candidates : others;
       if (use.visible?.(memory)) {
-        details.push(
-          `    ${row} used=${o.rides} clean=${o.clean} fail_after=${o.failAfter} unknown=${o.rides - o.joined}${candidate ? " (eviction candidate)" : ""}`,
-        );
+        visibleCount++;
+        if (details.length < limit)
+          details.push(
+            `    ${row} used=${o.rides} clean=${o.clean} fail_after=${o.failAfter} unknown=${o.rides - o.joined}${candidate ? " (eviction candidate)" : ""}`,
+          );
       }
       if (o.joined === 0) continue;
       rowsMeasured++;
@@ -70,6 +76,9 @@ export function summarizeStore(
       failAfter += o.failAfter;
       if (candidate) evictCandidates++;
     }
+    const details = [...candidates, ...others].slice(0, limit);
+    if (visibleCount > limit)
+      details.push(`    … ${visibleCount - limit} more visible rows`);
     counts.useOutcome = {
       ...(details.length ? { details } : {}),
       rowsMeasured,

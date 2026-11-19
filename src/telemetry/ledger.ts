@@ -74,6 +74,7 @@ export interface TurnOutcome {
   turn: number;
   outcome: "PASS" | "FAIL";
   cmd: string;
+  lastFail?: string;
   turnKey?: string;
 }
 
@@ -227,9 +228,18 @@ export async function recordOutcome(
         const previous = index < 0 ? undefined : parseLine(lines[index]);
         const calls = Number(previous?.calls ?? 0) + 1;
         const fails = Number(previous?.fails ?? 0) + Number(outcome === "FAIL");
+        const ts = new Date(now).toISOString();
+        const priorTs = String(previous?.ts ?? "");
+        const priorFail = String(
+          previous?.lastFail ??
+            (previous?.outcome === "fail" && previous?.calls === previous?.fails
+              ? priorTs
+              : ""),
+        );
+        const lastFail = outcome === "FAIL" && ts > priorFail ? ts : priorFail;
         const line = formatLine({
           ev: "turn_outcome",
-          ts: new Date(now).toISOString(),
+          ts: ts > priorTs ? ts : priorTs,
           sid,
           turn,
           ...(turnKey ? { turnKey } : {}),
@@ -237,6 +247,7 @@ export async function recordOutcome(
           fails,
           outcome: fails ? "fail" : "clean",
           cmd,
+          ...(lastFail ? { lastFail } : {}),
         });
         if (index < 0) await appendLog(file, line);
         else {
@@ -262,7 +273,10 @@ export async function readOutcomes(): Promise<TurnOutcome[]> {
     if (!Number.isFinite(turn)) continue;
     if (f.outcome !== "fail" && f.outcome !== "clean") continue;
     const outcome = f.outcome === "fail" ? "FAIL" : "PASS";
+    // Older mixed summaries did not preserve the order of their failures.
+    if (outcome === "FAIL" && !f.lastFail && f.calls !== f.fails) continue;
     out.push({
+      ...(typeof f.lastFail === "string" ? { lastFail: f.lastFail } : {}),
       ts: typeof f.ts === "string" ? f.ts : "",
       sid: typeof f.sid === "string" ? f.sid : "",
       ...(typeof f.turnKey === "string" ? { turnKey: f.turnKey } : {}),
@@ -281,8 +295,8 @@ export async function readOutcomes(): Promise<TurnOutcome[]> {
  *                writes are invisible).
  * `joined`     — rides that landed on a turn which ALSO recorded a gate
  *                outcome. Everything else is unmeasured, not clean.
- * `clean`      — joined rides whose turn passed its gate.
- * `failAfter`  — joined rides whose turn failed its gate.
+ * `clean`      — distinct row/turns with only passes after a ride.
+ * `failAfter`  — distinct row/turns with a failure after a ride.
  *
  * A FAIL on the ride's own turn is correlation only. The row may have been
  * irrelevant, correct-but-out-of-scope, or right and the failure someone
@@ -305,35 +319,51 @@ export function joinUseWithOutcomes(
   rides: HitEntry[],
   outcomes: TurnOutcome[],
 ): Map<string, RowOutcome> {
-  const byTurn = new Map<string, "PASS" | "FAIL">();
+  const byTurn = new Map<
+    string,
+    {
+      lastGate: string;
+      lastFail: string;
+      verdicts: Map<string, "PASS" | "FAIL">;
+    }
+  >();
   for (const o of outcomes) {
-    const k = `${o.sid}|${o.turn}|${o.turnKey ?? ""}`;
-    // Worst outcome wins a turn: a failing gate is the signal we act on, and
-    // a later pass in the same turn does not erase the fact that it failed.
-    if (byTurn.get(k) !== "FAIL") byTurn.set(k, o.outcome);
+    const key = JSON.stringify([o.sid, o.turn, o.turnKey]);
+    const entry = byTurn.get(key) ?? {
+      lastGate: "",
+      lastFail: "",
+      verdicts: new Map(),
+    };
+    if (o.ts > entry.lastGate) entry.lastGate = o.ts;
+    const fail = o.lastFail ?? (o.outcome === "FAIL" ? o.ts : "");
+    if (fail > entry.lastFail) entry.lastFail = fail;
+    byTurn.set(key, entry);
   }
   const out = new Map<string, RowOutcome>();
   for (const line of rides) {
-    const verdict =
-      typeof line.turn === "number" && line.sid
-        ? byTurn.get(`${line.sid}|${line.turn}|${line.turnKey ?? ""}`)
-        : undefined;
-    for (const row of line.mems) {
+    const turn = byTurn.get(
+      JSON.stringify([line.sid, line.turn, line.turnKey]),
+    );
+    for (const row of new Set(line.mems)) {
       const cur = out.get(row) ?? {
         rides: 0,
         joined: 0,
         clean: 0,
         failAfter: 0,
       };
-      cur.rides++;
-      if (verdict === "PASS") {
-        cur.joined++;
-        cur.clean++;
-      } else if (verdict === "FAIL") {
-        cur.joined++;
-        cur.failAfter++;
-      }
       out.set(row, cur);
+      cur.rides++;
+      if (!line.ts || !turn || turn.lastGate <= line.ts) continue;
+      // Same-millisecond failures cannot be ordered relative to this ride.
+      if (turn.lastFail === line.ts) continue;
+      cur.joined++;
+      const verdict = turn.lastFail > line.ts ? "FAIL" : "PASS";
+      const prior = turn.verdicts.get(row);
+      if (prior === verdict || prior === "FAIL") continue;
+      if (prior === "PASS") cur.clean--;
+      if (verdict === "PASS") cur.clean++;
+      else cur.failAfter++;
+      turn.verdicts.set(row, verdict);
     }
   }
   return out;

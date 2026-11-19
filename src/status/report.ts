@@ -289,7 +289,7 @@ export function renderMemoryReport(input: {
     // in a footnote nobody reads: only rides that landed on a turn which also
     // ran a gate command (build/test/lint/typecheck) can be scored at all.
     out.push(
-      `  outcome-linked ${u.joined} rides over ${u.rowsMeasured} rows: ${u.clean} on turns whose gate passed, ${u.failAfter} on turns whose gate failed; ${u.evictCandidates} candidates at ≥${EVICT_MIN_RIDES} rides with no clean turn — best-effort counts are floors since ${store.ledgerSince ?? "unknown"}; correlation on the ride's own turn, reported, never acted on`,
+      `  outcome-linked ${u.joined} rides over ${u.rowsMeasured} rows: ${u.clean} clean row/turns, ${u.failAfter} failed row/turns; ${u.evictCandidates} candidates at ≥${EVICT_MIN_RIDES} rides with no clean turn — best-effort counts are floors since ${store.ledgerSince ?? "unknown"}; correlation on the ride's own turn, reported, never acted on`,
     );
     for (const detail of u.details ?? []) out.push(detail);
   }
