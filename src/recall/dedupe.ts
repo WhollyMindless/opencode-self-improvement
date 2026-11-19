@@ -20,6 +20,13 @@
 // - A pair whose numeric literals differ is never a copy: short tokens are
 //   dropped, so "DB 3" and "DB 4" otherwise share identical token sets.
 //
+// A clash is not one situation. Either one row corrected the other, or the two
+// rows name two things that both hold, and only the first is a copy. A row
+// whose tokens are wholly contained in its partner names something the partner
+// does not restate, so both are kept and reported as a group; the others still
+// collapse to the newest. OPENCODE_MEMORY_AMBIGUOUS=0 restores the collapse for
+// every class.
+//
 // Threshold guidance: 0.5-0.7 suppresses merely-related rows and forces the
 // window deep into the ranking; 0.8 suppresses near-identical copies only.
 // History and measurements: docs/adr/0002.
@@ -27,6 +34,13 @@ import type { Memory } from "../store/model/memory.ts";
 import { words } from "./score.ts";
 
 export const DEDUPE_ENV = "OPENCODE_MEMORY_DEDUP";
+
+/**
+ * Keeps an additive clash instead of collapsing it. Independent of
+ * DEDUPE_ENV: `OPENCODE_MEMORY_DEDUP=0` turns the whole pass off, and this flag
+ * only chooses what a clash does when the pass is on.
+ */
+export const AMBIGUOUS_ENV = "OPENCODE_MEMORY_AMBIGUOUS";
 
 /** Below this, the value is a misconfiguration and the pass stays off. */
 export const MIN_THRESHOLD = 0.5;
@@ -75,6 +89,20 @@ export function dedupeThreshold(
   return Number.isFinite(n) && n >= MIN_THRESHOLD && n <= 1 ? n : 0;
 }
 
+/**
+ * Whether an additive clash keeps both rows. On unless AMBIGUOUS_ENV says
+ * otherwise; only `0`, `off` and `false` disable it, so a typo cannot turn the
+ * behavior off by accident the way an unparsable threshold does.
+ */
+export function ambiguousEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const raw = env[AMBIGUOUS_ENV];
+  if (raw === undefined) return true;
+  const v = raw.trim().toLowerCase();
+  return !(v === "0" || v === "off" || v === "false");
+}
+
 export function jaccard(a: Set<string>, b: Set<string>): number {
   let inter = 0;
   const small = a.size <= b.size ? a : b;
@@ -82,6 +110,32 @@ export function jaccard(a: Set<string>, b: Set<string>): number {
   for (const t of small) if (large.has(t)) inter++;
   const union = a.size + b.size - inter;
   return union ? inter / union : 0;
+}
+
+/** What a near-duplicate clash actually is. */
+export type PairClass = "identical" | "addition" | "substitution";
+
+/**
+ * Whether one row restates its partner or names something the partner does not.
+ * The leftover token sets decide, and the two situations are opposite:
+ *
+ * - `identical` — nothing left over either way, one row typed twice.
+ * - `addition` — one side wholly contained. The rows name different things and
+ *   both hold; `build:example-images` tokenises to contain `build`, which is
+ *   how a second command reaches 0.82 against the first.
+ * - `substitution` — a leftover on each side: the same statement about a
+ *   changed world, so the older row is stale.
+ *
+ * Only token equality, so the short-chunk guard stays load-bearing: "late 0"
+ * and "late 1" tokenise alike and read as `identical` here.
+ */
+export function classifyPair(a: Set<string>, b: Set<string>): PairClass {
+  let onlyA = 0;
+  for (const t of a) if (!b.has(t)) onlyA++;
+  if (onlyA === 0) return a.size === b.size ? "identical" : "addition";
+  let onlyB = 0;
+  for (const t of b) if (!a.has(t)) onlyB++;
+  return onlyB === 0 ? "addition" : "substitution";
 }
 
 /**
@@ -129,6 +183,12 @@ function hasPolarity(tokens: Set<string>): boolean {
   return false;
 }
 
+/** A window plus the pairs inside it that were kept as a group, not collapsed. */
+export interface GroupedWindow {
+  rows: Memory[];
+  groups: Array<[Memory, Memory]>;
+}
+
 /**
  * Keep at most `limit` rows from `ranked`, in ranking order, skipping a row
  * when it is a near-copy (same scope, content-token Jaccard >= `threshold`) of
@@ -138,13 +198,21 @@ function hasPolarity(tokens: Set<string>): boolean {
  * and pairs whose numeric literals differ are never suppressed. `threshold <= 0`
  * returns the plain top-`limit` slice, so the flag-off path costs nothing and
  * cannot reorder.
+ *
+ * With `groupAdditions` an `addition` clash keeps both rows and is reported in
+ * `groups`, because the shorter row names something the longer one does not
+ * restate. `groups` carries the rows themselves: a later clash overwrites a
+ * slot in the window, and a group keyed on that slot would re-point at
+ * whatever landed there.
  */
-export function dedupeWindow(
+export function dedupeWindowGrouped(
   ranked: Memory[],
   limit: number,
   threshold: number,
-): Memory[] {
-  if (threshold <= 0 || ranked.length <= 1) return ranked.slice(0, limit);
+  groupAdditions: boolean = ambiguousEnabled(),
+): GroupedWindow {
+  if (threshold <= 0 || ranked.length <= 1)
+    return { rows: ranked.slice(0, limit), groups: [] };
   // Token sets are built lazily and cached per index: the loop stops once
   // `limit` rows are kept, so eager tokenization of every candidate costs
   // 1.7ms/12.5ms/96.4ms at 200/2k/10k candidates on every query recall.
@@ -168,6 +236,7 @@ export function dedupeWindow(
     return p;
   };
   const kept: number[] = [];
+  const groups: Array<[Memory, Memory]> = [];
   for (let i = 0; i < ranked.length && kept.length < limit; i++) {
     if (tokensOf(i).size < MIN_CONTENT) {
       kept.push(i);
@@ -188,7 +257,23 @@ export function dedupeWindow(
       }
     }
     if (clash === -1) kept.push(i);
-    else if (ranked[i]!.ts > ranked[kept[clash]!]!.ts) kept[clash] = i;
+    else if (
+      groupAdditions &&
+      classifyPair(tokensOf(kept[clash]!), tokensOf(i)) === "addition" &&
+      kept.length < limit
+    ) {
+      groups.push([ranked[kept[clash]!]!, ranked[i]!]);
+      kept.push(i);
+    } else if (ranked[i]!.ts > ranked[kept[clash]!]!.ts) kept[clash] = i;
   }
-  return kept.map((i) => ranked[i]!);
+  return { rows: kept.map((i) => ranked[i]!), groups };
+}
+
+/** The window alone, without the groups. See `dedupeWindowGrouped`. */
+export function dedupeWindow(
+  ranked: Memory[],
+  limit: number,
+  threshold: number,
+): Memory[] {
+  return dedupeWindowGrouped(ranked, limit, threshold).rows;
 }

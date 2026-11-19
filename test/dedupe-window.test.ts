@@ -7,8 +7,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_THRESHOLD,
+  classifyPair,
   dedupeThreshold,
   dedupeWindow,
+  dedupeWindowGrouped,
   jaccard,
   contentTokens,
 } from "../src/recall/dedupe.ts";
@@ -175,5 +177,175 @@ describe("dedupeWindow", () => {
     const b = new Set(["a", "b"]);
     expect(jaccard(a, b)).toBe(1);
     expect(jaccard(a, new Set(["b", "c"]))).toBeCloseTo(1 / 3, 10);
+  });
+});
+
+// A clash is two different situations that share a score: one row corrected the
+// other, or the two rows name two things that both hold. Only the first is a
+// copy. `classifyPair` reads the leftover token sets to tell them apart, and a
+// leftover on BOTH sides is the correction while a leftover on ONE side is the
+// second thing.
+describe("classifyPair", () => {
+  test("no leftovers either way is a copy", () => {
+    expect(classifyPair(new Set(["a", "b"]), new Set(["a", "b"]))).toBe(
+      "identical",
+    );
+  });
+
+  test("one side contained in the other names a second thing", () => {
+    expect(classifyPair(new Set(["a"]), new Set(["a", "b"]))).toBe("addition");
+    expect(classifyPair(new Set(["a", "b"]), new Set(["a"]))).toBe("addition");
+  });
+
+  test("a swap leaves a leftover on each side", () => {
+    expect(classifyPair(new Set(["a", "b"]), new Set(["a", "c"]))).toBe(
+      "substitution",
+    );
+  });
+
+  test("two empty sets are identical, not an addition", () => {
+    // Both containment tests pass vacuously; the copy branch must be first.
+    expect(classifyPair(new Set(), new Set())).toBe("identical");
+  });
+
+  test("the digit trap: token sets can be equal while the facts differ", () => {
+    // words() drops chunks of length <= 2, so "late 0" and "late 1" tokenise
+    // alike and classify as a copy. The short-chunk guard, not this function,
+    // is what keeps them apart; a change here must not remove that guard.
+    const zero = mem("racer", "late 0");
+    const one = mem("racer", "late 1");
+    expect(classifyPair(contentTokens(zero), contentTokens(one))).toBe(
+      "identical",
+    );
+    expect(dedupeWindow([zero, one], 2, 0.8)).toEqual([zero, one]);
+  });
+});
+
+// The pair that motivated this: two commands in one scope, 82% shared
+// vocabulary because one sentence has one identifier swapped. The shorter
+// command is not restated by the longer one — `build:example-images` tokenises
+// to CONTAIN `build`, which is what made the pair look like a copy.
+const BUILD = mem(
+  "BabylonDocs",
+  'BabylonDocs build command: run "npm run build" from the repo root (package.json).',
+  "2026-10-18T22:04:01.959Z",
+);
+const BUILD_EXAMPLES = mem(
+  "BabylonDocs",
+  'BabylonDocs build:example-images command: run "npm run build:example-images" from the repo root (package.json).',
+  "2026-10-18T22:04:01.989Z",
+);
+// The opposite case, and the reason the pass exists: one fact that changed.
+// Shared symptom, changed value, so the newer row must take the slot.
+const RUNBOOK_FRIDAY = mem(
+  "release",
+  "the deploy runbook rotates the signing key every friday after the backup window",
+  "2026-01-01T00:00:00.000Z",
+);
+const RUNBOOK_MONDAY = mem(
+  "release",
+  "the deploy runbook rotates the signing key every monday after the backup window",
+  "2026-01-01T00:00:01.000Z",
+);
+
+describe("dedupeWindowGrouped", () => {
+  test("the two build commands are both kept and reported as a group", () => {
+    // Pinned so a tokenizer change cannot turn this into a vacuous pass: the
+    // pair must still reach the clash branch.
+    expect(
+      jaccard(contentTokens(BUILD), contentTokens(BUILD_EXAMPLES)),
+    ).toBeGreaterThanOrEqual(DEFAULT_THRESHOLD);
+    const out = dedupeWindowGrouped([BUILD, BUILD_EXAMPLES], 5, 0.8);
+    expect(out.rows).toEqual([BUILD, BUILD_EXAMPLES]);
+    expect(out.groups).toEqual([[BUILD, BUILD_EXAMPLES]]);
+  });
+
+  test("a corrected fact still collapses, and the newer row wins", () => {
+    // The regression that matters: grouping must not re-admit a stale row.
+    const out = dedupeWindowGrouped([RUNBOOK_FRIDAY, RUNBOOK_MONDAY], 5, 0.8);
+    expect(out.rows).toEqual([RUNBOOK_MONDAY]);
+    expect(out.groups).toEqual([]);
+    expect(out.rows.some((m) => m.content.includes("friday"))).toBe(false);
+  });
+
+  test("an exact copy still collapses", () => {
+    const out = dedupeWindowGrouped([COPY_A, COPY_B], 5, 0.8);
+    expect(out.rows).toEqual([COPY_A]);
+    expect(out.groups).toEqual([]);
+  });
+
+  test("grouping spends slots and never exceeds the limit", () => {
+    const base =
+      "the ingest worker retries a failed batch three times then parks it on the dead letter queue";
+    const rows = [
+      mem("queue", base, "2026-01-01T00:00:05.000Z"),
+      mem("queue", `${base} with backoff`, "2026-01-01T00:00:04.000Z"),
+      mem("queue", `${base} with jitter`, "2026-01-01T00:00:03.000Z"),
+      mem("queue", `${base} with a deadline`, "2026-01-01T00:00:02.000Z"),
+      mem("queue", `${base} with tracing`, "2026-01-01T00:00:01.000Z"),
+    ];
+    const out = dedupeWindowGrouped(rows, 3, 0.8);
+    expect(out.rows.length).toBeLessThanOrEqual(3);
+  });
+
+  test("a group reports the rows themselves, not their window positions", () => {
+    // A later clash overwrites a slot with a newer row. A group keyed on the
+    // slot would silently re-point at whatever landed there afterwards.
+    const out = dedupeWindowGrouped(
+      [BUILD, BUILD_EXAMPLES, RUNBOOK_FRIDAY, RUNBOOK_MONDAY],
+      5,
+      0.8,
+    );
+    expect(out.groups).toEqual([[BUILD, BUILD_EXAMPLES]]);
+    for (const [a, b] of out.groups) {
+      expect(out.rows).toContain(a);
+      expect(out.rows).toContain(b);
+    }
+  });
+
+  test("ordering follows the ranking, never the grouping", () => {
+    const out = dedupeWindowGrouped([BUILD, OTHER, BUILD_EXAMPLES], 5, 0.8);
+    expect(out.rows).toEqual([BUILD, OTHER, BUILD_EXAMPLES]);
+  });
+
+  test("threshold 0 is the plain slice with no groups", () => {
+    const ranked = [OTHER, COPY_A, DISTANT, COPY_B];
+    const out = dedupeWindowGrouped(ranked, 3, 0);
+    expect(out.rows).toEqual(ranked.slice(0, 3));
+    expect(out.groups).toEqual([]);
+  });
+
+  test("dedupeWindow is the grouped rows, unchanged in shape", () => {
+    expect(dedupeWindow([BUILD, BUILD_EXAMPLES], 5, 0.8)).toEqual(
+      dedupeWindowGrouped([BUILD, BUILD_EXAMPLES], 5, 0.8).rows,
+    );
+  });
+
+  test("grouping off restores the single-row window", () => {
+    const out = dedupeWindowGrouped([BUILD, BUILD_EXAMPLES], 5, 0.8, false);
+    expect(out.rows).toEqual([BUILD_EXAMPLES]);
+    expect(out.groups).toEqual([]);
+  });
+
+  test("the cost of the rule, pinned: a longer correction keeps both rows", () => {
+    // A row extended in place reads as an addition, so the stale row survives
+    // and spends a slot. Accepted: the alternative is deleting a fact that is
+    // the only carrier of something true. This test records the cost.
+    const before = mem(
+      "release",
+      "the deploy runbook rotates the signing key every friday after the backup window completes and before the nightly smoke suite starts",
+      "2026-01-01T00:00:00.000Z",
+    );
+    const after = mem(
+      "release",
+      "the deploy runbook rotates the signing key every friday after the backup window completes and before the nightly smoke suite starts with redundant tracing",
+      "2026-01-01T00:00:01.000Z",
+    );
+    expect(
+      jaccard(contentTokens(before), contentTokens(after)),
+    ).toBeGreaterThanOrEqual(0.8);
+    const out = dedupeWindowGrouped([before, after], 5, 0.8);
+    expect(out.groups).toEqual([[before, after]]);
+    expect(out.rows).toEqual([before, after]);
   });
 });
