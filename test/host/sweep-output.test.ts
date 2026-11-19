@@ -23,6 +23,41 @@ test("sweep witnesses keep their original file and never borrow the last file fr
     fileFailed: [],
   });
 });
+test("a nested module header replaces the previous file instead of inheriting it", () => {
+  // The move of tests into test/<module>/ made bun print nested headers.
+  // A parser that recognizes only flat paths keeps the previous filename,
+  // which attributed nested-file tests to whatever file ran before them.
+  const output = [
+    "test/first.test.ts:",
+    "(pass) flat > healthy [1ms]",
+    "test/store/lock.test.ts:",
+    "(pass) nested > healthy [2ms]",
+  ].join("\n");
+  expect(testOutcomes(output)).toEqual({
+    passed: [
+      "first.test.ts > flat > healthy",
+      "lock.test.ts > nested > healthy",
+    ],
+    failed: [],
+    skipped: [],
+    fileFailed: [],
+  });
+});
+test("a nested header in Windows slash style parses to the same identity", () => {
+  const output = [
+    "test\\store\\lock.test.ts:",
+    "(pass) nested > healthy [1ms]",
+  ].join("\n");
+  expect(testOutcomes(output).passed).toEqual([
+    "lock.test.ts > nested > healthy",
+  ]);
+});
+test("a file-level crash under a nested header is recorded by basename", () => {
+  const result = testOutcomes(
+    "test/store/lock.test.ts:\n(fail) test/store/lock.test.ts\n",
+  );
+  expect(result.fileFailed).toEqual(["lock.test.ts"]);
+});
 
 const aclTitle =
   "broken store directory (Windows ACL) > fails fast with the real error and never runs the writer";
@@ -44,7 +79,7 @@ test("ACL accounting identifier stays tied to the real fixture declarations", as
   // the actual source too, even on hosts where the Windows fixture is skipped.
   const [file, suite, title] = aclId.split(" > ");
   const source = await Bun.file(
-    new URL("../store/" + file, import.meta.url),
+    new URL(`../store/${file}`, import.meta.url),
   ).text();
   // Permit formatter whitespace only OUTSIDE the quoted accounting names:
   // changing either name must still break this source-to-runner identity pin.
@@ -77,6 +112,26 @@ test.each(["acl-deny-failed", "denial-not-effective"])(
     }
   },
 );
+const runOutputNested = runOutput.replace(
+  "test/lock.test.ts:",
+  "test/store/lock.test.ts:",
+);
+test("the ACL capability skip transfers under a nested header too", () => {
+  // The same accounting the flat fixture pins, with only the header nested:
+  // a parser that misses the nested header never sees the ACL test as
+  // passed, and the bailout silently reports 1 passed / 0 skipped instead
+  // of 0 passed / 1 skipped.
+  for (const output of [
+    `${bailout("acl-deny-failed")}\n${runOutputNested}`,
+    `${runOutputNested}\n${bailout("acl-deny-failed")}\n${bailout("acl-deny-failed")}`,
+  ]) {
+    const result = suiteAccounting(output);
+    expect(result.passed).toEqual(["other.test.ts > unrelated test"]);
+    expect(result.skipped).toEqual([aclId]);
+    expect(result.capabilitySkipped).toEqual([aclId]);
+    expect([result.pass, result.fail, result.skip]).toEqual([1, 0, 1]);
+  }
+});
 
 test("an exercised ACL test and unknown diagnostics retain the runner's counts", () => {
   for (const marker of [
