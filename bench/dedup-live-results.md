@@ -28,14 +28,16 @@ rows, and the difference matters — see below.
 | --- | --- | ---: | ---: | ---: |
 | **A** | `contentTokens` + the shipped guards | **2** candidates ≥ 0.8 | **0**, highest 0.647 | 145, of which **143 have a superseded side** |
 | **B** | `haystack` + the shipped guards | 2 | 0, highest 0.667 | 145 |
-| **C** | `haystack`, **no guards** — an approximation of the rule before `fc59b84`, scored with today's vocabulary | 108 | 78 | 434 |
+| **C** | the **pre-`fc59b84` tokenizer**, **no guards** — replayed with the vendored `words()` | 113 | 83 | 451 |
 
-Arm C is an approximation, not a replay. It applies the old eligibility to today's `haystack()`,
-because the pre-`fc59b84` `haystack()` is a different function and this runner does not carry it. The
-gap is measurable: two unrelated rows in an eight-word hyphenated scope score 0.833 here and 9/11 =
-0.818 under the historical deduper checked out at `3ff96ef`. Both clear 0.8, so nothing in this record
-turns on it, but the counts describe *the old eligibility under today's vocabulary* — narrower than
-"what the old code computed". Replaying the historical tokenizer is what would close it.
+Arm C replays the old tokenizer rather than approximating it. An earlier version scored the old
+eligibility with today's `haystack()` and `words()`, and that is not the same rule: today's tokenizer
+emits the whole identifier form as a token, which the old one did not, so every short-row score moves
+by one token in both numerator and denominator. The vendored copy in the runner is `git show
+3ff96ef:src/recall/score.ts`'s `words()`. The counts above are from the replay; under today's tokenizer
+the same arm reported 108 active and 434 with history. A review fixture pinned the difference: two
+unrelated rows in an eight-word hyphenated scope score 9/11 = 0.818 under the historical deduper, and
+the replay reproduces 0.818 where the approximation printed 0.833.
 
 ## What the two active candidates are
 
@@ -61,31 +63,32 @@ So the published sentence is not merely unproven. On the store's own rows, at th
 
 ## Which guard is load-bearing
 
-Of the 108 active pairs the pre-`fc59b84` rule would have suppressed, today's rule stops: 78 at the
+Of the 113 active pairs the pre-`fc59b84` rule would have suppressed, today's rule stops: 78 at the
 dropped-chunk guard, 28 at the `MIN_CONTENT` floor, 0 at polarity. In the repository's own rows it is
-78 of 78 at the dropped-chunk guard. The pass is inert on this store because of the **guards**, not
+78 of 83 at the dropped-chunk guard. The pass is inert on this store because of the **guards**, not
 because the store happens to hold no near-copies.
 
 ## Is the `fc59b84` failure live in this store?
 
-Not among the pairs examined. The old vocabulary scored `type` and `scope`, so a pair can reach the threshold on shared metadata while its content stays distinct. Of the 108 active C candidates, **12** fall below 0.8 on content alone — the widest gap being 0.813 metadata against 0.792 content. Every one of them is a `pr-watch` cursor row differing by a run timestamp: near-copies by any reading, pushed just over the line by metadata rather than pulled there by unrelated content.
+Not among the pairs examined. The old vocabulary scored `type` and `scope`, so a pair can reach the threshold on shared metadata while its content stays distinct. Of the 113 active C candidates, **19** fall below 0.8 on content alone — the widest gap being 0.833 metadata against 0.771 content. Every one of them is a `pr-watch` cursor row differing by a run timestamp: near-copies by any reading, pushed just over the line by metadata rather than pulled there by unrelated content.
 
 The shape `fc59b84` removed is a scope whose tokens stand in for content. An earlier version of this file claimed this store was exempt because it holds no `snake_case` scope, and that claim was **wrong** in two ways, both found by review.
 
-First, `words()` splits on any non-alphanumeric delimiter, and on camelCase, so hyphens and capitals contribute stand-in words exactly as underscores do. **144 of this store's 241 scopes** already yield more than one token — `opencode-self-improvement`, `npm-publish`, `BabylonDocs` among them.
+First, `words()` splits on any non-alphanumeric delimiter, and on camelCase, so hyphens and capitals contribute stand-in words exactly as underscores do. **144 of this store's 242 scopes** already yield more than one token — `opencode-self-improvement`, `npm-publish`, `BabylonDocs` among them.
 
-Second, "more than one word" is not the threshold either. The precondition is scope vocabulary **dominating** row content, and the runner now walks the crossing instead of asserting it. Two unrelated one-word rows sharing one scope, scored on the old vocabulary:
+Second, "more than one word" is not the threshold either. The precondition is scope vocabulary **dominating** row content, and the runner walks the crossing instead of asserting it. Two unrelated one-word rows sharing one scope, scored with the replayed old tokenizer:
 
-| distinct scope words | old-vocabulary score | old rule |
-| ---: | ---: | --- |
-| 4 | 0.750 | keeps both |
-| 5 | 0.778 | keeps both |
-| 6 | **0.800** | **suppresses them** |
-| 8 | 0.833 | suppresses them |
+| distinct scope words | old tokenizer | old rule | today's tokenizer would say |
+| ---: | ---: | --- | ---: |
+| 4 | 0.714 | keeps both | 0.750 |
+| 5 | 0.750 | keeps both | 0.778 |
+| 6 | 0.778 | keeps both | 0.800 |
+| 7 | **0.800** | **suppresses them** | 0.818 |
+| 8 | 0.818 | suppresses them | 0.833 |
 
-So a six-word scope is enough to make two unrelated rows look like copies of each other, and the shipped content-only rule keeps both at every length (their content score is 0.000). A review fixture confirms the mechanism end to end: `plum` and `lime` in `alpha-bravo-charlie-delta-echo-foxtrot-golf-hotel` score 0.833 on the old vocabulary, and the pre-`fc59b84` deduper kept one row.
+So a **seven**-word scope is enough to make two unrelated rows look like copies of each other, and the shipped content-only rule keeps both at every length (their content score is 0.000). The crossing sits at seven, not six: the row above it was computed with today's tokenizer, which emits the whole hyphenated form as an extra token and so inflates both sides of the ratio. Review caught it against the historical implementation, and the table now comes from the vendored `words()`.
 
-What survives of the original claim is the narrow version: **no candidate in this store is metadata-driven that way**, because the 12 that reach the threshold on metadata are `pr-watch` cursor rows, near-copies by any reading. With 144 scopes already contributing stand-in vocabulary, that is luck of row length, not a structural exemption — which is a weaker claim than the one this file made before, and the correct one.
+What survives of the original claim is the narrow version: **no candidate in this store is metadata-driven that way**, because the 19 that reach the threshold on metadata are `pr-watch` cursor rows, near-copies by any reading. With 144 scopes already contributing stand-in vocabulary, that is luck of row length, not a structural exemption — which is a weaker claim than the one this file made before, and the correct one.
 
 ## Why the threshold is not the fix
 

@@ -78,6 +78,22 @@ const rows = loaded.filter((m) => {
 // of the kind.
 const tok = rows.map((m) => contentTokens(m));
 const leg = rows.map((m) => new Set(words(haystack(m))));
+/**
+ * The tokenizer as it shipped before `fc59b84`, vendored from
+ * `git show 3ff96ef:src/recall/score.ts`. Arm C answers "what did the old rule
+ * do", and today's `words()` emits one token the old one never did — the whole
+ * identifier form — which shifts every short-row score by one token in both the
+ * numerator and the denominator. A published number about the old rule has to
+ * be computed with the old tokenizer, so it is carried here rather than
+ * approximated with the current one.
+ */
+function legacyWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/)
+    .filter((t) => t.length > 2);
+}
+const legOld = rows.map((m) => new Set(legacyWords(haystack(m))));
 // Element-wise, exactly as the shipped rule compares them, so no separator
 // choice can matter.
 const chunk = rows.map((m) => droppedChunks(m.content));
@@ -147,7 +163,7 @@ const collect = (
 
 const A = collect(tok, true);
 const B = collect(leg, true);
-const C = collect(leg, false);
+const C = collect(legOld, false);
 
 // Which guard is load-bearing: every pair the old rule would have suppressed
 // and today's rule does not, attributed to the first guard that stops it.
@@ -175,7 +191,7 @@ console.log(
   `scan set ${label}   rows ${rows.length}${HISTORY ? " (history included)" : " (active only)"}   scopes ${byScope.size}\n` +
     `A  contentTokens + shipped guards : ${A.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${A.max.toFixed(3)}\n` +
     `B  haystack + shipped guards     : ${B.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${B.max.toFixed(3)}\n` +
-    `C  haystack, no guards (approximates pre-fc59b84, today's vocabulary): ${C.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${C.max.toFixed(3)}\n` +
+    `C  pre-fc59b84 tokenizer, no guards (replayed): ${C.hits.length} candidates >= ${DEFAULT_THRESHOLD}   max ${C.max.toFixed(3)}\n` +
     `   of C's candidates, blocked today by: floor ${attribution.floor}, polarity ${attribution.polarity}, dropped-chunks ${attribution.chunks}\n`,
 );
 
@@ -248,7 +264,7 @@ if (C.hits.length) {
     "golf",
     "hotel",
   ];
-  const probe = (scope: string): number => {
+  const probe = (scope: string): [number, number] => {
     const base = {
       ts: "2026-01-01T00:00:00.000Z",
       type: "context",
@@ -259,14 +275,24 @@ if (C.hits.length) {
     };
     const a = { ...base, content: "plum" } as Memory;
     const b = { ...base, content: "lime" } as Memory;
-    return jaccard(new Set(words(haystack(a))), new Set(words(haystack(b))));
+    return [
+      jaccard(
+        new Set(legacyWords(haystack(a))),
+        new Set(legacyWords(haystack(b))),
+      ),
+      jaccard(new Set(words(haystack(a))), new Set(words(haystack(b)))),
+    ];
   };
-  for (const n of [4, 5, 6, 8]) {
-    const legacy = probe(PROBE_WORDS.slice(0, n).join("-"));
+  for (const n of [4, 5, 6, 7, 8]) {
+    const [oldScore, todayScore] = probe(PROBE_WORDS.slice(0, n).join("-"));
     console.log(
-      `   probe ${n} distinct scope words + two unrelated one-word rows: old vocabulary ${legacy.toFixed(
+      `   probe ${n} distinct scope words + two unrelated one-word rows: old tokenizer ${oldScore.toFixed(
         3,
-      )} ${legacy >= DEFAULT_THRESHOLD ? "SUPPRESSES them" : "keeps both"} (content 0.000, so shipped keeps both)`,
+      )} ${
+        oldScore >= DEFAULT_THRESHOLD ? "SUPPRESSES them" : "keeps both"
+      } (today's tokenizer would say ${todayScore.toFixed(
+        3,
+      )}) (content 0.000, so shipped keeps both)`,
     );
   }
   let shown = 0;
