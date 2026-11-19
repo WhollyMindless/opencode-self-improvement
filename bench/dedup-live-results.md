@@ -65,6 +65,36 @@ No, and the runner measures it rather than asserting it. The old vocabulary scor
 
 The failure `fc59b84` actually fixed needs a different shape — two unrelated rows sharing one `snake_case` scope, whose tokens the identifier tokenizer splits into words that stand in for content. This store has **zero** scopes containing an underscore, so the shape cannot occur here at all. That is why the fixture, not this replay, is the evidence for that fix.
 
+## Why the threshold is not the fix
+
+Raising the default was evaluated on 2026-11-19 and rejected. The pair worth releasing scores
+**0.8235**. The pair the suite pins in `test/dedupe-tool.test.ts` — `the deploy runbook rotates the
+signing key every friday after the backup window` against the same sentence with `monday`, a fact that
+*changed*, where the ADR requires the newer row to take the slot — scores **0.8333**.
+
+The gap is 0.0098. A threshold does exist that keeps the runbook suppression and releases the build
+pair: it must sit above 0.8235 and at or below 0.8333. That is a window one hundredth wide, fitted to
+two observations — the next pair that lands in the gap is decided by noise, and the choice would be
+defended by a constant nobody can justify. The value that looked clean, 0.9, releases both: the runbook
+pair stops being suppressed and the §17 behavior stops shipping.
+
+The two rows are the same shape — one sentence, one long token swapped out. In one case the swap
+replaced a fact; in the other it added one. A token-overlap score cannot see the difference, so the fix
+is not a number.
+
+## What decides this store instead
+
+Suppression is only considered when the two rows share the same multiset of dropped 1-2 character
+fragments. Two rows differing by a timestamp have different fragments, so they are never compared: all
+78 candidates in the repository's own `review` scope are stopped by that guard, not by the threshold.
+The `BabylonDocs` pair has no dropped fragments at all — both multisets are empty, so the guard passes
+trivially and the pair reaches the score.
+
+That is an inversion worth naming. The motivation recorded in the ADR is rows that "differ only by a
+timestamp" crowding distinct facts out of the window, and the guard introduced to stop `DB 3` from
+swallowing `DB 4` exempts precisely those. What still gets suppressed is prose with no digits or short
+fragments in it — which is exactly where the false positive lives.
+
 ## What this does not establish
 
 - It does not re-derive the 0.8 threshold. That rests on the dated `#409` section 17 replay, which is
@@ -79,8 +109,8 @@ The failure `fc59b84` actually fixed needs a different shape — two unrelated r
 ## Consequence
 
 The ADR keeps its 0.8 line with the date and store named, and no longer publishes counts from this
-scan. The `BabylonDocs` pair is filed as a threshold-quality issue: it is the one thing this replay
-actually measured.
+scan. The `BabylonDocs` pair is filed as a recall-quality issue with the threshold option closed out:
+raising it was measured, and it costs the §17 behavior for a 0.0098 margin.
 
 One mechanism worth naming, confirmed independently during review: the write gate's duplicate check is
 exact and keyed by type, while this pass compares across types. Identical prose filed once as a
