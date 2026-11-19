@@ -36,4 +36,4 @@ plain HTTP with no authentication — only do it on a network you control.
 
 The viewer is a trusted admin seat. Its edits and deleted-entry restores skip the
 model-facing grounding and deduplication gates but honor the same value
-rejections: [docs/import-quarantine.md](import-quarantine.md).
+rejections: [docs/import-quarantine.md](../internals/import-quarantine.md).
