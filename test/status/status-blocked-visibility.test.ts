@@ -11,20 +11,20 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { loadPlugin, type LoadedPlugin } from "./harness.ts";
+import { loadPlugin, type LoadedPlugin } from "../harness.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
   resolveRepo,
-} from "../src/identity/repokey.ts";
-import { resetState } from "../src/core/state.ts";
-import { resetCaptureCooldowns } from "../src/index.ts";
-import { evidenceDir } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { ADMIN_READER } from "../src/store/model/visibility.ts";
-import { blockedRecent } from "../src/status/write.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { resetState } from "../../src/core/state.ts";
+import { resetCaptureCooldowns } from "../../src/index.ts";
+import { evidenceDir } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { ADMIN_READER } from "../../src/store/model/visibility.ts";
+import { blockedRecent } from "../../src/status/write.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let a: string;

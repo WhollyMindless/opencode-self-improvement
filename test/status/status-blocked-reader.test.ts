@@ -12,14 +12,14 @@ import {
   rememberSessionDir,
   resetSessionScopes,
   resolveRepo,
-} from "../src/identity/repokey.ts";
-import { resetState } from "../src/core/state.ts";
-import { evidenceDir } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { readerFromSid, type Reader } from "../src/store/model/visibility.ts";
-import { blockedReaderFor, blockedRecent } from "../src/status/write.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { resetState } from "../../src/core/state.ts";
+import { evidenceDir } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { readerFromSid, type Reader } from "../../src/store/model/visibility.ts";
+import { blockedReaderFor, blockedRecent } from "../../src/status/write.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let a: string;

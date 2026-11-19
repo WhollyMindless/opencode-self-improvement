@@ -5,12 +5,12 @@ import { mkdirSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { recordCaptureLag } from "../src/telemetry/record.ts";
-import { loadPlugin } from "./harness.ts";
-import { resetState } from "../src/core/state.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { recordCaptureLag } from "../../src/telemetry/record.ts";
+import { loadPlugin } from "../harness.ts";
+import { resetState } from "../../src/core/state.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 

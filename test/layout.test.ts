@@ -23,7 +23,6 @@ const COVERED_CROSS_CUTTING = new Set([
   "identity",
   "inject",
   "recall",
-  "status",
   "store",
   "telemetry",
   "tui",

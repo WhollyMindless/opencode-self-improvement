@@ -13,25 +13,25 @@ import {
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { appendMemory } from "../src/store/files/append.ts";
+import { evidenceDir, memoryRoot } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
 import {
   cacheHealth,
   cacheRate,
   estTok,
   fmtCount,
-} from "../src/status/format.ts";
-import { type StatusPayload } from "../src/status/payload.ts";
-import { captureHealth } from "../src/status/metrics.ts";
+} from "../../src/status/format.ts";
+import { type StatusPayload } from "../../src/status/payload.ts";
+import { captureHealth } from "../../src/status/metrics.ts";
 import {
   attributionLines,
   cacheLines,
   contextLines,
   renderMemoryReport,
   windowLines,
-} from "../src/status/report.ts";
+} from "../../src/status/report.ts";
 import {
   blockedRecent,
   readStatus,
@@ -39,19 +39,19 @@ import {
   statusDir,
   statusFile,
   writeStatus,
-} from "../src/status/write.ts";
+} from "../../src/status/write.ts";
 import {
   bindSessionProvisional,
   resolveRepo,
   resetSessionScopes,
   setRepoScope,
-} from "../src/identity/repokey.ts";
-import { addBlock } from "../src/store/blocklist.ts";
-import { createInjectionEpochs } from "../src/inject/epochs.ts";
-import { hitsFile, recordOutcome } from "../src/telemetry/ledger.ts";
-import { loadPlugin } from "./harness.ts";
-import { resetState } from "../src/core/state.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/identity/repokey.ts";
+import { addBlock } from "../../src/store/blocklist.ts";
+import { createInjectionEpochs } from "../../src/inject/epochs.ts";
+import { hitsFile, recordOutcome } from "../../src/telemetry/ledger.ts";
+import { loadPlugin } from "../harness.ts";
+import { resetState } from "../../src/core/state.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 
