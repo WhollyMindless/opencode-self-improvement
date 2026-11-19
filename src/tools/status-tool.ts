@@ -1,10 +1,19 @@
 // The memory_status tool, extracted from index.ts.
 // Closure access arrives through ToolDeps.
 import type { ToolRegister } from "./deps.ts";
-import { readLedger, readOutcomes, readRides } from "../telemetry/ledger.ts";
+import {
+  getDroppedOutcomeWrites,
+  readLedger,
+  readOutcomes,
+  readRides,
+} from "../telemetry/ledger.ts";
 import { formatMemory } from "../inject/format.ts";
 import { loadAll, malformedCount } from "../store/files/load.ts";
-import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
+import {
+  isVisibleTo,
+  readerForSession,
+  readerFromSid,
+} from "../store/model/visibility.ts";
 import {
   isQuarantined,
   quarantineReasons,
@@ -32,6 +41,7 @@ export const register: ToolRegister = (editor, deps) => {
       async execute(_args, context): Promise<{ content: string }> {
         // In-process truth: the live epoch + ledger, fresher than any file.
         const sid = toolIds(context).sid;
+        const detailReader = readerForSession(sid);
         const reportReader = readerFromSid(sid);
         if (sid !== "?") await sessions.refresh(sid);
         const status = sid === "?" ? null : await sessions.buildPayload(sid);
@@ -50,7 +60,8 @@ export const register: ToolRegister = (editor, deps) => {
           {
             rides: await readRides(),
             outcomes: await readOutcomes(),
-            visible: (row) => isVisibleTo(row, reportReader),
+            droppedOutcomeWrites: getDroppedOutcomeWrites(),
+            visible: (row) => isVisibleTo(row, detailReader),
           },
         );
         // Self-metrics: what the store costs, how fast it grows, and how

@@ -42,16 +42,16 @@ export interface StoreCounts {
    */
   ledgerSince?: string | null;
   /**
-   * What the ledger can say about usefulness. A ride joins to an
-   * outcome ONLY when it landed on a turn that also ran a gate command, so
-   * `joined` is far below `rides` by construction and every number here is a
-   * floor: `recordHits` drops writes under lock contention. A FAIL is a
-   * correlation with the ride's own turn, never a proven harm.
+   * Counts cover active rows across all repositories in the store. Only
+   * details are reader-scoped. A joined ride has a later classified gate on
+   * the same turn; clean and failAfter count distinct row/turn pairs.
    */
   useOutcome?: {
     /** Active rows with at least one joined ride. */
     rowsMeasured: number;
     details?: string[];
+    /** Outcome writes lost by this process for the current store. */
+    droppedOutcomeWrites?: number;
     joined: number;
     clean: number;
     failAfter: number;

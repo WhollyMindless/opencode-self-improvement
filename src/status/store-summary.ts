@@ -1,5 +1,5 @@
 // Shared store counts for epoch payloads and the chat report.
-// Callers own I/O and visibility policy; this summarizes exactly their rows.
+// Aggregates cover the supplied store. The caller scopes per-row details.
 import {
   joinUseWithOutcomes,
   neverRetrieved,
@@ -29,6 +29,7 @@ export function summarizeStore(
    * statement from "nothing helped".
    */
   use?: {
+    droppedOutcomeWrites?: number;
     rides: HitEntry[];
     outcomes: TurnOutcome[];
     visible?: (row: Memory) => boolean;
@@ -81,6 +82,7 @@ export function summarizeStore(
       details.push(`    … ${visibleCount - limit} more visible rows`);
     counts.useOutcome = {
       ...(details.length ? { details } : {}),
+      droppedOutcomeWrites: use.droppedOutcomeWrites,
       rowsMeasured,
       joined: sumJoined,
       clean,
