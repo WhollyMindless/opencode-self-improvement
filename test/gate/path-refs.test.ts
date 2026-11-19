@@ -7,9 +7,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkablePathRefs, gate1 } from "../src/gate/resolver.ts";
-import { runWriteGate, type GateContext } from "../src/gate/gate.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { checkablePathRefs, gate1 } from "../../src/gate/resolver.ts";
+import { runWriteGate, type GateContext } from "../../src/gate/gate.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 describe("checkablePathRefs — which refs are policed", () => {
   test("repo-qualified paths are checkable; line suffix stripped", () => {

@@ -24,7 +24,7 @@ import { resetTombstoneCache } from "../src/store/tombstones/tombstone.ts";
 
 // Most fixtures in this suite are pre- prose, so the symptom-clause rule
 // (production default ON) is pinned off for the whole run.
-// test/gate-symptom.test.ts sets it explicitly for both states.
+// test/gate/gate-symptom.test.ts sets it explicitly for both states.
 process.env.OPENCODE_MEMORY_SYMPTOM ??= "off";
 
 afterEach(() => {

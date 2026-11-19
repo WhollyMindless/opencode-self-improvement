@@ -10,21 +10,21 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import type { SupersedeFields } from "../src/store/files/supersede.ts";
-import { resetState, setCurrent } from "../src/core/state.ts";
-import { rememberSessionDir } from "../src/identity/repokey.ts";
-import { readEvidenceLog as evidence, ev, field } from "./helpers/logfmt.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import type { SupersedeFields } from "../../src/store/files/supersede.ts";
+import { resetState, setCurrent } from "../../src/core/state.ts";
+import { rememberSessionDir } from "../../src/identity/repokey.ts";
+import { readEvidenceLog as evidence, ev, field } from "../helpers/logfmt.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 // Captured BEFORE the mock below: the wrapper delegates to the genuine
 // implementation, and the simulated other session retires rows through the
 // real markSuperseded — a local binding inside supersede.ts, so it never
 // re-enters the wrapper. The references are copied into a plain object
 // because mock.module overwrites the namespace object in place.
-const realModule = await import("../src/store/files/supersede.ts");
+const realModule = await import("../../src/store/files/supersede.ts");
 const real = { ...realModule };
 type BatchEntry = { ts: string; fields: SupersedeFields };
 
@@ -36,7 +36,7 @@ type BatchEntry = { ts: string; fields: SupersedeFields };
 // the only state, and afterEach empties it.
 const intercept = new Set<string>();
 
-mock.module("../src/store/files/supersede.ts", () => ({
+mock.module("../../src/store/files/supersede.ts", () => ({
   ...real,
   markManySupersededReport: async (
     entries: BatchEntry[],
@@ -54,8 +54,8 @@ mock.module("../src/store/files/supersede.ts", () => ({
   },
 }));
 
-const { runWriteGate } = await import("../src/gate/gate.ts");
-type GateContext = import("../src/gate/gate.ts").GateContext;
+const { runWriteGate } = await import("../../src/gate/gate.ts");
+type GateContext = import("../../src/gate/gate.ts").GateContext;
 
 let root: string;
 let liveRoot: string;

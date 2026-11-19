@@ -10,26 +10,26 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { evidenceDir, memoryRoot } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
+import { evidenceDir, memoryRoot } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
 import {
   extractCallForms,
   findLiveCall,
   sameArgs,
-} from "../src/gate/resolver.ts";
-import { runWriteGate } from "../src/gate/gate.ts";
+} from "../../src/gate/resolver.ts";
+import { runWriteGate } from "../../src/gate/gate.ts";
 import {
   afterTool,
   evidenceCalls,
   hasEngagement,
   hasGateCheck,
-} from "../src/capture/triggers.ts";
+} from "../../src/capture/triggers.ts";
 import {
   formatLine,
   parseLine,
   type Fields,
-} from "../src/core/logfmt/format.ts";
-import { resetState, setCurrent } from "../src/core/state.ts";
+} from "../../src/core/logfmt/format.ts";
+import { resetState, setCurrent } from "../../src/core/state.ts";
 
 const CANDIDATES = ["~/Documents/Babylon.js", "~/Documents/BabylonJS"];
 const LIVE_ROOT = CANDIDATES.map((p) => p.replace(/^~/, homedir())).find((p) =>

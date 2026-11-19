@@ -4,8 +4,8 @@ import {
   applyRefFixes,
   chainEnd,
   indexRenames,
-} from "../scripts/ref-fixer.ts";
-import { checkablePathRefs } from "../src/gate/resolver.ts";
+} from "../../scripts/ref-fixer.ts";
+import { checkablePathRefs } from "../../src/gate/resolver.ts";
 
 // The rewrite edits the user's stored prose, so it is the dangerous half of
 // ref-fixer. The contract these tests pin: a ref the gate does not CHECK must
