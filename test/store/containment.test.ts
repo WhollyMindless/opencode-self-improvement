@@ -28,16 +28,16 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { exportsDir, memoryRoot } from "../../src/core/config/paths.ts";
+import { resetState } from "../../src/core/state.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
+import { exportMemories, writeExport } from "../../src/portable/export.ts";
+import { importMemories } from "../../src/portable/import.ts";
 import {
   expandHome,
   isWithin,
   resolveContained,
 } from "../../src/store/containment.ts";
-import { exportMemories, writeExport } from "../../src/portable/export.ts";
-import { importMemories } from "../../src/portable/import.ts";
-import { resetState } from "../../src/core/state.ts";
-import { setRepoScope } from "../../src/identity/repokey.ts";
-import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 // The harness types tools as a loose record; this fails loudly at the call site
@@ -71,7 +71,7 @@ afterEach(() => {
 
 // Symlinks need Developer Mode/admin on Windows; a directory junction needs no
 // elevation and exercises the same realpath escape (same fallback as
-// test/undo.test.ts).
+// test/store/undo.test.ts).
 function makeLink(target: string, linkPath: string): void {
   try {
     symlinkSync(target, linkPath);

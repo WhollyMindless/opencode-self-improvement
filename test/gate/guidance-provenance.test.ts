@@ -3,9 +3,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadAll } from "../../src/store/files/load.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
 import { importMemories } from "../../src/portable/import.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
 import { isActive } from "../../src/store/model/predicates.ts";
 import { loadPlugin, withTempStore } from "../harness.ts";
 import { readEvidenceLog } from "../helpers/logfmt.ts";

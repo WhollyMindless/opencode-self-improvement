@@ -4,9 +4,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   attributeSession,
+  type CallLike,
   deriveMemoryRefs,
   extractCommandRefs,
-  type CallLike,
 } from "../../src/inject/attribution.ts";
 import type { Memory } from "../../src/store/model/memory.ts";
 

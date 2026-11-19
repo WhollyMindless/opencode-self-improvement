@@ -17,7 +17,10 @@ import { basename, join } from "node:path";
 import { memoryRoot } from "../../src/core/config/paths.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
 import { resetState } from "../../src/core/state.ts";
-import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
+import {
+  resetSessionScopes,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
 import { appendMemory } from "../../src/store/files/append.ts";
 import { loadAll, memoryFiles } from "../../src/store/files/load.ts";
 import { prune } from "../../src/store/files/prune.ts";

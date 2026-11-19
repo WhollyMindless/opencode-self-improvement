@@ -10,8 +10,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWriteGate, symptomRuleEnabled } from "../../src/gate/gate.ts";
-import { loadAll } from "../../src/store/files/load.ts";
 import { setRepoScope } from "../../src/identity/repokey.ts";
+import { loadAll } from "../../src/store/files/load.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

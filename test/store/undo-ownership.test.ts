@@ -8,18 +8,18 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { loadPlugin, type LoadedPlugin } from "../harness.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { snapshotFiles } from "../../src/store/files/snapshots.ts";
-import { markSuperseded } from "../../src/store/files/supersede.ts";
+import { resetState } from "../../src/core/state.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
 } from "../../src/identity/repokey.ts";
-import { resetState } from "../../src/core/state.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { snapshotFiles } from "../../src/store/files/snapshots.ts";
+import { markSuperseded } from "../../src/store/files/supersede.ts";
+import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

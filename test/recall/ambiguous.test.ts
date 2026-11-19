@@ -3,7 +3,10 @@
 // the wording, the token cap, and the one-line contract that keeps a stored
 // newline from forging a section.
 import { describe, expect, test } from "bun:test";
-import { ambiguousLine, MAX_MARKER_TOKENS } from "../../src/recall/ambiguous.ts";
+import {
+  ambiguousLine,
+  MAX_MARKER_TOKENS,
+} from "../../src/recall/ambiguous.ts";
 import { contentTokens } from "../../src/recall/dedupe.ts";
 import type { Memory } from "../../src/store/model/memory.ts";
 

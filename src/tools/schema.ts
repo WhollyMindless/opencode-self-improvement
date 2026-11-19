@@ -14,10 +14,10 @@
 //     that is what the 4-gate pipeline is for.
 //   * Store reads deliberately do NOT use zod: they get a plain ISO-instant
 //     check in memory.ts (row identity), where the row schema lives.
-import { z, type ZodTypeAny } from "zod";
+import { type ZodTypeAny, z } from "zod";
 import { STATUSES, TYPES } from "../core/types.ts";
-import { flattenMemoryText } from "../store/sanitize.ts";
 import { MAX_KEYWORDS } from "../store/model/memory.ts";
+import { flattenMemoryText } from "../store/sanitize.ts";
 
 type JSONSchema = Record<string, unknown>;
 
@@ -265,7 +265,7 @@ export const RestoreEntryBody = z.object({
 
 /**
  * Generate the host-facing JSON Schema. Matches the pre-zod hand-written
- * builders byte-for-byte modulo key order (test/boundaries.test.ts pins all
+ * builders byte-for-byte modulo key order (test/tools/boundaries.test.ts pins all
  * 13 against a capture from main): $schema stripped, empty `required` kept.
  */
 export function wire(schema: ZodTypeAny): JSONSchema {

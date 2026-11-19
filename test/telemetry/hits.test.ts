@@ -6,10 +6,10 @@
 // is too young to call anything "never retrieved".
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  mkdtempSync,
-  mkdirSync,
-  openSync,
   closeSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
   readFileSync,
   rmdirSync,
   rmSync,
@@ -17,30 +17,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { memoryRoot } from "../../src/core/config/paths.ts";
-import {
-  HITS_FILENAME,
-  THROTTLE_MS,
-  RETRY_BACKOFF_MS,
-  hitsFile,
-  getDroppedOutcomeWrites,
-  neverRetrieved,
-  readLedger,
-  joinUseWithOutcomes,
-  recordHits,
-  recordOutcome,
-  readOutcomes,
-  readRides,
-  resetHitThrottle,
-  resetLedgerCache,
-  useSignals,
-  usedRecently,
-} from "../../src/telemetry/ledger.ts";
 import { markTurn } from "../../src/capture/triggers.ts";
-import { peekTurn } from "../../src/core/state.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
 import { SESSION_CAP } from "../../src/core/lru.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { loadAll } from "../../src/store/files/load.ts";
+import { peekTurn } from "../../src/core/state.ts";
 import { scoreMemories, words } from "../../src/recall/score.ts";
 import { sharedTerms } from "../../src/recall/shared-terms.ts";
 import { ledgerIsYoung } from "../../src/status/metrics.ts";
@@ -49,8 +29,28 @@ import {
   EVICT_MIN_RIDES,
   summarizeStore,
 } from "../../src/status/store-summary.ts";
-import type { Memory } from "../../src/store/model/memory.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
 import { LOCK_WRITE, withStoreLock } from "../../src/store/lock.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
+import {
+  getDroppedOutcomeWrites,
+  HITS_FILENAME,
+  hitsFile,
+  joinUseWithOutcomes,
+  neverRetrieved,
+  RETRY_BACKOFF_MS,
+  readLedger,
+  readOutcomes,
+  readRides,
+  recordHits,
+  recordOutcome,
+  resetHitThrottle,
+  resetLedgerCache,
+  THROTTLE_MS,
+  usedRecently,
+  useSignals,
+} from "../../src/telemetry/ledger.ts";
 import { childHolder } from "../helpers/hold-cross-process.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 

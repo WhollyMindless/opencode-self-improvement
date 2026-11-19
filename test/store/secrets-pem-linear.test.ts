@@ -5,7 +5,7 @@
 // byte-identical to the old regex on paired, unpaired, nested and adjacent
 // marker shapes, and must complete on the adversarial input in milliseconds.
 import { expect, test } from "bun:test";
-import { redactSecrets, REDACTED_SECRET } from "../../src/store/secrets.ts";
+import { REDACTED_SECRET, redactSecrets } from "../../src/store/secrets.ts";
 
 // The pre- implementation, kept here as the equivalence oracle.
 const OLD_BLOCK =

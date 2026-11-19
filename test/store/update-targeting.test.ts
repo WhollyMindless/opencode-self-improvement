@@ -17,9 +17,14 @@ import {
   memoryRoot,
   snapshotDir,
 } from "../../src/core/config/paths.ts";
-import { dateStr } from "../../src/core/time.ts";
 import { parseLine } from "../../src/core/logfmt/format.ts";
 import { readLines } from "../../src/core/logfmt/read.ts";
+import { resetState, setCurrent } from "../../src/core/state.ts";
+import { dateStr } from "../../src/core/time.ts";
+import {
+  resetSessionScopes,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
 import { appendMemory } from "../../src/store/files/append.ts";
 import { loadAll } from "../../src/store/files/load.ts";
 import {
@@ -27,10 +32,8 @@ import {
   markSuperseded,
 } from "../../src/store/files/supersede.ts";
 import { resolveMemoryTarget } from "../../src/store/files/target.ts";
-import { type Memory } from "../../src/store/model/memory.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
 import { isActive } from "../../src/store/model/predicates.ts";
-import { resetState, setCurrent } from "../../src/core/state.ts";
-import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
 import { loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
@@ -472,7 +475,7 @@ describe("memory_merge_review survivor revival", () => {
     //narrowed this pin: the merge may clear only a supersession this
     // review owns, so the survivor is hidden behind the review's OWN loser.
     // A survivor superseded by some other (live) row is the stale-merge case
-    // and now refuses — pinned in test/merge-stale-survivor.test.ts.
+    // and now refuses — pinned in test/consolidate/merge-stale-survivor.test.ts.
     expect(
       await markSuperseded(revive, {
         superseded_by: stale,

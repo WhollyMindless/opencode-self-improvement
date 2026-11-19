@@ -12,21 +12,21 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { memoryRoot, snapshotDir } from "../../src/core/config/paths.ts";
-import { formatLine, type Fields } from "../../src/core/logfmt/format.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { runWriteGate, type GateContext } from "../../src/gate/gate.ts";
-import { pruneMemory } from "../../src/store/prune.ts";
-import { systemDigest } from "../../src/inject/digest.ts";
-import { contextualPull } from "../../src/inject/pull.ts";
 import {
   afterTool,
   evidenceCalls,
   hasGateCheck,
 } from "../../src/capture/triggers.ts";
+import { memoryRoot, snapshotDir } from "../../src/core/config/paths.ts";
+import { type Fields, formatLine } from "../../src/core/logfmt/format.ts";
 import { resetState, setCurrent } from "../../src/core/state.ts";
+import { type GateContext, runWriteGate } from "../../src/gate/gate.ts";
 import { rememberSessionDir } from "../../src/identity/repokey.ts";
-import { readEvidenceLog as evidence, ev, field } from "../helpers/logfmt.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
+import { contextualPull } from "../../src/inject/pull.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { pruneMemory } from "../../src/store/prune.ts";
+import { ev, readEvidenceLog as evidence, field } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

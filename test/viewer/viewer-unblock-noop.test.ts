@@ -10,13 +10,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileIdentity } from "../../src/core/logfmt/publish.ts";
 import { resetState } from "../../src/core/state.ts";
-import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
 import {
-  blocklistFile,
+  resetSessionScopes,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
+import {
   blockedEntries,
+  blocklistFile,
   removeBlock,
 } from "../../src/store/blocklist.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
 import { rejectedFile } from "../../src/store/tombstones/rejection.ts";
 import {
   removeTombstone,

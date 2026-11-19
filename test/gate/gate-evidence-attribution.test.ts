@@ -12,11 +12,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryRoot } from "../../src/core/config/paths.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import type { SupersedeFields } from "../../src/store/files/supersede.ts";
 import { resetState, setCurrent } from "../../src/core/state.ts";
 import { rememberSessionDir } from "../../src/identity/repokey.ts";
-import { readEvidenceLog as evidence, ev, field } from "../helpers/logfmt.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import type { SupersedeFields } from "../../src/store/files/supersede.ts";
+import { ev, readEvidenceLog as evidence, field } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 // Captured BEFORE the mock below: the wrapper delegates to the genuine

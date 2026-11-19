@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { capToBudget, injectedRows } from "../../src/inject/budget.ts";
 import { selectRelevant } from "../../src/recall/relevant.ts";
 import { appendMemory } from "../../src/store/files/append.ts";
-import { capToBudget, injectedRows } from "../../src/inject/budget.ts";
 import type { Memory } from "../../src/store/model/memory.ts";
 import { loadPlugin, withTempStore } from "../harness.ts";
 

@@ -17,19 +17,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { resetCaptureCooldowns, resetSessionModels } from "../../src/index.ts";
-import { formatMemory } from "../../src/inject/format.ts";
 import {
+  type ClaimVerdict,
   claimVerdict,
   claimVerdictFromContent,
-  type ClaimVerdict,
 } from "../../src/capture/checked.ts";
+import { resetCaptureCooldowns, resetSessionModels } from "../../src/index.ts";
+import { formatMemory } from "../../src/inject/format.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
 import {
   provenanceMarker,
   provenanceOf,
 } from "../../src/store/model/provenance.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { type Memory } from "../../src/store/model/memory.ts";
 import { loadPlugin, withTempStore } from "../harness.ts";
 import { readEvidenceLog } from "../helpers/logfmt.ts";
 

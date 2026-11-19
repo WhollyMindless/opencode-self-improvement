@@ -13,25 +13,25 @@ import {
 } from "bun:test";
 import {
   chmodSync,
-  mkdtempSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPlugin } from "../harness.ts";
 import { memoryRoot } from "../../src/core/config/paths.ts";
 import { resetState } from "../../src/core/state.ts";
-import { record } from "../../src/telemetry/record.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { isActive, isInjectable } from "../../src/store/model/predicates.ts";
-import { selectRelevant } from "../../src/recall/relevant.ts";
 import { formatInit } from "../../src/init/format.ts";
 import { type InitSummary, runInit } from "../../src/init/run.ts";
 import { stampDir } from "../../src/init/stamp.ts";
+import { selectRelevant } from "../../src/recall/relevant.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { isActive, isInjectable } from "../../src/store/model/predicates.ts";
+import { record } from "../../src/telemetry/record.ts";
+import { loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let memoryDir: string;

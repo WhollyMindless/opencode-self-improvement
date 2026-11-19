@@ -8,16 +8,19 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryRoot } from "../../src/core/config/paths.ts";
-import { dateStr } from "../../src/core/time.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
+import { resetState } from "../../src/core/state.ts";
+import { dateStr } from "../../src/core/time.ts";
 import {
-  exportMemories,
+  resetSessionScopes,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
+import {
   EXPORT_HEADER,
   EXPORT_VERSION,
+  exportMemories,
 } from "../../src/portable/export.ts";
 import { loadAll } from "../../src/store/files/load.ts";
-import { resetState } from "../../src/core/state.ts";
-import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

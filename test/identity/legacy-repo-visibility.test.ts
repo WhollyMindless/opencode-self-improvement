@@ -13,9 +13,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resetState } from "../../src/core/state.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
-import { evidenceFileFor } from "../../src/telemetry/record.ts";
+import { resetState } from "../../src/core/state.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
@@ -31,6 +30,7 @@ import {
   lineVisibleTo,
   type Reader,
 } from "../../src/store/model/visibility.ts";
+import { evidenceFileFor } from "../../src/telemetry/record.ts";
 import { loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 

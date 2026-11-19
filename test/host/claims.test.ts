@@ -52,10 +52,16 @@ interface ClaimsFile {
   retracted: Retracted[];
 }
 
-const README = readFileSync(join(import.meta.dir, "..", "..", "README.md"), "utf8");
+const README = readFileSync(
+  join(import.meta.dir, "..", "..", "README.md"),
+  "utf8",
+);
 const LINES = README.split("\n");
 const DATA = JSON.parse(
-  readFileSync(join(import.meta.dir, "..", "..", "bench", "claims.json"), "utf8"),
+  readFileSync(
+    join(import.meta.dir, "..", "..", "bench", "claims.json"),
+    "utf8",
+  ),
 ) as ClaimsFile;
 const PUBLISHED = DATA.claims.filter((c) => c.status === "published");
 

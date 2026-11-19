@@ -29,11 +29,11 @@ import { dirname, join } from "node:path";
 import { memoryRoot } from "../../src/core/config/paths.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
 import { resetState } from "../../src/core/state.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
 import { resetCaptureCooldowns } from "../../src/index.ts";
 import { loadAll } from "../../src/store/files/load.ts";
 import { isActive } from "../../src/store/model/predicates.ts";
-import { setRepoScope } from "../../src/identity/repokey.ts";
-import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { readEvidenceLog as evidence, sleep } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 

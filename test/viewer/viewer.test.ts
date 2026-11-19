@@ -5,7 +5,7 @@
 // pre-mutation state is retained, (5) the blocklist removes an entry from every
 // read path while keeping it on disk, and a recursive glob never picks up
 // blocklist/snapshots/evidence as durable memory.
-import { beforeEach, afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   appendFileSync,
   existsSync,
@@ -19,10 +19,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { memoryRoot, snapshotDir } from "../../src/core/config/paths.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
+import { blockedTs } from "../../src/store/blocklist.ts";
 import { loadAll, memoryFiles } from "../../src/store/files/load.ts";
 import { startViewer, type ViewerServer } from "../../src/viewer/server.ts";
-import { blockedTs } from "../../src/store/blocklist.ts";
-import { systemDigest } from "../../src/inject/digest.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

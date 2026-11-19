@@ -7,29 +7,28 @@
 // dist beating source, multi-thousand-file fallback globs).
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { homedir } from "node:os";
-import { evidenceDir, memoryRoot } from "../../src/core/config/paths.ts";
-import { dateStr } from "../../src/core/time.ts";
-import {
-  extractCallForms,
-  findLiveCall,
-  sameArgs,
-} from "../../src/gate/resolver.ts";
-import { runWriteGate } from "../../src/gate/gate.ts";
 import {
   afterTool,
   evidenceCalls,
   hasEngagement,
   hasGateCheck,
 } from "../../src/capture/triggers.ts";
+import { evidenceDir, memoryRoot } from "../../src/core/config/paths.ts";
 import {
+  type Fields,
   formatLine,
   parseLine,
-  type Fields,
 } from "../../src/core/logfmt/format.ts";
 import { resetState, setCurrent } from "../../src/core/state.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { runWriteGate } from "../../src/gate/gate.ts";
+import {
+  extractCallForms,
+  findLiveCall,
+  sameArgs,
+} from "../../src/gate/resolver.ts";
 
 const CANDIDATES = ["~/Documents/Babylon.js", "~/Documents/BabylonJS"];
 const LIVE_ROOT = CANDIDATES.map((p) => p.replace(/^~/, homedir())).find((p) =>

@@ -9,16 +9,16 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPlugin, type LoadedPlugin } from "../harness.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
+import { resetState } from "../../src/core/state.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
 } from "../../src/identity/repokey.ts";
-import { resetState } from "../../src/core/state.ts";
 import { resetCaptureCooldowns } from "../../src/index.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

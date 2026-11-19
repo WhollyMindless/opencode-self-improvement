@@ -9,13 +9,16 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { loadPlugin, type LoadedPlugin } from "../harness.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
-import { seedPlanRow } from "../helpers/scenario-builders.ts";
 import { resetState } from "../../src/core/state.ts";
+import {
+  resetSessionScopes,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
+import { loadAll } from "../../src/store/files/load.ts";
 import * as evidence from "../../src/telemetry/record.ts";
+import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
+import { seedPlanRow } from "../helpers/scenario-builders.ts";
 
 let root: string;
 let a: string;

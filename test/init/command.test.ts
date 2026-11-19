@@ -3,16 +3,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   existsSync,
-  mkdtempSync,
   mkdirSync,
-  writeFileSync,
+  mkdtempSync,
   readFileSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPlugin } from "../harness.ts";
 import { resetState } from "../../src/core/state.ts";
 import { ensureCommand } from "../../src/init/ensure.ts";
+import { loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let commandsDirPath: string;

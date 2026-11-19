@@ -13,23 +13,23 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evidenceDir } from "../../src/core/config/paths.ts";
-import { dateStr } from "../../src/core/time.ts";
 import { parseLine } from "../../src/core/logfmt/format.ts";
 import { readLines } from "../../src/core/logfmt/read.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { markSuperseded } from "../../src/store/files/supersede.ts";
-import { addBlock, removeBlock } from "../../src/store/blocklist.ts";
-import { type Memory } from "../../src/store/model/memory.ts";
-import { isActive } from "../../src/store/model/predicates.ts";
 import { resetState } from "../../src/core/state.ts";
+import { dateStr } from "../../src/core/time.ts";
 import {
   bindSessionProvisional,
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
 } from "../../src/identity/repokey.ts";
-import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { addBlock, removeBlock } from "../../src/store/blocklist.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { markSuperseded } from "../../src/store/files/supersede.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
+import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

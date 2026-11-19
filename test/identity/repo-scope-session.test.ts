@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resetState, setCurrent } from "../../src/core/state.ts";
 import {
   rememberSessionDir,
   repoScopeFor,
@@ -21,7 +22,6 @@ import {
 import { appendMemory } from "../../src/store/files/append.ts";
 import { loadAll } from "../../src/store/files/load.ts";
 import { isVisibleHere } from "../../src/store/model/visibility.ts";
-import { resetState, setCurrent } from "../../src/core/state.ts";
 import { loadPlugin } from "../harness.ts";
 import { dayFile, sleep } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";

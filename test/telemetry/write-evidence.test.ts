@@ -5,16 +5,19 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterTool, callsFor } from "../../src/capture/triggers.ts";
 import { evidenceDir } from "../../src/core/config/paths.ts";
-import { dateStr } from "../../src/core/time.ts";
 import { formatLine, parseLine } from "../../src/core/logfmt/format.ts";
 import { readLines } from "../../src/core/logfmt/read.ts";
-import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
 import { resetState, setCurrent } from "../../src/core/state.ts";
+import { dateStr } from "../../src/core/time.ts";
+import {
+  resetSessionScopes,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
 import { blockedRecent } from "../../src/status/write.ts";
-import { afterTool, callsFor } from "../../src/capture/triggers.ts";
 import { startViewer } from "../../src/viewer/server.ts";
-import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

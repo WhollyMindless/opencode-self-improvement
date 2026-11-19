@@ -8,16 +8,16 @@ import { formatLine } from "../../src/core/logfmt/format.ts";
 import * as publish from "../../src/core/logfmt/publish.ts";
 import { setCurrent } from "../../src/core/state.ts";
 import {
+  type RepoScope,
   rememberSessionDir,
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
-  type RepoScope,
 } from "../../src/identity/repokey.ts";
 import { systemDigest } from "../../src/inject/digest.ts";
 import { createInjectionEpochs } from "../../src/inject/epochs.ts";
 import { loadAll } from "../../src/store/files/load.ts";
-import { loadPlugin, type LoadedPlugin, withTempStore } from "../harness.ts";
+import { type LoadedPlugin, loadPlugin, withTempStore } from "../harness.ts";
 import { readEvidenceLog } from "../helpers/logfmt.ts";
 
 const store = withTempStore({ prefix: "osi-emitter-owner-" });

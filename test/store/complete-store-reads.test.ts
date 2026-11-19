@@ -8,20 +8,23 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { replaceWithCachedHandle } from "../helpers/cached-handle.ts";
+import { resetState } from "../../src/core/state.ts";
+import {
+  resetSessionScopes,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
+import { importMemories } from "../../src/portable/import.ts";
+import { readStatus, statusFile } from "../../src/status/write.ts";
+import { blocklistFile, removeBlock } from "../../src/store/blocklist.ts";
 import { snapshotFiles } from "../../src/store/files/snapshots.ts";
-import { type Memory } from "../../src/store/model/memory.ts";
-import { removeBlock, blocklistFile } from "../../src/store/blocklist.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
+import { restoreSnapshot } from "../../src/store/undo.ts";
 import {
   hitsFile,
   recordHits,
   resetHitThrottle,
 } from "../../src/telemetry/ledger.ts";
-import { restoreSnapshot } from "../../src/store/undo.ts";
-import { importMemories } from "../../src/portable/import.ts";
-import { readStatus, statusFile } from "../../src/status/write.ts";
-import { resetState } from "../../src/core/state.ts";
-import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
+import { replaceWithCachedHandle } from "../helpers/cached-handle.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

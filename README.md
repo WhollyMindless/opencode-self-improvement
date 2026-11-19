@@ -105,7 +105,7 @@ Two results. Only two are quoted, each with its `n` and the seat it ran on, beca
 
 **What is not claimed here.** No token saving. No dollar figure. The seat above is a local box with no cache price; on a hosted provider a cache miss costs roughly 0.1× read and 1.25× write, which is a different claim and cannot be quoted from these numbers.
 
-**Rules for any cost claim in this repository** — the published numbers live in `bench/claims.json`, and `test/claims.test.ts` enforces that file and this one in CI:
+**Rules for any cost claim in this repository** — the published numbers live in `bench/claims.json`, and `test/host/claims.test.ts` enforces that file and this one in CI:
 
 - No cost claim below **n=6 pairs per arm**. A ratio at `6 ≤ n < 21` is labelled **"20% resolution"**.
 - A **seat** and a **metric** are named on the same line as the number.
@@ -174,7 +174,7 @@ The rule is: never merge two entries unless every question that used to find eit
 - **Deterministic.** The canonical row is the survivor's prose verbatim plus the absorbed rows' aliases as keywords. No model rewrites anything.
 - **Proven by recorded reads.** Every read the ledger recorded for a cluster is replayed against the merged store, and a merge is proposed only when the canonical row catches at least as many of the cluster's own reads as the best single member did alone. A cluster with no recorded reads is reported as *unmeasured* and never merged on resemblance.
 
-**Bench** — on the eval dataset the pass takes 200 rows to 52 with **R@3 52 → 53 and R@1 52 → 50**, and store-wide injected characters 25 945c → 6 933c. Both the regression and the budget swap are bounded in CI (`test/consolidate-bench.test.ts`).
+**Bench** — on the eval dataset the pass takes 200 rows to 52 with **R@3 52 → 53 and R@1 52 → 50**, and store-wide injected characters 25 945c → 6 933c. Both the regression and the budget swap are bounded in CI (`test/consolidate/consolidate-bench.test.ts`).
 
 ## Secret redaction
 

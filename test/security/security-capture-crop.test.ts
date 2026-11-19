@@ -11,11 +11,14 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { flattenTranscript } from "../../src/capture/transcript.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
 import { resetState } from "../../src/core/state.ts";
-import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
+import {
+  resetSessionScopes,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
 import { resetCaptureCooldowns } from "../../src/index.ts";
-import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { sleep } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 

@@ -11,7 +11,6 @@ import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { buildStore, QUERIES } from "../../bench/fixtures/recall-dataset.ts";
-import { selectRelevant } from "../../src/recall/relevant.ts";
 import { memoryRoot } from "../../src/core/config/paths.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
 import { resetState } from "../../src/core/state.ts";
@@ -24,6 +23,7 @@ import {
   rowConcepts,
   sharedConcepts,
 } from "../../src/recall/gate.ts";
+import { selectRelevant } from "../../src/recall/relevant.ts";
 import type { Memory } from "../../src/store/model/memory.ts";
 import { loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";

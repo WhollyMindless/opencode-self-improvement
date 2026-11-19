@@ -10,22 +10,25 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir } from "../../src/core/config/paths.ts";
-import { dateStr } from "../../src/core/time.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { isActive } from "../../src/store/model/predicates.ts";
-import { runWriteGate, type GateContext } from "../../src/gate/gate.ts";
 import {
   afterTool,
   evidenceCalls,
   hasEngagement,
   hasGateCheck,
 } from "../../src/capture/triggers.ts";
+import { evidenceDir } from "../../src/core/config/paths.ts";
 import { resetState, setCurrent } from "../../src/core/state.ts";
-import { rememberSessionDir, setRepoScope } from "../../src/identity/repokey.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { type GateContext, runWriteGate } from "../../src/gate/gate.ts";
+import {
+  rememberSessionDir,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
 import { loadPlugin } from "../harness.ts";
-import { readEvidenceLog as evidence, ev, field } from "../helpers/logfmt.ts";
+import { ev, readEvidenceLog as evidence, field } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

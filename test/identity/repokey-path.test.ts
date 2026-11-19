@@ -18,16 +18,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resetState } from "../../src/core/state.ts";
 import {
   isCaseInsensitivePath,
   normalizeDirPath,
-  resolveRepo,
   resetSessionScopes,
+  resolveRepo,
   setRepoScope,
 } from "../../src/identity/repokey.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { resetState } from "../../src/core/state.ts";
 import { relevantKnowledge } from "../../src/recall/relevant.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
 import { dayFile } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 

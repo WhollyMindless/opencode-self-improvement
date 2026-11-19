@@ -99,5 +99,5 @@ describe("write-time keyword integrity", () => {
   // alias is *supposed* to be how someone would ask, and 15 of these sets do
   // collide with the eval's phrasing. Whether the gain comes from meaning or
   // from extra tokens is answered instead by the permutation control in
-  // test/negative-eval.test.ts (every row gets someone else's aliases).
+  // test/recall/negative-eval.test.ts (every row gets someone else's aliases).
 });

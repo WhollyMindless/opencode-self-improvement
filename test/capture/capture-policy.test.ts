@@ -1,7 +1,7 @@
 // Capture policy: when is a capture worth paying for?
 //
 // The unit altitude — the signal verdicts and the cursor arithmetic. The e2e
-// wiring lives in test/capture-cost-policy.test.ts ("capture cost policy").
+// wiring lives in test/capture/capture-cost-policy.test.ts ("capture cost policy").
 import { describe, expect, test } from "bun:test";
 import {
   advanceCaptureCursor,

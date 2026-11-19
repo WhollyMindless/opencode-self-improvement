@@ -1,16 +1,15 @@
 //through the shipped tool: memory_consolidate proposes, reports, and never
 // writes. The store before and after the call must be byte-identical.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryRoot } from "../../src/core/config/paths.ts";
+import { resetState } from "../../src/core/state.ts";
 import { appendMemory } from "../../src/store/files/append.ts";
 import { loadAll } from "../../src/store/files/load.ts";
 import { recordHits } from "../../src/telemetry/ledger.ts";
 import { loadPlugin } from "../harness.ts";
-import { resetState } from "../../src/core/state.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

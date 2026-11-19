@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildCapturePrompt } from "../../src/capture/prompt.ts";
-import { resetCaptureCooldowns, resetSessionModels } from "../../src/index.ts";
-import { rememberSessionDir, sessionScope } from "../../src/identity/repokey.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
+import {
+  rememberSessionDir,
+  sessionScope,
+} from "../../src/identity/repokey.ts";
+import { resetCaptureCooldowns, resetSessionModels } from "../../src/index.ts";
 import { loadPlugin, withTempStore } from "../harness.ts";
 import { readEvidenceLog } from "../helpers/logfmt.ts";
 

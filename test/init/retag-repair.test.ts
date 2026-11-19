@@ -8,7 +8,7 @@
 // The mock below is process-wide (Bun caveat, see lock-absent-holder.test.ts):
 // it delegates to the real module unless a test arms a ts, and afterEach
 // empties the armed set.
-import { afterEach, beforeEach, describe, expect, test, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";

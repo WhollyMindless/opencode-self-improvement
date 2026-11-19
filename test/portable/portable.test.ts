@@ -3,7 +3,7 @@
 // re-enters through the SAME runWriteGate as any other write, so gate
 // semantics apply unchanged: ref-free settled rows need session engagement,
 // and the tests ground it with a `read` tool result exactly like
-// test/capture-auto.test.ts (that is intended behavior, not a workaround). Decay
+// test/capture/capture-auto.test.ts (that is intended behavior, not a workaround). Decay
 // defaults to dry-run; a real run snapshots (prune's snapshotFiles helper)
 // before any mutation and supersedes rather than deletes. Hermetic: temp
 // OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
@@ -13,8 +13,8 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,19 +26,19 @@ import {
 } from "../../src/core/config/paths.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
 import { resetState } from "../../src/core/state.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { isActive } from "../../src/store/model/predicates.ts";
 import type { WriteCandidate } from "../../src/gate/gate.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
 import { findStaleOpen } from "../../src/portable/decay.ts";
 import { exportMemories } from "../../src/portable/export.ts";
 import { importMemories } from "../../src/portable/import.ts";
-import { setRepoScope } from "../../src/identity/repokey.ts";
-import { systemDigest } from "../../src/inject/digest.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
 import { loadPlugin } from "../harness.ts";
 import { readEvidenceLog as evidence } from "../helpers/logfmt.ts";
-import { roundTripThroughImport } from "../helpers/scenario-builders.ts";
 import { removeStore } from "../helpers/remove-store.ts";
+import { roundTripThroughImport } from "../helpers/scenario-builders.ts";
 
 let root: string;
 let liveRoot: string;
@@ -104,7 +104,7 @@ const daysAgo = (n: number, msOffset = 0) =>
 
 // Ground the session: a recorded code-tool result makes the gate accept
 // ref-free settled candidates (behavior-grounded promotion), exactly as for
-// model-authored writes — same pattern as test/capture-auto.test.ts.
+// model-authored writes — same pattern as test/capture/capture-auto.test.ts.
 async function engage(
   loaded: Awaited<ReturnType<typeof loadPlugin>>,
   sid: string,

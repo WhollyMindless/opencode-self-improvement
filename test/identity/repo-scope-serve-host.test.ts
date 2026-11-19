@@ -23,8 +23,8 @@ import {
   sessionScope,
   setRepoScope,
 } from "../../src/identity/repokey.ts";
-import { loadPlugin } from "../harness.ts";
 import moveRecording from "../fixtures/host-session-move.json";
+import { loadPlugin } from "../harness.ts";
 import { dayFile, sleep } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 

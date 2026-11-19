@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { buildCapturePrompt } from "../../src/capture/prompt.ts";
 import { parseCandidates } from "../../src/capture/candidates.ts";
+import { buildCapturePrompt } from "../../src/capture/prompt.ts";
 import { resetCaptureCooldowns, resetSessionModels } from "../../src/index.ts";
 import { loadAll } from "../../src/store/files/load.ts";
 import { loadPlugin, withTempStore } from "../harness.ts";

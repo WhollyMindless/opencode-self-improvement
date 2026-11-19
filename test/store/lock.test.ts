@@ -8,8 +8,8 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -579,7 +579,7 @@ describe("crash recovery", () => {
     // on `code`. Matching only plain SQLITE_BUSY turned the one situation this
     // lock is built to survive — a holder that died — into a fatal
     // "store lock unavailable: database is locked". Measured: this is exactly
-    // how test/scenarios-consistency.test.ts failed before the fix.
+    // how test/host/scenarios-consistency.test.ts failed before the fix.
     const root = tmp();
     const file = join(root, "crash.logfmt");
     writeFileSync(file, "ts=seed writer=seed\n");

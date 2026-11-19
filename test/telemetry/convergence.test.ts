@@ -8,11 +8,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evidenceDir } from "../../src/core/config/paths.ts";
-import { dateStr } from "../../src/core/time.ts";
-import { formatLine } from "../../src/core/logfmt/format.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { systemDigest } from "../../src/inject/digest.ts";
 import {
   checkNewSession,
   finalizeSession,
@@ -22,10 +17,15 @@ import {
   onCompacting,
   recentConvergenceSummary,
 } from "../../src/capture/triggers.ts";
+import { evidenceDir } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
 import { resetState, setCurrent } from "../../src/core/state.ts";
+import { dateStr } from "../../src/core/time.ts";
 import { setRepoScope } from "../../src/identity/repokey.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
 import { loadPlugin } from "../harness.ts";
-import { readEvidenceLog as evidence, ev, field } from "../helpers/logfmt.ts";
+import { ev, readEvidenceLog as evidence, field } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

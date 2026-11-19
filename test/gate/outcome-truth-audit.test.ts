@@ -25,25 +25,25 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalFile, evidenceDir } from "../../src/core/config/paths.ts";
+import {
+  type Fields,
+  formatLine,
+  parseLine,
+} from "../../src/core/logfmt/format.ts";
+import { resetState } from "../../src/core/state.ts";
 import { dateStr } from "../../src/core/time.ts";
-import * as evidence from "../../src/telemetry/record.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { isActive } from "../../src/store/model/predicates.ts";
-import { resetCaptureCooldowns } from "../../src/index.ts";
-import { EXPORT_HEADER, EXPORT_VERSION } from "../../src/portable/export.ts";
 import {
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
 } from "../../src/identity/repokey.ts";
-import { resetState } from "../../src/core/state.ts";
-import { loadPlugin, type LoadedPlugin } from "../harness.ts";
-import {
-  formatLine,
-  parseLine,
-  type Fields,
-} from "../../src/core/logfmt/format.ts";
+import { resetCaptureCooldowns } from "../../src/index.ts";
+import { EXPORT_HEADER, EXPORT_VERSION } from "../../src/portable/export.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
+import * as evidence from "../../src/telemetry/record.ts";
+import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { sleep } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 

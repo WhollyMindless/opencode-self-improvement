@@ -5,8 +5,8 @@
 // same suite passes on every bun binary that runs `bun test`.
 import { describe, expect, test } from "bun:test";
 import {
-  MIN_BUN,
   bunFloorWarning,
+  MIN_BUN,
   parseBunVersion,
 } from "../../src/core/runtime.ts";
 

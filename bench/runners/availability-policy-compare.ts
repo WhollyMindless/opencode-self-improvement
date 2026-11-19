@@ -55,28 +55,28 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { availabilityIndex } from "../../src/capture/available.ts";
 import { evidenceDir } from "../../src/core/config/paths.ts";
-import { dateStr } from "../../src/core/time.ts";
-import { RESTATABLE_TAG, USER_GUIDED_TAG } from "../../src/core/tags.ts";
 import { formatLine, parseLine } from "../../src/core/logfmt/format.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { type Memory } from "../../src/store/model/memory.ts";
-import { isActive } from "../../src/store/model/predicates.ts";
 import { resetState } from "../../src/core/state.ts";
+import { RESTATABLE_TAG, USER_GUIDED_TAG } from "../../src/core/tags.ts";
+import { dateStr } from "../../src/core/time.ts";
 import { setRepoScope } from "../../src/identity/repokey.ts";
 import { formatMemory } from "../../src/inject/format.ts";
-import { availabilityIndex } from "../../src/capture/available.ts";
-import { availabilityIndex as historicalAvailabilityIndex } from "../fixtures/available-362655c.ts";
 import { selectRelevant } from "../../src/recall/relevant.ts";
 import { QUERY_STOPWORDS } from "../../src/recall/score.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
+import { loadPlugin } from "../../test/harness.ts";
+import { AVAILABILITY_CASES } from "../fixtures/availability-cases.ts";
+import { availabilityIndex as historicalAvailabilityIndex } from "../fixtures/available-362655c.ts";
 import {
   buildStore,
   keywordsFor,
   MEMORIES,
   QUERIES,
 } from "../fixtures/recall-dataset.ts";
-import { AVAILABILITY_CASES } from "../fixtures/availability-cases.ts";
-import { loadPlugin } from "../../test/harness.ts";
 
 // --- the fake repo ---------------------------------------------------------------
 
@@ -958,7 +958,7 @@ try {
   );
   // Whether THIS fixture happens to contain a refused candidate is a property of
   // the fixture, not a claim about the code, so it is reported and not asserted.
-  // The case itself is pinned in test/capture-available.test.ts.
+  // The case itself is pinned in test/capture/capture-available.test.ts.
   lines.push("");
   lines.push(
     `The scan line reported ${scan.verdicts} verdicts and ${scan.restatements} tagged rows; ` +
@@ -1181,7 +1181,7 @@ try {
   lines.push(
     `Scan cost for these ${candidates.length} candidates: ${idx.scanned().files} files, ` +
       `${idx.scanned().bytes} bytes, capped=${idx.scanned().capped}. A pass with no candidates ` +
-      `builds the index never (test/capture-available.test.ts pins it).`,
+      `builds the index never (test/capture/capture-available.test.ts pins it).`,
   );
   lines.push("");
   lines.push(

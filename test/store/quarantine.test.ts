@@ -17,7 +17,6 @@ import { formatLine, parseLine } from "../../src/core/logfmt/format.ts";
 import { writeAtomic } from "../../src/core/logfmt/publish.ts";
 import { resetState } from "../../src/core/state.ts";
 import { dateStr } from "../../src/core/time.ts";
-import { recordHits } from "../../src/telemetry/ledger.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
@@ -38,6 +37,7 @@ import {
   quarantinePatterns,
 } from "../../src/store/quarantine/quarantine.ts";
 import { restoreSnapshot } from "../../src/store/undo.ts";
+import { recordHits } from "../../src/telemetry/ledger.ts";
 import { releaseQuarantinedMemory } from "../../src/viewer/mutate.ts";
 import { startViewer, type ViewerServer } from "../../src/viewer/server.ts";
 import { loadPlugin } from "../harness.ts";

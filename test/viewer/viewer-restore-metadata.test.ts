@@ -11,18 +11,18 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { logDeletion } from "../../src/store/files/deletions.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { type Memory } from "../../src/store/model/memory.ts";
-import { isActive, isInjectable } from "../../src/store/model/predicates.ts";
+import { deletionsFile } from "../../src/core/config/paths.ts";
+import { resetState } from "../../src/core/state.ts";
 import {
   resetSessionScopes,
   resolveRepo,
   setRepoScope,
 } from "../../src/identity/repokey.ts";
-import { resetState } from "../../src/core/state.ts";
-import { deletionsFile } from "../../src/core/config/paths.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { logDeletion } from "../../src/store/files/deletions.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
+import { isActive, isInjectable } from "../../src/store/model/predicates.ts";
 import { startViewer, type ViewerServer } from "../../src/viewer/server.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
@@ -327,7 +327,7 @@ test("restore-entry without ts and without any audit record keeps the legacy cli
 test("deleted-entry UI renders the quarantine badge in the row and the restore round trip carries ts", () => {
   // F1: assert the RENDERED row markup, not source strings — a badge that is
   // constructed but never interpolated into the row fails here. Same DOM-stub
-  // harness as test/quarantine.test.ts: eval the shipped scripts, render a
+  // harness as test/store/quarantine.test.ts: eval the shipped scripts, render a
   // deleted quarantined row, inspect rows.innerHTML.
   const page = readFileSync(
     join(import.meta.dir, "../../src/viewer/page.html"),

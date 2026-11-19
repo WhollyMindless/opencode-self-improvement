@@ -16,10 +16,7 @@ const ROOT = join(import.meta.dir, "..");
  * through the terminal smoke suite in `e2e/`. An entry is stale the moment
  * `test/<module>/` with at least one test exists — remove it then.
  */
-const COVERED_CROSS_CUTTING = new Set([
-  "core",
-  "tui",
-]);
+const COVERED_CROSS_CUTTING = new Set(["core", "tui"]);
 
 function srcModules(): string[] {
   return readdirSync(join(ROOT, "src"), { withFileTypes: true })

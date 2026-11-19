@@ -6,12 +6,12 @@
 // 22% of rows and ~1% of reads; abstraction hurt pinpoint lookup"). Measurement
 // is what the bench is for, so the bench is what decides — not a calendar.
 import { describe, expect, test } from "bun:test";
+import { QUERIES } from "../../bench/fixtures/recall-dataset.ts";
 import {
   INJECT_K,
   injectedChars,
   storeAt,
 } from "../../bench/runners/recall-quality.ts";
-import { QUERIES } from "../../bench/fixtures/recall-dataset.ts";
 import {
   proposeConsolidations,
   type ReadSet,

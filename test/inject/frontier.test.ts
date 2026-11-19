@@ -7,15 +7,18 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evidenceDir } from "../../src/core/config/paths.ts";
-import { dateStr } from "../../src/core/time.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { runWriteGate, type GateContext } from "../../src/gate/gate.ts";
+import { resetState } from "../../src/core/state.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { type GateContext, runWriteGate } from "../../src/gate/gate.ts";
+import {
+  resetSessionScopes,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
 import { systemDigest } from "../../src/inject/digest.ts";
 import { relevantKnowledge } from "../../src/recall/relevant.ts";
-import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
-import { resetState } from "../../src/core/state.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
 import { readEvidenceLog as evidence } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 

@@ -19,10 +19,10 @@ import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryRoot } from "../../src/core/config/paths.ts";
+import { type Fields, parseLine } from "../../src/core/logfmt/format.ts";
+import { resetState, setCurrent } from "../../src/core/state.ts";
 import { dateStr } from "../../src/core/time.ts";
 import { runWriteGate } from "../../src/gate/gate.ts";
-import { parseLine, type Fields } from "../../src/core/logfmt/format.ts";
-import { resetCaptureCooldowns } from "../../src/index.ts";
 import {
   rememberSessionDir,
   repoScopeFor,
@@ -30,8 +30,8 @@ import {
   sessionScope,
   setRepoScope,
 } from "../../src/identity/repokey.ts";
-import { resetState, setCurrent } from "../../src/core/state.ts";
-import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { resetCaptureCooldowns } from "../../src/index.ts";
+import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { readEvidenceLog as evidence, sleep } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
@@ -59,7 +59,7 @@ afterEach(() => {
   // a session entry over the ambient scope: leaving "ses-other" mapped to
   // <tmp>/repo-b silently re-stamps the NEXT file's writes, so whichever file
   // happens to run after this one fails with someone else's repo key. The sibling
-  // test/repo-scope-session.test.ts already tears down the same way.
+  // test/identity/repo-scope-session.test.ts already tears down the same way.
   setRepoScope(null);
   resetSessionScopes();
   resetState();

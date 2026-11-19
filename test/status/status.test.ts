@@ -4,8 +4,8 @@
 // install parity.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  mkdtempSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   rmdirSync,
   writeFileSync,
@@ -14,17 +14,24 @@ import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evidenceDir, memoryRoot } from "../../src/core/config/paths.ts";
-import { dateStr } from "../../src/core/time.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
+import { resetState } from "../../src/core/state.ts";
+import { dateStr } from "../../src/core/time.ts";
+import {
+  bindSessionProvisional,
+  resetSessionScopes,
+  resolveRepo,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
+import { createInjectionEpochs } from "../../src/inject/epochs.ts";
 import {
   cacheHealth,
   cacheRate,
   estTok,
   fmtCount,
 } from "../../src/status/format.ts";
-import { type StatusPayload } from "../../src/status/payload.ts";
 import { captureHealth } from "../../src/status/metrics.ts";
+import type { StatusPayload } from "../../src/status/payload.ts";
 import {
   attributionLines,
   cacheLines,
@@ -40,17 +47,10 @@ import {
   statusFile,
   writeStatus,
 } from "../../src/status/write.ts";
-import {
-  bindSessionProvisional,
-  resolveRepo,
-  resetSessionScopes,
-  setRepoScope,
-} from "../../src/identity/repokey.ts";
 import { addBlock } from "../../src/store/blocklist.ts";
-import { createInjectionEpochs } from "../../src/inject/epochs.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
 import { hitsFile, recordOutcome } from "../../src/telemetry/ledger.ts";
 import { loadPlugin } from "../harness.ts";
-import { resetState } from "../../src/core/state.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

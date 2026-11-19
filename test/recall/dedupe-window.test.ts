@@ -6,13 +6,13 @@
 // clash survives (§17's adoption rule).
 import { describe, expect, test } from "bun:test";
 import {
-  DEFAULT_THRESHOLD,
   classifyPair,
+  contentTokens,
+  DEFAULT_THRESHOLD,
   dedupeThreshold,
   dedupeWindow,
   dedupeWindowGrouped,
   jaccard,
-  contentTokens,
 } from "../../src/recall/dedupe.ts";
 import type { Memory } from "../../src/store/model/memory.ts";
 

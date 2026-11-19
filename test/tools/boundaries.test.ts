@@ -11,13 +11,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setRepoScope } from "../../src/identity/repokey.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
 import { appendLog } from "../../src/core/logfmt/publish.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
 import { appendMemory } from "../../src/store/files/append.ts";
 import { loadAll, malformedCount } from "../../src/store/files/load.ts";
-import { loadPlugin } from "../harness.ts";
 import { startViewer, type ViewerServer } from "../../src/viewer/server.ts";
+import { loadPlugin } from "../harness.ts";
 import { dayFile } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 

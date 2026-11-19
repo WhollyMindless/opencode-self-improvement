@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseCandidates, parseModelRef } from "../../src/capture/candidates.ts";
+import {
+  parseCandidates,
+  parseModelRef,
+} from "../../src/capture/candidates.ts";
 import { resetCaptureCursors } from "../../src/capture/policy.ts";
 import { buildCapturePrompt } from "../../src/capture/prompt.ts";
 import {

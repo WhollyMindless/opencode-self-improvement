@@ -9,11 +9,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   closeSync,
   existsSync,
+  mkdtempSync,
   openSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileIdentity, writeAtomic } from "../../src/core/logfmt/publish.ts";

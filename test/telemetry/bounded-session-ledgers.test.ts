@@ -13,8 +13,6 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SESSION_CAP } from "../../src/core/lru.ts";
-import { resetState, session } from "../../src/core/state.ts";
 import {
   afterTool,
   callsFor,
@@ -22,15 +20,17 @@ import {
   hasGateCheck,
   writeEvidence,
 } from "../../src/capture/triggers.ts";
-import { systemDigest } from "../../src/inject/digest.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { loadAll } from "../../src/store/files/load.ts";
+import { SESSION_CAP } from "../../src/core/lru.ts";
+import { resetState, session } from "../../src/core/state.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
   sessionDirFirm,
   setRepoScope,
 } from "../../src/identity/repokey.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
 import { ev, readEvidenceLog as evidence } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 

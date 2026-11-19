@@ -6,19 +6,18 @@
 // decay), gate dedup, import/export carry-through, and the /repo-init stamp.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { setRepoScope } from "../../src/identity/repokey.ts";
-import { normalizeRemote } from "../../src/identity/repokey.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { loadAll } from "../../src/store/files/load.ts";
-import { prune } from "../../src/store/files/prune.ts";
+import { runWriteGate } from "../../src/gate/gate.ts";
+import { normalizeRemote, setRepoScope } from "../../src/identity/repokey.ts";
 import { systemDigest } from "../../src/inject/digest.ts";
 import { contextualPull } from "../../src/inject/pull.ts";
 import { storeVersion } from "../../src/inject/version.ts";
-import { relevantKnowledge } from "../../src/recall/relevant.ts";
 import { findStaleOpen } from "../../src/portable/decay.ts";
 import { exportMemories } from "../../src/portable/export.ts";
 import { importMemories } from "../../src/portable/import.ts";
-import { runWriteGate } from "../../src/gate/gate.ts";
+import { relevantKnowledge } from "../../src/recall/relevant.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { prune } from "../../src/store/files/prune.ts";
 import { withTempStore } from "../harness.ts";
 import { dayFile } from "../helpers/logfmt.ts";
 

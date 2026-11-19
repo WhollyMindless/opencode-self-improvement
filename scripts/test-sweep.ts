@@ -59,8 +59,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { suiteAccounting } from "./sweep-output.ts";
 import { fileURLToPath } from "node:url";
+import { suiteAccounting } from "./sweep-output.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 // Siblings of the checkout, never inside it.

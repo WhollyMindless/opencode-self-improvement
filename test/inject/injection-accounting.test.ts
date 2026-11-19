@@ -4,19 +4,22 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { parseLine } from "../../src/core/logfmt/format.ts";
+import { readLines } from "../../src/core/logfmt/read.ts";
+import { noteAuthored, resetState } from "../../src/core/state.ts";
+import {
+  resetSessionScopes,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
+import { readStatus } from "../../src/status/write.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
 import {
   hitsFile,
   readLedger,
   resetHitThrottle,
   resetLedgerCache,
 } from "../../src/telemetry/ledger.ts";
-import { parseLine } from "../../src/core/logfmt/format.ts";
-import { readLines } from "../../src/core/logfmt/read.ts";
-import { appendMemory } from "../../src/store/files/append.ts";
-import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
-import { noteAuthored, resetState } from "../../src/core/state.ts";
-import { readStatus } from "../../src/status/write.ts";
-import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 const envKeys = [

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
-import { loadAll } from "../../src/store/files/load.ts";
 import {
   chmodSync,
   existsSync,
@@ -20,20 +19,21 @@ import {
   ensureDir,
   writeAtomic,
 } from "../../src/core/logfmt/publish.ts";
-import { snapshotFiles } from "../../src/store/files/snapshots.ts";
-import {
-  withStoreLock,
-  lockDatabaseFor,
-  LOCK_WRITE,
-} from "../../src/store/lock.ts";
 import { preparePrivateFile } from "../../src/core/permissions.ts";
+import type { StatusPayload } from "../../src/status/payload.ts";
 import {
   readStatus,
-  writeStatus,
-  statusFile,
   sessionStatusFile,
+  statusFile,
+  writeStatus,
 } from "../../src/status/write.ts";
-import type { StatusPayload } from "../../src/status/payload.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { snapshotFiles } from "../../src/store/files/snapshots.ts";
+import {
+  LOCK_WRITE,
+  lockDatabaseFor,
+  withStoreLock,
+} from "../../src/store/lock.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 // Windows chmod does not represent ACL privacy. Exercise these guarantees on

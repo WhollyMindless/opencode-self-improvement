@@ -8,9 +8,12 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
 import { resetState } from "../../src/core/state.ts";
-import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import {
+  resetSessionScopes,
+  setRepoScope,
+} from "../../src/identity/repokey.ts";
+import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;

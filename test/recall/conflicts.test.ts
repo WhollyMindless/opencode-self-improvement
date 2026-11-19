@@ -4,29 +4,36 @@
 // row rewrote correct code (raw row) and framing alone stayed a coin flip.
 // Hermetic: temp OPENCODE_MEMORY_DIR + temp repo dirs, nothing real touched.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterTool } from "../../src/capture/triggers.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { resetState } from "../../src/core/state.ts";
+import { rememberSessionDir } from "../../src/identity/repokey.ts";
+import { capToBudget, injectedRows } from "../../src/inject/budget.ts";
+import { createInjectionEpochs } from "../../src/inject/epochs.ts";
+import { formatMemory } from "../../src/inject/format.ts";
 import {
   conflictLine,
   findConstant,
   valuesAgree,
 } from "../../src/recall/conflicts.ts";
-import { type Memory } from "../../src/store/model/memory.ts";
-import { normalizeConflictFields } from "../../src/store/model/memory.ts";
+import { selectRelevant } from "../../src/recall/relevant.ts";
 import { appendMemory } from "../../src/store/files/append.ts";
 import { loadAll } from "../../src/store/files/load.ts";
-import { memoryRoot } from "../../src/core/config/paths.ts";
+import {
+  type Memory,
+  normalizeConflictFields,
+} from "../../src/store/model/memory.ts";
 import { loadPlugin } from "../harness.ts";
-import { rememberSessionDir } from "../../src/identity/repokey.ts";
-import { resetState } from "../../src/core/state.ts";
-import { appendFileSync } from "node:fs";
-import { formatLine } from "../../src/core/logfmt/format.ts";
-import { selectRelevant } from "../../src/recall/relevant.ts";
-import { capToBudget, injectedRows } from "../../src/inject/budget.ts";
-import { formatMemory } from "../../src/inject/format.ts";
-import { createInjectionEpochs } from "../../src/inject/epochs.ts";
-import { afterTool } from "../../src/capture/triggers.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
