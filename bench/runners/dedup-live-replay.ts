@@ -235,7 +235,17 @@ if (C.hits.length) {
   // threshold on shared metadata while its content stays distinct.
   const metaDriven = C.hits.filter(
     (h) => jaccard(tok[h.ai]!, tok[h.bi]!) < DEFAULT_THRESHOLD,
-  ).length;
+  );
+  // The widest gap between what the old vocabulary scored and what the content
+  // alone says, printed rather than eyeballed from the sample below.
+  let widest: { score: number; content: number } | null = null;
+  const metaScopes = new Map<string, number>();
+  for (const h of metaDriven) {
+    const c = jaccard(tok[h.ai]!, tok[h.bi]!);
+    if (!widest || h.score - c > widest.score - widest.content)
+      widest = { score: h.score, content: c };
+    metaScopes.set(h.scope, (metaScopes.get(h.scope) ?? 0) + 1);
+  }
   // The precondition fc59b84 removed is a scope whose tokens stand in for
   // content. words() splits on ANY delimiter — underscore, hyphen, space, dot,
   // slash — so counting underscores is not the test and a store with none of
@@ -244,10 +254,17 @@ if (C.hits.length) {
   // not contain, so the claim is shown rather than inferred from an absence.
   const standIn = [...byScope.keys()].filter((s) => words(s).length > 1);
   console.log(
-    `   metadata-driven (content-only Jaccard below ${DEFAULT_THRESHOLD}): ${metaDriven} of ${C.hits.length}\n` +
+    `   metadata-driven (content-only Jaccard below ${DEFAULT_THRESHOLD}): ${metaDriven.length} of ${C.hits.length}\n` +
       `   scopes standing in for content (more than one word under any delimiter): ${standIn.length}${
         standIn.length ? ` e.g. ${standIn.slice(0, 3).join(", ")}` : ""
-      }`,
+      }\n` +
+      (widest
+        ? `   widest metadata-vs-content gap: ${widest.score.toFixed(3)} metadata / ${widest.content.toFixed(3)} content`
+        : "   widest metadata-vs-content gap: none") +
+      [...metaScopes]
+        .sort((a, b) => b[1] - a[1])
+        .map(([s, c]) => `\n     ${c}x scope ${s}`)
+        .join(""),
   );
   // The precondition is scope vocabulary DOMINATING row content, not any one
   // delimiter, so the probe walks the crossing rather than picking scopes by
@@ -295,11 +312,12 @@ if (C.hits.length) {
       )}) (content 0.000, so shipped keeps both)`,
     );
   }
-  let shown = 0;
+  // Every metadata-driven pair, not a sample: the claim this section rests on
+  // is what these rows actually are, and a sample of five is how the last
+  // version of it went wrong.
   for (const h of C.hits) {
     const c = jaccard(tok[h.ai]!, tok[h.bi]!);
     if (c >= DEFAULT_THRESHOLD) continue;
-    if (shown++ >= 5) break;
     console.log(
       `     ${h.score.toFixed(3)} metadata / ${c.toFixed(3)} content  scope ${h.scope}  ${h.a.content.slice(0, 70).replace(/\n/g, " ")}`,
     );

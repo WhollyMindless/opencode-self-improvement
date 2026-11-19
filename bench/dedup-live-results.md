@@ -70,7 +70,9 @@ because the store happens to hold no near-copies.
 
 ## Is the `fc59b84` failure live in this store?
 
-Not among the pairs examined. The old vocabulary scored `type` and `scope`, so a pair can reach the threshold on shared metadata while its content stays distinct. Of the 113 active C candidates, **19** fall below 0.8 on content alone — the widest gap being 0.833 metadata against 0.771 content. Every one of them is a `pr-watch` cursor row differing by a run timestamp: near-copies by any reading, pushed just over the line by metadata rather than pulled there by unrelated content.
+Not among the pairs examined. The old vocabulary scored `type` and `scope`, so a pair can reach the threshold on shared metadata while its content stays distinct. Of the 113 active C candidates, **19** fall below 0.8 on content alone. The runner prints all 19 with both scores, because the claim in this section is what those rows *are* and a five-row sample is how the previous version of it went wrong. The widest gap is **0.833 metadata against 0.692 content**.
+
+All 19 sit in scope `review`. **18** are `pr-watch` conversation-cursor rows differing by a run timestamp; the nineteenth, the widest one, is a `pr-claim` row — the same PR's head and diff hashes refreshed to a new commit. Same shape: a machine-written cursor rewritten in place, differing by an identifier rather than a clock. Near-copies by any reading, pushed just over the line by shared metadata rather than pulled there by unrelated content — but they are not all `pr-watch`, which an earlier version of this file asserted.
 
 The shape `fc59b84` removed is a scope whose tokens stand in for content. An earlier version of this file claimed this store was exempt because it holds no `snake_case` scope, and that claim was **wrong** in two ways, both found by review.
 
@@ -88,7 +90,7 @@ Second, "more than one word" is not the threshold either. The precondition is sc
 
 So a **seven**-word scope is enough to make two unrelated rows look like copies of each other, and the shipped content-only rule keeps both at every length (their content score is 0.000). The crossing sits at seven, not six: the row above it was computed with today's tokenizer, which emits the whole hyphenated form as an extra token and so inflates both sides of the ratio. Review caught it against the historical implementation, and the table now comes from the vendored `words()`.
 
-What survives of the original claim is the narrow version: **no candidate in this store is metadata-driven that way**, because the 19 that reach the threshold on metadata are `pr-watch` cursor rows, near-copies by any reading. With 144 scopes already contributing stand-in vocabulary, that is luck of row length, not a structural exemption — which is a weaker claim than the one this file made before, and the correct one.
+What survives of the original claim is the narrow version: **no candidate in this store is metadata-driven that way**, because the 19 that reach the threshold on metadata are machine-written cursor rows, near-copies by any reading. With 144 scopes already contributing stand-in vocabulary, that is luck of row length, not a structural exemption — which is a weaker claim than the one this file made before, and the correct one.
 
 ## Why the threshold is not the fix
 
