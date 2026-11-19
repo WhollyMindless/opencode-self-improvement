@@ -14,24 +14,24 @@ import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { resetState } from "../src/core/state.ts";
-import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll, memoryFiles } from "../src/store/files/load.ts";
-import { prune } from "../src/store/files/prune.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { resetState } from "../../src/core/state.ts";
+import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll, memoryFiles } from "../../src/store/files/load.ts";
+import { prune } from "../../src/store/files/prune.ts";
 import {
   clearSuperseded,
   markSuperseded,
-} from "../src/store/files/supersede.ts";
+} from "../../src/store/files/supersede.ts";
 import {
   LOCK_WRITE,
   setLockAcquiredHook,
   withStoreLock,
-} from "../src/store/lock.ts";
-import { releaseQuarantine } from "../src/store/quarantine/release.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/store/lock.ts";
+import { releaseQuarantine } from "../../src/store/quarantine/release.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 

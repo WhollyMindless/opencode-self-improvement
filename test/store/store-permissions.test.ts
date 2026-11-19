@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
-import { loadAll } from "../src/store/files/load.ts";
+import { loadAll } from "../../src/store/files/load.ts";
 import {
   chmodSync,
   existsSync,
@@ -14,27 +14,27 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
 import {
   appendLog,
   ensureDir,
   writeAtomic,
-} from "../src/core/logfmt/publish.ts";
-import { snapshotFiles } from "../src/store/files/snapshots.ts";
+} from "../../src/core/logfmt/publish.ts";
+import { snapshotFiles } from "../../src/store/files/snapshots.ts";
 import {
   withStoreLock,
   lockDatabaseFor,
   LOCK_WRITE,
-} from "../src/store/lock.ts";
-import { preparePrivateFile } from "../src/core/permissions.ts";
+} from "../../src/store/lock.ts";
+import { preparePrivateFile } from "../../src/core/permissions.ts";
 import {
   readStatus,
   writeStatus,
   statusFile,
   sessionStatusFile,
-} from "../src/status/write.ts";
-import type { StatusPayload } from "../src/status/payload.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/status/write.ts";
+import type { StatusPayload } from "../../src/status/payload.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 // Windows chmod does not represent ACL privacy. Exercise these guarantees on
 // POSIX with a permissive umask, rather than passing vacuous Windows checks.

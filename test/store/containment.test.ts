@@ -27,18 +27,18 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { exportsDir, memoryRoot } from "../src/core/config/paths.ts";
+import { exportsDir, memoryRoot } from "../../src/core/config/paths.ts";
 import {
   expandHome,
   isWithin,
   resolveContained,
-} from "../src/store/containment.ts";
-import { exportMemories, writeExport } from "../src/portable/export.ts";
-import { importMemories } from "../src/portable/import.ts";
-import { resetState } from "../src/core/state.ts";
-import { setRepoScope } from "../src/identity/repokey.ts";
-import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/store/containment.ts";
+import { exportMemories, writeExport } from "../../src/portable/export.ts";
+import { importMemories } from "../../src/portable/import.ts";
+import { resetState } from "../../src/core/state.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
+import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 // The harness types tools as a loose record; this fails loudly at the call site
 // instead of papering over the optionality with a non-null assertion.

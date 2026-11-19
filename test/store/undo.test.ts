@@ -18,15 +18,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, sep } from "node:path";
-import { addBlock, blocklistFile } from "../src/store/blocklist.ts";
-import { rejectedFile } from "../src/store/tombstones/rejection.ts";
-import { memoryRoot, snapshotDir } from "../src/core/config/paths.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { prune } from "../src/store/files/prune.ts";
-import { snapshotFiles } from "../src/store/files/snapshots.ts";
-import { listSnapshots, restoreSnapshot } from "../src/store/undo.ts";
-import { loadPlugin } from "./harness.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { addBlock, blocklistFile } from "../../src/store/blocklist.ts";
+import { rejectedFile } from "../../src/store/tombstones/rejection.ts";
+import { memoryRoot, snapshotDir } from "../../src/core/config/paths.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { prune } from "../../src/store/files/prune.ts";
+import { snapshotFiles } from "../../src/store/files/snapshots.ts";
+import { listSnapshots, restoreSnapshot } from "../../src/store/undo.ts";
+import { loadPlugin } from "../harness.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 const DAY = "2026-01-01";
 let root: string;

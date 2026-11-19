@@ -14,18 +14,18 @@ import {
 import { appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { formatLine, parseLine } from "../src/core/logfmt/format.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { formatLine, parseLine } from "../../src/core/logfmt/format.ts";
 import {
   appendLog,
   fileIdentity,
   writeAtomic,
-} from "../src/core/logfmt/publish.ts";
-import { readLines } from "../src/core/logfmt/read.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { markSuperseded } from "../src/store/files/supersede.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/core/logfmt/publish.ts";
+import { readLines } from "../../src/core/logfmt/read.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { markSuperseded } from "../../src/store/files/supersede.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let tmpDir: string;
 

@@ -12,12 +12,12 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { formatLine, parseLine } from "../src/core/logfmt/format.ts";
-import { readLines } from "../src/core/logfmt/read.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { formatLine, parseLine } from "../../src/core/logfmt/format.ts";
+import { readLines } from "../../src/core/logfmt/read.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let file: string;

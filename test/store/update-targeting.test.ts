@@ -16,23 +16,23 @@ import {
   evidenceDir,
   memoryRoot,
   snapshotDir,
-} from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { parseLine } from "../src/core/logfmt/format.ts";
-import { readLines } from "../src/core/logfmt/read.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
+} from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { parseLine } from "../../src/core/logfmt/format.ts";
+import { readLines } from "../../src/core/logfmt/read.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
 import {
   clearSuperseded,
   markSuperseded,
-} from "../src/store/files/supersede.ts";
-import { resolveMemoryTarget } from "../src/store/files/target.ts";
-import { type Memory } from "../src/store/model/memory.ts";
-import { isActive } from "../src/store/model/predicates.ts";
-import { resetState, setCurrent } from "../src/core/state.ts";
-import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
-import { loadPlugin } from "./harness.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/store/files/supersede.ts";
+import { resolveMemoryTarget } from "../../src/store/files/target.ts";
+import { type Memory } from "../../src/store/model/memory.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
+import { resetState, setCurrent } from "../../src/core/state.ts";
+import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
+import { loadPlugin } from "../harness.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let liveRoot: string;

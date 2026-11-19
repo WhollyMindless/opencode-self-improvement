@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { appendLog } from "../src/core/logfmt/publish.ts";
+import { appendLog } from "../../src/core/logfmt/publish.ts";
 import {
   closeAllLockDatabases,
   heldLockDatabases,
@@ -25,11 +25,11 @@ import {
   setLockAcquiredHook,
   withStoreBatch,
   withStoreLock,
-} from "../src/store/lock.ts";
-import { childHolder } from "./helpers/hold-cross-process.ts";
-import { lockArtifacts, lockIdentity } from "./helpers/lock-identity.ts";
-import { sleep } from "./helpers/logfmt.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/store/lock.ts";
+import { childHolder } from "../helpers/hold-cross-process.ts";
+import { lockArtifacts, lockIdentity } from "../helpers/lock-identity.ts";
+import { sleep } from "../helpers/logfmt.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 const roots: string[] = [];
 function tmp(): string {
@@ -360,7 +360,7 @@ describe("withStoreLock", () => {
   test("a second process waits for the first to finish publishing", async () => {
     const root = tmp();
     const file = join(root, "shared.logfmt");
-    const child = join(import.meta.dir, "helpers", "lock-holder.ts");
+    const child = join(import.meta.dir, "..", "helpers", "lock-holder.ts");
     // Held for ~500ms: long enough that the child reaches the lock while the
     // parent is still writing, so an ignored lock shows up as an interleaved
     // line instead of one that waited its turn.

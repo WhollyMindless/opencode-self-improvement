@@ -15,8 +15,8 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { withTempStore } from "./harness.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { withTempStore } from "../harness.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 beforeEach(() => {
@@ -49,17 +49,17 @@ afterEach(() => {
 
 function runFixture(mode: string, environment = "existing") {
   const file = join(root, "fixture.test.ts");
-  const harness = pathToFileURL(join(import.meta.dir, "harness.ts")).href;
+  const harness = pathToFileURL(join(import.meta.dir, "..", "harness.ts")).href;
   // The generated fixture lives in a temp directory, so it imports the helper
   // by absolute URL, exactly like the harness and the append module.
   const removeStoreMod = pathToFileURL(
-    join(import.meta.dir, "helpers", "remove-store.ts"),
+    join(import.meta.dir, "..", "helpers", "remove-store.ts"),
   ).href;
   const state = pathToFileURL(
-    join(import.meta.dir, "..", "src/core/state.ts"),
+    join(import.meta.dir, "..", "..", "src/core/state.ts"),
   ).href;
   const append = pathToFileURL(
-    join(import.meta.dir, "..", "src/store/files/append.ts"),
+    join(import.meta.dir, "..", "..", "src/store/files/append.ts"),
   ).href;
   writeFileSync(
     file,
@@ -149,7 +149,7 @@ describe("resources finish before outer fixture cleanup", () => {
     writeFileSync(join(target, "sentinel"), "keep me");
   }
   const child = Bun.spawnSync([process.execPath, "test", file], {
-    cwd: join(import.meta.dir, ".."),
+    cwd: join(import.meta.dir, "..", ".."),
     env,
     stdout: "pipe",
     stderr: "pipe",

@@ -4,23 +4,23 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { markSuperseded } from "../src/store/files/supersede.ts";
-import { addBlock, blocklistFile } from "../src/store/blocklist.ts";
-import { LOCK_WRITE, withStoreLock } from "../src/store/lock.ts";
-import { writeAtomic } from "../src/core/logfmt/publish.ts";
-import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
-import { resetState } from "../src/core/state.ts";
-import { rejectedFile } from "../src/store/tombstones/rejection.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { markSuperseded } from "../../src/store/files/supersede.ts";
+import { addBlock, blocklistFile } from "../../src/store/blocklist.ts";
+import { LOCK_WRITE, withStoreLock } from "../../src/store/lock.ts";
+import { writeAtomic } from "../../src/core/logfmt/publish.ts";
+import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
+import { resetState } from "../../src/core/state.ts";
+import { rejectedFile } from "../../src/store/tombstones/rejection.ts";
 import {
   resetTombstoneCache,
   tombstoneMany,
   tombstones,
-} from "../src/store/tombstones/tombstone.ts";
-import { contentHash } from "../src/telemetry/record.ts";
-import { lockIdentity } from "./helpers/lock-identity.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/store/tombstones/tombstone.ts";
+import { contentHash } from "../../src/telemetry/record.ts";
+import { lockIdentity } from "../helpers/lock-identity.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 const originalRoot = process.env.OPENCODE_MEMORY_DIR;
@@ -94,7 +94,7 @@ async function child(
   const p = Bun.spawn(
     [
       process.execPath,
-      join(import.meta.dir, "helpers/lock-timeout-writer.ts"),
+      join(import.meta.dir, "..", "helpers/lock-timeout-writer.ts"),
       root,
       operation,
       ts,

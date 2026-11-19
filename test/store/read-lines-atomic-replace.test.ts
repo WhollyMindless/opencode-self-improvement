@@ -4,9 +4,9 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readLines } from "../src/core/logfmt/read.ts";
-import { replaceWithCachedHandle } from "./helpers/cached-handle.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { readLines } from "../../src/core/logfmt/read.ts";
+import { replaceWithCachedHandle } from "../helpers/cached-handle.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 beforeEach(() => {

@@ -14,16 +14,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { prune } from "../src/store/files/prune.ts";
-import { snapshotFiles } from "../src/store/files/snapshots.ts";
-import { markSuperseded } from "../src/store/files/supersede.ts";
-import { parseLine } from "../src/core/logfmt/format.ts";
-import { readLines } from "../src/core/logfmt/read.ts";
-import { restoreSnapshot } from "../src/store/undo.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { prune } from "../../src/store/files/prune.ts";
+import { snapshotFiles } from "../../src/store/files/snapshots.ts";
+import { markSuperseded } from "../../src/store/files/supersede.ts";
+import { parseLine } from "../../src/core/logfmt/format.ts";
+import { readLines } from "../../src/core/logfmt/read.ts";
+import { restoreSnapshot } from "../../src/store/undo.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 const DAY = new Date().toISOString().slice(0, 10);
 const store = () => join(memoryRoot(), `${DAY}.logfmt`);
@@ -205,7 +205,7 @@ describe("restore racing appends", () => {
 });
 
 describe("two processes sharing one store", () => {
-  const writer = join(import.meta.dir, "helpers", "writer.ts");
+  const writer = join(import.meta.dir, "..", "helpers", "writer.ts");
 
   async function spawn(n: number, supersede: string[]) {
     const p = Bun.spawn(

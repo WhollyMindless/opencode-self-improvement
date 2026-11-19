@@ -8,7 +8,7 @@ import { mkdtempSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { removeStore } from "./helpers/remove-store.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 describe("requireTempPath", () => {
   test("accepts a path under the system temp dir, whatever the separator", () => {
@@ -16,7 +16,7 @@ describe("requireTempPath", () => {
     try {
       // Observe exit(2) as a test failure, not an aborted suite with no verdict.
       const helper = pathToFileURL(
-        join(import.meta.dir, "helpers", "temp-root.ts"),
+        join(import.meta.dir, "..", "helpers", "temp-root.ts"),
       ).href;
       const code = `import { requireTempPath } from ${JSON.stringify(helper)}; requireTempPath(${JSON.stringify(join(root, "memory"))}, "probe");`;
       const child = Bun.spawnSync([process.execPath, "-e", code], {
@@ -31,7 +31,7 @@ describe("requireTempPath", () => {
   });
 
   test("a guarded child refuses a non-temporary store path before touching it", () => {
-    const writer = join(import.meta.dir, "helpers", "writer.ts");
+    const writer = join(import.meta.dir, "..", "helpers", "writer.ts");
     // homedir, not the repo: checkouts can themselves sit under the temp dir
     // (they do on the reference machine), which would make a repo path a
     // legitimate temp path and the refusal vacuous.

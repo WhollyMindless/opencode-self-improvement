@@ -20,16 +20,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
 import {
   markManySuperseded,
   markSuperseded,
-} from "../src/store/files/supersede.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { setRepoScope } from "../src/identity/repokey.ts";
-import { dayFile } from "./helpers/logfmt.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/store/files/supersede.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
+import { dayFile } from "../helpers/logfmt.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 beforeEach(() => {

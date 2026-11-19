@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import * as evidence from "../src/telemetry/record.ts";
+import * as evidence from "../../src/telemetry/record.ts";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -8,31 +8,31 @@ import {
   deletionsFile,
   evidenceDir,
   memoryRoot,
-} from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { formatLine, parseLine } from "../src/core/logfmt/format.ts";
-import * as publishModule from "../src/core/logfmt/publish.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import * as deletionsModule from "../src/store/files/deletions.ts";
-import { snapshotFiles } from "../src/store/files/snapshots.ts";
-import { markManySupersededReport } from "../src/store/files/supersede.ts";
-import { pruneMemory } from "../src/store/prune.ts";
-import * as tombstoneModule from "../src/store/tombstones/tombstone.ts";
-import { contentHash } from "../src/telemetry/record.ts";
+} from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { formatLine, parseLine } from "../../src/core/logfmt/format.ts";
+import * as publishModule from "../../src/core/logfmt/publish.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import * as deletionsModule from "../../src/store/files/deletions.ts";
+import { snapshotFiles } from "../../src/store/files/snapshots.ts";
+import { markManySupersededReport } from "../../src/store/files/supersede.ts";
+import { pruneMemory } from "../../src/store/prune.ts";
+import * as tombstoneModule from "../../src/store/tombstones/tombstone.ts";
+import { contentHash } from "../../src/telemetry/record.ts";
 import {
   LOCK_RESTORE,
   LOCK_WRITE,
   setLockBusyInjector,
   withStoreLock,
-} from "../src/store/lock.ts";
-import { restoreSnapshot } from "../src/store/undo.ts";
-import { editMemory } from "../src/viewer/mutate.ts";
-import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
-import { resetState } from "../src/core/state.ts";
-import { loadPlugin, type LoadedPlugin } from "./harness.ts";
-import { resetCaptureCooldowns } from "../src/index.ts";
-import { lockIdentity } from "./helpers/lock-identity.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/store/lock.ts";
+import { restoreSnapshot } from "../../src/store/undo.ts";
+import { editMemory } from "../../src/viewer/mutate.ts";
+import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
+import { resetState } from "../../src/core/state.ts";
+import { loadPlugin, type LoadedPlugin } from "../harness.ts";
+import { resetCaptureCooldowns } from "../../src/index.ts";
+import { lockIdentity } from "../helpers/lock-identity.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let plugins: LoadedPlugin[];
