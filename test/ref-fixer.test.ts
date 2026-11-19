@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { applyRefFixes, chainEnd, indexRenames } from "../scripts/ref-fixer.ts";
+import {
+  ambiguousHop,
+  applyRefFixes,
+  chainEnd,
+  indexRenames,
+} from "../scripts/ref-fixer.ts";
 import { checkablePathRefs } from "../src/gate/resolver.ts";
 
 // The rewrite edits the user's stored prose, so it is the dangerous half of
@@ -206,6 +211,21 @@ describe("indexRenames", () => {
     expect(idx.reused.has("src/lock.ts")).toBe(true);
   });
 
+  test("a reused DESTINATION is a reuse", () => {
+    // src/lock.ts -> legacy/lock.ts, the moved file deleted, an unrelated
+    // component committed at legacy/lock.ts. The destination has two creations
+    // and was never itself renamed, so a set built from rename sources cannot
+    // contain it, and a row about the original component would be repointed
+    // onto a file that never held it.
+    const idx = indexRenames(
+      renameLog("c2", "src/lock.ts", "legacy/lock.ts"),
+      "c4\n\nA\tlegacy/lock.ts\nc3\n\nD\tlegacy/lock.ts\nc2\n\nD\tsrc/lock.ts\nA\tlegacy/lock.ts\nc1\n\nA\tsrc/lock.ts\n",
+    );
+    expect(idx.renamed.get("src/lock.ts")).toBe("legacy/lock.ts");
+    expect(idx.reused.has("legacy/lock.ts")).toBe(true);
+    expect(idx.reused.has("src/lock.ts")).toBe(false);
+  });
+
   test("a rename below the floor is not followed, and is not a reuse either", () => {
     const idx = indexRenames(
       renameLog("c2", "src/lock.ts", "legacy/lock.ts", 88),
@@ -222,5 +242,32 @@ describe("indexRenames", () => {
       "c3\n\nD\tsrc/a.ts\nA\tsrc/c.ts\nc2\n\nD\tsrc/a.ts\nA\tsrc/b.ts\n",
     );
     expect(idx.renamed.get("src/a.ts")).toBe("src/c.ts");
+  });
+});
+
+describe("ambiguousHop", () => {
+  const yes = () => true;
+  const renamed = new Map([["src/lock.ts", "legacy/lock.ts"]]);
+
+  test("names the destination, not the cited path", () => {
+    expect(
+      ambiguousHop("src/lock.ts", renamed, new Set(["legacy/lock.ts"])),
+    ).toBe("legacy/lock.ts");
+    expect(
+      chainEnd("src/lock.ts", renamed, yes, new Set(["legacy/lock.ts"])),
+    ).toBeNull();
+  });
+
+  test("names the source when the source is the reused one", () => {
+    expect(ambiguousHop("src/lock.ts", renamed, new Set(["src/lock.ts"]))).toBe(
+      "src/lock.ts",
+    );
+  });
+
+  test("an empty reuse set reports nothing", () => {
+    expect(ambiguousHop("src/lock.ts", renamed, new Set())).toBeNull();
+    expect(chainEnd("src/lock.ts", renamed, yes, new Set())).toBe(
+      "legacy/lock.ts",
+    );
   });
 });

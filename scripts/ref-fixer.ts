@@ -94,10 +94,10 @@ export function applyRefFixes(
  * asserts something about a module that no longer exists in the shape the
  * sentence describes.
  *
- * `reused` holds source paths occupied by more than one generation, decided by
- * counting how many times history CREATED each one. See the creations pass
- * below: it is the single question that catches every wrong-repoint shape,
- * including the two a rename count cannot see.
+ * `reused` holds every path history CREATED more than once, decided by a single
+ * count over the full log. See the creations pass below: it is the one question
+ * that catches every wrong-repoint shape, and it covers rename destinations as
+ * well as sources.
  */
 export function indexRenames(
   renameLog: string,
@@ -149,19 +149,64 @@ export function indexRenames(
       kind === "A" ? p[1] : kind === "R" || kind === "C" ? p[2] : undefined;
     if (made) creations.set(made, (creations.get(made) ?? 0) + 1);
   }
-  for (const p of hopScore.keys())
-    if ((creations.get(p) ?? 0) > 1) reused.add(p);
+  // Every path with more than one creation, not just the paths that were
+  // themselves renamed. A rename DESTINATION can be reused too: move
+  // `src/lock.ts` to `legacy/lock.ts`, delete it, then commit an unrelated
+  // component at `legacy/lock.ts`. The chain ends on a path the original
+  // component never occupied, and a destination is never a key of `hopScore`,
+  // so restricting this set to rename sources cannot see it.
+  for (const [p, n] of creations) if (n > 1) reused.add(p);
   return { renamed, hopScore, reused };
 }
 
 /**
+ * The paths a rename chain walks through, starting at `from`. Null when the
+ * chain cycles or exceeds the hop cap — "a human decides" for the same reason
+ * an unresolved intermediate is.
+ */
+function chainHops(
+  from: string,
+  renamed: ReadonlyMap<string, string>,
+): string[] | null {
+  const hops = [from];
+  const seen = new Set([from]);
+  for (let hop = 0; hop < 8; hop++) {
+    const cur = hops[hops.length - 1]!;
+    const next = renamed.get(cur);
+    if (!next) return hops;
+    if (next === cur || seen.has(next)) return null;
+    seen.add(next);
+    hops.push(next);
+  }
+  return null;
+}
+
+/**
+ * The path in `from`'s chain that history created more than once, or null. The
+ * chain refuses on it either way; this exists so the report can name WHICH path
+ * is ambiguous — a reused destination is not the path the row cites, and telling
+ * a human "src/lock.ts was reused" when `legacy/lock.ts` is the one with two
+ * lifetimes sends them to the wrong file.
+ */
+export function ambiguousHop(
+  from: string,
+  renamed: ReadonlyMap<string, string>,
+  reused?: ReadonlySet<string>,
+): string | null {
+  if (!reused?.size) return null;
+  const hops = chainHops(from, renamed);
+  if (!hops) return null;
+  return hops.find((p) => reused.has(p)) ?? null;
+}
+
+/**
  * Terminal target of a rename chain, or null when there is no chain, the chain
- * cycles, it is longer than the hop cap, or any hop's source path was occupied
- * by more than one generation. All of these mean "a human decides": an
- * unresolved intermediate is a path that no longer exists, and a reused source
- * path — renamed away and recreated, whether it was renamed away again or
- * simply deleted — has rows written against each generation citing the same
- * string and describing different files.
+ * cycles, it is longer than the hop cap, or ANY path it walks through — the
+ * source, an intermediate, or the destination — was occupied by more than one
+ * generation. All of these mean "a human decides": an unresolved intermediate
+ * is a path that no longer exists, and a path created more than once has rows
+ * written against each generation citing the same string and describing
+ * different files.
  */
 export function chainEnd(
   from: string,
@@ -169,17 +214,11 @@ export function chainEnd(
   exists: (p: string) => boolean,
   reused?: ReadonlySet<string>,
 ): string | null {
-  let cur = from;
-  const seen = new Set([from]);
-  for (let hop = 0; hop < 8; hop++) {
-    if (reused?.has(cur)) return null;
-    const next = renamed.get(cur);
-    if (!next) return cur === from ? null : exists(cur) ? cur : null;
-    if (next === cur || seen.has(next)) return null;
-    seen.add(next);
-    cur = next;
-  }
-  return null;
+  if (ambiguousHop(from, renamed, reused)) return null;
+  const hops = chainHops(from, renamed);
+  if (!hops) return null;
+  const cur = hops[hops.length - 1]!;
+  return cur === from ? null : exists(cur) ? cur : null;
 }
 
 /* ------------------------------- CLI below -------------------------------- */
@@ -287,7 +326,10 @@ async function main(): Promise<number> {
       if (fix) fixes.set(ref, fix);
       else if (!here(ref)) {
         reported.set(ref, (reported.get(ref) ?? 0) + 1);
-        if (reused.has(ref)) reusedSeen.add(ref);
+        // Names whichever path in the chain has two lifetimes, which need not
+        // be the path the row cites: a reused destination is the common case.
+        const amb = ambiguousHop(ref, renamed, reused);
+        if (amb) reusedSeen.add(amb);
       }
     }
     if (!fixes.size) continue;
@@ -341,10 +383,11 @@ async function main(): Promise<number> {
   }
   if (reusedSeen.size)
     console.log(
-      "\nOccupied by more than one generation — moved away and recreated at the",
-      "same path, whether it moved again or was later deleted. Rows written",
-      "against each generation cite the same string and describe different",
-      "files, so this script will not pick:\n  " + [...reusedSeen].join(", "),
+      "\nOccupied by more than one generation — history created this path more",
+      "than once, in either order around the move. It may be the cited path or",
+      "the one the chain ends on. Rows written against each generation cite the",
+      "same string and describe different files, so this script will not pick:",
+      "  " + [...reusedSeen].join(", "),
     );
 
   if (!APPLY) {
