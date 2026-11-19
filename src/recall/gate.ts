@@ -2,10 +2,8 @@
 //
 // A query of LONG_QUERY_TOKENS concepts or more is a deliberate search: a row
 // must share two whole-word concepts with it to be returned. Shorter queries
-// keep the matcher's permissive one-concept admission. This is the rule the
-// injection path already applies (LONG_QUERY_TOKENS in score.ts); the two
-// paths must agree on when nothing is a good enough answer. Admission only:
-// ranking, scoring and window size are untouched.
+// keep one-concept admission. Explicit lookup also accepts a complete authored
+// alias that identifies a single candidate. Automatic injection stays stricter.
 //
 // ON by default. Off only for an explicit negative (see gateEnabled): a
 // quality fix that nobody flips on is not a fix, and a typo must not disable
@@ -91,6 +89,34 @@ export function rowConcepts(m: Memory): Set<string> {
   const out = new Set(words(recallHaystackRaw(m)));
   for (const w of recallHaystack(m).split(WORD)) if (w.length > 2) out.add(w);
   return out;
+}
+
+/** A literal query term may name one visible row by its complete authored alias. */
+export function exactAliasMatches(
+  query: string,
+  concepts: readonly string[],
+  rows: readonly Memory[],
+): Set<Memory> {
+  const matches = new Set<Memory>();
+  if (concepts.length < LONG_QUERY_TOKENS) return matches;
+  const terms = new Set(
+    (query.toLowerCase().match(/[a-z0-9_.\-/]+/g) ?? [])
+      .map((id) => id.replace(/^[./-]+|[./-]+$/g, ""))
+      .filter((id) => id.length > 2 && !QUERY_STOPWORDS.has(id)),
+  );
+  const owners = new Map<string, Memory>();
+  for (const row of rows)
+    for (const alias of row.kw ?? [])
+      if (terms.has(alias)) owners.set(alias, row);
+  if (!owners.size) return matches;
+  for (const row of rows) {
+    const indexed = rowConcepts(row);
+    for (const [alias, owner] of owners)
+      if (row !== owner && indexed.has(alias)) owners.delete(alias);
+    if (!owners.size) break;
+  }
+  for (const owner of owners.values()) matches.add(owner);
+  return matches;
 }
 
 /** How many of `concepts` the row contains as whole words (or identifier segments). */

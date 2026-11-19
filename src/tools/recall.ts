@@ -6,6 +6,7 @@ import { record } from "../telemetry/record.ts";
 import { formatMemory } from "../inject/format.ts";
 import {
   admitsRow,
+  exactAliasMatches,
   gateEnabled,
   queryConcepts,
   recallHaystack,
@@ -51,14 +52,22 @@ export const register: ToolRegister = (editor, deps) => {
           results = results.filter((m) => m.scope.includes(args.scope!));
         if (args.type) results = results.filter((m) => m.type === args.type);
         if (args.query) {
-          // Default on: a row must share two whole words of the query — the
-          // concepts rule, not the scorer's substring test (src/recall/gate.ts,
-          //). OPENCODE_MEMORY_QUERY_GATE=off restores the old matcher.
           const gate = gateEnabled();
           const concepts = gate ? queryConcepts(args.query) : [];
+          const aliases = exactAliasMatches(args.query, concepts, results);
           results = results
-            .map((m) => ({ m, score: scoreMemory(m, args.query!) }))
-            .filter((x) => x.score > 0 && (!gate || admitsRow(x.m, concepts)))
+            .map((m) => ({
+              m,
+              score: Math.max(
+                scoreMemory(m, args.query!),
+                aliases.has(m) ? 1 : 0,
+              ),
+            }))
+            .filter(
+              (x) =>
+                x.score > 0 &&
+                (!gate || aliases.has(x.m) || admitsRow(x.m, concepts)),
+            )
             .sort((a, b) => b.score - a.score)
             .map((x) => x.m);
         }

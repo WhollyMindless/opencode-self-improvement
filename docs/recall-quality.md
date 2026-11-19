@@ -32,6 +32,10 @@ force a guess. Wrong top-memory fell to 6%. The cost is silence in cases where
 a lucky guess would have been right; `memory_recall` still covers them when you
 ask on purpose.
 
+### Explicit exact-keyword lookup
+
+See the [transport lookup benchmark](https://github.com/abogartz/opencode-self-improvement/blob/64c494a26866851077ed2d59504c62a4f7809b56/bench/transport-lookup-results.md) for explicit recall and automatic injection on the same queries.
+
 ## Why the default window is 5 rows
 
 A live audit joined 1,090 recall events to their session transcripts. A
