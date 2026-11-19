@@ -474,7 +474,7 @@ describe("the surfaces read the ledger honestly", () => {
     expect(ledgerIsYoung(store.ledgerSince)).toBe(true);
   });
 
-  // #332: the outcome line is the only place a user learns what the join can
+  // the outcome line is the only place a user learns what the join can
   // and cannot claim. It must state the floor and the correlation, in-line.
   test("the outcome line states the correlation and never claims a cause", () => {
     const base = {
@@ -592,7 +592,7 @@ describe.skipIf(process.platform !== "win32")(
   },
 );
 
-// --- the row-to-outcome edge (#332) ------------------------------------------------
+// --- the row-to-outcome edge ------------------------------------------------
 //
 // The ledger used to record that a row rode and nothing about what happened
 // next, so a row that reliably misled the agent accrued hits and got BOOSTED by
@@ -600,7 +600,7 @@ describe.skipIf(process.platform !== "win32")(
 // turn on the ride, a gate verdict for that turn, and a join that refuses to
 // claim more than it saw.
 
-describe("rides carry the turn they landed on (#332)", () => {
+describe("rides carry the turn they landed on", () => {
   test("a known turn is written; an unknown one is absent, never zero", async () => {
     expect(
       await recordHits(
@@ -647,7 +647,20 @@ describe("rides carry the turn they landed on (#332)", () => {
 });
 
 describe("turn outcomes", () => {
-  test("one line per gate check, readable back as PASS or FAIL", async () => {
+  test("a passing retry preserves one failed turn with both calls counted", async () => {
+    await recordOutcome("sid", 1, "FAIL", "test");
+    await recordOutcome("sid", 1, "PASS", "test");
+    const lines = readFileSync(hitsFile(), "utf8").trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("calls=2 fails=1 outcome=fail");
+    writeFileSync(
+      hitsFile(),
+      lines[0].replace("outcome=fail", "outcome=unknown"),
+    );
+    expect(await readOutcomes()).toEqual([]);
+  });
+
+  test("one line per distinct turn, readable back as PASS or FAIL", async () => {
     expect(
       await recordOutcome(
         "ses-out",

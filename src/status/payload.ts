@@ -42,7 +42,7 @@ export interface StoreCounts {
    */
   ledgerSince?: string | null;
   /**
-   * What the ledger can say about usefulness (#332). A ride joins to an
+   * What the ledger can say about usefulness. A ride joins to an
    * outcome ONLY when it landed on a turn that also ran a gate command, so
    * `joined` is far below `rides` by construction and every number here is a
    * floor: `recordHits` drops writes under lock contention. A FAIL is a

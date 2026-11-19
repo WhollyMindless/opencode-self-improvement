@@ -24,7 +24,7 @@ export function summarizeStore(
   ledger: UseLedger,
   malformed: number,
   /**
-   * Rides and gate outcomes for the join (#332). Omitted, the outcome block is
+   * Rides and gate outcomes for the join. Omitted, the outcome block is
    * absent rather than zero — the caller did not look, which is a different
    * statement from "nothing helped".
    */

@@ -40,7 +40,7 @@ export const register: ToolRegister = (editor, deps) => {
         // Use ledger: how much of the store has never been surfaced.
         // Reported, never acted on — retirement is a decision, not a metric.
         const ledger = await readLedger();
-        // #332: rides joined to the gate outcome of the turn they rode. Read
+        // rides joined to the gate outcome of the turn they rode. Read
         // only here — the epoch payload path deliberately skips it, so the
         // per-request path never pays two extra ledger reads.
         const { active: act, counts: store } = summarizeStore(

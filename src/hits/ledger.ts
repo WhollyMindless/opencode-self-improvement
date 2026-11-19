@@ -59,10 +59,11 @@ export interface HitEntry {
   terms: string[];
   /** Turn the ride landed on, when the caller knew it. Absent, never zero. */
   turn?: number;
+  turnKey?: string;
 }
 
 /**
- * One observable outcome for one turn (#332). Recorded only for turns that ran
+ * One observable outcome for one turn. Recorded only for turns that ran
  * a gate command (build/test/lint/typecheck) — the only outcomes the plugin can
  * see without guessing. A turn with no gate command has NO line, which the
  * surfaces report as "outcome unknown", not as "clean".
@@ -73,6 +74,7 @@ export interface TurnOutcome {
   turn: number;
   outcome: "PASS" | "FAIL";
   cmd: string;
+  turnKey?: string;
 }
 
 // --- writing --------------------------------------------------------------------
@@ -132,6 +134,7 @@ export async function recordHits(
   terms: string[] = [],
   now = Date.now(),
   turn?: number,
+  turnKey?: string,
 ): Promise<boolean> {
   if (!rows.length) return false;
   const ids = rows.map((m) => m.ts);
@@ -148,12 +151,13 @@ export async function recordHits(
     ...(terms.length
       ? { terms: bracketList(terms.slice(0, MAX_LOGGED_TERMS)) }
       : {}),
-    // #332: the turn is what lets a ride be joined to the outcome of the same
+    // the turn is what lets a ride be joined to the outcome of the same
     // turn. The throttle key deliberately EXCLUDES it — a row-set that keeps
     // riding is credited once per hour, so a join sees the turn of the
     // observation that survived the throttle, not every turn it rode. Rides
     // are therefore a floor.
     ...(typeof turn === "number" ? { turn } : {}),
+    ...(turnKey ? { turnKey } : {}),
   });
   inFlight.add(key);
   let cooldown = RETRY_BACKOFF_MS;
@@ -184,7 +188,7 @@ export async function recordHits(
   }
 }
 
-// --- outcomes (#332) -------------------------------------------------------------
+// --- outcomes -------------------------------------------------------------
 
 /**
  * Record the observable outcome of a turn that ran a gate command. Same file,
@@ -202,22 +206,44 @@ export async function recordOutcome(
   outcome: "PASS" | "FAIL",
   cmd: string,
   now = Date.now(),
+  turnKey?: string,
 ): Promise<boolean> {
-  if (!sid || !Number.isFinite(turn)) return false;
-  const line = formatLine({
-    ev: "turn_outcome",
-    ts: new Date(now).toISOString(),
-    sid,
-    turn,
-    outcome,
-    cmd,
-  });
+  if (!sid || !Number.isSafeInteger(turn) || turn < 1) return false;
+  const file = hitsFile();
   try {
     await withStoreLock(
-      hitsFile(),
+      file,
       async () => {
         await rotateIfNeeded();
-        await appendLog(hitsFile(), line);
+        const since = await fileIdentity(file);
+        const lines = await readLines(file);
+        const index = lines.findLastIndex((line) => {
+          if (!line.startsWith("ev=turn_outcome ")) return false;
+          const f = parseLine(line);
+          return (
+            f?.sid === sid && Number(f.turn) === turn && f.turnKey === turnKey
+          );
+        });
+        const previous = index < 0 ? undefined : parseLine(lines[index]);
+        const calls = Number(previous?.calls ?? 0) + 1;
+        const fails = Number(previous?.fails ?? 0) + Number(outcome === "FAIL");
+        const line = formatLine({
+          ev: "turn_outcome",
+          ts: new Date(now).toISOString(),
+          sid,
+          turn,
+          ...(turnKey ? { turnKey } : {}),
+          calls,
+          fails,
+          outcome: fails ? "fail" : "clean",
+          cmd,
+        });
+        if (index < 0) await appendLog(file, line);
+        else {
+          lines.splice(index, 1);
+          lines.push(line);
+          await writeAtomic(file, lines.join("\n") + "\n", since);
+        }
       },
       LOCK_WRITE,
     );
@@ -234,10 +260,12 @@ export async function readOutcomes(): Promise<TurnOutcome[]> {
     if (!f || f.ev !== "turn_outcome") continue;
     const turn = typeof f.turn === "string" ? Number(f.turn) : NaN;
     if (!Number.isFinite(turn)) continue;
-    const outcome = f.outcome === "FAIL" ? "FAIL" : "PASS";
+    if (f.outcome !== "fail" && f.outcome !== "clean") continue;
+    const outcome = f.outcome === "fail" ? "FAIL" : "PASS";
     out.push({
       ts: typeof f.ts === "string" ? f.ts : "",
       sid: typeof f.sid === "string" ? f.sid : "",
+      ...(typeof f.turnKey === "string" ? { turnKey: f.turnKey } : {}),
       turn,
       outcome,
       cmd: typeof f.cmd === "string" ? f.cmd : "",
@@ -270,7 +298,7 @@ export interface RowOutcome {
 
 /**
  * Join rides to same-turn gate outcomes on (sid, turn). A ride with no turn
- * recorded (a line written before #332, or a caller that did not know the
+ * recorded (a legacy line, or a caller that did not know the
  * turn) can never join, and counts toward `rides` only.
  */
 export function joinUseWithOutcomes(
@@ -279,7 +307,7 @@ export function joinUseWithOutcomes(
 ): Map<string, RowOutcome> {
   const byTurn = new Map<string, "PASS" | "FAIL">();
   for (const o of outcomes) {
-    const k = `${o.sid}|${o.turn}`;
+    const k = `${o.sid}|${o.turn}|${o.turnKey ?? ""}`;
     // Worst outcome wins a turn: a failing gate is the signal we act on, and
     // a later pass in the same turn does not erase the fact that it failed.
     if (byTurn.get(k) !== "FAIL") byTurn.set(k, o.outcome);
@@ -288,7 +316,7 @@ export function joinUseWithOutcomes(
   for (const line of rides) {
     const verdict =
       typeof line.turn === "number" && line.sid
-        ? byTurn.get(`${line.sid}|${line.turn}`)
+        ? byTurn.get(`${line.sid}|${line.turn}|${line.turnKey ?? ""}`)
         : undefined;
     for (const row of line.mems) {
       const cur = out.get(row) ?? {
@@ -381,7 +409,7 @@ export async function readReads(): Promise<ReadSet[]> {
 
 /**
  * Every ride the ledger recorded, with the session and turn it landed on — the
- * shape #332 joins against gate outcomes. `readLedger` aggregates by row and
+ * shape the report joins against gate outcomes. `readLedger` aggregates by row and
  * throws the grouping away, so this reads the same file for a different
  * question rather than widening `UseLedger`, which hot paths (consolidation,
  * status) carry.
@@ -398,6 +426,7 @@ export async function readRides(): Promise<HitEntry[]> {
       ts: typeof f.ts === "string" ? f.ts : "",
       src: f.src === "pull" || f.src === "recall" ? f.src : "inject",
       sid: typeof f.sid === "string" ? f.sid : "",
+      ...(typeof f.turnKey === "string" ? { turnKey: f.turnKey } : {}),
       mems,
       terms: typeof f.terms === "string" ? parseList(f.terms) : [],
       ...(Number.isFinite(turn) ? { turn } : {}),

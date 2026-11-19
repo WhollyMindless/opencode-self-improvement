@@ -174,6 +174,7 @@ export async function afterTool(
   const ts = new Date().toISOString();
 
   const s = session(sid ?? "?");
+  const turnKey = s.turnKey;
   const rec: ToolResult = {
     call,
     tool,
@@ -209,10 +210,11 @@ export async function afterTool(
     rec.gateCheck = true;
     rec.cmd = family;
     await record("gate_check", { cmd: family, status }, true, sid);
-    // #332: the same fact in the use ledger, where a ride recorded on this
+    // the same fact in the use ledger, where a ride recorded on this
     // turn can be joined to it. Evidence is the audit trail — pruned and
     // quarantined on its own schedule — so the join cannot live there.
-    await recordOutcome(sid ?? "", s.turns, status, family);
+    if (sid && turnKey && rec.turn !== undefined)
+      await recordOutcome(sid, rec.turn, status, family, Date.now(), turnKey);
     if (status === "FAIL") {
       s.pendingGate = { call, cmd: family, chain: [], count: 0 };
     } else if (s.pendingGate && s.pendingGate.cmd === family) {
@@ -341,6 +343,7 @@ export function hasGateCheck(sid: string): boolean {
 export function markTurn(sid: string): void {
   const s = session(sid);
   s.turns++;
+  s.turnKey = crypto.randomUUID();
   if (!s.firstActivityTs) s.firstActivityTs = new Date().toISOString();
 }
 

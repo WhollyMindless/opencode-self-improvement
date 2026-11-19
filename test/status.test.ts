@@ -790,6 +790,48 @@ describe("memory_status tool + epoch wiring", () => {
     }
   });
 
+  test("a reopened store reports a ride followed by two checks on the same turn", async () => {
+    const sessionID = "outcome-integration";
+    const plugin = await loadPlugin(process.cwd());
+    try {
+      await appendMemory({
+        type: "pattern",
+        scope: "build",
+        content: "run bun test from the repo root to execute the suite",
+        status: "settled",
+      });
+      await plugin.sessionHooks.prompt!({
+        sessionID,
+        prompt: { text: "how do I run bun test" },
+      });
+      for (const output of ["test failed", "passed"]) {
+        await plugin["tool.execute.after"](
+          {
+            sessionID,
+            tool: "bash",
+            callID: output,
+            args: { command: "bun test" },
+          },
+          { output },
+        );
+      }
+    } finally {
+      await plugin.cleanup();
+    }
+    const reopened = await loadPlugin(process.cwd());
+    try {
+      const report = await reopened.tools.memory_status.execute({});
+      expect(report.content).toContain("1 on turns whose gate failed");
+      const summaries = readFileSync(hitsFile(), "utf8")
+        .split("\n")
+        .filter((line) => line.includes("ev=turn_outcome"));
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0]).toContain("calls=2 fails=1 outcome=fail");
+    } finally {
+      await reopened.cleanup();
+    }
+  });
+
   test("fresh process: reports no epoch; a prompt creates the epoch AND status.json", async () => {
     const p = await loadPlugin(process.cwd());
     const first = await p.tools.memory_status!.execute({});
