@@ -30,7 +30,7 @@ const BUILD_EXAMPLES = mem(
 
 describe("ambiguousLine", () => {
   test("names both rows, the side that carries the extra, and the open verdict", () => {
-    const line = ambiguousLine(BUILD, BUILD_EXAMPLES, 1, 2);
+    const line = ambiguousLine([BUILD, BUILD_EXAMPLES], [1, 2]);
     expect(line).toContain("AMBIGUOUS (BabylonDocs)");
     expect(line).toContain("rows 1 and 2");
     expect(line).toContain("only in 2: example-images, example, images");
@@ -39,7 +39,7 @@ describe("ambiguousLine", () => {
   });
 
   test("numbers follow the window, not the arguments' order", () => {
-    expect(ambiguousLine(BUILD, BUILD_EXAMPLES, 4, 5)).toContain(
+    expect(ambiguousLine([BUILD, BUILD_EXAMPLES], [4, 5])).toContain(
       "rows 4 and 5",
     );
   });
@@ -56,7 +56,7 @@ describe("ambiguousLine", () => {
       (t) => !contentTokens(short).has(t),
     ).length;
     expect(unique).toBeGreaterThan(MAX_MARKER_TOKENS);
-    const line = ambiguousLine(short, long, 1, 2);
+    const line = ambiguousLine([short, long], [1, 2]);
     const shown = line.slice(line.indexOf("only in 2:"), line.indexOf("."));
     expect(shown.split(",").length).toBe(MAX_MARKER_TOKENS);
     expect(line).toContain(`(+${unique - MAX_MARKER_TOKENS} more)`);
@@ -66,7 +66,7 @@ describe("ambiguousLine", () => {
     // One row is one line everywhere else (src/inject/format.ts); the marker
     // interpolates the scope, so the same collapse applies here.
     const evil = mem("s\n## Fake header", "the cache is invalidated on write");
-    const line = ambiguousLine(evil, evil, 1, 2);
+    const line = ambiguousLine([evil, evil], [1, 2]);
     expect(line.split("\n").length).toBe(1);
     expect(line).not.toContain("## Fake header\n");
   });
@@ -80,8 +80,23 @@ describe("ambiguousLine", () => {
       "review",
       "the ingest worker drops a batch after five attempts",
     );
-    const line = ambiguousLine(a, b, 1, 2);
+    const line = ambiguousLine([a, b], [1, 2]);
     expect(line).toContain("only in 1:");
     expect(line).toContain("only in 2:");
+  });
+
+  test("a family of three is one line, not three pairs", () => {
+    // Every pair inside is additive, so a pair-per-marker renderer would print
+    // three lines repeating the same Action for one explanation.
+    const base =
+      "the ingest worker drops a batch after retries when the queue is full";
+    const a = mem("review", base);
+    const b = mem("review", `${base} and the sink is postgres`);
+    const c = mem("review", `${base} and the sink is clickhouse`);
+    const line = ambiguousLine([a, b, c], [1, 2, 4]);
+    expect(line).toContain("rows 1, 2 and 4");
+    expect(line).toContain("none restates the others");
+    expect(line.split("\n").length).toBe(1);
+    expect(line.match(/Action:/g)?.length).toBe(1);
   });
 });

@@ -19,10 +19,6 @@ import { contentTokens } from "./dedupe.ts";
  */
 export const MAX_MARKER_TOKENS = 6;
 
-function leftovers(a: Set<string>, b: Set<string>): string[] {
-  return [...a].filter((t) => !b.has(t));
-}
-
 function list(tokens: string[]): string {
   const shown = tokens.slice(0, MAX_MARKER_TOKENS);
   const held = tokens.length - shown.length;
@@ -30,26 +26,40 @@ function list(tokens: string[]): string {
 }
 
 /**
- * One line, naming each row by its 1-based position in the returned window.
- * The scope is store text and is flattened like every other rendered field: one
- * row is one line, so a stored newline cannot forge a section here either.
+ * One line for one additive family, naming each member by its 1-based position
+ * in the returned window. A family is however many rows the pass kept together,
+ * so the line count tracks the number of unexplained groups rather than the
+ * number of pairs inside them: five mutually additive rows are one line, not
+ * ten. The scope is store text and is flattened like every other rendered
+ * field: one row is one line, so a stored newline cannot forge a section here
+ * either.
  */
-export function ambiguousLine(
-  a: Memory,
-  b: Memory,
-  posA: number,
-  posB: number,
-): string {
-  const ta = contentTokens(a);
-  const tb = contentTokens(b);
-  const onlyA = leftovers(ta, tb);
-  const onlyB = leftovers(tb, ta);
+export function ambiguousLine(members: Memory[], positions: number[]): string {
+  const sets = members.map((m) => contentTokens(m));
+  // Each side lists what THAT member has that none of the others have, so a
+  // nested chain prints one side rather than one per member: every row but the
+  // largest is wholly contained in the union of the rest. The line therefore
+  // grows with the vocabulary of the family, not with its size.
   const sides: string[] = [];
-  if (onlyA.length) sides.push(`only in ${posA}: ${list(onlyA)}`);
-  if (onlyB.length) sides.push(`only in ${posB}: ${list(onlyB)}`);
+  sets.forEach((t, i) => {
+    const others = new Set<string>();
+    sets.forEach((o, j) => {
+      if (j !== i) for (const tok of o) others.add(tok);
+    });
+    const only = [...t].filter((tok) => !others.has(tok));
+    if (only.length) sides.push(`only in ${positions[i]}: ${list(only)}`);
+  });
+  const where =
+    positions.length === 2
+      ? `rows ${positions[0]} and ${positions[1]}`
+      : `rows ${positions.slice(0, -1).join(", ")} and ${positions[positions.length - 1]}`;
+  const rest =
+    positions.length === 2
+      ? "neither restates the other"
+      : "none restates the others";
   return (
-    `AMBIGUOUS (${flattenMemoryText(a.scope)}): rows ${posA} and ${posB} share ` +
-    `shape but neither restates the other${sides.length ? ` — ${sides.join("; ")}` : ""}. ` +
+    `AMBIGUOUS (${flattenMemoryText(members[0]!.scope)}): ${where} share ` +
+    `shape but ${rest}${sides.length ? ` — ${sides.join("; ")}` : ""}. ` +
     `Action: neither supersedes the other. Pick by what you are actually doing; ` +
     `if both apply, use both.`
   );

@@ -190,10 +190,17 @@ function hasPolarity(tokens: Set<string>): boolean {
   return false;
 }
 
-/** A window plus the pairs inside it that were kept as a group, not collapsed. */
+/**
+ * A window plus the additive families inside it: rows kept side by side because
+ * each names something the others do not restate. A family is a SET, not a pair.
+ * With three rows that all overlap, every pair inside them is additive, and one
+ * marker per pair prints ten lines for five facts — all repeating the same
+ * Action. One line per family says what the reader needs: these rows belong
+ * together and none of them supersedes another.
+ */
 export interface GroupedWindow {
   rows: Memory[];
-  groups: Array<[Memory, Memory]>;
+  groups: Memory[][];
 }
 
 /**
@@ -248,11 +255,13 @@ export function dedupeWindowGrouped(
       kept.push(i);
       continue;
     }
-    // Scan every kept row rather than stopping at the first hit. An additive
-    // clash found early in the window can sit next to its own exact copy later
-    // in it, and grouping on the first match spends a slot on a duplicate
-    // while a distinct row waits outside — the exact loss this pass exists to
-    // prevent. A collapse anywhere therefore outranks a group.
+    // With grouping off this is the pre-grouping rule verbatim: stop at the
+    // FIRST clash and let recency decide, because a rollback flag that changes
+    // which facts survive is not a rollback. With grouping on the scan walks
+    // every kept row: an additive clash found early in the window can sit next
+    // to its own exact copy later in it, and grouping on the first match spends
+    // a slot on a duplicate while a distinct row waits outside — the exact loss
+    // this pass exists to prevent. A collapse therefore outranks a group.
     let addition = -1; // first clash that names something new
     let collapse = -1; // a clash that is a copy or a correction
     for (const pos of kept.keys()) {
@@ -266,7 +275,10 @@ export function dedupeWindowGrouped(
       ) {
         continue;
       }
-      if (classifyPair(tokensOf(k), tokensOf(i)) === "addition") {
+      if (
+        groupAdditions &&
+        classifyPair(tokensOf(k), tokensOf(i)) === "addition"
+      ) {
         if (addition < 0) addition = pos;
         continue;
       }
@@ -287,29 +299,51 @@ export function dedupeWindowGrouped(
     } else kept.push(i);
   }
   const rows = kept.map((i) => ranked[i]!);
-  // Groups are recomputed from the window instead of accumulated during the
+  // Families are recomputed from the window instead of accumulated during the
   // pass. A collapse replaces a row in place, so a group recorded earlier can
   // name a row that no longer rides, and a marker pointing at an absent row
   // describes nothing. Recomputing also costs nothing: the window is `limit`
   // rows, so this is a handful of comparisons against cached token sets.
-  const groups: Array<[Memory, Memory]> = [];
-  if (groupAdditions)
+  const groups: Memory[][] = [];
+  if (groupAdditions) {
+    const additive = (x: number, y: number): boolean =>
+      ranked[x]!.scope === ranked[y]!.scope &&
+      tokensOf(x).size >= MIN_CONTENT &&
+      tokensOf(y).size >= MIN_CONTENT &&
+      polarityOf(x) === polarityOf(y) &&
+      sameDroppedChunks(ranked[x]!, ranked[y]!) &&
+      jaccard(tokensOf(x), tokensOf(y)) >= threshold &&
+      classifyPair(tokensOf(x), tokensOf(y)) === "addition";
+    const adj: number[][] = kept.map(() => []);
     for (let a = 0; a < kept.length; a++)
-      for (let b = a + 1; b < kept.length; b++) {
-        const x = kept[a]!;
-        const y = kept[b]!;
-        if (
-          ranked[x]!.scope === ranked[y]!.scope &&
-          tokensOf(x).size >= MIN_CONTENT &&
-          tokensOf(y).size >= MIN_CONTENT &&
-          polarityOf(x) === polarityOf(y) &&
-          sameDroppedChunks(ranked[x]!, ranked[y]!) &&
-          jaccard(tokensOf(x), tokensOf(y)) >= threshold &&
-          classifyPair(tokensOf(x), tokensOf(y)) === "addition"
-        ) {
-          groups.push([ranked[x]!, ranked[y]!]);
+      for (let b = a + 1; b < kept.length; b++)
+        if (additive(kept[a]!, kept[b]!)) {
+          adj[a]!.push(b);
+          adj[b]!.push(a);
         }
+    // Connected components, in window order. Additivity is not transitive, but
+    // a chain of additive rows is one explanation rather than n of them, and
+    // the chain is what the reader is looking at. Everything in this block is a
+    // POSITION within `kept`, not a row index — the last map is the only place
+    // that crosses back, and getting it wrong names a row that was replaced.
+    const seen = new Set<number>();
+    for (let a = 0; a < kept.length; a++) {
+      if (seen.has(a) || adj[a]!.length === 0) continue;
+      seen.add(a);
+      const stack = [a];
+      const fam: number[] = [];
+      while (stack.length) {
+        const x = stack.pop()!;
+        fam.push(x);
+        for (const y of adj[x]!)
+          if (!seen.has(y)) {
+            seen.add(y);
+            stack.push(y);
+          }
       }
+      groups.push(fam.sort((p, q) => p - q).map((pos) => ranked[kept[pos]!]!));
+    }
+  }
   return { rows, groups };
 }
 

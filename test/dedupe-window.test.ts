@@ -375,4 +375,59 @@ describe("dedupeWindowGrouped", () => {
     expect(out.groups).toEqual([[before, after]]);
     expect(out.rows).toEqual([before, after]);
   });
+
+  test("grouping off preserves the first-match rule exactly", () => {
+    // A rollback flag that changes WHICH facts survive is not a rollback. Here
+    // A clashes additively with C and substitutes against B: the pre-grouping
+    // pass stopped at its first clash (A) and let C take A's slot, so the
+    // answer is C then B. Walking the whole window and preferring a collapse
+    // would instead keep A and drop B.
+    const a = mem(
+      "fixture",
+      "alpha bravo charlie delta echo foxtrot golf hotel",
+      "2026-01-01T00:00:01.000Z",
+    );
+    const b = mem(
+      "fixture",
+      "india bravo charlie delta echo foxtrot golf hotel juliet kilo",
+      "2026-01-01T00:00:02.000Z",
+    );
+    const c = mem(
+      "fixture",
+      "alpha bravo charlie delta echo foxtrot golf hotel juliet kilo",
+      "2026-01-01T00:00:03.000Z",
+    );
+    const off = dedupeWindowGrouped([a, b, c], 5, 0.8, false);
+    expect(off.rows).toEqual([c, b]);
+    expect(off.groups).toEqual([]);
+    // Grouping on is allowed to differ — that is the feature.
+    expect(dedupeWindowGrouped([a, b, c], 5, 0.8, true).rows).toEqual([a, c]);
+  });
+
+  test("a window of mutually additive rows yields ONE family", () => {
+    // Twenty rows sharing eighty tokens, each adding one more: every pair is
+    // additive, so a pair-per-group renderer emits C(5,2) = 10 markers for five
+    // facts, all repeating the same Action. One family is one explanation.
+    const common = Array.from({ length: 20 }, (_, i) => `tok${i}`).join(" ");
+    // Nested, so every pair is a strict containment: row i adds one token to
+    // row i-1 rather than swapping one, which would classify as substitution.
+    const rows = Array.from({ length: 20 }, (_, i) =>
+      mem(
+        "fixture",
+        `${common} ${Array.from({ length: i + 1 }, (_, j) => `extra${j}`).join(" ")}`,
+        `2026-01-01T00:00:${i}.000Z`,
+      ),
+    );
+    const out = dedupeWindowGrouped(rows, 5, 0.8, true);
+    expect(out.rows.length).toBe(5);
+    expect(out.groups.length).toBe(1);
+    expect(out.groups[0]!.length).toBe(5);
+    // Every pair inside is additive: the pair renderer emitted 10 lines here.
+    expect(
+      out.rows
+        .map((m) => m.content)
+        .join(" ")
+        .split("extra").length - 1,
+    ).toBeGreaterThan(5);
+  });
 });

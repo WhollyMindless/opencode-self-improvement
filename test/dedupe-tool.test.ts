@@ -149,6 +149,28 @@ describe("memory_recall additive clash", () => {
     await loaded.cleanup();
   });
 
+  test("a chain of nested rows produces one marker, not one per pair", async () => {
+    // Eight rows, each a superset of the last, so every pair inside the window
+    // is additive. A pair-per-marker renderer emitted C(5,2) = 10 lines for
+    // five facts; a family is one line.
+    const common = "deploy runbook for the ingest worker restarts the pod";
+    for (let i = 0; i < 8; i++)
+      seed(
+        `${common} ${Array.from({ length: i + 1 }, (_, j) => `step${j}`).join(" ")}`,
+        `2026-01-01T00:00:${String(i).padStart(2, "0")}.000Z`,
+        "runbook",
+      );
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "deploy runbook ingest worker",
+      limit: 5,
+    });
+    expect(out.match(/AMBIGUOUS/g)?.length).toBe(1);
+    expect(out.match(/Action:/g)?.length).toBe(1);
+    expect(out.match(/^- \[2026-01-01\]/gm)?.length).toBe(5);
+    await loaded.cleanup();
+  });
+
   test("a corrected fact returns one row and no marker", async () => {
     // The marker is only for pairs that both hold. A stale row must not come
     // back wearing one.

@@ -112,11 +112,17 @@ export const register: ToolRegister = (editor, deps) => {
         // A kept group is named after the rows it describes, numbered to match
         // the list above. Resolved by object identity rather than by position
         // arithmetic: the group carries the same objects the window holds.
-        for (const [a, b] of grouped.groups) {
-          const ia = limited.indexOf(a);
-          const ib = limited.indexOf(b);
-          if (ia >= 0 && ib >= 0)
-            lines.push(ambiguousLine(a, b, ia + 1, ib + 1));
+        for (const family of grouped.groups) {
+          // Resolved by object identity rather than position arithmetic: the
+          // family carries the same objects the window holds.
+          const at = family.map((m) => limited.indexOf(m));
+          if (at.every((i) => i >= 0))
+            lines.push(
+              ambiguousLine(
+                family,
+                at.map((i) => i + 1),
+              ),
+            );
         }
         return {
           content: `Found ${results.length} (${total} total)\n\n${lines.join("\n")}`,
