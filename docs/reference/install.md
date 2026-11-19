@@ -42,4 +42,4 @@ A config edit needs a restart to take effect. On the desktop app, relaunching th
 app is not enough: the background service stays alive with the options it already
 parsed, so use `opencode service restart`. That is also why `memory_evidence` can
 report a `capture=` value your config no longer contains. See
-[docs/troubleshooting.md](troubleshooting.md).
+[docs/reference/troubleshooting.md](troubleshooting.md).

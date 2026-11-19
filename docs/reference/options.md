@@ -20,7 +20,7 @@ Set them in the object form of the plugin entry in `opencode.json(c)`:
 | --- | --- | --- |
 | `injectBudget` | `1200` | Character cap on the injected relevance block and each contextual pull; trimmed at whole-memory boundaries. Env fallback: `OPENCODE_MEMORY_INJECT_BUDGET`. |
 | `frontierBudget` | `3 × injectBudget` | Character cap on the session-start open-threads block. A thread longer than the budget is not injected and is reported as omitted. Env fallback: `OPENCODE_MEMORY_FRONTIER_BUDGET`. |
-| `contradictionSurface` | `true` | Experimental: compare guided constant claims with bounded source reads and render a class-specific CONFLICT verdict. Set `false` to skip code checks and retain plain guidance. See [docs/contradiction-authority.md](../internals/contradiction-authority.md). |
+| `contradictionSurface` | `true` | Experimental: compare guided constant claims with bounded source reads and render a class-specific CONFLICT verdict. Set `false` to skip code checks and retain plain guidance. See [docs/internals/contradiction-authority.md](../internals/contradiction-authority.md). |
 | `notifyBlocked` | `true` | Terminal (TUI) only: toast when a write gate blocks a write. Blocks are always in `memory_evidence` either way. |
 | `autoCapture` | `true` | Master switch for auto-capture. On, so a plain install mines turn ends and compactions. Set `false` for no capture model call at all. |
 | `captureModel` | inherits | `"provider/id"` model used for auto-capture. Unset means the model the session is using, else the host default. An explicit value that is not `provider/id` disables capture with a startup warning rather than substituting a model. |
@@ -33,7 +33,7 @@ Set them in the object form of the plugin entry in `opencode.json(c)`:
 | Variable | Purpose |
 | --- | --- |
 | `OPENCODE_MEMORY_DIR` | Store location (default `~/.config/opencode/memory`). |
-| `OPENCODE_MEMORY_ALLOW_OUTSIDE_PATHS` | Operator-only. When truthy, `memory_export`/`memory_import` accept paths anywhere on disk instead of confining themselves to the store. Off by default. It is read from the plugin process's own environment, so a model cannot grant it to itself through a tool argument. See [docs/import-quarantine.md](../internals/import-quarantine.md). |
+| `OPENCODE_MEMORY_ALLOW_OUTSIDE_PATHS` | Operator-only. When truthy, `memory_export`/`memory_import` accept paths anywhere on disk instead of confining themselves to the store. Off by default. It is read from the plugin process's own environment, so a model cannot grant it to itself through a tool argument. See [docs/internals/import-quarantine.md](../internals/import-quarantine.md). |
 | `OPENCODE_MEMORY_INJECT_BUDGET` | Fallback for `injectBudget`. |
 | `OPENCODE_MEMORY_FRONTIER_BUDGET` | Fallback for `frontierBudget`. |
 | `OPENCODE_COMMANDS_DIR` | Where the plugin mirrors its slash commands (default `~/.config/opencode/commands`). |
@@ -41,4 +41,4 @@ Set them in the object form of the plugin entry in `opencode.json(c)`:
 | `OPENCODE_VIEWER_PORT` | Admin editor port (default `8787`). |
 | `OPENCODE_VIEWER_ALLOWED_HOSTS` | Comma-separated hosts beyond loopback. |
 
-`OPENCODE_MEMORY_DEDUP`, `OPENCODE_MEMORY_SYMPTOM` and `OPENCODE_MEMORY_QUERY_GATE` are documented separately in [docs/flags.md](flags.md): they switch behaviour that a measurement decided, so the evidence behind each one matters more than the default.
+`OPENCODE_MEMORY_DEDUP`, `OPENCODE_MEMORY_SYMPTOM` and `OPENCODE_MEMORY_QUERY_GATE` are documented separately in [docs/reference/flags.md](flags.md): they switch behaviour that a measurement decided, so the evidence behind each one matters more than the default.

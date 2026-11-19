@@ -44,7 +44,7 @@ it to itself.
 The line format, what an import will believe about `status:"open"`, and the two
 confinement limits no path check closes (a hard link inside `exports/`, and the
 looser check on intermediate components):
-[docs/import-quarantine.md](import-quarantine.md).
+[docs/internals/import-quarantine.md](import-quarantine.md).
 
 ## Quarantine
 
@@ -58,4 +58,4 @@ Review the queue in the viewer's **quarantined** filter.
 What the screen covers, what it misses, how an existing store is re-tagged, what
 releasing quarantine does and what it leaves alone, and why direct
 `memory_remember` and viewer edits are not scanned:
-[docs/import-quarantine.md](import-quarantine.md).
+[docs/internals/import-quarantine.md](import-quarantine.md).

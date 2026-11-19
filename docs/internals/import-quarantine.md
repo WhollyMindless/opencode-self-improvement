@@ -6,7 +6,7 @@ store where you can read it, and is withheld from everything the model reads.
 What the prose screen catches and misses, how an existing store gets
 re-tagged, what releasing quarantine does, and which writes it does not
 cover. The export contract and the import tally are in
-[docs/export-import.md](export-import.md).
+[docs/internals/export-import.md](export-import.md).
 
 Import and auto-capture also scan incoming prose for a small set of instruction-override, role-header, and download/execute patterns. Matching rows still face every write gate; a promoted match is tagged `quarantine` and withheld from recall, prompt/frontier injection, compaction anchors, contextual pull, scope/type listings, consolidation proposals, and decay. Decay previews do not quote these rows, and applied decay leaves them in the human review queue. The import reply counts quarantined promotions, gate evidence records pattern identifiers without copying the matched prose, and `/memory-report` lists review IDs for the caller's repository.
 

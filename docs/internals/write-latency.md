@@ -22,4 +22,4 @@ bun run bench:write
 ```
 
 What each gate does with what the walk finds:
-[docs/write-gates.md](write-gates.md).
+[docs/internals/write-gates.md](write-gates.md).
