@@ -3,7 +3,7 @@
 //
 // Keywords are the vocabulary bridge for the bench's strict-paraphrase wall:
 // the user's words are not the memory's words, so the row carries its own
-// aliases. They are indexed and never rendered — the whole design rests on
+// aliases. They are indexed and never rendered â€” the whole design rests on
 // that split, so half of these tests pin the OTHER half: a keyword must never
 // reach the model's context, cost a character, or forge a line.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -79,7 +79,7 @@ describe("keywords in the store", () => {
     expect(readFileSync(dayFile(), "utf8")).toContain("kw=");
   });
 
-  test("normalisation: lowercased, trimmed, de-duped, capped — junk dropped, never a throw", () => {
+  test("normalisation: lowercased, trimmed, de-duped, capped â€” junk dropped, never a throw", () => {
     const messy = [
       "  Docker Compose  ",
       "docker compose", // duplicate after trim+lowercase
@@ -278,6 +278,33 @@ describe("keywords in retrieval", () => {
     for (const k of tagged.kw!) expect(block).not.toContain(k);
   });
 
+  test("a unique whole alias admits a long query with one shared concept", () => {
+    const row: Memory = {
+      ts: "2026-04-03T00:00:00.000Z",
+      type: "learning",
+      scope: "api",
+      content: "Rate limiter reads Redis DB 3",
+      kw: ["throttling"],
+      file: "",
+      index: 0,
+    };
+    const query = "why do my THROTTLING rules never take effect locally?";
+    expect(scoreMemories(query, [row], 3)).toEqual([row]);
+    for (const kw of [[], ["throttling policy"]]) {
+      const prose = { ...row, content: "throttling", kw };
+      expect(scoreMemories(query, [prose], 3)).toEqual([]);
+    }
+    expect(scoreMemories("inspect throttling_rules locally", [row], 3)).toEqual(
+      [],
+    );
+    const competing = {
+      ...row,
+      content: "throttling unrelated traffic",
+      kw: [],
+    };
+    expect(scoreMemories(query, [row, competing], 3)).toEqual([]);
+  });
+
   test("scoreMemories indexes keywords into the same haystack as the prose", () => {
     const rows: Memory[] = [
       {
@@ -298,7 +325,7 @@ describe("keywords in retrieval", () => {
         index: 1,
       },
     ];
-    // "parsing" is in no content — only the second row's index knows it.
+    // "parsing" is in no content â€” only the second row's index knows it.
     const hits = scoreMemories(
       "how does the lexing and parsing step work",
       rows,
@@ -376,7 +403,7 @@ describe("recency tie-break", () => {
     );
   });
 
-  test("an open thread still outranks a newer settled row — recency breaks ties AFTER the frontier", async () => {
+  test("an open thread still outranks a newer settled row â€” recency breaks ties AFTER the frontier", async () => {
     seedPair(OLD);
     const top = scoreMemories("alpha bravo reporting", await loadAll(), 2);
     expect(top.map((m) => m.ts)).toEqual([OLD, NEW]);
@@ -399,7 +426,7 @@ describe("recency tie-break", () => {
   });
 
   test("the same instant written in two stamp formats is a tie, not a swap", async () => {
-    // String-comparing ISO stamps says "…:01Z" > "…:01.000Z", so a legacy
+    // String-comparing ISO stamps says "â€¦:01Z" > "â€¦:01.000Z", so a legacy
     // second-precision row used to outrank a millisecond row from the very
     // same instant. Recency compares instants, not glyphs: the tie falls
     // through to insertion order.
