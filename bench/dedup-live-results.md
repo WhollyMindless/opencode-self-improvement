@@ -43,9 +43,11 @@ was wrong.
    `BabylonDocs build command: run "npm run build" from the repo root` and
    `BabylonDocs build:example-images command: run "npm run build:example-images" from the repo root`.
    These are two different commands. They share a scope, a sentence shape and most of their vocabulary,
-   so they clear the threshold, and the pass hides the newer one — the reader never learns
-   `build:example-images` exists. Every shipped guard passes on this pair: both rows are above
-   `MIN_CONTENT`, both carry the same polarity, and their dropped-chunk multisets match.
+   so they clear the threshold. Ranking puts the newer row first and dedup drops the row that clashes
+   with it, so what disappears is `npm run build` — the plain build command — while the niche
+   `build:example-images` variant keeps the slot. Verified by running `dedupeWindow` over the scope for
+   three different queries; the same row loses every time. Every shipped guard passes on this pair: both
+   rows are above `MIN_CONTENT`, both carry the same polarity, and their dropped-chunk multisets match.
 
 So the published sentence is not merely unproven. On the store's own rows, at the shipped threshold,
 0.8 suppresses a pair that is **not** a near-copy.
