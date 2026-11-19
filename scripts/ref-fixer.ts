@@ -82,18 +82,23 @@ export function applyRefFixes(
 }
 
 /**
- * Terminal target of a pure-rename chain, or null when there is no chain, the
- * chain cycles, or it is longer than the hop cap — all three mean "a human
- * decides", because an unresolved intermediate is a path that no longer exists.
+ * Terminal target of a rename chain, or null when there is no chain, the chain
+ * cycles, it is longer than the hop cap, or any hop's source path was renamed
+ * more than once. All four mean "a human decides": an unresolved intermediate
+ * is a path that no longer exists, and a reused source path — renamed away,
+ * recreated, renamed away again — has two generations of rows written against
+ * it and no way from the row's text to say which one it describes.
  */
 export function chainEnd(
   from: string,
   renamed: ReadonlyMap<string, string>,
   exists: (p: string) => boolean,
+  reused?: ReadonlySet<string>,
 ): string | null {
   let cur = from;
   const seen = new Set([from]);
   for (let hop = 0; hop < 8; hop++) {
+    if (reused?.has(cur)) return null;
     const next = renamed.get(cur);
     if (!next) return cur === from ? null : exists(cur) ? cur : null;
     if (next === cur || seen.has(next)) return null;
@@ -143,6 +148,7 @@ async function main(): Promise<number> {
   // longer exists in the shape the sentence describes.
   const renamed = new Map<string, string>();
   const hopScore = new Map<string, number>();
+  const reused = new Set<string>();
   {
     const r = git([
       "log",
@@ -155,9 +161,14 @@ async function main(): Promise<number> {
       console.error("git log for renames failed — nothing to compare.");
       return 2;
     }
+    const counts = new Map<string, number>();
     for (const line of r.out.split("\n")) {
       const p = line.split("\t");
       if (!p[0]?.startsWith("R") || !p[1] || !p[2]) continue;
+      // A path renamed more than once was renamed away, recreated, and renamed
+      // away again. Rows written against each generation cite the same string
+      // and describe different files, so no rule can pick between them.
+      counts.set(p[1], (counts.get(p[1]) ?? 0) + 1);
       // git log is newest-first, so the FIRST record for a path is its newest
       // rename. Keeping the last would follow the oldest move in history and
       // land on a path that moved again since.
@@ -166,6 +177,7 @@ async function main(): Promise<number> {
       hopScore.set(p[1], score);
       if (score >= 90) renamed.set(p[1], p[2]);
     }
+    for (const [p, n] of counts) if (n > 1) reused.add(p);
   }
   // Tracked surface, for "exactly one file ends with this path". Tracked, not
   // a filesystem walk: build output and node_modules must not create a second
@@ -184,7 +196,7 @@ async function main(): Promise<number> {
   /** The one new path this row may cite for `ref`, or null to leave it alone. */
   function fixFor(ref: string): { to: string; why: string } | null {
     if (here(ref)) return null;
-    const end = chainEnd(ref, renamed, here);
+    const end = chainEnd(ref, renamed, here, reused);
     if (end && base(end) === base(ref))
       return { to: end, why: `R${hopScore.get(ref) ?? "?"}` };
     if (!ref.startsWith("src/") && !everExisted(ref)) {
@@ -204,6 +216,7 @@ async function main(): Promise<number> {
   }
   const plans: Plan[] = [];
   const reported = new Map<string, number>();
+  const reusedSeen = new Set<string>();
 
   const all = await loadAll();
   const active = all.filter((m) => isActive(m) && m.repo === scope.key);
@@ -215,7 +228,10 @@ async function main(): Promise<number> {
       if (fixes.has(ref)) continue;
       const fix = fixFor(ref);
       if (fix) fixes.set(ref, fix);
-      else if (!here(ref)) reported.set(ref, (reported.get(ref) ?? 0) + 1);
+      else if (!here(ref)) {
+        reported.set(ref, (reported.get(ref) ?? 0) + 1);
+        if (reused.has(ref)) reusedSeen.add(ref);
+      }
     }
     if (!fixes.size) continue;
     const content = applyRefFixes(
@@ -266,6 +282,13 @@ async function main(): Promise<number> {
     for (const [p, n] of [...reported].sort((a, b) => b[1] - a[1]))
       console.log(`  ${String(n).padStart(3)}x  ${p}`);
   }
+  if (reusedSeen.size)
+    console.log(
+      "\nRenamed more than once — moved away, recreated at the same path, moved",
+      "away again. Rows written against each generation cite the same string and",
+      "describe different files, so this script will not pick:\n  " +
+        [...reusedSeen].join(", "),
+    );
 
   if (!APPLY) {
     console.log(

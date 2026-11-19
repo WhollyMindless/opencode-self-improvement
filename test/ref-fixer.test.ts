@@ -64,6 +64,19 @@ describe("applyRefFixes", () => {
     );
   });
 
+  test("a valid longer path that ENDS with the fixed ref is left alone", () => {
+    // The reviewer's fixture: a row citing both a loose `capture/runtime.ts`
+    // and the real `docs/capture/runtime.ts`. A substring replace rewrote the
+    // valid one into `docs/src/capture/runtime.ts`, and the write was accepted
+    // because that path happened to exist too.
+    const content = "see capture/runtime.ts and docs/capture/runtime.ts";
+    const out = applyRefFixes(
+      content,
+      new Map([["capture/runtime.ts", "src/capture/runtime.ts"]]),
+    );
+    expect(out).toBe("see src/capture/runtime.ts and docs/capture/runtime.ts");
+  });
+
   test("an empty fix map returns the content unchanged", () => {
     const content = "nothing to do in src/lock.ts";
     expect(applyRefFixes(content, new Map())).toBe(content);
@@ -109,5 +122,27 @@ describe("chainEnd", () => {
   test("a chain whose end does not exist returns null: an intermediate is not a repair target", () => {
     const m = new Map([["a/x.ts", "b/x.ts"]]);
     expect(chainEnd("a/x.ts", m, () => false)).toBeNull();
+  });
+  test("a path renamed twice is ambiguous: two generations of rows cite the same string", () => {
+    // Renamed to legacy/, recreated at the same path, renamed to current/.
+    // Both destinations still exist, and the row's text says nothing about
+    // which generation it describes.
+    const m = new Map([["src/lock.ts", "current/lock.ts"]]);
+    expect(
+      chainEnd("src/lock.ts", m, yes, new Set(["src/lock.ts"])),
+    ).toBeNull();
+  });
+  test("reuse further down the chain stops the walk too", () => {
+    const m = new Map([
+      ["a/x.ts", "b/x.ts"],
+      ["b/x.ts", "c/x.ts"],
+    ]);
+    expect(chainEnd("a/x.ts", m, yes, new Set(["b/x.ts"]))).toBeNull();
+  });
+  test("an empty reuse set does not change resolution", () => {
+    const m = new Map([["src/lock.ts", "src/store/lock.ts"]]);
+    expect(chainEnd("src/lock.ts", m, yes, new Set())).toBe(
+      "src/store/lock.ts",
+    );
   });
 });
