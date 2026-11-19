@@ -14,7 +14,7 @@
 //
 //   wt=/tmp/osi-pre && git worktree add --detach "$wt" 357ecaf^
 //   ln -s "$PWD/node_modules" "$wt/node_modules"
-//   bun test ./test/scenarios-consistency.test.ts   # run inside "$wt"
+//   bun test ./test/host/scenarios-consistency.test.ts   # run inside "$wt"
 //
 // Which scenarios are red on 357ecaf^ and why: the lockless whole-file rewrites
 // (restore, supersede, prune, viewer edit/delete) open a read→publish window in
@@ -45,19 +45,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { memoryRoot, snapshotDir } from "../src/core/config/paths.ts";
-import { dateStr } from "../src/core/time.ts";
-import { runWriteGate, type GateContext } from "../src/gate/gate.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { prune } from "../src/store/files/prune.ts";
-import { snapshotFiles } from "../src/store/files/snapshots.ts";
-import { EXPORT_HEADER, EXPORT_VERSION } from "../src/portable/export.ts";
-import { importMemories } from "../src/portable/import.ts";
-import { restoreSnapshot } from "../src/store/undo.ts";
-import { startViewer, type ViewerServer } from "../src/viewer/server.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { memoryRoot, snapshotDir } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { runWriteGate, type GateContext } from "../../src/gate/gate.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { prune } from "../../src/store/files/prune.ts";
+import { snapshotFiles } from "../../src/store/files/snapshots.ts";
+import { EXPORT_HEADER, EXPORT_VERSION } from "../../src/portable/export.ts";
+import { importMemories } from "../../src/portable/import.ts";
+import { restoreSnapshot } from "../../src/store/undo.ts";
+import { startViewer, type ViewerServer } from "../../src/viewer/server.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
-const SRC = join(import.meta.dir, "..", "src");
+const SRC = join(import.meta.dir, "..", "..", "src");
 
 let root: string;
 let vm: ViewerServer;

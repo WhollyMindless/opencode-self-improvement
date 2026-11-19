@@ -2,7 +2,7 @@
 // recently used sessions and reports each eviction exactly once, so the
 // plugin can drop every session-keyed map together (issue ).
 import { describe, expect, test } from "bun:test";
-import { SessionLru } from "../src/core/lru.ts";
+import { SessionLru } from "../../src/core/lru.ts";
 
 describe("SessionLru", () => {
   test("honors its cap, refreshes recency, and calls onEvict once per eviction", () => {

@@ -52,10 +52,10 @@ interface ClaimsFile {
   retracted: Retracted[];
 }
 
-const README = readFileSync(join(import.meta.dir, "..", "README.md"), "utf8");
+const README = readFileSync(join(import.meta.dir, "..", "..", "README.md"), "utf8");
 const LINES = README.split("\n");
 const DATA = JSON.parse(
-  readFileSync(join(import.meta.dir, "..", "bench", "claims.json"), "utf8"),
+  readFileSync(join(import.meta.dir, "..", "..", "bench", "claims.json"), "utf8"),
 ) as ClaimsFile;
 const PUBLISHED = DATA.claims.filter((c) => c.status === "published");
 
@@ -74,7 +74,7 @@ interface Doc {
 }
 
 function markdownDocs(): Doc[] {
-  const root = join(import.meta.dir, "..");
+  const root = join(import.meta.dir, "..", "..");
   const paths = [join(root, "README.md")];
   const walk = (dir: string): void => {
     // A missing docs/ is caught by the coverage check below, not by a

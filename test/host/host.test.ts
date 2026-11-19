@@ -8,7 +8,7 @@ import {
   sessionIdentityEvent,
   sessionUsageEvent,
   toolIdentity,
-} from "../src/identity/host-events.ts";
+} from "../../src/identity/host-events.ts";
 
 describe("host compatibility adapters", () => {
   test("tool context uses id, with missing fields left to the caller's synchronous fallback", () => {

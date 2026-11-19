@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, normalize, relative, sep } from "node:path";
 
-const ROOT = join(import.meta.dir, "..");
+const ROOT = join(import.meta.dir, "..", "..");
 const PKG = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
   files: string[];
 };

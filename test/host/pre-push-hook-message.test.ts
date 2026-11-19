@@ -5,9 +5,9 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { removeStore } from "./helpers/remove-store.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
-const hookPath = join(import.meta.dir, "..", ".githooks", "pre-push");
+const hookPath = join(import.meta.dir, "..", "..", ".githooks", "pre-push");
 
 // A clause asserting that CI enforces, catches, covers, guarantees or checks
 // a push is the false promise, whatever its exact wording. Matching is per

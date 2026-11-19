@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { suiteAccounting, testOutcomes } from "../scripts/sweep-output.ts";
+import { suiteAccounting, testOutcomes } from "../../scripts/sweep-output.ts";
 
 test("sweep witnesses keep their original file and never borrow the last file from Bun's recap", () => {
   const output = [
@@ -43,7 +43,7 @@ test("ACL accounting identifier stays tied to the real fixture declarations", as
   // The accounting regressions below pin ACL_TEST to aclId; pin that ID to
   // the actual source too, even on hosts where the Windows fixture is skipped.
   const [file, suite, title] = aclId.split(" > ");
-  const source = await Bun.file(new URL("store/" + file, import.meta.url)).text();
+  const source = await Bun.file(new URL("../store/" + file, import.meta.url)).text();
   // Permit formatter whitespace only OUTSIDE the quoted accounting names:
   // changing either name must still break this source-to-runner identity pin.
   const quoted = (value: string) =>

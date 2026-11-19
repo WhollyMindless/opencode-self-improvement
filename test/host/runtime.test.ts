@@ -8,7 +8,7 @@ import {
   MIN_BUN,
   bunFloorWarning,
   parseBunVersion,
-} from "../src/core/runtime.ts";
+} from "../../src/core/runtime.ts";
 
 // Unwraps a warning we EXPECT to exist; a null result becomes a string that
 // fails the toContain checks below, so this never hides a bug (and avoids
