@@ -10,9 +10,9 @@ import {
   legacyContentTokens,
   legacyHaystackTokens,
   legacyWords,
-} from "../bench/lib/legacy-tokenizer.ts";
-import { contentTokens, jaccard } from "../src/recall/dedupe.ts";
-import type { Memory } from "../src/store/model/memory.ts";
+} from "../../bench/lib/legacy-tokenizer.ts";
+import { contentTokens, jaccard } from "../../src/recall/dedupe.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
 
 function mem(scope: string, content: string): Memory {
   return {

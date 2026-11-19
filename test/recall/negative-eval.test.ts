@@ -25,22 +25,22 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { addBlock } from "../src/store/blocklist.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { prune } from "../src/store/files/prune.ts";
-import { isActive } from "../src/store/model/predicates.ts";
-import { setRepoScope } from "../src/identity/repokey.ts";
-import { resetState } from "../src/core/state.ts";
-import { compactionAnchor } from "../src/inject/anchor.ts";
-import { systemDigest } from "../src/inject/digest.ts";
-import { contextualPull } from "../src/inject/pull.ts";
-import { relevantKnowledge, selectRelevant } from "../src/recall/relevant.ts";
-import { scoreMemories } from "../src/recall/score.ts";
-import { runWriteGate } from "../src/gate/gate.ts";
-import { MEMORIES, QUERIES } from "../bench/fixtures/recall-dataset.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { addBlock } from "../../src/store/blocklist.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { prune } from "../../src/store/files/prune.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
+import { resetState } from "../../src/core/state.ts";
+import { compactionAnchor } from "../../src/inject/anchor.ts";
+import { systemDigest } from "../../src/inject/digest.ts";
+import { contextualPull } from "../../src/inject/pull.ts";
+import { relevantKnowledge, selectRelevant } from "../../src/recall/relevant.ts";
+import { scoreMemories } from "../../src/recall/score.ts";
+import { runWriteGate } from "../../src/gate/gate.ts";
+import { MEMORIES, QUERIES } from "../../bench/fixtures/recall-dataset.ts";
 import {
   CONTROL_ARMS,
   antiNaive,
@@ -50,11 +50,11 @@ import {
   naive,
   prod,
   scoreArm,
-} from "../bench/runners/recall-quality.ts";
-import { loadPlugin } from "./harness.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../bench/runners/recall-quality.ts";
+import { loadPlugin } from "../harness.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
-const REPO = join(import.meta.dir, "..");
+const REPO = join(import.meta.dir, "..", "..");
 const REPO_A = { key: "aaa111", path: "/work/alpha" };
 const REPO_B = { key: "bbb222", path: "/work/beta" };
 
@@ -227,7 +227,7 @@ describe("forbidden hits — a retired memory never reaches a model", () => {
     const ts = seedRow(0, MEMORIES[0]!, { status: "open" });
     const file = join(memoryRoot(), `${ts.split("T")[0]}.logfmt`);
     // Retire it in place, exactly as memory_update / decay do.
-    const { markSuperseded } = await import("../src/store/files/supersede.ts");
+    const { markSuperseded } = await import("../../src/store/files/supersede.ts");
     expect(
       await markSuperseded(ts, { superseded_by: isoFor(1), reason: "update" }),
     ).toBe(true);
@@ -706,7 +706,7 @@ describe("poisoned row end-to-end — import cannot forge instructions", () => {
     // Keep the original framing assertions after explicit human approval:
     // releasing quarantine must not remove the other defenses.
     const { releaseQuarantinedMemory } = await import(
-      "../src/viewer/mutate.ts"
+      "../../src/viewer/mutate.ts"
     );
     expect(
       (await releaseQuarantinedMemory(imported.ts, "reviewed example"))

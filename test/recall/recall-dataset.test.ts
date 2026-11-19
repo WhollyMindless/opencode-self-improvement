@@ -9,7 +9,7 @@ import {
   keywordsFor,
   MEMORIES,
   QUERIES,
-} from "../bench/fixtures/recall-dataset.ts";
+} from "../../bench/fixtures/recall-dataset.ts";
 
 describe("recall dataset integrity", () => {
   test("memory ids are unique", () => {

@@ -6,12 +6,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { resetState } from "../src/core/state.ts";
-import { setRepoScope } from "../src/identity/repokey.ts";
-import { loadPlugin } from "./harness.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { resetState } from "../../src/core/state.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
+import { loadPlugin } from "../harness.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 

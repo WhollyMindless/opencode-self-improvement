@@ -10,26 +10,26 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { memoryRoot } from "../src/core/config/paths.ts";
-import { formatLine } from "../src/core/logfmt/format.ts";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
+import { memoryRoot } from "../../src/core/config/paths.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
 import {
   MAX_KEYWORDS,
   MAX_KEYWORD_CHARS,
   normalizeKeywords,
-} from "../src/store/model/memory.ts";
-import { formatMemory } from "../src/inject/format.ts";
-import { relevantKnowledge } from "../src/recall/relevant.ts";
-import { scoreMemories } from "../src/recall/score.ts";
-import { runWriteGate } from "../src/gate/gate.ts";
-import { exportMemories } from "../src/portable/export.ts";
-import { importMemories } from "../src/portable/import.ts";
-import { setRepoScope } from "../src/identity/repokey.ts";
-import type { Memory } from "../src/store/model/memory.ts";
-import { loadPlugin } from "./harness.ts";
-import { dayFile } from "./helpers/logfmt.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+} from "../../src/store/model/memory.ts";
+import { formatMemory } from "../../src/inject/format.ts";
+import { relevantKnowledge } from "../../src/recall/relevant.ts";
+import { scoreMemories } from "../../src/recall/score.ts";
+import { runWriteGate } from "../../src/gate/gate.ts";
+import { exportMemories } from "../../src/portable/export.ts";
+import { importMemories } from "../../src/portable/import.ts";
+import { setRepoScope } from "../../src/identity/repokey.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
+import { loadPlugin } from "../harness.ts";
+import { dayFile } from "../helpers/logfmt.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 

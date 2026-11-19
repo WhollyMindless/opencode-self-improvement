@@ -13,8 +13,8 @@ import {
   dedupeWindowGrouped,
   jaccard,
   contentTokens,
-} from "../src/recall/dedupe.ts";
-import type { Memory } from "../src/store/model/memory.ts";
+} from "../../src/recall/dedupe.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
 
 function mem(
   scope: string,

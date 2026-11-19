@@ -14,8 +14,8 @@
 // found the first version dropped the whole form, so `db_id` queries abstained
 // and camelCase keyword aliases stopped matching; both are pinned below.
 import { describe, expect, test } from "bun:test";
-import { scoreMemories, words } from "../src/recall/score.ts";
-import type { Memory } from "../src/store/model/memory.ts";
+import { scoreMemories, words } from "../../src/recall/score.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
 
 const mem = (content: string, over: Partial<Memory> = {}): Memory => ({
   ts: "2026-01-01T00:00:00.000Z",
