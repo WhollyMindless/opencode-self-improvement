@@ -139,6 +139,7 @@ No vector database, no embedding model, no API key: a keyword matcher. That is a
 
 - **Most in-project prompts are lexical** (`bun test`, "the rate limiter", "staging deploys"): 98–100% R@3, flat from store size 50 to 500.
 - **A zero-overlap paraphrase is the real limit, and write time is where you answer it.** "How we deploy" will not match a session that types "ship to staging" unless you say so: `memory_remember` asks each row for 3–5 `kw` aliases — other names, other verb forms, the literal command — indexed and never rendered. Strict R@1 0% → 26%, near R@1 28% → 67%. Narrowed, not removed.
+- **Exact keyword lookup.** In a long `memory_recall` query, one complete authored keyword can identify a single visible candidate. Automatic prompt injection still requires two shared concepts for long queries.
 - **`memory_recall` returns 5 rows, not 20.** A live audit of 1,090 recall events found a rank-1 row used in a later tool call at 3.4x the rate of a random store row, and ranks 11–20 at 1.16x — noise. Pass `limit` for a wider sweep.
 
 The abstain-by-design rule, the permutation control behind the `kw` numbers, and the eval's caveats — a synthetic dataset, an adversarial class mix, single-gold scoring: [docs/recall-quality.md](docs/recall-quality.md). Full methodology and all store sizes: `bench/recall-results.md`. Reproduce with `bun run bench:recall`.

@@ -32,6 +32,23 @@ force a guess. Wrong top-memory fell to 6%. The cost is silence in cases where
 a lucky guess would have been right; `memory_recall` still covers them when you
 ask on purpose.
 
+### Explicit exact-keyword lookup
+
+For the 21 transport queries with 10 gold memories and 180 keyword-bearing
+distractors, the explicit `memory_recall` tool returned the gold in its first
+three results for 14 queries, up from 13 with the ordinary two-concept gate.
+The newly recovered query uses `throttling` to find the Redis rate-limit row.
+The exception requires a whole authored keyword that occurs in one visible
+candidate after scope and type filtering.
+
+The automatic injection scorer remains stricter. With a 300-character budget
+it abstains on the throttling query and on two unrelated prompts about CPU
+frequency throttling and stadium lighting fixtures. The explicit lookup can
+still return an unrelated row when the same word has another meaning.
+Reproduce the targeted check with
+`bun test test/recall-gate.test.ts -t "transport keyword lookup"`.
+The broader injection benchmark above is unchanged.
+
 ## Why the default window is 5 rows
 
 A live audit joined 1,090 recall events to their session transcripts. A

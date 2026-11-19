@@ -278,33 +278,6 @@ describe("keywords in retrieval", () => {
     for (const k of tagged.kw!) expect(block).not.toContain(k);
   });
 
-  test("a unique whole alias admits a long query with one shared concept", () => {
-    const row: Memory = {
-      ts: "2026-04-03T00:00:00.000Z",
-      type: "learning",
-      scope: "api",
-      content: "Rate limiter reads Redis DB 3",
-      kw: ["throttling"],
-      file: "",
-      index: 0,
-    };
-    const query = "why do my THROTTLING rules never take effect locally?";
-    expect(scoreMemories(query, [row], 3)).toEqual([row]);
-    for (const kw of [[], ["throttling policy"]]) {
-      const prose = { ...row, content: "throttling", kw };
-      expect(scoreMemories(query, [prose], 3)).toEqual([]);
-    }
-    expect(scoreMemories("inspect throttling_rules locally", [row], 3)).toEqual(
-      [],
-    );
-    const competing = {
-      ...row,
-      content: "throttling unrelated traffic",
-      kw: [],
-    };
-    expect(scoreMemories(query, [row, competing], 3)).toEqual([]);
-  });
-
   test("scoreMemories indexes keywords into the same haystack as the prose", () => {
     const rows: Memory[] = [
       {

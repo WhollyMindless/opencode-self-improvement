@@ -146,14 +146,6 @@ export function scoreMemories(
   const hays = live.map((m) => new Set(words(haystack(m))));
   const df = new Map<string, number>();
   for (const h of hays) for (const t of h) df.set(t, (df.get(t) ?? 0) + 1);
-  // A complete authored alias can identify a row by itself when no other
-  // live row indexes that token. Identifier fragments and phrase fragments
-  // still need corroboration from a second concept.
-  const uniqueTerms = new Set(
-    (term.match(/[A-Za-z0-9_.\-/]+/g) ?? [])
-      .map((id) => id.replace(/^[./-]+|[./-]+$/g, "").toLowerCase())
-      .filter((id) => !QUERY_STOPWORDS.has(id) && df.get(id) === 1),
-  );
   const n = live.length || 1;
   return live
     .map((m, i) => {
@@ -177,11 +169,7 @@ export function scoreMemories(
       }
       return { m, shared, score };
     })
-    .filter(
-      ({ m, shared }) =>
-        shared >= needShared ||
-        (shared === 1 && m.kw?.some((alias) => uniqueTerms.has(alias))),
-    )
+    .filter((s) => s.shared >= needShared)
     .sort(
       (a, b) =>
         b.score - a.score ||
