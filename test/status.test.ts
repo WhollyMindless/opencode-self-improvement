@@ -3,7 +3,13 @@
 // the /memory TUI panel reads the same files). Also /memory-report command
 // install parity.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmdirSync,
+  writeFileSync,
+} from "node:fs";
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,7 +48,7 @@ import {
 } from "../src/identity/repokey.ts";
 import { addBlock } from "../src/store/blocklist.ts";
 import { createInjectionEpochs } from "../src/inject/epochs.ts";
-import { hitsFile } from "../src/telemetry/ledger.ts";
+import { hitsFile, recordOutcome } from "../src/telemetry/ledger.ts";
 import { loadPlugin } from "./harness.ts";
 import { resetState } from "../src/core/state.ts";
 import { removeStore } from "./helpers/remove-store.ts";
@@ -746,6 +752,7 @@ describe("memory_status tool + epoch wiring", () => {
     );
     await addBlock(ids[3], "fixture block");
     const usedAt = new Date().toISOString();
+    const bothRows = [ids[0], ids[1]].join(",");
     writeFileSync(
       hitsFile(),
       formatLine({
@@ -753,8 +760,21 @@ describe("memory_status tool + epoch wiring", () => {
         ts: usedAt,
         src: "recall",
         sid: "summary",
-        mem: `[${ids[0]}]`,
-      }) + "\n",
+        mem: `[${bothRows}]`,
+        turn: 1,
+        turnKey: "turn-1",
+      }) +
+        "\n" +
+        formatLine({
+          ev: "gate_outcome",
+          ts: new Date(Date.parse(usedAt) + 1).toISOString(),
+          sid: "summary",
+          turn: 1,
+          turnKey: "turn-1",
+          outcome: "clean",
+          cmd: "test",
+        }) +
+        "\n",
     );
     const p = await loadPlugin(repoA);
     try {
@@ -773,7 +793,7 @@ describe("memory_status tool + epoch wiring", () => {
         open: 1,
         scopes: 2,
         malformed: 0,
-        neverRetrieved: 1,
+        neverRetrieved: 0,
         ledgerSince: usedAt,
       });
       const report = await p.tools.memory_status.execute(
@@ -783,10 +803,78 @@ describe("memory_status tool + epoch wiring", () => {
       expect(report.content).toContain(
         "2 active · 1 superseded · 1 open · 2 scopes",
       );
-      expect(report.content).toContain("never retrieved 1 (50%)");
+      expect(report.content).toContain("never retrieved 0 (0%)");
+      expect(report.content).toContain("outcome-linked 2 rides over 2 rows");
+      expect(report.content).toContain(`${ids[0]} used=1 clean=1`);
+      expect(report.content).not.toContain(ids[1]!);
+      expect(report.content).toContain(
+        "outcome writes dropped for this store by this process: 0",
+      );
     } finally {
       await p.cleanup();
       resetSessionScopes();
+    }
+  });
+
+  test("reports an outcome write lost in this store", async () => {
+    const plugin = await loadPlugin(root);
+    try {
+      mkdirSync(hitsFile());
+      expect(await recordOutcome("drop", 1, "FAIL", "test")).toBe(false);
+      rmdirSync(hitsFile());
+      const report = await plugin.tools.memory_status.execute({});
+      expect(report.content).toContain(
+        "outcome writes dropped for this store by this process: 1",
+      );
+    } finally {
+      await plugin.cleanup();
+    }
+  });
+
+  test("a reopened store reports a ride followed by two checks on the same turn", async () => {
+    const sessionID = "outcome-integration";
+    const plugin = await loadPlugin(process.cwd());
+    try {
+      await appendMemory({
+        type: "pattern",
+        scope: "build",
+        content: "run bun test from the repo root to execute the suite",
+        status: "settled",
+      });
+      await plugin.sessionHooks.prompt!({
+        sessionID,
+        prompt: { text: "how do I run bun test" },
+      });
+      for (const output of ["test failed", "passed"]) {
+        await plugin["tool.execute.after"](
+          {
+            sessionID,
+            tool: "bash",
+            callID: output,
+            args: { command: "bun test" },
+          },
+          { output },
+        );
+      }
+    } finally {
+      await plugin.cleanup();
+    }
+    const reopened = await loadPlugin(process.cwd());
+    try {
+      const report = await reopened.tools.memory_status.execute(
+        {},
+        { sessionID },
+      );
+      expect(report.content).toContain("1 failed row/turns");
+      expect(report.content).toContain("used=1 clean=0 fail_after=1 unknown=0");
+      const checks = readFileSync(hitsFile(), "utf8")
+        .split("\n")
+        .filter((line) => line.includes("ev=gate_outcome"));
+      expect(checks).toHaveLength(2);
+      expect(checks[0]).toContain("outcome=fail");
+      expect(checks[1]).toContain("outcome=clean");
+    } finally {
+      await reopened.cleanup();
     }
   });
 

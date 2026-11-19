@@ -41,6 +41,23 @@ export interface StoreCounts {
    * ledger says so instead of inflating "never" (see `ledgerIsYoung`).
    */
   ledgerSince?: string | null;
+  /**
+   * Counts cover active rows across all repositories in the store. Only
+   * details are reader-scoped. A joined ride has a later classified gate on
+   * the same turn; clean and failAfter count distinct row/turn pairs.
+   */
+  useOutcome?: {
+    /** Active rows with at least one joined ride. */
+    rowsMeasured: number;
+    details?: string[];
+    /** Outcome writes lost by this process for the current store. */
+    droppedOutcomeWrites?: number;
+    joined: number;
+    clean: number;
+    failAfter: number;
+    /** Rides >= EVICT_MIN_RIDES with zero clean turns. Reported, never acted on. */
+    evictCandidates: number;
+  };
   /** Bytes of store the active rows occupy (canonical logfmt rendering). */
   bytes?: number;
   /** Per-row average of the same, the "what does a row cost" number. */

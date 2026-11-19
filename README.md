@@ -157,6 +157,12 @@ The plugin keeps a use ledger — a due-date card for every row: who looked at i
 - **`never retrieved` is stated, not acted on.** Pruning is your decision.
 - **Aggregate STORE counts are machine-wide by decision (#213 B)** — they describe the store on this machine, not your slice of it. Privacy applies to the content surfaces instead: `memory_evidence` and the recent-blocked-writes list follow each reader's repository visibility (#306).
 
+`memory_status` joins rides to later gate checks on the same turn. For example,
+`used=5 clean=0 fail_after=2 unknown=2 (eviction candidate)` records five rides,
+two distinct failing turns and two rides with unknown outcomes. Totals cover
+the store; individual rows follow repository visibility. Check the underlying
+memory before acting on a candidate. Gate failures alone cannot establish harm.
+
 Sample `STORE` output, the credit rule and its throttle, the consolidation tie-break, and capture lag: [docs/use-ledger.md](docs/use-ledger.md).
 
 ## Consolidation

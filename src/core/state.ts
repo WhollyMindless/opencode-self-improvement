@@ -60,6 +60,7 @@ export interface SessionState {
   // first activity time, and the first memory_recall that surfaced an open
   // thread. Deterministic: derived only from queued messages and tool results.
   turns: number;
+  turnKey?: string;
   firstActivityTs?: string;
   firstTap?: FirstTap;
   finalized: boolean;
@@ -139,6 +140,16 @@ export function session(sid: string): SessionState {
     sessions.set(sid, s);
   }
   return s;
+}
+
+/**
+ * Turn count for a session ALREADY being tracked, or undefined. Unlike
+ * `session()` this neither creates state nor touches the LRU, so a telemetry
+ * caller can stamp a turn without extending a session's residency.
+ */
+export function peekTurn(sid: string) {
+  const s = sessions.get(sid);
+  return s?.turnKey ? { turn: s.turns, key: s.turnKey } : undefined;
 }
 
 let current: { sid: string; call: string; tool: string } = {
