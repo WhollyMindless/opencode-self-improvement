@@ -57,15 +57,20 @@ dropped-chunk guard, 28 at the `MIN_CONTENT` floor, 0 at polarity. In the reposi
 78 of 78 at the dropped-chunk guard. The pass is inert on this store because of the **guards**, not
 because the store happens to hold no near-copies.
 
+## Is the `fc59b84` failure live in this store?
+
+No, and the runner measures it rather than asserting it. The old vocabulary scored `type` and `scope`, so a pair can reach the threshold on shared metadata while its content stays distinct. Of the 108 active C candidates, **12** fall below 0.8 on content alone — the widest gap being 0.813 metadata against 0.792 content. Every one of them is a `pr-watch` cursor row differing by a run timestamp: near-copies by any reading, pushed just over the line by metadata rather than pulled there by unrelated content.
+
+The failure `fc59b84` actually fixed needs a different shape — two unrelated rows sharing one `snake_case` scope, whose tokens the identifier tokenizer splits into words that stand in for content. This store has **zero** scopes containing an underscore, so the shape cannot occur here at all. That is why the fixture, not this replay, is the evidence for that fix.
+
 ## What this does not establish
 
 - It does not re-derive the 0.8 threshold. That rests on the dated `#409` section 17 replay, which is
   the evidence for the number; this scan neither confirms nor refutes it.
-- It does not evaluate the vocabulary change. A and B agree everywhere (2 and 2 active, 145 and 145
+- It does not evaluate the vocabulary change on its own. A and B agree everywhere (2 and 2 active, 145 and 145
   with history), because the pairs that collide here are content duplicates where metadata adds
-  nothing. The failure `fc59b84` fixed — two unrelated rows in one `snake_case` scope scoring 1.0 on
-  scope tokens alone — needs rows sharing a scope and nothing else, and that condition lives in the
-  test fixture, not in this store.
+  nothing. B is deliberately "old vocabulary under today's guards": it isolates the tokenizer, not the
+  rule. Arm C is the one that scores the old rule with the old eligibility.
 - It says nothing about ranking. A candidate pair only loses a slot if both rows reach one window
   together, which depends on the query.
 

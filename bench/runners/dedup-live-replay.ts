@@ -214,4 +214,26 @@ if (C.hits.length) {
   );
   for (const [s, n] of [...bySc].sort((a, b) => b[1] - a[1]).slice(0, 6))
     console.log(`   ${String(n).padStart(4)}x  scope ${s}`);
+  // Whether each C candidate is a content near-copy or a METADATA near-copy:
+  // the old vocabulary scored `type` and `scope`, so a pair can reach the
+  // threshold on shared metadata while its content stays distinct. That is the
+  // failure fc59b84 fixed, and the count here says whether it is live in this
+  // store or only in the fixture.
+  const metaDriven = C.hits.filter(
+    (h) => jaccard(tok[h.ai]!, tok[h.bi]!) < DEFAULT_THRESHOLD,
+  ).length;
+  const snake = [...byScope.keys()].filter((s) => s.includes("_")).length;
+  console.log(
+    `   metadata-driven (content-only Jaccard below ${DEFAULT_THRESHOLD}): ${metaDriven} of ${C.hits.length}\n` +
+      `   scopes containing an underscore: ${snake} — the failure fc59b84 fixed needs two unrelated rows sharing one such scope`,
+  );
+  let shown = 0;
+  for (const h of C.hits) {
+    const c = jaccard(tok[h.ai]!, tok[h.bi]!);
+    if (c >= DEFAULT_THRESHOLD) continue;
+    if (shown++ >= 5) break;
+    console.log(
+      `     ${h.score.toFixed(3)} metadata / ${c.toFixed(3)} content  scope ${h.scope}  ${h.a.content.slice(0, 70).replace(/\n/g, " ")}`,
+    );
+  }
 }
