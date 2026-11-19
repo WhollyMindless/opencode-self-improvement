@@ -18,7 +18,6 @@ const ROOT = join(import.meta.dir, "..");
  */
 const COVERED_CROSS_CUTTING = new Set([
   "capture",
-  "consolidate",
   "core",
   "gate",
   "identity",

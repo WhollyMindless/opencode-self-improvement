@@ -3,8 +3,8 @@
 // the merged row catches at least as many reads as the best single member did.
 // Resemblance alone never earns a proposal.
 import { describe, expect, test } from "bun:test";
-import type { Memory } from "../src/store/model/memory.ts";
-import type { UseSignal } from "../src/telemetry/ledger.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
+import type { UseSignal } from "../../src/telemetry/ledger.ts";
 import {
   DEFAULT_JACCARD,
   MAX_MERGED_KW,
@@ -13,8 +13,8 @@ import {
   proposeConsolidations,
   readsFor,
   survivorFor,
-} from "../src/consolidate/propose.ts";
-import { renderProposals } from "../src/consolidate/render.ts";
+} from "../../src/consolidate/propose.ts";
+import { renderProposals } from "../../src/consolidate/render.ts";
 
 let n = 0;
 const mem = (over: Partial<Memory> & { content: string }): Memory => {

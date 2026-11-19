@@ -11,14 +11,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendMemory } from "../src/store/files/append.ts";
-import { loadAll } from "../src/store/files/load.ts";
-import { type Memory } from "../src/store/model/memory.ts";
-import { isActive } from "../src/store/model/predicates.ts";
-import { resetState, setCurrent } from "../src/core/state.ts";
-import { resetSessionScopes, setRepoScope } from "../src/identity/repokey.ts";
-import { loadPlugin } from "./harness.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { type Memory } from "../../src/store/model/memory.ts";
+import { isActive } from "../../src/store/model/predicates.ts";
+import { resetState, setCurrent } from "../../src/core/state.ts";
+import { resetSessionScopes, setRepoScope } from "../../src/identity/repokey.ts";
+import { loadPlugin } from "../harness.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
 let liveRoot: string;
@@ -110,7 +110,7 @@ describe("memory_merge_review stale-survivor provenance guard", () => {
     const L = await seed("zeta merge loser row keeps the stale jest wording");
     const S = await seed("zeta merge survivor row keeps the bun wording");
     // The legitimate revival: the loser had superseded the survivor first.
-    const { markSuperseded } = await import("../src/store/files/supersede.ts");
+    const { markSuperseded } = await import("../../src/store/files/supersede.ts");
     expect(
       await markSuperseded(S, {
         superseded_by: L,

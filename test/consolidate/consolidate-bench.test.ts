@@ -10,14 +10,14 @@ import {
   INJECT_K,
   injectedChars,
   storeAt,
-} from "../bench/runners/recall-quality.ts";
-import { QUERIES } from "../bench/fixtures/recall-dataset.ts";
+} from "../../bench/runners/recall-quality.ts";
+import { QUERIES } from "../../bench/fixtures/recall-dataset.ts";
 import {
   proposeConsolidations,
   type ReadSet,
-} from "../src/consolidate/propose.ts";
-import { scoreMemories } from "../src/recall/score.ts";
-import type { Memory } from "../src/store/model/memory.ts";
+} from "../../src/consolidate/propose.ts";
+import { scoreMemories } from "../../src/recall/score.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
 
 const SIZE = 200;
 
