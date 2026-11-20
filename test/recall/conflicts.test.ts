@@ -18,7 +18,6 @@ import { memoryRoot } from "../../src/core/config/paths.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
 import { resetState } from "../../src/core/state.ts";
 import { rememberSessionDir } from "../../src/identity/repokey.ts";
-import { capToBudget, injectedRows } from "../../src/inject/budget.ts";
 import { createInjectionEpochs } from "../../src/inject/epochs.ts";
 import { formatMemory } from "../../src/inject/format.ts";
 import {
@@ -380,17 +379,25 @@ describe("injection renders the CONFLICT line", () => {
     expect(selection.block).toContain("CONFLICT (TAX_RATE)");
     expect(selection.selected[0]).toBe(original);
     expect(original.content).toBe("the tax rate");
-    expect(
-      injectedRows(selection.block, selection.selected, selection.rendered),
-    ).toEqual([original]);
-    const tiny = capToBudget(
-      selection.block,
-      selection.block.split("\n")[0].length + formatMemory(original).length + 1,
+    expect(selection.shown).toEqual([original]);
+    const tiny = await selectRelevant(
+      "Repair deployment",
+      3,
+      [original],
+      undefined,
+      undefined,
+      {
+        guidedCap: 3,
+        conflictCheck: true,
+        repoDir: repo,
+        budget:
+          selection.block.split("\n")[0].length +
+          formatMemory(original).length +
+          1,
+      },
     );
-    expect(tiny).toBe("");
-    expect(injectedRows(tiny, selection.selected, selection.rendered)).toEqual(
-      [],
-    );
+    expect(tiny.block).toBe("");
+    expect(tiny.shown).toEqual([]);
   });
 
   test("computed code or an undecidable claim keeps the plain caveat", async () => {

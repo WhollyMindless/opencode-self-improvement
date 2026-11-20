@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { capToBudget, injectedRows } from "../../src/inject/budget.ts";
 import { selectRelevant } from "../../src/recall/relevant.ts";
 import { appendMemory } from "../../src/store/files/append.ts";
 import type { Memory } from "../../src/store/model/memory.ts";
@@ -68,11 +67,10 @@ describe("capture-only hint injection", () => {
       [row(1)],
       undefined,
       undefined,
-      { guidedCap: 3 },
+      { guidedCap: 3, budget: 1 },
     );
-    expect(
-      injectedRows(capToBudget(selected.block, 1), selected.selected),
-    ).toEqual([]);
+    expect(selected.block).toBe("");
+    expect(selected.shown).toEqual([]);
   });
 
   test("the real prompt/context hooks deliver captured guidance on re-entry", async () => {

@@ -9,7 +9,14 @@ import {
   expect,
   test,
 } from "bun:test";
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { formatLine, parseLine } from "../src/core/logfmt/format.ts";
 import { join } from "node:path";
 import {
   REPO,
@@ -92,6 +99,59 @@ function remember(id: string, scope: string, content: string) {
 }
 
 describe("use ledger end-to-end", () => {
+  test.each(["prefix", "identical"])(
+    "budget receipts identify the one delivered row when lines are %s",
+    async (shape) => {
+      const g = guest();
+      const older = "2026-11-19T10:00:00.000Z";
+      const newer = "2026-11-19T10:00:01.000Z";
+      const text = "saffron kettle thermistor" + " indigo".repeat(90);
+      const kept = shape === "prefix" ? text + " extra" : text;
+      const row = (ts: string, content: string) =>
+        formatLine({
+          ts,
+          type: "learning",
+          scope: "fixtures",
+          repo: "global",
+          status: "settled",
+          content,
+        });
+      writeFileSync(
+        join(g.memoryDir, "2026-11-19.logfmt"),
+        [row(older, text), row(newer, kept)].join("\n") + "\n",
+      );
+      const path = join(g.projDir, "notes.txt");
+      writeFileSync(path, "saffron kettle thermistor");
+      fake.setSteps({
+        "SMOKE::budget": [call("r1", "read", { path }), { content: "DONE" }],
+      });
+      const run = await turn(
+        fake,
+        g,
+        "SMOKE::budget read notes.txt about saffron kettle thermistor",
+      );
+      expect(run.exit).toBe(0);
+      expect(run.toolUses.map((t) => t.tool)).toEqual(["read"]);
+      const requests = (await fake.requests()).filter((b) => b.tools?.length);
+      const messages = requests.at(-1)?.messages ?? [];
+      const expected = "- [2026-11-19] learning/fixtures: " + kept;
+      for (const [role, source] of [
+        ["system", "inject"],
+        ["tool", "pull"],
+      ]) {
+        const lines = messages
+          .filter((m: { role: string }) => m.role === role)
+          .flatMap((m: { content: string }) => String(m.content).split("\n"))
+          .filter((line: string) => line.startsWith("- [2026-11-19]"));
+        expect(lines).toEqual([expected]);
+        const receipts = hostLedger(g)
+          .map(parseLine)
+          .filter((r) => r?.src === source);
+        expect(receipts.map((r) => r?.mem)).toEqual(["[" + newer + "]"]);
+      }
+    },
+    240_000,
+  );
   test("matching turns and explicit recall are recorded; status counts never-retrieved", async () => {
     const g = guest();
 

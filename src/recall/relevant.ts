@@ -3,7 +3,7 @@ import { loadAll } from "../store/files/load.ts";
 import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";
 import { readerFromSid, visibleTo } from "../store/model/visibility.ts";
-import { FRAME } from "../inject/budget.ts";
+import { FRAME, fittingLineIndices } from "../inject/budget.ts";
 import { formatMemory } from "../inject/format.ts";
 import { conflictLine, findConstant, valuesAgree } from "./conflicts.ts";
 import { RESTATABLE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
@@ -144,6 +144,7 @@ export async function selectRelevant(
 ): Promise<{
   block: string;
   selected: Memory[];
+  shown: Memory[];
   rendered: ReadonlyMap<Memory, Memory>;
 }> {
   // Repo-scoped: model-facing reads see the caller's repo + global rows
@@ -177,7 +178,7 @@ export async function selectRelevant(
   const top = text ? scoreMemories(text, mems, limit, use) : [];
   const rest = top.filter((m) => !guided.includes(m));
   const merged = [...guided, ...rest];
-  if (!merged.length) return { block: "", selected: [], rendered };
+  if (!merged.length) return { block: "", selected: [], shown: [], rendered };
   const lines = merged.map((m) => formatMemory(rendered.get(m) ?? m));
   // The caveat must describe the rows that ACTUALLY ride, so it cannot be fixed
   // before the budget runs (it used to be, and a budget that dropped the only
@@ -219,11 +220,7 @@ export async function selectRelevant(
     // keep scanning), applied BEFORE the re-order so relevance still decides.
     // A block left with nothing but its header renders as nothing — a dangling
     // "## Relevant durable memory" over zero memories is noise, not memory. A
-    // header too wide for the budget needs no separate guard: `used` starts at
-    // the header width, so no line can clear the test below and the empty
-    // `shown` returns exactly what an explicit header check would.
-    let used = fitHeader.length;
-    shown = [];
+    // header wider than the budget leaves no space for any row.
     // PRIORITY decides who rides, and a restatement now sits last in that
     // order — the tree already states it, so a slot spent here is a slot not
     // spent on something the files do not hold. `merged` stays in score order:
@@ -239,17 +236,14 @@ export async function selectRelevant(
         (a, b) =>
           (demoted(merged[a]) ? 1 : 0) - (demoted(merged[b]) ? 1 : 0) || a - b,
       );
-    for (const i of fitOrder) {
-      const line = lines[i] ?? "";
-      if (used + 1 + line.length > budget) continue;
-      shown.push(i);
-      used += 1 + line.length;
-    }
+    shown = fittingLineIndices(lines, budget - fitHeader.length, fitOrder);
     // `selected` keeps the PRE-budget selection even here: the evidence field
     // `guided=` answers "did the selector pick it", `guidedRode=` answers "did
     // it survive". Returning [] would make a total trim read as "never picked".
-    if (!shown.length) return { block: "", selected: merged, rendered };
+    if (!shown.length)
+      return { block: "", selected: merged, shown: [], rendered };
   }
+  const kept = new Set(shown);
   shown.sort((a, b) => {
     const ma = merged[a];
     const mb = merged[b];
@@ -275,6 +269,7 @@ export async function selectRelevant(
       ...shown.map((i) => lines[i] ?? ""),
     ].join("\n"),
     selected: merged,
+    shown: merged.filter((_, i) => kept.has(i)),
     rendered,
   };
 }
