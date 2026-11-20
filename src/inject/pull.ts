@@ -158,25 +158,60 @@ export const PULL_SHIPPED: PullScope = {
 /**
  * The arm from plugin options, so a user can dial the behaviour back without a
  * code change:
- *   pullOutputChars: 0    → arguments only (the pre-2026-11 behaviour)
- *   pullTools: ["read"]   → only reads may carry a pull
- * Anything malformed falls back to the shipped value rather than to no pull: a
- * typo in a config file must not silently switch memory delivery off.
+ *   pullOutputChars: 0      → arguments only (the pre-2026-11 behaviour)
+ *   pullTools: ["read"]     → only reads may carry a pull
+ *   pullTools: []           → no tool result carries a pull at all
+ *
+ * An empty list is the only opt-out this channel has, and a pull bolts text
+ * onto results the model did not ask for, so it deserves one: an empty list is
+ * a decision someone typed. A value that merely FAILS to parse — a string
+ * where a list belongs, a list of numbers — is a typo, and a typo falls back
+ * to the shipped arm rather than switching delivery off. Both paths say what
+ * they did through `warn`, because a config line that does nothing is worse
+ * than one that refuses.
  */
 export function pullScopeFrom(
   options: Record<string, unknown> | undefined,
+  warn?: (message: string) => void,
 ): PullScope {
   const chars = options?.pullOutputChars;
   const tools = options?.pullTools;
-  const outChars =
-    typeof chars === "number" && Number.isFinite(chars) && chars >= 0
-      ? Math.min(Math.floor(chars), 4096)
-      : PULL_SHIPPED.outputChars;
-  const toolList = Array.isArray(tools)
-    ? tools.filter((t): t is string => typeof t === "string" && t.length > 0)
+  const charsOk =
+    chars === undefined ||
+    (typeof chars === "number" && Number.isFinite(chars) && chars >= 0);
+  if (!charsOk && warn) {
+    warn(
+      `pullOutputChars must be a non-negative number; got ${JSON.stringify(chars) ?? String(chars)}. Using ${PULL_SHIPPED.outputChars}.`,
+    );
+  }
+  const outChars = charsOk
+    ? chars === undefined
+      ? PULL_SHIPPED.outputChars
+      : Math.min(Math.floor(chars as number), 4096)
+    : PULL_SHIPPED.outputChars;
+  // `undefined` (unset) and `[]` (explicitly nothing) are different inputs, so
+  // the raw list is kept apart from the filtered one.
+  const raw = Array.isArray(tools) ? tools : undefined;
+  if (tools !== undefined && raw === undefined && warn) {
+    warn(
+      `pullTools must be a list of tool names; got ${JSON.stringify(tools) ?? String(tools)}. Using the default ${PULL_SHIPPED.tools.join(", ")}.`,
+    );
+  }
+  const toolList = raw
+    ? raw.filter((t): t is string => typeof t === "string" && t.length > 0)
     : [];
+  if (raw && raw.length > 0 && toolList.length === 0 && warn) {
+    warn(
+      `pullTools held no usable tool name; got ${JSON.stringify(tools)}. Using the default ${PULL_SHIPPED.tools.join(", ")}.`,
+    );
+  }
   return {
-    tools: toolList.length ? toolList : PULL_SHIPPED.tools,
+    tools:
+      raw && raw.length === 0
+        ? []
+        : toolList.length
+          ? toolList
+          : PULL_SHIPPED.tools,
     includeOutput: outChars > 0,
     outputChars: outChars,
     // Only meaningful when the output joins the query; without it the two

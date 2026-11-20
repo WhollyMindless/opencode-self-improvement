@@ -258,8 +258,15 @@ const impl = {
       flushStatus,
       // Which tool results carry a pull, and what the pull searches. Measured
       // default in src/inject/pull.ts; `pullOutputChars: 0` in the plugin config
-      // restores the old arguments-only behaviour, `pullTools` narrows the set.
-      pullScope: pullScopeFrom(ctx.options),
+      // restores the old arguments-only behaviour, `pullTools` narrows the set,
+      // and `pullTools: []` switches the channel off. A value that does not
+      // parse falls back to the measured default and says so on the console —
+      // the same setup-time warning style as the Bun floor and captureModel
+      // checks above, because a config line that silently does nothing is the
+      // failure nobody debugs.
+      pullScope: pullScopeFrom(ctx.options, (message) =>
+        console.warn(`[opencode-self-improvement] ${message}`),
+      ),
       getCompactCapture: () => onCompactCapture,
     });
     // ---- auto-capture (turn-end + compaction triggers) ---------------------

@@ -10,6 +10,19 @@ import { RESTATABLE_TAG, USER_GUIDED_TAG } from "../core/tags.ts";
 import { cmpTs } from "../core/cmp-ts.ts";
 import { scoreMemories } from "./score.ts";
 
+/**
+ * The searchable text of a tool call's arguments: the first of `pattern`,
+ * `query`, `path`, `filePath`, `command` that holds a non-empty string.
+ *
+ * That list is the pull's contract with the tools it ships for — grep and glob
+ * name their search `pattern`, read names its target `filePath` — and the pull
+ * reaches this only for a tool already inside its scope, because `pullQueryFor`
+ * returns "" for any other. So the shipped arm covers every call it makes. Two
+ * consequences belong to whoever widens `pullTools`: a tool whose searchable
+ * text sits under another key, or nested inside an `args` object, contributes
+ * nothing here, and a call carrying both a pattern and a path is searched by
+ * its pattern alone — the intent, not the directory it ran in.
+ */
 export function argText(args: unknown): string {
   if (!args || typeof args !== "object") return "";
   const a = args as Record<string, unknown>;

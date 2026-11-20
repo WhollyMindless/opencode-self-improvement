@@ -16,7 +16,7 @@
 //                arguments-only query cannot reach it. Proves the widened pull
 //                on a real host rather than in bench/runners/pull-precision.ts.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   REPO,

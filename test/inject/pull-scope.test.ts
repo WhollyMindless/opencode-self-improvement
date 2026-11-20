@@ -118,10 +118,57 @@ describe("pullScopeFrom", () => {
       { pullOutputChars: -1 },
       { pullOutputChars: Number.NaN },
       { pullTools: "read" },
-      { pullTools: [] },
       { pullTools: [1, null] },
+      { pullTools: {} },
     ])
       expect(pullScopeFrom(bad)).toEqual(PULL_SHIPPED);
+  });
+
+  test("an empty pullTools list is the explicit off switch", () => {
+    // `[]` is a decision someone typed, not a parse failure: no tool result
+    // carries a pull. The fallback above guards the typo, not this.
+    expect(pullScopeFrom({ pullTools: [] }).tools).toEqual([]);
+  });
+
+  test("a value that does not parse is reported, not swallowed", () => {
+    const seen: string[] = [];
+    const warn = (m: string) => seen.push(m);
+    expect(pullScopeFrom({ pullOutputChars: "many" }, warn)).toEqual(
+      PULL_SHIPPED,
+    );
+    expect(seen.length).toBe(1);
+    expect(seen[0]).toContain("pullOutputChars");
+    seen.length = 0;
+    expect(pullScopeFrom({ pullTools: "read" }, warn).tools).toEqual(
+      PULL_SHIPPED.tools,
+    );
+    expect(seen[0]).toContain("pullTools");
+    seen.length = 0;
+    expect(pullScopeFrom({ pullTools: [1, null] }, warn).tools).toEqual(
+      PULL_SHIPPED.tools,
+    );
+    expect(seen[0]).toContain("pullTools");
+    seen.length = 0;
+    // The default arm and the explicit off are both what the user asked for, so
+    // neither writes to the console.
+    pullScopeFrom(undefined, warn);
+    pullScopeFrom({ pullOutputChars: 0, pullTools: [] }, warn);
+    expect(seen).toEqual([]);
+  });
+
+  test("Scenario: with pullTools empty the tool result is left untouched", () => {
+    seed("pattern", "ctl", "use table_manager.save(config, opts)");
+    const out = { output: "table_manager.save" };
+    return contextualPull(
+      { tool: "grep", args: { pattern: "table_manager.save" } },
+      out,
+      1200,
+      undefined,
+      pullScopeFrom({ pullTools: [] }),
+    ).then((rows) => {
+      expect(rows).toEqual([]);
+      expect(out.output).toBe("table_manager.save");
+    });
   });
 
   test("output characters are clamped, not trusted", () => {
