@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 import plugin from "../index.ts";
 import { resetState } from "../src/core/state.ts";
-import { removeStore } from "./helpers/remove-store.ts";
+import { removeStoreAsync } from "./helpers/remove-store.ts";
 
 /**
  * Register an isolated store for each test in the current describe scope.
@@ -88,7 +88,7 @@ export function withTempStore({
     process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
     resetState();
   });
-  afterEach(() => {
+  afterEach(async () => {
     const state = active;
     if (!state) return;
     try {
@@ -100,7 +100,11 @@ export function withTempStore({
       }
       // Re-check the owned root, never a test-modified environment variable.
       assertRoot(state.root, state.tempParent);
-      removeStore(state.root);
+      // Awaited, so a store-lock section the test left pending gets its turn
+      // and its connection can be closed before the delete. A synchronous
+      // teardown here would hold the loop, watch that section stall, and leave
+      // the directory behind on Windows.
+      await removeStoreAsync(state.root);
     } finally {
       if (state.memory === undefined) delete process.env.OPENCODE_MEMORY_DIR;
       else process.env.OPENCODE_MEMORY_DIR = state.memory;

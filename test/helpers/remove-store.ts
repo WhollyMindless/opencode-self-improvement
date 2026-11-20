@@ -11,7 +11,10 @@
 // That is also the answer for a real user. Deleting the memory root while an
 // opencode session is alive is a stop-the-session operation on Windows.
 import { rmSync } from "node:fs";
-import { closeAllLockDatabases } from "../../src/store/lock.ts";
+import {
+  closeAllLockDatabases,
+  heldLockSectionsUnder,
+} from "../../src/store/lock.ts";
 
 /**
  * Codes that mean "something still has this open", not "this delete is wrong".
@@ -21,74 +24,168 @@ import { closeAllLockDatabases } from "../../src/store/lock.ts";
  */
 const STILL_OPEN = new Set(["EBUSY", "EPERM", "ENOTEMPTY", "EMFILE", "ENFILE"]);
 
-/**
- * Removes `dir`, releasing this process's lock handles first.
- *
- * A handle can outlive the test that opened it: a lock connection inside a
- * section that is still running is left closed-by-nobody, because closing it
- * would give up a lock its writer still believes it holds
- * (`closeAllLockDatabases` skips it for exactly that reason). Windows then
- * refuses the delete, and the failure lands on whichever test happened to be
- * tearing down — not on the one that leaked the handle.
- *
- * So a busy delete is waited out, and a delete that is STILL busy after the
- * budget is reported and abandoned rather than thrown. The directory is inside
- * the OS temporary tree, which the runner reclaims; a red test on an unrelated
- * assertion is not reclaimable. Anything that is not a held handle — a path
- * that cannot be resolved, a delete the OS refuses outright — still throws,
- * because that is a defect in the caller and silence would hide it.
- */
-export function removeStore(
-  dir: string,
-  warn: (message: string) => void = (message) => console.error(message),
-): void {
-  closeAllLockDatabases();
-  removeWhileBusy(() => rmSync(dir, { recursive: true, force: true }), {
-    label: dir,
-    warn,
-  });
+/** The most a teardown will wait for a handle, and the gap it grows to. */
+const BUDGET_MS = 2000;
+const FIRST_GAP_MS = 25;
+const MAX_GAP_MS = 400;
+
+type Warn = (message: string) => void;
+
+const toConsole: Warn = (message) => console.error(message);
+
+interface BusyOptions {
+  /** Stop waiting once the next gap would pass this. */
+  budgetMs?: number;
+  warn?: Warn;
+  /**
+   * The lock sections of THIS process that still own something under `dir`.
+   * Defaults to the real seam in src/store/lock.ts.
+   */
+  held?: () => string[];
+  /** Release this process's idle lock connections. Runs before every retry. */
+  closeIdle?: () => void;
 }
 
 /**
- * Runs `remove` until it succeeds, waiting between attempts for a handle to
- * close. Doubles the gap up to 400 ms and stops once the next wait would pass
- * `budgetMs`; a non-busy error leaves immediately.
+ * Removes `dir`, releasing this process's lock handles first. Returns whether
+ * the directory went.
  *
- * Returns whether the delete landed. Exposed for the tests in
- * test/store/temp-store-fixture.test.ts, which drive each branch with an
- * injected remover — a held handle cannot be produced on Linux or macOS, so a
- * test that waited for the real thing would assert nothing off Windows.
+ * SYNCHRONOUS, so it cannot help a lock section that is still running in this
+ * process: the section is a callback waiting for the event loop, and this
+ * function owns the loop while it waits. That case is therefore decided before
+ * the first gap — reported at once, with no wait spent on an outcome that
+ * cannot change. An `afterEach` that can await should call `removeStoreAsync`,
+ * which does reclaim such a store.
+ *
+ * A delete refused for any other reason throws: a path that cannot be resolved
+ * is a defect in the caller, and silence would hide it.
+ */
+export function removeStore(dir: string, warn: Warn = toConsole): boolean {
+  return removeWhileBusy(
+    dir,
+    () => rmSync(dir, { recursive: true, force: true }),
+    { warn },
+  );
+}
+
+/**
+ * The teardown an async hook should call. Same contract, but it yields between
+ * attempts, which is what makes a same-process holder reclaimable: the holder
+ * resumes, its connection goes idle, and the next attempt closes it before
+ * deleting.
+ */
+export async function removeStoreAsync(
+  dir: string,
+  warn: Warn = toConsole,
+): Promise<boolean> {
+  return removeWhileBusyAsync(
+    dir,
+    () => rmSync(dir, { recursive: true, force: true }),
+    { warn },
+  );
+}
+
+interface RetrySeams extends BusyOptions {
+  /** Stands in for the wait. */
+  sleep?: (ms: number) => void;
+}
+
+/**
+ * One delete attempt, then a doubling wait up to the budget.
+ *
+ * Before each retry it closes whatever lock connections have gone idle, because
+ * a connection that was inside a section on the previous pass is the handle
+ * being waited on. Exposed for tests: a held handle cannot be produced on
+ * Linux or macOS, which both delete a file another descriptor still has open,
+ * so a test that waited for the real thing would assert nothing off Windows.
  */
 export function removeWhileBusy(
+  dir: string,
   remove: () => void,
-  opts: {
-    budgetMs?: number;
-    label?: string;
-    warn?: (message: string) => void;
-  } = {},
+  opts: RetrySeams = {},
 ): boolean {
-  const budgetMs = opts.budgetMs ?? 2000;
-  const warn = opts.warn ?? ((message: string) => console.error(message));
-  let delay = 25;
-  let waited = 0;
+  const budgetMs = opts.budgetMs ?? BUDGET_MS;
+  const warn = opts.warn ?? toConsole;
+  const held = opts.held ?? (() => heldLockSectionsUnder(dir));
+  const closeIdle = opts.closeIdle ?? closeAllLockDatabases;
+  const sleep = opts.sleep ?? ((ms: number) => Bun.sleepSync(ms));
+  closeIdle();
   let attempts = 0;
+  let waited = 0;
+  let gap = FIRST_GAP_MS;
   for (;;) {
     attempts++;
-    try {
-      remove();
-      return true;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code ?? "";
-      if (!STILL_OPEN.has(code)) throw err;
-      if (waited + delay > budgetMs) {
-        warn(
-          `[opencode-self-improvement] teardown: ${opts.label ?? "path"} still ${code} after ${waited} ms and ${attempts} attempts — left in place. A store directory is only deletable once every session holding its lock has stopped.`,
-        );
-        return false;
-      }
-      Bun.sleepSync(delay);
-      waited += delay;
-      delay = Math.min(delay * 2, 400);
+    const code = attempt(remove);
+    if (code === null) return true;
+    const holders = held();
+    if (holders.length) {
+      warn(
+        `[opencode-self-improvement] teardown: ${dir} refused with ${code} while ${holders.length} store-lock section(s) still run in this process — left in place. A synchronous teardown holds the event loop, so such a section cannot finish; await the holder or tear down with removeStoreAsync.`,
+      );
+      return false;
     }
+    if (waited + gap > budgetMs) {
+      warn(
+        `[opencode-self-improvement] teardown: ${dir} still ${code} after ${waited} ms and ${attempts} attempts — left in place. A store directory is only deletable once every session holding its lock has stopped.`,
+      );
+      return false;
+    }
+    sleep(gap);
+    waited += gap;
+    gap = Math.min(gap * 2, MAX_GAP_MS);
+    closeIdle();
+  }
+}
+
+interface RetrySeamsAsync extends BusyOptions {
+  wait?: (ms: number) => Promise<void>;
+}
+
+/** The yielding half of `removeWhileBusy`; same seams, same contract. */
+export async function removeWhileBusyAsync(
+  dir: string,
+  remove: () => void,
+  opts: RetrySeamsAsync = {},
+): Promise<boolean> {
+  const budgetMs = opts.budgetMs ?? BUDGET_MS;
+  const warn = opts.warn ?? toConsole;
+  const held = opts.held ?? (() => heldLockSectionsUnder(dir));
+  const closeIdle = opts.closeIdle ?? closeAllLockDatabases;
+  const wait =
+    opts.wait ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  closeIdle();
+  let attempts = 0;
+  let waited = 0;
+  let gap = FIRST_GAP_MS;
+  for (;;) {
+    attempts++;
+    const code = attempt(remove);
+    if (code === null) return true;
+    if (waited + gap > budgetMs) {
+      const holders = held();
+      warn(
+        `[opencode-self-improvement] teardown: ${dir} still ${code} after ${waited} ms and ${attempts} attempts${holders.length ? `, with ${holders.length} store-lock section(s) still running in this process` : ""} — left in place. A store directory is only deletable once every session holding its lock has stopped.`,
+      );
+      return false;
+    }
+    // Await rather than sleep: a section running in this process resumes only
+    // when the event loop gets a turn, and closing its connection once it is
+    // idle is what actually frees the handle.
+    await wait(gap);
+    waited += gap;
+    gap = Math.min(gap * 2, MAX_GAP_MS);
+    closeIdle();
+  }
+}
+
+/** Null when the delete landed, otherwise the OS code that refused it. */
+function attempt(remove: () => void): string | null {
+  try {
+    remove();
+    return null;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code ?? "";
+    if (!STILL_OPEN.has(code)) throw err;
+    return code;
   }
 }
