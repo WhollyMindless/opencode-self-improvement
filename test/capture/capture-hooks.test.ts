@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { resetCaptureCursors } from "../../src/capture/policy.ts";
 import { guarded } from "../../src/core/hooks.ts";
 import { resetState } from "../../src/core/state.ts";
@@ -345,6 +346,11 @@ describe("plugin_load heartbeat", () => {
     expect(line?.capture).toBe("on");
     expect(String(line?.subscribed)).toContain("session.execution.succeeded");
     expect(typeof line?.version).toBe("string");
+    // Which COPY is live. Version cannot answer this: a checkout and the
+    // published package it came from share a version, and the npm cache has
+    // held a stale build while a session ran against something else. This test
+    // loads the plugin from this repo, so the two paths must be the same.
+    expect(line?.entry).toBe(fileURLToPath(new URL("../../", import.meta.url)));
     await loaded.cleanup();
   });
 

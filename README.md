@@ -53,7 +53,7 @@ Zero configuration is the default. Two options change what the model sees:
 | `injectBudget` | `1200` | Character cap on the injected relevance block and each contextual pull. |
 | `frontierBudget` | `3 × injectBudget` | Character cap on the session-start open-threads block. A thread longer than the budget is not injected and is reported as omitted. |
 
-Everything else goes in the object form of the plugin entry, and is documented once with its invalid-value rule: the capture options, `contradictionSurface`, `notifyBlocked`, and every environment variable in [docs/reference/options.md](docs/reference/options.md). Read [docs/reference/flags.md](docs/reference/flags.md) before flipping `OPENCODE_MEMORY_DEDUP`, `OPENCODE_MEMORY_SYMPTOM` or `OPENCODE_MEMORY_QUERY_GATE` — each switches off behaviour a measurement decided, and each has an invalid-value rule that surprises people.
+Everything else goes in the object form of the plugin entry, and is documented once with its invalid-value rule: the capture options, `contradictionSurface`, `notifyBlocked`, the contextual pull's scope (`pullOutputChars`, `pullTools`, with the bench behind each default), and every environment variable in [docs/reference/options.md](docs/reference/options.md). Read [docs/reference/flags.md](docs/reference/flags.md) before flipping `OPENCODE_MEMORY_DEDUP`, `OPENCODE_MEMORY_SYMPTOM` or `OPENCODE_MEMORY_QUERY_GATE` — each switches off behaviour a measurement decided, and each has an invalid-value rule that surprises people.
 
 ## Auto-capture
 

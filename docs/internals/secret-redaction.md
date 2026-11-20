@@ -31,6 +31,11 @@ blocks, and high-entropy values assigned to names ending in `_KEY`, `_TOKEN`,
 
 - It can miss hex-only secrets, low-diversity passwords, and credentials written
   in prose without an assignment.
+- The credential-shaped sweep needs 16 characters, so `password=hunter2` is
+  stored exactly as written. That floor is what keeps a short ordinary value —
+  a version string, an identifier carrying a digit — from being blanked wherever
+  it follows a name ending in `_KEY`, `_TOKEN`, `_SECRET` or `_PASSWORD`, which
+  is why it is a floor rather than a number to lower in passing.
 - Credential-shaped `scope`, `tags` or `issue` metadata is rejected rather than
   silently rewritten.
 - `memory_remember` still replies `Remembered` when content was redacted, so the

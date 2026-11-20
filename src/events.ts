@@ -24,8 +24,14 @@ import {
   onCompacting,
 } from "./capture/triggers.ts";
 import { recordSessionModel } from "./capture/session-model.ts";
-import { contextualPull } from "./inject/pull.ts";
-import { pullQuery } from "./recall/relevant.ts";
+import {
+  contextualPull,
+  PULL_SHIPPED,
+  type PullScope,
+  pullQueryFor,
+  writePullIntoResult,
+} from "./inject/pull.ts";
+import { record } from "./telemetry/record.ts";
 import { compactionAnchor } from "./inject/anchor.ts";
 
 interface HookDependencies {
@@ -43,6 +49,8 @@ interface HookDependencies {
   bindSessionFromApi: (sid: string | undefined) => Promise<void>;
   measuredTurns: Map<string, Measured>;
   flushStatus: (sid: string) => Promise<void>;
+  /** Which tool results may carry a pull and what they search. */
+  pullScope: PullScope;
   getCompactCapture: () =>
     | ((sid: string, messages: unknown) => void)
     | undefined;
@@ -86,6 +94,7 @@ export async function registerHooks(
     bindSessionFromApi,
     measuredTurns,
     flushStatus,
+    pullScope = PULL_SHIPPED,
     getCompactCapture,
   }: HookDependencies,
 ) {
@@ -121,29 +130,47 @@ export async function registerHooks(
         metadata: resultMeta(event?.result),
       };
       await afterTool(input, out);
+      // Capture the text BEFORE the pull appends to it, so the write-back can
+      // place just the appended block instead of duplicating the tool output.
+      const textBefore = typeof out.output === "string" ? out.output : "";
       const pulled = await contextualPull(
         input,
         out as { output?: unknown },
         budget,
         await useSignals(),
+        pullScope,
       );
-      if (pulled.length)
+      // Deliver FIRST, credit AFTER: the ledger counts rows the model was shown.
+      // The old order credited every computed pull, so a result shape the host
+      // no longer hands back as a string (v2.3.0 sends a parts ARRAY) left 456
+      // `src=pull` credits against zero bytes delivered — the exact overclaim
+      // this ledger exists to avoid. `pull_undelivered` makes the failure
+      // readable instead of merely smaller.
+      const shown =
+        pulled.length > 0 && typeof out.output === "string"
+          ? writePullIntoResult(event?.result, textBefore, out.output)
+          : false;
+      if (shown)
         await noteHits(
           "pull",
           String(event?.sessionID ?? ""),
           pulled,
-          pullQuery(input.args),
+          // The query the pull ACTUALLY searched, so the ledger's shared terms
+          // describe the same match the model was shown — with the same scope,
+          // from the same function, so the two cannot drift apart.
+          pullQueryFor(
+            String(event?.tool ?? ""),
+            input.args,
+            textBefore,
+            pullScope,
+          ),
         );
-      // Write a contextual-pull append back when the tool result is text we own.
-      if (
-        event?.result &&
-        typeof event.result === "object" &&
-        typeof event.result.content === "string"
-      ) {
-        const text = resultText(event.result);
-        if (out.output && out.output !== text)
-          event.result.content = out.output;
-      }
+      else if (pulled.length)
+        await record(
+          "pull_undelivered",
+          { tool: String(event?.tool ?? ""), rows: pulled.length },
+          false,
+        );
     }),
   );
 

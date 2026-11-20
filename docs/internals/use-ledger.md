@@ -29,7 +29,15 @@ harness offered" are different facts:
 
 1. the row rode the injected block;
 2. `memory_recall` returned it;
-3. a grep/read pull appended it.
+3. a pull appended it to a grep/glob/read result — searched against that call's
+   arguments plus the first 512 characters of what the tool printed, so a row can
+   be credited here for something the model had not asked about yet
+   (`pullOutputChars` in [docs/reference/options.md](../reference/options.md) dials it back).
+
+Credit is recorded only when the bytes were actually placed on the result. When a
+pull computed rows and found nowhere to write them, the evidence log gets a
+`pull_undelivered` line instead — a host that changes its result shape should show
+up as a failure, not as a quieter ledger.
 
 The writer throttles identical sets of retrieved rows to one successful line
 per session and source per hour. A row can appear in multiple sets.

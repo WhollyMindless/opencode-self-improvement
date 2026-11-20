@@ -13,6 +13,7 @@ import { guarded, setGuardedFailureReporter } from "./core/hooks.ts";
 import type { PluginCtx } from "./core/host.ts";
 import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { frontierBudget, injectBudget } from "./core/config/budgets.ts";
 import { memoryRoot } from "./core/config/paths.ts";
 import { loadAll, malformedCount } from "./store/files/load.ts";
@@ -55,6 +56,7 @@ export {
 } from "./capture/runtime.ts";
 export { resetSessionModels } from "./capture/session-model.ts";
 import { createInjectionEpochs } from "./inject/epochs.ts";
+import { pullScopeFrom } from "./inject/pull.ts";
 import { createSessionContext } from "./identity/session-context.ts";
 import { registerMemoryTools } from "./tools/registry.ts";
 import {
@@ -254,6 +256,17 @@ const impl = {
       bindSessionFromApi,
       measuredTurns,
       flushStatus,
+      // Which tool results carry a pull, and what the pull searches. Measured
+      // default in src/inject/pull.ts; `pullOutputChars: 0` in the plugin config
+      // restores the old arguments-only behaviour, `pullTools` narrows the set,
+      // and `pullTools: []` switches the channel off. A value that does not
+      // parse falls back to the measured default and says so on the console —
+      // the same setup-time warning style as the Bun floor and captureModel
+      // checks above, because a config line that silently does nothing is the
+      // failure nobody debugs.
+      pullScope: pullScopeFrom(ctx.options, (message) =>
+        console.warn(`[opencode-self-improvement] ${message}`),
+      ),
       getCompactCapture: () => onCompactCapture,
     });
     // ---- auto-capture (turn-end + compaction triggers) ---------------------
@@ -295,6 +308,12 @@ const impl = {
     // broken store must not turn plugin load into a throw.
     await guarded("plugin_load heartbeat", async () => {
       let pluginVersion = "unknown";
+      // Which COPY of this plugin the host actually loaded. Version alone could
+      // not answer it: a checkout and the published package it came from share
+      // a version, and the npm cache has held a stale one while a session ran
+      // against something else entirely. The heartbeat now names the directory,
+      // so "is my change live?" is one grep instead of an afternoon.
+      let entryDir = "unknown";
       try {
         const pkg = await Bun.file(
           new URL("../package.json", import.meta.url),
@@ -302,6 +321,11 @@ const impl = {
         if (typeof pkg?.version === "string") pluginVersion = pkg.version;
       } catch {
         // a heartbeat with an unknown version still beats no heartbeat
+      }
+      try {
+        entryDir = fileURLToPath(new URL("../", import.meta.url));
+      } catch {
+        // same: the version line is still worth emitting
       }
       // Auto-capture is armed unless the config opts it out: an absent key
       // means on, so the switch is read as a negative opt-out.
@@ -339,6 +363,7 @@ const impl = {
         "plugin_load",
         {
           version: pluginVersion,
+          entry: entryDir,
           capture: captureState,
           capture_on_compact: ctx.options?.captureOnCompact !== false,
           capabilities: `[${capabilities.join(",")}]`,
