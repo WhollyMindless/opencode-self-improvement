@@ -18,7 +18,7 @@
 //                       the section without them reproduces the frozen bytes and
 //                       nothing moves. A removal, a rewrite of a riding row, or
 //                       another session's row survives that subtraction and still
-//                       busts; test/epoch.test.ts pins those.
+//                       busts; test/inject/epoch.test.ts pins those.
 //
 // Everything below is measured on the FULL memory section, the bytes a request
 // actually sends, because prompt caching is a property of those bytes.
@@ -30,11 +30,11 @@
 //
 // Run: bun bench/runners/inject-cost.ts   (also: bun run bench)
 import {
+  appendFileSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
   writeFileSync,
-  appendFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -49,6 +49,7 @@ process.env.OPENCODE_MEMORY_DIR = store;
 delete process.env.OPENCODE_MEMORY_INJECT_BUDGET; // the bench measures the DEFAULT budget
 
 import { injectBudget } from "../../src/core/config/budgets.ts";
+import { formatLine } from "../../src/core/logfmt/format.ts";
 import { compactionAnchor } from "../../src/inject/anchor.ts";
 import { systemDigest } from "../../src/inject/digest.ts";
 import { storeVersion } from "../../src/inject/version.ts";
@@ -57,9 +58,8 @@ import {
   selectRelevant,
 } from "../../src/recall/relevant.ts";
 import { loadAll } from "../../src/store/files/load.ts";
-import { type Memory } from "../../src/store/model/memory.ts";
+import type { Memory } from "../../src/store/model/memory.ts";
 import { isActive } from "../../src/store/model/predicates.ts";
-import { formatLine } from "../../src/core/logfmt/format.ts";
 
 // --- deterministic generator -----------------------------------------------------
 
@@ -466,7 +466,7 @@ document frequencies and reorders the top-5), so B and C each pay ${busts(bSecti
 busts for them. D pays ${busts(dSections)}: a fact the session produced itself is
 already in its transcript. What D still pays for is a riding row being corrected,
 blocklisted or redacted, or another session writing a row — those survive the
-subtraction and still land on the next request, pinned by \`test/epoch.test.ts\`.
+subtraction and still land on the next request, pinned by \`test/inject/epoch.test.ts\`.
 
 D injects ${f1(saved)}% fewer characters than the naive policy.
 

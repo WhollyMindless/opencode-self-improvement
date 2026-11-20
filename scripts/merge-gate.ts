@@ -24,7 +24,7 @@ const steps: [string, string[]][] = [
 // A pre-push hook runs with git's OWN environment exported — GIT_DIR,
 // GIT_WORK_TREE, GIT_INDEX_FILE, GIT_PREFIX. Tests that assert a temp dir is
 // NOT a git repo, or that resolve repo scope from the working tree, then see
-// this repository instead of nothing. Measured: `test/init.test.ts` goes from
+// this repository instead of nothing. Measured: `test/init/init.test.ts` goes from
 // 6/6 green to 2 failures on `GIT_DIR` alone, so every push looked like a
 // broken build that was not. CI runs the same suite without these variables,
 // so scrub them here — the gate has to measure the same tree in both places or

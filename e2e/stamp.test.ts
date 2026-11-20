@@ -13,7 +13,7 @@
 // guard, green-on-both). The #90 production routing — Desktop attaches a
 // session whose location is never booted, plugin falls back to a stale module
 // scope — is reproduced red-on-pre-fix at the plugin boundary in
-// test/repo-scope-serve-host.test.ts, which replays the recorded payloads.
+// test/identity/repo-scope-serve-host.test.ts, which replays the recorded payloads.
 import {
   afterAll,
   afterEach,
@@ -34,10 +34,10 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  REPO,
   type Fake,
-  startFake,
+  REPO,
   resolveOpencode,
+  startFake,
 } from "./support/harness.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -269,7 +269,7 @@ describe("Feature: repo identity stamped under the service host", () => {
     // path boots the session's location on demand, so this scenario pins the
     // contract end-to-end; the Desktop-attach routing that skips the location
     // boot — the #90 production signature — is replayed at the plugin
-    // boundary in test/repo-scope-serve-host.test.ts with recorded payloads.)
+    // boundary in test/identity/repo-scope-serve-host.test.ts with recorded payloads.)
     const created = await (
       await g.req("/api/session", {
         method: "POST",

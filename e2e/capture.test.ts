@@ -49,7 +49,7 @@
 // control for that fix, not a guard: with the two-phase drain reverted it failed
 // 1 of 4 runs of this file and 6 of 12 runs of the standalone scenario. A race
 // cannot be pinned by a real-host test, so the deterministic half lives in
-// test/capture-dispose-drain.test.ts, which disposes a pass parked IN the model
+// test/capture/capture-dispose-drain.test.ts, which disposes a pass parked IN the model
 // call and a pass that already answered, and gets opposite answers.
 import {
   afterAll,
@@ -68,10 +68,10 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import {
-  REPO,
   type Fake,
   type Guest,
   makeGuest,
+  REPO,
   startFake,
   turn,
 } from "./support/harness.ts";
@@ -253,7 +253,7 @@ describe("auto-capture on the real host", () => {
     // Retry covers the START gap documented on `turnUntilCaptureStarts`; everything
     // below runs only once a pass has actually started, which is what this test is
     // about. A pass that started and was then cut by teardown still fails here, and
-    // test/capture-dispose-drain.test.ts pins that half deterministically.
+    // test/capture/capture-dispose-drain.test.ts pins that half deterministically.
     const { started } = await turnUntilCaptureStarts(g);
     console.log(`[capture-start] test 2: pass started on attempt ${started}`);
     expect(
