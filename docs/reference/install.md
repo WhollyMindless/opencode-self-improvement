@@ -49,8 +49,11 @@ cd "<config>/plugins/opencode-self-improvement" && bun install
 Without them the plugin fails to load, and the host reports it as `Plugin must
 export a default definition with an id and an effect or setup function` — the
 missing `zod` is the cause, not the export
-([#464](https://github.com/abogartz/opencode-self-improvement/issues/464)). The
-package route above avoids the step entirely.
+([#464](https://github.com/abogartz/opencode-self-improvement/issues/464)). Run the
+plugin once from a terminal with `opencode run --standalone --print-logs` to see
+which package could not be resolved: the desktop plugin panel lists the plugin and
+says nothing about the dependency. The package route above avoids the step
+entirely.
 
 ## Restart rules by host
 
