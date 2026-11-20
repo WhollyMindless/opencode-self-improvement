@@ -1,4 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { resolveRepo } from "../../src/identity/repokey.ts";
+import { removeStore } from "../helpers/remove-store.ts";
 import {
   ambiguousHop,
   applyRefFixes,
@@ -113,6 +119,55 @@ describe("applyRefFixes", () => {
       "src/store/lock.ts",
     ]);
   });
+});
+
+test("dry-run lists an invented pointer alongside a verified retired pointer", async () => {
+  const root = mkdtempSync(join(tmpdir(), "osi-fixer-history-"));
+  try {
+    const repo = join(root, "repo");
+    const store = join(root, "store");
+    mkdirSync(join(repo, "src"), { recursive: true });
+    mkdirSync(store);
+    const git = (...args: string[]) =>
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.invalid",
+          "-c",
+          "commit.gpgsign=false",
+          ...args,
+        ],
+        { cwd: repo },
+      );
+    git("init", "--quiet");
+    await Bun.write(join(repo, "src", "retired.ts"), "old");
+    git("add", "src/retired.ts");
+    git("commit", "-qm", "add file");
+    git("rm", "-q", "src/retired.ts");
+    git("commit", "-qm", "retire file");
+    const content =
+      "Retired: `git log -- src/retired.ts` and `git log -- src/invented.ts`.";
+    await Bun.write(
+      join(store, "2026-01-02.logfmt"),
+      `ts=2026-01-02T00:00:00.000Z type=context scope=demo repo=${resolveRepo(repo).key} content=${JSON.stringify(content)}\n`,
+    );
+    const report = execFileSync(
+      process.execPath,
+      [join(import.meta.dir, "../../scripts/ref-fixer.ts"), "--repo", repo],
+      {
+        env: { ...process.env, OPENCODE_MEMORY_DIR: store },
+        encoding: "utf8",
+      },
+    );
+    expect(report).toContain("dead paths left for a human: 1");
+    expect(report).toContain("1x  src/invented.ts");
+    expect(report).not.toContain("src/retired.ts");
+  } finally {
+    removeStore(root);
+  }
 });
 
 describe("chainEnd", () => {

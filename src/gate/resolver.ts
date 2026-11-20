@@ -1,7 +1,9 @@
 // GATE-1 resolver. Extracts embedded path/symbol refs from a memory/evidence
 // candidate and re-resolves them against the live source tree. Deterministic:
-// regex + balanced-paren scanning, no model involvement.
-import { join } from "node:path";
+// Markdown span boundaries, literal Git paths and balanced-paren scanning.
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { join, posix } from "node:path";
 import { opendir } from "node:fs/promises";
 import { parser as markdown } from "@lezer/markdown";
 import { type Memory } from "../store/model/memory.ts";
@@ -161,15 +163,16 @@ const PATH_RE =
   /[A-Za-z0-9_@./-]+\.(?:ts|tsx|js|jsx|mjs|cjs)(?!\w|\.\w)(?::\d+)?/g;
 
 export function extractPathRefs(content: string): string[] {
-  if (content.length > REGEX_SCAN_MAX_CHARS) return [];
-  return [...content.matchAll(PATH_RE)].map((m) => m[0]);
+  return scanPathRefs(content).live.map((m) => m[0]);
 }
 
 // A single path in the documented Git history command is a lookup instruction.
 // It cannot ground a claim about the live tree. Keep offsets in the original
 // text so a second, live citation of the same path is still checked and repaired.
-function* livePathMatches(content: string) {
-  if (content.length > REGEX_SCAN_MAX_CHARS) return;
+function scanPathRefs(content: string) {
+  const live: RegExpExecArray[] = [];
+  const history = new Set<string>();
+  if (content.length > REGEX_SCAN_MAX_CHARS) return { live, history };
   const prefix = "`git log -- ";
   let tree: ReturnType<typeof markdown.parse> | undefined;
   for (const m of content.matchAll(PATH_RE)) {
@@ -186,10 +189,67 @@ function* livePathMatches(content: string) {
         span.name === "InlineCode" &&
         span.from === m.index - prefix.length &&
         span.to === end + 1
-      )
+      ) {
+        history.add(m[0]);
         continue;
+      }
     }
-    yield m;
+    live.push(m);
+  }
+  return { live, history };
+}
+
+const git = promisify(execFile);
+
+// Resolve all pointers in one path-limited history walk. Compare literal file
+// names: a directory with the requested spelling is not a historical file.
+export async function missingHistoryPaths(
+  root: string,
+  history: ReadonlySet<string>,
+): Promise<string[]> {
+  if (!history.size) return [];
+  const paths = [...history];
+  const local = paths.filter(
+    (p) => !p.startsWith("/") && !p.split("/").includes(".."),
+  );
+  if (!root || !local.length) return paths;
+  try {
+    const { stdout } = await git(
+      "git",
+      [
+        "--literal-pathspecs",
+        "log",
+        "--format=",
+        "--name-only",
+        "-z",
+        "--relative",
+        "--full-history",
+        "-m",
+        "--root",
+        "--diff-filter=AD",
+        "--no-renames",
+        "HEAD",
+        "--",
+        ...local,
+      ],
+      {
+        cwd: root,
+        // A host launched by a Git hook can carry another checkout's GIT_DIR.
+        env: Object.fromEntries(
+          Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")),
+        ),
+        timeout: 5000,
+        maxBuffer: 4 * 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+    const found = new Set(stdout.split("\0"));
+    return paths.filter(
+      (p) => !local.includes(p) || !found.has(posix.normalize(p)),
+    );
+  } catch {
+    // Missing Git, an unborn HEAD or incomplete output proves no exception.
+    return paths;
   }
 }
 
@@ -215,8 +275,13 @@ export interface PathRefSpan {
  * never refuse, because it never sees it. Editing spans cannot.
  */
 export function checkablePathRefSpans(content: string): PathRefSpan[] {
+  return liveSpans(scanPathRefs(content).live);
+}
+
+function liveSpans(matches: RegExpExecArray[]): PathRefSpan[] {
   const out: PathRefSpan[] = [];
-  for (const m of livePathMatches(content)) {
+  for (const m of matches) {
+    const content = m.input;
     const ref = m[0].replace(/:\d+$/, "");
     const prev = m.index && m.index > 0 ? content[m.index - 1] : "";
     if (prev === "$" || prev === "~" || prev === "/") continue;
@@ -236,6 +301,11 @@ export function checkablePathRefSpans(content: string): PathRefSpan[] {
     out.push({ ref, start: m.index, end: m.index + ref.length });
   }
   return out;
+}
+
+export function auditPathRefs(content: string) {
+  const { live, history } = scanPathRefs(content);
+  return { spans: liveSpans(live), history };
 }
 
 export function checkablePathRefs(content: string): string[] {
@@ -525,9 +595,9 @@ export interface ResolveInput {
 
 export async function gate1(input: ResolveInput): Promise<Gate1Result> {
   const forms = extractCallForms(input.content);
-  const pathRefs = [...livePathMatches(input.content)];
-  const refs = forms.length + pathRefs.length;
-  if (refs === 0)
+  const { live, history } = scanPathRefs(input.content);
+  const refs = forms.length + live.length;
+  if (refs === 0 && !history.size)
     return {
       refs: 0,
       resolved: [],
@@ -542,11 +612,13 @@ export async function gate1(input: ResolveInput): Promise<Gate1Result> {
   // Existence check for repo-relative path refs. When liveRoot is not a real
   // tree (unit tests, deleted worktree) nothing is verifiable, so report no
   // missing paths rather than flagging everything.
-  const missingPaths: string[] = [];
-  if (await isDirectory(input.liveRoot)) {
-    for (const ref of checkablePathRefs(input.content)) {
+  const missingPaths = new Set(
+    await missingHistoryPaths(input.liveRoot, history),
+  );
+  if (live.length && (await isDirectory(input.liveRoot))) {
+    for (const ref of new Set(liveSpans(live).map((s) => s.ref))) {
       if (!(await Bun.file(join(input.liveRoot, ref)).exists()))
-        missingPaths.push(ref);
+        missingPaths.add(ref);
     }
   }
 
@@ -591,6 +663,6 @@ export async function gate1(input: ResolveInput): Promise<Gate1Result> {
     resolved,
     drift,
     candidateStale: drift?.source === "candidate",
-    missingPaths,
+    missingPaths: [...missingPaths],
   };
 }

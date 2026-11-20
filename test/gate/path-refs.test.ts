@@ -4,6 +4,7 @@
 // (bare names, absolute, ~, $VAR, URLs, `..`) are trusted as before and never
 // produce a block.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -110,6 +111,13 @@ describe("gate1 — existence check against liveRoot", () => {
     ).toEqual([]);
   });
 
+  test("unavailable Git history refuses the pointer even if an untracked file exists", async () => {
+    await Bun.write(join(liveRoot, "src", "untracked.ts"), "");
+    expect((await run("`git log -- src/untracked.ts`")).missingPaths).toEqual([
+      "src/untracked.ts",
+    ]);
+  });
+
   test("no refs at all short-circuits with empty missingPaths", async () => {
     const r = await run("no code references here whatsoever");
     expect(r.refs).toBe(0);
@@ -164,6 +172,27 @@ describe("runWriteGate — ref_path_missing block", () => {
   });
 
   test("a history pointer never exempts a live claim in the same write", async () => {
+    const git = (...args: string[]) =>
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.invalid",
+          "-c",
+          "commit.gpgsign=false",
+          ...args,
+        ],
+        { cwd: liveRoot },
+      );
+    git("init", "--quiet");
+    mkdirSync(join(liveRoot, "bench"));
+    await Bun.write(join(liveRoot, "bench", "old.ts"), "retired");
+    git("add", "bench/old.ts");
+    git("commit", "-qm", "original file");
+    git("rm", "--quiet", "bench/old.ts");
+    git("commit", "-qm", "retire file");
     const history =
       "The retired runner is archived: `git log -- bench/old.ts`.";
     for (const live of ["bench/old.ts", "src/other.ts"]) {
@@ -179,6 +208,14 @@ describe("runWriteGate — ref_path_missing block", () => {
       expect(result.hint).toContain(live);
     }
     const row = { type: "context" as const, scope: "demo", content: history };
+    for (const content of [
+      "`git log -- bench/invented.ts`",
+      history + " Also: `git log -- bench/invented.ts`.",
+    ]) {
+      const result = await runWriteGate({ ...row, content }, ctx());
+      expect(result.reason).toBe("ref_path_missing");
+      expect(result.hint).toContain("bench/invented.ts");
+    }
     const ungrounded = await runWriteGate(row, {
       ...ctx(),
       hasEngagement: false,

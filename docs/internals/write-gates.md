@@ -14,7 +14,7 @@ Promotion evidence keeps a bounded sample of call IDs: the ten most recent code-
 
 A settled claim about code must point at a file the repository has, so a write naming a missing path is refused with `ref_path_missing`. That check runs on writes only. A row that was correct when it was saved goes stale on its own the moment a later refactor moves the file, and nothing notices: recall keeps quoting a path the reader cannot open.
 
-For a retired file, write the history lookup as a single backticked command, for example `git log -- bench/runners/append-cost-198.ts`. The gate leaves that pointer intact and checks every live citation in the row, including another mention of the same path. The command contributes no evidence that the file exists now. The usual grounding rules still apply.
+For a retired file, write the history lookup as a single backticked command, for example `git log -- bench/runners/append-cost-198.ts`. The gate verifies every such path against file names in the checkout’s available Git history from HEAD. A missing path or unavailable history refuses a settled write. Use the exact inline spelling shown above. A plain citation of the same path still needs a file in the current tree, and the repair report lists unverified pointers for a human. The command contributes no evidence that the file exists now. The usual grounding rules still apply.
 
 `scripts/ref-fixer.ts` repairs the mechanical cases. The default is a dry run; `--apply` writes through the same gated update path as `memory_update`, so the old row is superseded rather than edited and `memory_undo` stays the recovery path. It repoints a path under two rules, and each is narrow for a specific reason:
 
