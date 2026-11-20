@@ -59,8 +59,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { suiteAccounting } from "./sweep-output.ts";
 import { fileURLToPath } from "node:url";
+import { suiteAccounting } from "./sweep-output.ts";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 // Siblings of the checkout, never inside it.
@@ -263,7 +263,7 @@ export const MUTANTS: Mutant[] = [
     //
     // SCORING NOTE: the retry only runs when IS_WINDOWS, so a POSIX sweep
     // cannot score this mutant at all - it survives for want of a reachable
-    // path, not for want of a test. test/publish-since-anchor.test.ts pins it
+    // path, not for want of a test. test/inject/publish-since-anchor.test.ts pins it
     // directly (touched mid-window aborts, bare reader lands) and runs on
     // windows-latest CI.
     find: `      if ((await fileIdentity(file)) !== since) throw err; // destination moved; our copy is stale`,
@@ -585,7 +585,7 @@ export const MUTANTS: Mutant[] = [
     // give-up inside holdFileLock to the pre-#216 explicit-fail check. The
     // seam mutants above cannot show this — they flip both sites at once.
     // Killed by "the default policy fails closed against another process's
-    // lock" in test/lock.test.ts (a fresh foreign lock file, no opts).
+    // lock" in test/store/lock.test.ts (a fresh foreign lock file, no opts).
     id: "lock-default-fail-direct",
     file: "src/store/lock.ts",
     find: `        opts.onEvent?.("timeout", now() - started);\n        if (timeoutPolicy(opts) === "fail") {`,
@@ -621,7 +621,7 @@ export const MUTANTS: Mutant[] = [
     // cannot carry a separator, so resolve(rootReal, original) is always a
     // direct child of rootReal and the containment check is always true. It
     // is a backstop behind the grammar, and the grammar is pinned
-    // (test/snapshot-restore-grammar.test.ts, which also pins that an accepted
+    // (test/store/snapshot-restore-grammar.test.ts, which also pins that an accepted
     // snapshot restores exactly one file inside the root). Widen SNAPSHOT_NAME
     // and this entry flips to a live kill - the sweep warns when an
     // equivalent-marked mutant dies.

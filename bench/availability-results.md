@@ -118,6 +118,6 @@ The tag claims the tracked tree already states the fact, so emptying the tree mu
 - PASS — the P3 preview does what it claims: drop-at-read spends 0 block bytes on facts the tree states at every budget — and the transport column is the price (14,14,14,14,14 vs tag 14,14,14,14,14)
 - PASS — the verdict follows the tree, not the row: 6 rows marked against the shipped tree, 0 still marked with the README prose emptied, 0 with the tree emptied entirely — RED if anything survives an empty tree, because then the tag is justified by something the tree has nothing to do with
 
-Scan cost for these 16 candidates: 3 files, 810 bytes, capped=false. A pass with no candidates builds the index never (test/capture-available.test.ts pins it).
+Scan cost for these 16 candidates: 3 files, 810 bytes, capped=false. A pass with no candidates builds the index never (test/capture/capture-available.test.ts pins it).
 
 Reproduce: `bun bench/runners/availability-policy-compare.ts`. Set `AVAIL_DUMP=1` to print the block for the first queries of each arm.

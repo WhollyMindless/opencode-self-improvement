@@ -23,7 +23,7 @@
 // reports PASS regardless of the arm". The control arms below are DELIBERATELY
 // wrong (store order, reverse-of-naive) and are published alongside the real
 // arms, so the table proves the metric ranks rather than always passing.
-// test/negative-eval.test.ts turns that into an assertion, which is what makes
+// test/recall/negative-eval.test.ts turns that into an assertion, which is what makes
 // the numbers falsifiable: if a control ever catches up with prod, the eval is
 // broken and the test goes red.
 //
@@ -262,7 +262,7 @@ const emptyClass = (): ClassScore => ({
 
 /**
  * Score ONE arm over every query whose gold is in the store. Used by the
- * published control table and pinned by test/negative-eval.test.ts, so the
+ * published control table and pinned by test/recall/negative-eval.test.ts, so the
  * "can this metric fail?" question is an assertion, not a comment.
  */
 export function scoreArm(
