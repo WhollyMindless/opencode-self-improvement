@@ -1,7 +1,7 @@
 // Availability case bank (issue #402, phase P4).
 //
 // Every adversarial case this matcher has been found guilty of, in one file, with
-// the tree text that exposes it. The unit tests in `test/capture-available.test.ts`
+// the tree text that exposes it. The unit tests in `test/capture/capture-available.test.ts`
 // drive the same behaviour through the plugin; this bank exists so the BENCH can
 // answer a question the unit tests cannot: what does the shipped check decide over
 // a population, and did that population's verdicts move since the last run? A

@@ -120,7 +120,7 @@ What survives of the original claim is the narrow version: **no candidate in thi
 ## Why the threshold is not the fix
 
 Raising the default was evaluated on 2026-11-19 and rejected. The pair worth releasing scores
-**0.8235**. The pair the suite pins in `test/dedupe-tool.test.ts` — `the deploy runbook rotates the
+**0.8235**. The pair the suite pins in `test/recall/dedupe-tool.test.ts` — `the deploy runbook rotates the
 signing key every friday after the backup window` against the same sentence with `monday`, a fact that
 *changed*, where the ADR requires the newer row to take the slot — scores **0.8333**.
 

@@ -9,7 +9,6 @@ import {
   RESTATABLE_TAG,
   USER_GUIDED_TAG,
 } from "../core/tags.ts";
-import { record, recordCaptureLag } from "../telemetry/record.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
 import { captureSessionID } from "../identity/host-events.ts";
 import { bindSessionProvisional, writeTarget } from "../identity/repokey.ts";
@@ -23,6 +22,7 @@ import {
 import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
 import { redactSecrets } from "../store/secrets.ts";
+import { record, recordCaptureLag } from "../telemetry/record.ts";
 import { type AvailabilityIndex, availabilityIndex } from "./available.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
 import { claimVerdictFromContent } from "./checked.ts";
@@ -154,7 +154,7 @@ export function resetCaptureCooldowns(): void {
 // ---- capture trigger vocabulary -------------------------------------
 // Single source of truth for capture subscriptions. Both turn-end events were
 // observed on the desktop service (test/fixtures/host-events.jsonl).
-// test/event-fidelity.test.ts requires every trigger to appear in both that
+// test/identity/event-fidelity.test.ts requires every trigger to appear in both that
 // recording and the installed @opencode/schema manifest: a declared event
 // alone is insufficient evidence that the host emits it.
 // Identity triggers have a separate observed check in that test, combining
