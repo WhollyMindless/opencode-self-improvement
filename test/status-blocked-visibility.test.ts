@@ -6,7 +6,7 @@
 // admin reader still sees all; aggregate STORE counts are identical for every
 // reader (machine-wide by decision, deliberately NOT scoped). This file uses
 // only exports that exist on main so it fails for exactly the stated reason;
-// the new reader helper is pinned in status-blocked-reader-306.test.ts.
+// the new reader helper is pinned in status-blocked-reader.test.ts.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
