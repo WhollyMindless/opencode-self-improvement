@@ -1,6 +1,6 @@
 // Exercise fixture hooks in separate real Bun test runs. A failure or unsafe
 // root must not leave the next test pointed at a user's store.
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   existsSync,
   lstatSync,
@@ -16,7 +16,12 @@ import { tmpdir } from "node:os";
 import { basename, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { withTempStore } from "../harness.ts";
-import { removeStore } from "../helpers/remove-store.ts";
+import {
+  removeStore,
+  removeWhileBusy,
+  removeWhileBusyAsync,
+} from "../helpers/remove-store.ts";
+import { heldLockSectionsUnder, withStoreLock } from "../../src/store/lock.ts";
 
 let root: string;
 beforeEach(() => {
@@ -213,4 +218,178 @@ test.each([
   "/outside",
 ])("rejects unsafe prefix %j before registering hooks", (prefix) => {
   expect(() => withTempStore({ prefix })).toThrow("prefix");
+});
+
+describe("a store whose lock section outlived its test", () => {
+  // A held handle cannot be produced on Linux or macOS — both delete a file
+  // another descriptor still has open. So the OS refusal is injected while the
+  // LOCK SECTION is a real one: the outcome then depends on whether the
+  // teardown lets the event loop run, which is the distinction that matters,
+  // rather than on an attempt counter that advances either way.
+  const busy = (code: string) =>
+    Object.assign(new Error(`${code}: resource busy or locked`), { code });
+
+  const tempStore = () =>
+    mkdtempSync(join(realpathSync(tmpdir()), "osi-held-store-"));
+
+  /** A real `withStoreLock` section, pending until `release()`. */
+  async function pendingSection(dir: string) {
+    const file = join(dir, "2026-11-20.logfmt");
+    writeFileSync(file, "content=held\n");
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let finished = false;
+    const holder = withStoreLock(
+      file,
+      async () => {
+        await gate;
+        finished = true;
+      },
+      { onTimeout: "fail" },
+    );
+    // The section is open once the lock is acquired; poll the seam rather than
+    // guess how many microtasks that takes.
+    for (let i = 0; i < 200 && heldLockSectionsUnder(dir).length === 0; i++)
+      await new Promise((r) => setTimeout(r, 1));
+    return {
+      release,
+      holder,
+      finished: () => finished,
+    };
+  }
+
+  /** The Windows rule, injected: a directory this process still locks is not deletable. */
+  const removeIfUnlocked = (dir: string) => {
+    if (heldLockSectionsUnder(dir).length) throw busy("EBUSY");
+    rmSync(dir, { recursive: true, force: true });
+  };
+
+  test("a synchronous teardown spends no wait on the section it is blocking", () => {
+    // Sleeping here cannot help: the pending section resumes only when the loop
+    // gets a turn, and this function owns the loop. Report and go.
+    const sleeps: number[] = [];
+    const seen: string[] = [];
+    const cleaned = removeWhileBusy(
+      "osi-store-x",
+      () => {
+        throw busy("EBUSY");
+      },
+      {
+        budgetMs: 150,
+        held: () => ["lock.sqlite"],
+        closeIdle: () => {},
+        sleep: (ms) => sleeps.push(ms),
+        warn: (m) => seen.push(m),
+      },
+    );
+    expect(cleaned).toBe(false);
+    expect(sleeps).toEqual([]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("store-lock section");
+  });
+
+  test("with no same-process section the wait is waited out, closing between", () => {
+    const sleeps: number[] = [];
+    let closeIdles = 0;
+    let calls = 0;
+    const cleaned = removeWhileBusy(
+      "osi-store-y",
+      () => {
+        calls++;
+        if (calls < 3) throw busy("EBUSY");
+      },
+      {
+        held: () => [],
+        closeIdle: () => {
+          closeIdles++;
+        },
+        sleep: (ms) => sleeps.push(ms),
+      },
+    );
+    expect(cleaned).toBe(true);
+    expect(sleeps).toEqual([25, 50]);
+    // Once before the first attempt, then before every retry: the connection
+    // that went idle between passes is the handle being waited on.
+    expect(closeIdles).toBe(3);
+  });
+
+  test("a refusal that is not a held handle throws at once, unretried", () => {
+    let calls = 0;
+    expect(() =>
+      removeWhileBusy(
+        "osi-store-z",
+        () => {
+          calls++;
+          throw busy("ENAMETOOLONG");
+        },
+        { held: () => [], closeIdle: () => {}, sleep: () => {} },
+      ),
+    ).toThrow(/ENAMETOOLONG/);
+    expect(calls).toBe(1);
+  });
+
+  test("an async teardown yields to the real section and reclaims the store", async () => {
+    const dir = tempStore();
+    const section = await pendingSection(dir);
+    expect(heldLockSectionsUnder(dir)).toHaveLength(1);
+    // The holder is where the reported 45 ms timer was: it needs the loop.
+    setTimeout(() => section.release(), 40);
+    const cleaned = await removeWhileBusyAsync(dir, () =>
+      removeIfUnlocked(dir),
+    );
+    await section.holder;
+    expect(cleaned).toBe(true);
+    expect(section.finished()).toBe(true);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  test("the same section makes a synchronous teardown give up with it pending", async () => {
+    const dir = tempStore();
+    const section = await pendingSection(dir);
+    const seen: string[] = [];
+    const cleaned = removeWhileBusy(dir, () => removeIfUnlocked(dir), {
+      budgetMs: 150,
+      warn: (m) => seen.push(m),
+    });
+    expect(cleaned).toBe(false);
+    // The section never resumed, so the wait would have bought nothing.
+    expect(section.finished()).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("store-lock section");
+    section.release();
+    await section.holder;
+    expect(removeStore(dir)).toBe(true);
+  });
+
+  test("a quiet store is still removed completely", () => {
+    const dir = tempStore();
+    writeFileSync(join(dir, "2026-11-20.logfmt"), "content=quiet\n");
+    expect(removeStore(dir)).toBe(true);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  test("an async teardown reports once its budget is spent, naming any holder", async () => {
+    const seen: string[] = [];
+    let waits = 0;
+    const cleaned = await removeWhileBusyAsync(
+      "osi-store-w",
+      () => {
+        throw busy("EPERM");
+      },
+      {
+        budgetMs: 150,
+        held: () => ["lock.sqlite"],
+        closeIdle: () => {},
+        wait: async () => {
+          waits++;
+        },
+        warn: (m) => seen.push(m),
+      },
+    );
+    expect(cleaned).toBe(false);
+    expect(waits).toBeGreaterThan(0);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("EPERM");
+    expect(seen[0]).toContain("store-lock section");
+  });
 });

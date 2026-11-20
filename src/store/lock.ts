@@ -53,7 +53,15 @@
 import { Database } from "bun:sqlite";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { chmod, unlink } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { ensureDir } from "../core/logfmt/publish.ts";
 import { record } from "../telemetry/record.ts";
 
@@ -689,4 +697,33 @@ export function lockDatabaseFor(file: string): string {
  */
 export function heldLockDatabases(): string[] {
   return [...lockDbs.keys()];
+}
+
+/**
+ * Test seam: the lock databases under `dir` whose SECTION is still running in
+ * this process, so a caller can tell a handle it can free from one it cannot.
+ *
+ * A section is a callback awaiting the event loop. `closeAllLockDatabases`
+ * leaves it alone — closing would give up a lock its writer still believes it
+ * holds — and nothing else in the same turn can make it finish either. So a
+ * teardown that owns the loop (a synchronous `afterEach`) learns from this that
+ * waiting is pointless, while a teardown that can await learns that one gap is
+ * all it needs.
+ */
+export function heldLockSectionsUnder(dir: string): string[] {
+  const root = resolve(dir);
+  const out: string[] = [];
+  for (const [dbPath, pinned] of lockDbs) {
+    if (pinned.inUse === 0) continue;
+    const below = relative(root, resolve(dbPath));
+    if (
+      below &&
+      !below.startsWith(`..${sep}`) &&
+      below !== ".." &&
+      !isAbsolute(below)
+    ) {
+      out.push(dbPath);
+    }
+  }
+  return out;
 }
