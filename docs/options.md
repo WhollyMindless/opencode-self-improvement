@@ -24,6 +24,41 @@ Set them in the object form of the plugin entry in `opencode.json(c)`:
 | `captureMax` | `3` | Maximum candidates proposed per capture pass. |
 | `captureOnCompact` | `true` | When auto-capture is armed, also mine the transcript at compaction, before the summarizer replaces it. Its 5-minute cooldown is separate from the turn-end one, so the two triggers' hit-rates stay measurable. Setting it while `autoCapture` is `false` does nothing and reports `switch_mismatch` on the `plugin_load` line. |
 | `captureGuidedRules` | `false` | POC: deterministic guided-candidate pre-pass. The user's own lines decide which stated values or rules are guided (numbers, rates, currency, explicit rule assertions) and attach the verbatim quote; the capture model may phrase such a row but cannot clear the flag or the quote, and a guided quote the user never wrote is refused at the write boundary instead of silently stripped. Fires alongside the model pass only — no extra model calls. |
+| `pullOutputChars` | `512` | How many characters of a tool's own **output** join the contextual pull's query, after its arguments. `0` searches the arguments only. This is how a fact keyed to something the model only just discovered — an error string, a symbol in a file body — can reach a seat that never calls `memory_recall`. See the measurement below. |
+| `pullTools` | `["grep", "glob", "read"]` | Which tool results may carry a pull at all. A malformed list falls back to the default rather than to an empty one. |
+
+### What the contextual pull searches, and what it costs
+
+The pull is the one delivery channel that needs no cooperation from the model: it
+appends a short block to a tool result the seat is about to read anyway. That makes
+it the right channel for a model that never calls the plugin's tools, and the wrong
+place to be careless — a wrong pull is paid for by every later turn, and unlike the
+injected block it does not ride the prompt cache.
+
+`bench/runners/pull-precision.ts` measures the scope on the committed recall dataset
+(355 tool calls per store, stores of 52/200/800, plus random and store-order negative
+controls). At store 200, `R@1`/`R@3` are split by whether the gold row was reachable
+from the tool's arguments, and `noise%` is the share of no-gold calls that pulled
+anything at all:
+
+| Scope | R@1 args | R@3 args | R@1 output-only | noise% on ordinary traffic | bytes/call |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| arguments only | 98.6 | 100 | 0 | 65 | 122 |
+| arguments + output, no merge | 92.9 | 94.3 | 18.8 | 0 | 216 |
+| **shipped: arguments + output, arguments merged first** | 98.6 | 100 | 17.9 | 65 | 252 |
+| the same, with `shell` in scope | 98.6 | 100 | 43.9 | 100 | 388 |
+
+Two things that doc comment would hide. The merge is load-bearing: a combined query is
+longer, and a longer query raises the two-concept threshold, so searching
+`table_manager.save grep results` on its own drops the row the model's own words matched
+exactly. And `shell` doubles the reach while bolting a block onto every plain command —
+it is excluded by measurement, not taste. Both arms stay in the bench so the next reader
+has the numbers rather than a prohibition.
+
+Read the no-merge row's `noise% 0` carefully: it is not precision, it is silence. On
+every arg-visible call it misses, it pulls nothing at all (the bench's `miss-abstain%`
+column reads 100 for that arm), so it spends 5.7 points of recall the model was already
+getting to buy reach it could have had for free.
 
 ## Environment variables
 

@@ -27,10 +27,9 @@ export function argText(args: unknown): string {
  * nothing about the prompt beyond the memory it points at — and it is enough
  * to replay a merge and prove the same reads would still land.
  */
-/** The text a contextual pull actually searched with, for hit bookkeeping. */
-export function pullQuery(args: unknown): string {
-  return argText(args);
-}
+// The text a contextual pull searches with lives with the pull itself
+// (pullQueryFor in src/inject/pull.ts): it is no longer just the arguments, so
+// it cannot be derived from args alone.
 
 // Reinforcement: a row the ledger has seen used breaks a tie over a row
 // nobody ever read, and the more recently used one breaks it first. A TIE-BREAK
