@@ -12,6 +12,17 @@ import { checkablePathRefs } from "../../src/gate/resolver.ts";
 // never be EDITED either. The gate is the only thing that could refuse a bad
 // rewrite, and it cannot refuse what it does not look at.
 describe("applyRefFixes", () => {
+  test("a live rename preserves the historical spelling of the same path", () => {
+    expect(
+      applyRefFixes(
+        "History: `git log -- src/lock.ts`. Current implementation: src/lock.ts:42.",
+        new Map([["src/lock.ts", "src/store/lock.ts"]]),
+      ),
+    ).toBe(
+      "History: `git log -- src/lock.ts`. Current implementation: src/store/lock.ts:42.",
+    );
+  });
+
   test("a ref nested inside a longer ref is not rewritten twice", () => {
     const content = "see gate/gate.ts plus live src/gate/gate.ts for both";
     const out = applyRefFixes(

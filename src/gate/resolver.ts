@@ -164,6 +164,22 @@ export function extractPathRefs(content: string): string[] {
   return [...content.matchAll(PATH_RE)].map((m) => m[0]);
 }
 
+// A single path in the documented Git history command is a lookup instruction.
+// It cannot ground a claim about the live tree. Keep offsets in the original
+// text so a second, live citation of the same path is still checked and repaired.
+function* livePathMatches(content: string) {
+  if (content.length > REGEX_SCAN_MAX_CHARS) return;
+  for (const m of content.matchAll(PATH_RE)) {
+    if (
+      content.endsWith("`git log -- ", m.index) &&
+      content[m.index + m[0].length] === "`" &&
+      !m[0].includes(":")
+    )
+      continue;
+    yield m;
+  }
+}
+
 // Directory-qualified, repo-relative path refs whose existence gate1 can check
 // against liveRoot. Skipped: bare names (`undo.ts` may live anywhere),
 // absolute paths and `..` (another checkout's truth), URLs (`//`), and refs
@@ -186,9 +202,8 @@ export interface PathRefSpan {
  * never refuse, because it never sees it. Editing spans cannot.
  */
 export function checkablePathRefSpans(content: string): PathRefSpan[] {
-  if (content.length > REGEX_SCAN_MAX_CHARS) return [];
   const out: PathRefSpan[] = [];
-  for (const m of content.matchAll(PATH_RE)) {
+  for (const m of livePathMatches(content)) {
     const ref = m[0].replace(/:\d+$/, "");
     const prev = m.index && m.index > 0 ? content[m.index - 1] : "";
     if (prev === "$" || prev === "~" || prev === "/") continue;
@@ -497,7 +512,7 @@ export interface ResolveInput {
 
 export async function gate1(input: ResolveInput): Promise<Gate1Result> {
   const forms = extractCallForms(input.content);
-  const pathRefs = extractPathRefs(input.content);
+  const pathRefs = [...livePathMatches(input.content)];
   const refs = forms.length + pathRefs.length;
   if (refs === 0)
     return {

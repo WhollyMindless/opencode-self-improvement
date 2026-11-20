@@ -46,6 +46,17 @@ describe("checkablePathRefs — which refs are policed", () => {
     ]);
   });
 
+  test("only the single path inside the documented history command is historical", () => {
+    for (const live of [
+      "git log -- src/old.ts",
+      "`git show -- src/old.ts`",
+      "`git log -- src/old.ts src/other.ts`",
+      "`git log -- src/old.ts:12`",
+    ])
+      expect(checkablePathRefs(live)).toContain("src/old.ts");
+    expect(checkablePathRefs("History: `git log -- src/old.ts`.")).toEqual([]);
+  });
+
   test("the whole extension is kept: .tsx and .jsx are not cut to .ts and .js", () => {
     expect(
       checkablePathRefs("see src/Button.tsx, src/App.jsx:12 and src/a.ts."),
@@ -138,6 +149,30 @@ describe("runWriteGate — ref_path_missing block", () => {
     evidenceCalls: [],
     hasGateCheck: false,
     hasEngagement: true, // engagement would have promoted the ghost before this fix
+  });
+
+  test("a history pointer never exempts a live claim in the same write", async () => {
+    const history =
+      "The retired runner is archived: `git log -- bench/old.ts`.";
+    for (const live of ["bench/old.ts", "src/other.ts"]) {
+      const result = await runWriteGate(
+        {
+          type: "context",
+          scope: "demo",
+          content: history + " Today we run " + live + ".",
+        },
+        ctx(),
+      );
+      expect(result.reason).toBe("ref_path_missing");
+      expect(result.hint).toContain(live);
+    }
+    const row = { type: "context" as const, scope: "demo", content: history };
+    const ungrounded = await runWriteGate(row, {
+      ...ctx(),
+      hasEngagement: false,
+    });
+    expect(ungrounded.reason).toBe("ambiguous_memory");
+    expect((await runWriteGate(row, ctx())).action).toBe("promoted");
   });
 
   test("settled write citing a nonexistent repo path is blocked with a hint", async () => {
