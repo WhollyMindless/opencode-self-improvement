@@ -2,8 +2,9 @@
 
 The three flags that encode a measured finding rather than a preference:
 what each one enforces, the evidence behind it, and what an invalid value
-does. The README names the three and points here; this file is the whole
-behaviour.
+does. These are not the general option surface — every other knob lives in
+[Options and environment variables](options.md). The README names the three
+and points here; this file is the whole behaviour.
 
 `OPENCODE_MEMORY_SYMPTOM` is the clearest case. A lesson saved as "in this
 session we fixed the flaky test" shares no words with the query a future
