@@ -3,6 +3,7 @@
 // regex + balanced-paren scanning, no model involvement.
 import { join } from "node:path";
 import { opendir } from "node:fs/promises";
+import { parser as markdown } from "@lezer/markdown";
 import { type Memory } from "../store/model/memory.ts";
 
 export interface CallForm {
@@ -169,13 +170,25 @@ export function extractPathRefs(content: string): string[] {
 // text so a second, live citation of the same path is still checked and repaired.
 function* livePathMatches(content: string) {
   if (content.length > REGEX_SCAN_MAX_CHARS) return;
+  const prefix = "`git log -- ";
+  let tree: ReturnType<typeof markdown.parse> | undefined;
   for (const m of content.matchAll(PATH_RE)) {
+    const end = m.index + m[0].length;
     if (
-      content.endsWith("`git log -- ", m.index) &&
-      content[m.index + m[0].length] === "`" &&
+      content.endsWith(prefix, m.index) &&
+      content[end] === "`" &&
       !m[0].includes(":")
-    )
-      continue;
+    ) {
+      // Escaped backticks and commands quoted inside examples are literal text.
+      tree ??= markdown.parse(content);
+      const span = tree.resolveInner(m.index);
+      if (
+        span.name === "InlineCode" &&
+        span.from === m.index - prefix.length &&
+        span.to === end + 1
+      )
+        continue;
+    }
     yield m;
   }
 }

@@ -151,6 +151,18 @@ describe("runWriteGate — ref_path_missing block", () => {
     hasEngagement: true, // engagement would have promoted the ghost before this fix
   });
 
+  test.each([
+    ["escaped opening backtick", "Use \\`git log -- src/old.ts` here."],
+    ["quoted command", "Render ``the text `git log -- src/old.ts` here``."],
+  ])("%s keeps the missing path live", async (_label, content) => {
+    const result = await runWriteGate(
+      { type: "context", scope: "demo", content },
+      ctx(),
+    );
+    expect(result.reason).toBe("ref_path_missing");
+    expect(result.hint).toContain("src/old.ts");
+  });
+
   test("a history pointer never exempts a live claim in the same write", async () => {
     const history =
       "The retired runner is archived: `git log -- bench/old.ts`.";
