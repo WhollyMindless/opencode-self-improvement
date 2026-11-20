@@ -1,5 +1,5 @@
 {
-  "about": "Every effectiveness or cost number this repository publishes, as data. test/claims.test.ts validates this file and checks that the README's effectiveness section still quotes each published claim. The README is text that must carry these facts; it is not the source of them. Adding a third result means adding an entry here, which forces an n, a seat, a metric and a record before the test suite will accept it. Raw run data is not committed: the artifact policy deletes it and the cited issue keeps the method and the verdict.",
+  "about": "Every effectiveness or cost number this repository publishes, as data. test/host/claims.test.ts validates this file and checks that the README's effectiveness section still quotes each published claim. The README is text that must carry these facts; it is not the source of them. Adding a third result means adding an entry here, which forces an n, a seat, a metric and a record before the test suite will accept it. Raw run data is not committed: the artifact policy deletes it and the cited issue keeps the method and the verdict.",
   "metric": {
     "definition": "session generation + capture generation",
     "cache": "cache read and cache write are reported separately and never folded into a total"

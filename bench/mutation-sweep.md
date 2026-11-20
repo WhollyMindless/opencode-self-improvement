@@ -28,9 +28,9 @@ now resolved; a targeted `--mutant=` run on this branch gives the evidence.
 
 | mutant | outcome | evidence |
 | --- | --- | --- |
-| `viewer-snapshot-grammar-off` | **killed** | `test/snapshot-restore-grammar.test.ts` asserts the EXACT wire body. With the check off, the request reaches the store, whose rejection repeats the submitted name — for `..`, a directory name, so a filesystem path lands in the HTTP body. |
+| `viewer-snapshot-grammar-off` | **killed** | `test/store/snapshot-restore-grammar.test.ts` asserts the EXACT wire body. With the check off, the request reaches the store, whose rejection repeats the submitted name — for `..`, a directory name, so a filesystem path lands in the HTTP body. |
 | `restore-escapes-root` | **equivalent** (excluded) | Unreachable by construction: the restore target is the `<YYYY-MM-DD>.logfmt` capture, which cannot carry a separator, so `isWithin(rootReal, target)` is always true. It is a backstop behind the grammar; the grammar is pinned, and the sweep warns if an equivalent-marked mutant ever dies. |
-| `publish-rename-since-blind` | **survives on POSIX** | The retry runs only when `IS_WINDOWS`, so a macOS/Linux sweep has no reachable path to score. `test/publish-since-anchor.test.ts` pins it directly (touched mid-window aborts; a bare reader lands) and runs on `windows-latest` CI. |
+| `publish-rename-since-blind` | **survives on POSIX** | The retry runs only when `IS_WINDOWS`, so a macOS/Linux sweep has no reachable path to score. `test/inject/publish-since-anchor.test.ts` pins it directly (touched mid-window aborts; a bare reader lands) and runs on `windows-latest` CI. |
 
 Two lessons, both from review: a substring assertion cannot distinguish two
 layers that reject the same input with the same status and a message that
