@@ -104,20 +104,35 @@ export interface PullScope {
  *   arm              R@1 arg  R@3 arg  R@1 out   noise% ordinary   bytes/call
  *   args-only          98.6      100       0            65%            122
  *   + output, no merge 92.9     94.3    18.8             0%            216
- *   THIS ARM           98.6      100    17.9            65%            252
+ *   THIS ARM           98.6      100    18.8            65%            252
  *
  * The class it exists for — a fact keyed to something the model only sees in
  * the tool's OUTPUT (an error string, a symbol in a file body) — goes from
- * unreachable to 17.9% R@1 without moving the class that already worked. The
- * merge is what buys that: a combined query is longer, and a longer query
- * raises the scorer's two-concept gate, so a precise search ("table_manager.save")
- * otherwise loses its exact-match row to boilerplate output ("grep results").
- * That is not hypothetical — it broke test/host/scenarios.test.ts's I3 case the first
- * time, and test/inject/pull-scope.test.ts pins it.
+ * unreachable to 18.8% R@1 (17.9% at store 800) without moving the class that
+ * already worked. The merge is what buys that: a combined query is longer, and
+ * a longer query raises the scorer's two-concept gate, so a precise search
+ * ("table_manager.save") otherwise loses its exact-match row to boilerplate
+ * output ("grep results"). That is not hypothetical — it broke
+ * test/host/scenarios.test.ts's I3 case the first time.
+ *
+ * The merge takes slots in ORDER: argument matches are placed first and the
+ * combined matches fill what is left, not the reverse. Three slots is the whole
+ * delivery, so an order that appends argument matches can only recover a row
+ * when the output matches nothing — a grep whose output names three other rows
+ * leaves the exact match past the cap. This scope's own bench cannot see the
+ * difference: both orders score byte-identical at stores 200 and 800, because
+ * no fixture call pairs a precise argument with three output-matching rows.
+ * Where the bench DOES see it is the rejected `+ shell` arm — first choice
+ * costs it 7.7 points of output-only R@1 (45.3 → 37.6 at store 200), because
+ * there the arguments usually fill all three slots. That is the trade stated
+ * plainly: intent outranks output, and it is paid for in reach only on calls
+ * where the arguments already match three rows. The case the bench is blind to
+ * is pinned by test/inject/pull-scope.test.ts.
  *
  * Measured and REJECTED, so the next reader does not "improve" it back:
- *   + shell        doubles the reach (R@1 out 43.9) but takes ordinary-traffic
- *                  noise to 100% of no-gold calls: every plain read and command
+ *   + shell        doubles the reach (R@1 out 45.3 merged, 43.9 unmerged at
+ *                  store 800) but takes ordinary-traffic noise to 100% of
+ *                  no-gold calls: every plain read and command
  *                  gets a block bolted onto it.
  *   no merge       looks quiet (0% noise) only because its misses are silences —
  *                  miss-abstain 100%. It spends 5.7 points of arg-visible R@3 to
@@ -206,20 +221,24 @@ export async function contextualPull(
     readerFromSid(input.sessionID),
   );
   const top = scoreMemories(term, mems, 3, use);
-  // Merge the arguments-only search behind the combined one. The combined query
+  // Merge the arguments-only search AHEAD of the combined one. The combined query
   // is longer, and a longer query raises the scorer's two-concept gate, so the
   // row the model's OWN words matched can fall out of a combined search that
-  // would otherwise be a strict improvement. Argument matches keep first
-  // refusal: the model's intent outranks whatever the tool happened to print.
+  // would otherwise be a strict improvement. Argument matches keep first choice:
+  // the model's intent outranks whatever the tool happened to print.
+  //
+  // First choice, not last refusal. Three slots is the whole delivery, so an
+  // order that appends argument matches after the combined ones recovers them
+  // only when the output matches nothing — a grep whose output names three other
+  // rows leaves the exact match past the cap. That is the regression the review
+  // on PR 457 caught, pinned by test/inject/pull-scope.test.ts.
   const merged = scope.argsUnion
     ? (() => {
         const args = argText(input.args);
         if (!args || args === term) return top;
-        const seen = new Set(top.map((m) => m.ts));
-        return [
-          ...top,
-          ...scoreMemories(args, mems, 3, use).filter((m) => !seen.has(m.ts)),
-        ].slice(0, 3);
+        const byArgs = scoreMemories(args, mems, 3, use);
+        const seen = new Set(byArgs.map((m) => m.ts));
+        return [...byArgs, ...top.filter((m) => !seen.has(m.ts))].slice(0, 3);
       })()
     : top;
   if (!merged.length) return [];

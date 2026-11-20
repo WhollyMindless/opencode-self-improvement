@@ -437,10 +437,18 @@ for (const size of sizes) {
   };
   runs.push(["staged-512", staged(byName("out-512"))]);
   runs.push(["staged-wide", staged(byName("wide-512"))]);
-  // Union: combined query first, arguments-only merged behind it. Keeps the row
-  // the model's own words matched while reaching the class only the output can
-  // name. `union(out-512)` IS PULL_SHIPPED, so it is not measured twice — only
-  // the widened variant is printed here.
+  // Union: arguments-only matches take the slots FIRST, the combined matches
+  // fill what is left. Keeps the row the model's own words matched while
+  // reaching the class only the output can name. `union(out-512)` IS
+  // PULL_SHIPPED, so it is not measured twice — only the widened variant is
+  // printed here.
+  //
+  // Read this arm's numbers knowing what the fixture cannot show: on the
+  // shipped scope the two orders score byte-identical, because no call pairs a
+  // precise argument with three output-matching rows. The `+ shell` rows below
+  // are where the ordering is visible. The case the fixture is blind to is
+  // pinned at unit level in test/inject/pull-scope.test.ts — a fixture built to
+  // expose it would be measuring one authored case, not a class.
   const union = (scope: PullScope): PullScope => ({
     ...scope,
     argsUnion: true,

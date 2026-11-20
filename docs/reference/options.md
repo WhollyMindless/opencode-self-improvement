@@ -48,8 +48,8 @@ anything at all:
 | --- | ---: | ---: | ---: | ---: | ---: |
 | arguments only | 98.6 | 100 | 0 | 65 | 122 |
 | arguments + output, no merge | 92.9 | 94.3 | 18.8 | 0 | 216 |
-| **shipped: arguments + output, arguments merged first** | 98.6 | 100 | 17.9 | 65 | 252 |
-| the same, with `shell` in scope | 98.6 | 100 | 43.9 | 100 | 388 |
+| **shipped: arguments + output, argument matches take the slots first** | 98.6 | 100 | 18.8 | 65 | 252 |
+| the same, with `shell` in scope | 98.6 | 100 | 37.6 | 100 | 389 |
 
 Two things that doc comment would hide. The merge is load-bearing: a combined query is
 longer, and a longer query raises the two-concept threshold, so searching
@@ -57,6 +57,18 @@ longer, and a longer query raises the two-concept threshold, so searching
 exactly. And `shell` doubles the reach while bolting a block onto every plain command —
 it is excluded by measurement, not taste. Both arms stay in the bench so the next reader
 has the numbers rather than a prohibition.
+
+*First*, and not *last*, is the whole difference in the merge. Three rows is everything a
+pull delivers, so merging the arguments-only search behind the combined one recovers a row
+only when the output matches nothing: a grep for `table_manager.save` whose output names
+three other memories leaves the exact match past the cap. The shipped scope's own bench
+cannot see that — both orders score byte-identical at stores 200 and 800, because no
+fixture call pairs a precise argument with three output-matching rows — so the case is
+pinned by `test/inject/pull-scope.test.ts`. The `shell` row above is where the ordering
+does show: taking slots first costs that arm 7.7 points of output-only R@1 (45.3 → 37.6),
+because there the arguments usually fill all three slots. The trade is stated in
+`src/inject/pull.ts`: intent outranks output, and the price is reach on the calls where
+the arguments already match three rows.
 
 Read the no-merge row's `noise% 0` carefully: it is not precision, it is silence. On
 every arg-visible call it misses, it pulls nothing at all (the bench's `miss-abstain%`

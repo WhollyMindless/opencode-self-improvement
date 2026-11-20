@@ -199,6 +199,34 @@ describe("contextualPull scope behaviour", () => {
     });
   });
 
+  test("Scenario: three output matches never crowd out the exact argument match", () => {
+    // The other half of the merge. Above the output matches nothing; here it
+    // matches THREE rows, so the combined search fills every slot and the row
+    // the model's own words matched exactly is pushed past the cap and sliced
+    // away. The merge has to give argument matches first choice, not last
+    // refusal, or `argsUnion: true` only recovers a row when the output is
+    // boring.
+    seed("pattern", "ctl", "use table_manager.save(config, opts)");
+    seed("blocker", "db", "connection pool exhausted: raise pool_max");
+    seed("blocker", "db", "cannot acquire connection: check the pool limit");
+    seed("blocker", "db", "retry with backoff when the pool is exhausted");
+    const out = {
+      output:
+        "connection pool exhausted cannot acquire connection retry with backoff",
+    };
+    return contextualPull(
+      { tool: "grep", args: { pattern: "table_manager.save" } },
+      out,
+      1200,
+      undefined,
+      PULL_SHIPPED,
+    ).then((rows) => {
+      expect(out.output).toContain("use table_manager.save(config, opts)");
+      // Rank 1, not merely present: three slots is the whole delivery, so a
+      // row that lands third is the one a tighter budget drops first.
+      expect(rows[0]?.content).toBe("use table_manager.save(config, opts)");
+    });
+  });
   test("Scenario: a tool outside the scope is left exactly as the host returned it", () => {
     seed("pattern", "ctl", "use table_manager.save(config, opts)");
     const out = { output: "table_manager.save" };
