@@ -7,7 +7,7 @@ package-lock.json
 
 # Raw benchmark sweep output (#232). It is regenerable measurement output and
 # was the largest tracked blob in the repository. The durable record is the
-# published summaries (bench/RESULTS.md, bench/recall-results.md,
+# published summaries (bench/results.md, bench/recall-results.md,
 # bench/test-sweep-results.md); regenerate the payloads with the command each
 # runner documents — see "Bench artifacts stay out of git" in README.md.
 bench/append-publication-198/
