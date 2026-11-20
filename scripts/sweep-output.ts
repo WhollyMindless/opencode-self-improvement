@@ -18,7 +18,13 @@ export function testOutcomes(output: string): {
   let file = "";
   for (const line of output.split(/\r?\n/)) {
     if (/^\s*\d+ tests? (?:failed|skipped):\s*$/.test(line)) break;
-    const header = line.match(/^(?:test[/\\])?([\w.-]+\.[tj]sx?):\s*$/);
+    // File headers carry the path bun was given, so a module directory is
+    // part of them (`test/store/lock.test.ts:`, Windows style included).
+    // The identifier stays the basename: that is what the recap lines and
+    // the ACL matcher below pin, and inheriting the previous file's name
+    // when a nested header goes unrecognized attributes tests to the wrong
+    // suite and flips the accounting.
+    const header = line.match(/^(?:\S*[/\\])?([\w.-]+\.[tj]sx?):\s*$/);
     if (header) file = header[1];
     const match = line.match(
       /^\s*\((pass|fail|skip)\)\s+(.*?)\s*(?:\[[^\]]*\]\s*)?$/,
@@ -30,7 +36,9 @@ export function testOutcomes(output: string): {
       /\.(test|spec)\.[tj]sx?$/.test(name) &&
       !name.includes(" > ")
     ) {
-      result.fileFailed.push(name);
+      // A file-level crash may name the nested path; the ACL guard and the
+      // witnesses both speak in basenames.
+      result.fileFailed.push(name.split(/[/\\]/).pop() ?? name);
       continue;
     }
     const full = file ? `${file} > ${name}` : name;

@@ -49,10 +49,11 @@
 // serialise. That is a deliberate cut, not an oversight — the lock is the
 // correctness mechanism for the whole store, so a silently unserialised store
 // on a share was the worse option.
+
+import { Database } from "bun:sqlite";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { chmod, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { Database } from "bun:sqlite";
 import { ensureDir } from "../core/logfmt/publish.ts";
 import { record } from "../telemetry/record.ts";
 
@@ -245,7 +246,7 @@ process.on("exit", closeAllLockDatabases);
  * It has to be an async-context set, not a Map keyed by lock. A Map is
  * process-wide, so a task that merely happens to run while an UNRELATED task
  * holds a lock reads "already held" and writes with no lock at all — measured:
- * the sibling-holder test in test/lock-narrowing.test.ts resolved instead of
+ * the sibling-holder test in test/store/lock-narrowing.test.ts resolved instead of
  * refusing, which is silent data loss and worse than the bug this module fixes.
  * AsyncLocalStorage scopes the set to the chain that acquired it, so a nested
  * call inherits and a sibling does not. Verified on Bun 1.4.3 across deep await
@@ -268,7 +269,7 @@ const heldLocks = new AsyncLocalStorage<ReadonlySet<string>>();
  * made the one situation this lock is supposed to survive — a wait that names
  * itself an extension of busy — fatal: a writer got "store lock unavailable:
  * database is locked" instead of waiting the few hundred microseconds the other
- * side needs. Measured on test/scenarios-consistency.test.ts, which kills
+ * side needs. Measured on test/host/scenarios-consistency.test.ts, which kills
  * racers mid-write.
  *
  * SQLITE_BUSY is 5 and every extension is 5 | (kind << 8), so the low byte is
@@ -289,7 +290,7 @@ function contention(err: unknown): boolean {
  * SQLite detects the case exactly: SQLITE_IOERR_VNODE is reported when the inode
  * behind an open handle changes. It is reachable without a defect — the store
  * directory is not ours to protect. A user can wipe and rebuild a memory root
- * while a session is alive, and test/hits.test.ts does it on purpose. The right
+ * while a session is alive, and test/telemetry/hits.test.ts does it on purpose. The right
  * answer is to throw the stale connection away and open a fresh one, which is
  * what a handle against a replaced file needs; the wrong answer is to wait, and
  * the other wrong answer is to keep the poisoned connection and fail every later
@@ -307,7 +308,7 @@ function staleHandle(err: unknown): boolean {
 }
 
 /**
- * The classifier above, exposed for its pin in test/lock.test.ts.
+ * The classifier above, exposed for its pin in test/store/lock.test.ts.
  *
  * Getting this one line wrong is what made a crashed holder fatal, and the
  * integration test for it is probabilistic: whether a second opener arrives
@@ -315,7 +316,7 @@ function staleHandle(err: unknown): boolean {
  * itself is not probabilistic, so it gets a table.
  */
 export const isLockContention = contention;
-/** Test seam for the stale-handle classification in test/lock.test.ts. */
+/** Test seam for the stale-handle classification in test/store/lock.test.ts. */
 export const isStaleLockHandle = staleHandle;
 
 /**

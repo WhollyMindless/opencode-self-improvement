@@ -37,7 +37,7 @@ export interface EvalQuery {
  * the same fact — naming aliases, other verb forms, jargon synonyms, the
  * literal command or file name. The query list is deliberately NOT an input:
  * keywords tuned to the eval's phrasing would measure authorship, not the
- * bridge. test/recall-dataset.test.ts enforces the mechanical half of that
+ * bridge. test/recall/recall-dataset.test.ts enforces the mechanical half of that
  * promise (no authored keyword appears word-bounded in any query, every set is
  * 3-5 long, every entry ≤ 48 chars, every gold has a set), so a query-shaped
  * keyword fails CI rather than quietly inflating a published number.

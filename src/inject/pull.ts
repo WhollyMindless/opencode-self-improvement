@@ -112,8 +112,8 @@ export interface PullScope {
  * merge is what buys that: a combined query is longer, and a longer query
  * raises the scorer's two-concept gate, so a precise search ("table_manager.save")
  * otherwise loses its exact-match row to boilerplate output ("grep results").
- * That is not hypothetical — it broke test/scenarios.test.ts's I3 case the first
- * time, and test/pull-scope.test.ts pins it.
+ * That is not hypothetical — it broke test/host/scenarios.test.ts's I3 case the first
+ * time, and test/inject/pull-scope.test.ts pins it.
  *
  * Measured and REJECTED, so the next reader does not "improve" it back:
  *   + shell        doubles the reach (R@1 out 43.9) but takes ordinary-traffic
