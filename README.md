@@ -208,6 +208,16 @@ Use Bun **1.4.4** for development checks, matching CI. `bun run test` and `bun r
 
 How the local commands map to CI job names, what the smoke suite really boots, why the published surface is decided by `package.json` `files`, and the pre-release mutation sweep with its artifact policy: [docs/internals/development.md](docs/internals/development.md) and [docs/internals/pre-release-ritual.md](docs/internals/pre-release-ritual.md).
 
+## Layout
+
+Two root files are shims, and both exist because OpenCode finds plugins two
+different ways. **Loose plugin discovery** reads `<config>/plugins/<name>/index.ts`
+and, next to it, a sibling `tui.ts` — so the repository root carries `index.ts`
+(re-exporting `src/index.ts`) and `tui.ts` (re-exporting the default of
+`src/tui/panel.tsx`). **Package installs** resolve through `package.json`
+`exports` instead: `"."` → `./index.ts` and `"./tui"` → `./src/tui/panel.tsx`.
+Real code lives under `src/`, one directory per module.
+
 ## Troubleshooting
 
 The whole list, one row per problem with its fix, is in [docs/reference/troubleshooting.md](docs/reference/troubleshooting.md): tools not available, a blocked `memory_remember`, an argument-schema rejection, `memory store is busy`, a store on a network share, a stale plugin after an update, auto-capture doing nothing, malformed rows, stray lock files, a missing `/repo-init`, and a clean reset on Windows.
