@@ -29,7 +29,7 @@ document frequencies and reorders the top-5), so B and C each pay 3
 busts for them. D pays 0: a fact the session produced itself is
 already in its transcript. What D still pays for is a riding row being corrected,
 blocklisted or redacted, or another session writing a row — those survive the
-subtraction and still land on the next request, pinned by `test/epoch.test.ts`.
+subtraction and still land on the next request, pinned by `test/inject/epoch.test.ts`.
 
 D injects 12.3% fewer characters than the naive policy.
 
