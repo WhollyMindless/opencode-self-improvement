@@ -16,11 +16,12 @@ README points here rather than repeating the table.
 
 ## Common problems
 
-The seven cases a session actually hits.
+The cases a session actually hits.
 
 | Problem | Fix |
 | --- | --- |
 | `memory_*` tools not available | The plugin didn't load. Restart opencode and check the `plugins` entry in your config. |
+| `Plugin must export a default definition with an id and an effect or setup function` | The export is not what is wrong: the module never evaluated, so the host saw no export at all. A loose copy under `<config>/plugins/<name>/` carries no `node_modules`, and `zod` cannot be resolved from it ([#464](https://github.com/abogartz/opencode-self-improvement/issues/464)). Run `bun install` in that directory, or install the package instead — `opencode plugin add opencode-self-improvement` resolves through `package.json` `exports` and gets its runtime dependencies from the npm plugin cache. The plugin also logs the package it could not resolve and the directory it loaded from, so the host log names the cause instead of the export. |
 | `memory_remember` says blocked | A gate rejected the write: a stale code reference, a cited path that doesn't exist in the repo, overlap with a superseded memory, or an ambiguous claim. The reason is in `memory_evidence`; rephrase against current code and retry. |
 | `invalid arguments to memory_*` | The call didn't match the tool's input schema; nothing was done and the message names the offending fields. Gate blocks look different (`blocked at GATE (…)`). |
 | `memory store is busy` | A store write exhausted its 5s lock-wait budget, so the mutation is refused rather than run unlocked. Retry after contention clears. An operation spanning several files or steps may have completed earlier steps; refusal is not a rollback of those steps. If the reply reports `PARTIAL`, inspect the named rows and `memory_evidence` / `memory_undo` before retrying. A process that is killed releases the lock when it dies — there is no stale window to wait out. |
