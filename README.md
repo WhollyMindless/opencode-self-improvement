@@ -216,8 +216,12 @@ and, next to it, a sibling `tui.ts` — so the repository root carries `index.ts
 (re-exporting `src/index.ts`) and `tui.ts` (re-exporting the default of
 `src/tui/panel.tsx`). **Package installs** resolve through `package.json`
 `exports` instead: `"."` → `./index.ts` and `"./tui"` → `./src/tui/panel.tsx`.
-Real code lives under `src/`, one directory per module.
+Real code lives under `src/`, one directory per module. Loose discovery installs
+nothing, so run `bun install` inside the copied directory: the plugin has runtime
+dependencies, and one that cannot be resolved fails the load with an error about
+the default export rather than the missing package
+([#464](https://github.com/abogartz/opencode-self-improvement/issues/464)).
 
 ## Troubleshooting
 
-The whole list, one row per problem with its fix, is in [docs/reference/troubleshooting.md](docs/reference/troubleshooting.md): tools not available, a blocked `memory_remember`, an argument-schema rejection, `memory store is busy`, a store on a network share, a stale plugin after an update, auto-capture doing nothing, malformed rows, stray lock files, a missing `/repo-init`, and a clean reset on Windows.
+The whole list, one row per problem with its fix, is in [docs/reference/troubleshooting.md](docs/reference/troubleshooting.md): tools not available, a load error that blames the default export when a dependency is missing, a blocked `memory_remember`, an argument-schema rejection, `memory store is busy`, a store on a network share, a stale plugin after an update, auto-capture doing nothing, malformed rows, stray lock files, a missing `/repo-init`, and a clean reset on Windows.

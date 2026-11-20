@@ -36,6 +36,31 @@ cd opencode-self-improvement && bun install
 
 Then `git pull` and restart opencode to update.
 
+## Dropping it into the plugins directory
+
+Loose discovery reads `<config>/plugins/<name>/index.ts` and a sibling `tui.ts`,
+and the repository root carries both shims for exactly that route. Discovery
+copies nothing and installs nothing, so the directory needs its own dependencies:
+
+```sh
+cd "<config>/plugins/opencode-self-improvement" && bun install
+```
+
+Without them the plugin fails to load, and the host reports it as `Plugin must
+export a default definition with an id and an effect or setup function` — the
+missing `zod` is the cause, not the export
+([#464](https://github.com/abogartz/opencode-self-improvement/issues/464)). To see
+which package could not be resolved, run the plugin once from a terminal inside the
+affected project:
+
+```sh
+opencode run --standalone --print-logs "diagnostic"
+```
+
+`run` needs a message: without one it stops with `You must provide a message`
+before loading any plugin. The desktop plugin panel lists the plugin and says
+nothing about the dependency. The package route above avoids the step entirely.
+
 ## Restart rules by host
 
 A config edit needs a restart to take effect. On the desktop app, relaunching the
