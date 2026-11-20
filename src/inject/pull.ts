@@ -4,7 +4,7 @@ import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";
 import { readerFromSid, visibleTo } from "../store/model/visibility.ts";
 import { injectBudget } from "../core/config/budgets.ts";
-import { FRAME, capToBudget, injectedRows } from "./budget.ts";
+import { FRAME, fittingLineIndices } from "./budget.ts";
 import { formatMemory } from "./format.ts";
 import { type UseSignals, argText } from "../recall/relevant.ts";
 import { scoreMemories } from "../recall/score.ts";
@@ -278,15 +278,11 @@ export async function contextualPull(
     : top;
   if (!merged.length) return [];
   // Held to the injection budget too: three long rows were ~12 KB per call.
-  const block = capToBudget(
-    `## Related durable memory (pull)${FRAME}\n${merged.map(formatMemory).join("\n")}`,
-    budget,
-  );
-  if (block && typeof output.output === "string") {
-    output.output += `\n${block}`;
-    // What the ledger counts is what actually rode the result — the budget can
-    // drop rows, and crediting a memory the model never saw would inflate it.
-    return injectedRows(block, merged);
-  }
-  return [];
+  if (typeof output.output !== "string") return [];
+  const header = `## Related durable memory (pull)${FRAME}`;
+  const lines = merged.map(formatMemory);
+  const kept = fittingLineIndices(lines, budget - header.length);
+  if (!kept.length) return [];
+  output.output += `\n${[header, ...kept.map((i) => lines[i])].join("\n")}`;
+  return kept.map((i) => merged[i]);
 }

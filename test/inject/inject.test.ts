@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { memoryRoot } from "../../src/core/config/paths.ts";
 import { formatLine } from "../../src/core/logfmt/format.ts";
 import { RESTATABLE_TAG } from "../../src/core/tags.ts";
-import { capToBudget, injectedRows } from "../../src/inject/budget.ts";
+import { fittingLineIndices } from "../../src/inject/budget.ts";
 import { formatMemory } from "../../src/inject/format.ts";
 import { contextualPull } from "../../src/inject/pull.ts";
 import {
@@ -42,32 +42,13 @@ function seed(type: string, scope: string, content: string): void {
   );
 }
 
-describe("injectedRows (attribution must key off what was actually injected)", () => {
-  test("keeps only candidates whose rendered line survived capToBudget", () => {
-    const a = {
-      ts: "2026-01-01T00:00:00.000Z",
-      type: "pattern",
-      scope: "s",
-      content: "short one",
-    } as unknown as Memory;
-    const b = {
-      ts: "2026-01-02T00:00:00.000Z",
-      type: "pattern",
-      scope: "s",
-      content: "x".repeat(200),
-    } as unknown as Memory;
-    const raw = [
-      "## Relevant durable memory",
-      formatMemory(a),
-      formatMemory(b),
-    ].join("\n");
-    const block = capToBudget(raw, formatMemory(a).length + 30); // fits header + a, drops b
-    expect(block).toContain(formatMemory(a));
-    expect(block).not.toContain(formatMemory(b));
-    expect(injectedRows(block, [a, b]).map((m) => m.ts)).toEqual([a.ts]);
-  });
-  test("empty block keeps nothing", () => {
-    expect(injectedRows("", [{ ts: "t" } as unknown as Memory])).toEqual([]);
+describe("whole-line budgeting", () => {
+  test("keeps original indices when an overlong row precedes identical lines", () => {
+    expect(fittingLineIndices(["too long", "fit", "fit"], 4)).toEqual([1]);
+    expect(
+      fittingLineIndices(["too long", "fit", "fit"], 4, [0, 2, 1]),
+    ).toEqual([2]);
+    expect(fittingLineIndices(["fit"], 0)).toEqual([]);
   });
 });
 

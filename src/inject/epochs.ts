@@ -6,7 +6,6 @@ import { isInjectable } from "../store/model/predicates.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 import { SESSION_CAP, SessionLru } from "../core/lru.ts";
 import { captureEvidenceContext, record } from "../telemetry/record.ts";
-import { capToBudget, injectedRows } from "./budget.ts";
 import { systemDigest } from "./digest.ts";
 import { storeVersion } from "./version.ts";
 import { isUserGuided, selectRelevant } from "../recall/relevant.ts";
@@ -220,19 +219,7 @@ export function createInjectionEpochs({
           : {}),
       },
     );
-    // UNREACHABLE today, not a guard: `selectRelevant` was handed the same
-    // `budget` and builds the block as header + Σ(1 + line) over lines it
-    // accepted while that running sum stayed ≤ budget, and every line length is
-    // non-negative. So a non-empty `sel.block` is already ≤ budget, capToBudget
-    // keeps every line, and this call returns its argument unchanged. No test
-    // can reach a different result; it stays only as a byte bound on the text
-    // that rides the prompt if a future caller stops budgeting inside the
-    // selector.
-    const block = sel.block ? capToBudget(sel.block, budget) : "";
-    // Refs the ACTUALLY-injected rows assert (paths + commands), the join key
-    // for attribution. Derived from the budget-surviving rows, not the wider
-    // candidate pool — crediting paths the model never saw would overclaim.
-    const rode = injectedRows(block, sel.selected, sel.rendered);
+    const { block, shown: rode } = sel;
     const prefix = [...parts, block].join("\u0000");
     // Ledger terms/identities belong to the stored rows, but coverage refs
     // must describe only the text the model actually received.

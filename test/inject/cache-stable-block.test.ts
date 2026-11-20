@@ -20,7 +20,6 @@ import { memoryRoot } from "../../src/core/config/paths.ts";
 import { type Fields, formatLine } from "../../src/core/logfmt/format.ts";
 import { resetState } from "../../src/core/state.ts";
 import { setRepoScope } from "../../src/identity/repokey.ts";
-import { injectedRows } from "../../src/inject/budget.ts";
 import { formatMemory } from "../../src/inject/format.ts";
 import { selectRelevant } from "../../src/recall/relevant.ts";
 import type { Memory } from "../../src/store/model/memory.ts";
@@ -231,7 +230,7 @@ describe("budget pressure keeps relevance, not recency", () => {
       },
     );
     expect(capped.block.length).toBeLessThanOrEqual(budget);
-    const rode = injectedRows(capped.block, capped.selected, capped.rendered);
+    const rode = capped.shown;
     expect(rode.map((m) => m.ts)).toEqual(
       full.selected.slice(0, 2).map((m) => m.ts),
     );

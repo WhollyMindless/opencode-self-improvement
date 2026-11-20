@@ -54,20 +54,20 @@ export function cappedFrontier(
   };
 }
 
-// The candidate rows that ACTUALLY survived capToBudget into `block`, in order.
-// capToBudget drops whole lines, so attribution must key off these — not the
-// pre-budget candidates — or it would credit the model with paths and commands
-// it was never shown. capToBudget keeps whole lines verbatim, so a candidate is
-// present iff its rendered line is a substring of the block.
-export function injectedRows(
-  block: string,
-  candidates: Memory[],
-  rendered?: ReadonlyMap<Memory, Memory>,
-): Memory[] {
-  if (!block) return [];
-  return candidates.filter((m) =>
-    block.includes(formatMemory(rendered?.get(m) ?? m)),
-  );
+// Keep original indices: distinct stored rows can render as the same line.
+export function fittingLineIndices(
+  lines: string[],
+  available: number,
+  order = lines.map((_, i) => i),
+): number[] {
+  const kept: number[] = [];
+  for (const i of order) {
+    const cost = 1 + lines[i].length;
+    if (cost > available) continue;
+    available -= cost;
+    kept.push(i);
+  }
+  return kept;
 }
 
 // Trim an injection block to `budget` characters at WHOLE-line boundaries:
@@ -76,16 +76,10 @@ export function injectedRows(
 // when NOTHING but header lines survived — a dangling "## Relevant durable
 // memory" over zero memories is noise, not memory.
 export function capToBudget(block: string, budget: number): string {
-  const lines = block.split("\n");
-  // The header gives the block its meaning; if it does not fit, nothing does.
-  if (lines[0].length > budget) return "";
-  const kept: string[] = [lines[0]];
-  let len = lines[0].length;
-  for (const line of lines.slice(1)) {
-    if (len + line.length + 1 > budget) continue; // skip over-long lines, keep scanning
-    kept.push(line);
-    len += line.length + 1;
-  }
-  if (kept.every((l) => l.startsWith("## "))) return "";
-  return kept.join("\n");
+  const [header, ...lines] = block.split("\n");
+  if (header.length > budget) return "";
+  const kept = fittingLineIndices(lines, budget - header.length);
+  const result = [header, ...kept.map((i) => lines[i])];
+  if (result.every((line) => line.startsWith("## "))) return "";
+  return result.join("\n");
 }
