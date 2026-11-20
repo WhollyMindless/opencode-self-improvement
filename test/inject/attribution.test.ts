@@ -49,6 +49,12 @@ describe("deriveMemoryRefs", () => {
     expect(refs.paths).toContain("src/status.ts");
     expect(refs.paths).toContain("src/attribution.ts");
   });
+  test("a history lookup does not earn path credit for a later read", () => {
+    const refs = deriveMemoryRefs([
+      mem("Retired: `git log -- old/gate.ts`. Read src/new.ts."),
+    ]);
+    expect(refs.paths).toEqual(["src/new.ts"]);
+  });
   test("empty memories yield empty refs", () => {
     expect(deriveMemoryRefs([])).toEqual({ paths: [], commands: [] });
   });

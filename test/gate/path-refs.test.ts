@@ -4,6 +4,7 @@
 // (bare names, absolute, ~, $VAR, URLs, `..`) are trusted as before and never
 // produce a block.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,6 +45,17 @@ describe("checkablePathRefs — which refs are policed", () => {
     expect(checkablePathRefs("src/a.ts ... src/a.ts again")).toEqual([
       "src/a.ts",
     ]);
+  });
+
+  test("only the single path inside the documented history command is historical", () => {
+    for (const live of [
+      "git log -- src/old.ts",
+      "`git show -- src/old.ts`",
+      "`git log -- src/old.ts src/other.ts`",
+      "`git log -- src/old.ts:12`",
+    ])
+      expect(checkablePathRefs(live)).toContain("src/old.ts");
+    expect(checkablePathRefs("History: `git log -- src/old.ts`.")).toEqual([]);
   });
 
   test("the whole extension is kept: .tsx and .jsx are not cut to .ts and .js", () => {
@@ -99,6 +111,13 @@ describe("gate1 — existence check against liveRoot", () => {
     ).toEqual([]);
   });
 
+  test("unavailable Git history refuses the pointer even if an untracked file exists", async () => {
+    await Bun.write(join(liveRoot, "src", "untracked.ts"), "");
+    expect((await run("`git log -- src/untracked.ts`")).missingPaths).toEqual([
+      "src/untracked.ts",
+    ]);
+  });
+
   test("no refs at all short-circuits with empty missingPaths", async () => {
     const r = await run("no code references here whatsoever");
     expect(r.refs).toBe(0);
@@ -138,6 +157,71 @@ describe("runWriteGate — ref_path_missing block", () => {
     evidenceCalls: [],
     hasGateCheck: false,
     hasEngagement: true, // engagement would have promoted the ghost before this fix
+  });
+
+  test.each([
+    ["escaped opening backtick", "Use \\`git log -- src/old.ts` here."],
+    ["quoted command", "Render ``the text `git log -- src/old.ts` here``."],
+  ])("%s keeps the missing path live", async (_label, content) => {
+    const result = await runWriteGate(
+      { type: "context", scope: "demo", content },
+      ctx(),
+    );
+    expect(result.reason).toBe("ref_path_missing");
+    expect(result.hint).toContain("src/old.ts");
+  });
+
+  test("a history pointer never exempts a live claim in the same write", async () => {
+    const git = (...args: string[]) =>
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.invalid",
+          "-c",
+          "commit.gpgsign=false",
+          ...args,
+        ],
+        { cwd: liveRoot },
+      );
+    git("init", "--quiet");
+    mkdirSync(join(liveRoot, "bench"));
+    await Bun.write(join(liveRoot, "bench", "old.ts"), "retired");
+    git("add", "bench/old.ts");
+    git("commit", "-qm", "original file");
+    git("rm", "--quiet", "bench/old.ts");
+    git("commit", "-qm", "retire file");
+    const history =
+      "The retired runner is archived: `git log -- bench/old.ts`.";
+    for (const live of ["bench/old.ts", "src/other.ts"]) {
+      const result = await runWriteGate(
+        {
+          type: "context",
+          scope: "demo",
+          content: history + " Today we run " + live + ".",
+        },
+        ctx(),
+      );
+      expect(result.reason).toBe("ref_path_missing");
+      expect(result.hint).toContain(live);
+    }
+    const row = { type: "context" as const, scope: "demo", content: history };
+    for (const content of [
+      "`git log -- bench/invented.ts`",
+      history + " Also: `git log -- bench/invented.ts`.",
+    ]) {
+      const result = await runWriteGate({ ...row, content }, ctx());
+      expect(result.reason).toBe("ref_path_missing");
+      expect(result.hint).toContain("bench/invented.ts");
+    }
+    const ungrounded = await runWriteGate(row, {
+      ...ctx(),
+      hasEngagement: false,
+    });
+    expect(ungrounded.reason).toBe("ambiguous_memory");
+    expect((await runWriteGate(row, ctx())).action).toBe("promoted");
   });
 
   test("settled write citing a nonexistent repo path is blocked with a hint", async () => {
