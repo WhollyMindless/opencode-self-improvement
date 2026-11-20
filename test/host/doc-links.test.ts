@@ -38,6 +38,12 @@ function markdownFiles(): string[] {
 
 const FILES = markdownFiles();
 
+/**
+ * The index files every doc must appear in: `docs/README.md` for the
+ * directory, `docs/adr/README.md` for the decision records.
+ */
+const INDEXES = ["docs/README.md", "docs/adr/README.md"];
+
 /** Every non-external link target, resolved against the linking file. */
 function relativeLinks(): { from: string; raw: string; to: string }[] {
   const out: { from: string; raw: string; to: string }[] = [];
@@ -97,5 +103,44 @@ describe("documentation links", () => {
     // Stated directly, so removing `docs` from `files` fails by name rather
     // than by an empty link list.
     expect(PKG.files).toContain("docs");
+  });
+
+  test("every doc is listed in an index", () => {
+    // The checks above only prove a doc's own links resolve: a document
+    // nobody points at passes them all and stays reachable only by guessing
+    // its filename. The index is the navigation spine, so every doc must
+    // appear as a link in one of the index files.
+    const indexed = new Set<string>();
+    for (const index of INDEXES) {
+      const text = readFileSync(join(ROOT, index), "utf8");
+      for (const m of text.matchAll(/\]\(([^)\s]+)\)/g)) {
+        const raw = m[1];
+        if (/^(https?:|mailto:|#)/i.test(raw)) continue;
+        indexed.add(posix(normalize(join(dirname(index), raw.split("#")[0]))));
+      }
+    }
+    const orphans = FILES.filter(
+      (f) => f.startsWith("docs/") && !INDEXES.includes(f) && !indexed.has(f),
+    );
+    expect(orphans).toEqual([]);
+  });
+
+  test("the indexes exist and the README points at them", () => {
+    // An index nothing links to leaves the spine dangling: the root README
+    // is the one file every reader — on GitHub or in `node_modules` — has.
+    // The check is on the resolved link target, not the visible label, so a
+    // link that still reads "docs/README.md" but lands on some other page
+    // fails here instead of dead-ending for the reader.
+    for (const index of INDEXES) {
+      expect(existsSync(join(ROOT, index))).toBe(true);
+    }
+    const fromReadme = new Set(
+      relativeLinks()
+        .filter(({ from }) => from === "README.md")
+        .map(({ to }) => to),
+    );
+    for (const index of INDEXES) {
+      expect(fromReadme.has(index)).toBe(true);
+    }
   });
 });

@@ -188,6 +188,10 @@ One best-effort credential rule set (`src/secrets.ts`) replaces recognized value
 
 Same data behind each one (`memory_status`; no model call): the terminal **footer badge** — the injected block against its budget plus the measured session prompt-cache hit rate, with the dot color telling you whether the cache is warm — the **`/memory`** session panel, **`/memory-report`** for chat clients where the terminal slots do not exist, and a loopback-only **browser editor** (`bun memory-view`). What each shows, the badge colors, and what binding the editor to a non-loopback host costs you: [docs/surfaces.md](docs/surfaces.md).
 
+## Documentation
+
+Every document under `docs/`, one line each with its audience and summary: [docs/README.md](docs/README.md). The accepted architecture decisions, with status and supersession: [docs/adr/README.md](docs/adr/README.md).
+
 ## Development
 
 Nothing merges without the full gate; CI runs it as required checks (`lint`, `test`, `smoke`), and the same sequence is one command locally:
