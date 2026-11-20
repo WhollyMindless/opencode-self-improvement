@@ -907,7 +907,7 @@ export async function runWriteGate(
     // created.
     blockReason = "ref_path_missing";
     blockFlags = [`missing=${g1.missingPaths.join(",")}`];
-    hint = `Path ref(s) not found in the repo: ${g1.missingPaths.join(", ")}. Rephrase against the current tree (drop the path or fix it) and retry; use status="open" if the file is planned, not existing.`;
+    hint = `Path ref(s) not found in the repo: ${g1.missingPaths.join(", ")}. Correct the live citation, or cite a committed retired file as a single inline command: \`git log -- <path>\`. Each history pointer must exist in this checkout's Git history; use status="open" if the file is planned, not existing.`;
   } else if (canon && !canon.aligns) {
     blockReason = "conflicts_with_canonical";
     blockFlags = [

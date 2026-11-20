@@ -56,7 +56,11 @@ import { withStoreBatch } from "../src/store/lock.ts";
 import { memoryRoot } from "../src/core/config/paths.ts";
 import { nonCaptureTags } from "../src/core/guidance.ts";
 import { runWriteGate } from "../src/gate/gate.ts";
-import { checkablePathRefSpans } from "../src/gate/resolver.ts";
+import {
+  checkablePathRefSpans,
+  auditPathRefs,
+  missingHistoryPaths,
+} from "../src/gate/resolver.ts";
 import { resolveRepo } from "../src/identity/repokey.ts";
 import type { Memory } from "../src/store/model/memory.ts";
 
@@ -319,19 +323,23 @@ async function main(): Promise<number> {
   const skipped = all.filter((m) => isActive(m) && m.repo !== scope.key).length;
 
   for (const row of active) {
+    const { spans, history } = auditPathRefs(row.content);
+    const missingHistory = await missingHistoryPaths(repoRoot, history);
+    const dead = new Set(missingHistory);
     const fixes = new Map<string, { to: string; why: string }>();
-    for (const { ref } of checkablePathRefSpans(row.content)) {
+    for (const { ref } of spans) {
       if (fixes.has(ref)) continue;
       const fix = fixFor(ref);
       if (fix) fixes.set(ref, fix);
       else if (!here(ref)) {
-        reported.set(ref, (reported.get(ref) ?? 0) + 1);
+        dead.add(ref);
         // Names whichever path in the chain has two lifetimes, which need not
         // be the path the row cites: a reused destination is the common case.
         const amb = ambiguousHop(ref, renamed, reused);
         if (amb) reusedSeen.add(amb);
       }
     }
+    for (const ref of dead) reported.set(ref, (reported.get(ref) ?? 0) + 1);
     if (!fixes.size) continue;
     const content = applyRefFixes(
       row.content,
@@ -342,10 +350,13 @@ async function main(): Promise<number> {
       edits: [...fixes].map(([from, f]) => ({ from, to: f.to, why: f.why })),
       content,
       stillMissing: [
-        ...new Set(checkablePathRefSpans(content).map((s) => s.ref)),
-      ]
-        .filter((r) => !here(r))
-        .sort(),
+        ...new Set([
+          ...missingHistory,
+          ...checkablePathRefSpans(content)
+            .map((s) => s.ref)
+            .filter((r) => !here(r)),
+        ]),
+      ].sort(),
     });
   }
 
@@ -376,7 +387,8 @@ async function main(): Promise<number> {
     console.log(
       "\nNOT repointed — no rename at R90 or above in history, or the move also",
       "renamed the file, or the path existed once and was retired. Each is either",
-      "accurate history or a human reword; the script will not guess:\n",
+      "accurate history or a human reword; the script will not guess.",
+      "For a verified retired file, use the exact inline form: `git log -- <path>`.\n",
     );
     for (const [p, n] of [...reported].sort((a, b) => b[1] - a[1]))
       console.log(`  ${String(n).padStart(3)}x  ${p}`);
