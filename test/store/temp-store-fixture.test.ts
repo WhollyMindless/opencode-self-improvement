@@ -1,6 +1,6 @@
 // Exercise fixture hooks in separate real Bun test runs. A failure or unsafe
 // root must not leave the next test pointed at a user's store.
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   existsSync,
   lstatSync,
@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { basename, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { withTempStore } from "../harness.ts";
-import { removeStore } from "../helpers/remove-store.ts";
+import { removeStore, removeWhileBusy } from "../helpers/remove-store.ts";
 
 let root: string;
 beforeEach(() => {
@@ -213,4 +213,63 @@ test.each([
   "/outside",
 ])("rejects unsafe prefix %j before registering hooks", (prefix) => {
   expect(() => withTempStore({ prefix })).toThrow("prefix");
+});
+
+describe("a store whose handle outlived its test", () => {
+  // A held handle cannot be produced on Linux or macOS — both delete a file
+  // another descriptor still has open — so each branch is driven through the
+  // injected remover. Asserting on a real Windows runner would prove the
+  // platform, not the helper.
+  const busy = (code: string) =>
+    Object.assign(new Error(`${code}: resource busy or locked`), { code });
+
+  test("waits for the handle instead of failing the test that tore down last", () => {
+    let calls = 0;
+    const cleaned = removeWhileBusy(() => {
+      calls++;
+      if (calls < 3) throw busy("EBUSY");
+    });
+    expect(cleaned).toBe(true);
+    expect(calls).toBe(3);
+  });
+
+  test("reports and abandons a delete that never frees, rather than throwing", () => {
+    // Throwing here fails whichever test happened to be tearing down, not the
+    // one that leaked the handle, so the budget has to end in a report.
+    const seen: string[] = [];
+    let calls = 0;
+    const cleaned = removeWhileBusy(
+      () => {
+        calls++;
+        throw busy("EPERM");
+      },
+      { budgetMs: 150, label: "osi-store-x", warn: (m) => seen.push(m) },
+    );
+    expect(cleaned).toBe(false);
+    expect(calls).toBeGreaterThan(1);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("osi-store-x");
+    expect(seen[0]).toContain("EPERM");
+  });
+
+  test("a refusal that is not a held handle throws at once, unretried", () => {
+    let calls = 0;
+    expect(() =>
+      removeWhileBusy(
+        () => {
+          calls++;
+          throw busy("ENAMETOOLONG");
+        },
+        { warn: () => {} },
+      ),
+    ).toThrow(/ENAMETOOLONG/);
+    expect(calls).toBe(1);
+  });
+
+  test("a quiet store is still removed completely", () => {
+    const dir = mkdtempSync(join(realpathSync(tmpdir()), "osi-remove-quiet-"));
+    writeFileSync(join(dir, "2026-11-20.logfmt"), "content=quiet\n");
+    removeStore(dir);
+    expect(existsSync(dir)).toBe(false);
+  });
 });
