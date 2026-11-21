@@ -20,8 +20,19 @@
 //   deliberately skipped          -> auto_capture_skipped, no start line
 //   reached the model, no verdict -> auto_capture_start, no capture_cost
 //   disposed, no turn-end seen    -> auto_capture_dispose, no start line
+//
+// NOT covered — a pass cut BEFORE the receipt (during the context read or the
+// awaited known-rows read) writes no line at all, so that band stays silent like
+// the original failure. The receipt trades that band for not misreporting a
+// healthy skip as a cut; it is not full coverage.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resetState } from "../../src/core/state.ts";
@@ -130,7 +141,7 @@ test("a pass cut at the model call records auto_capture_start and no capture_cos
   await waitFor(() => loaded.capture.generate.calls.length === 1);
 
   const ev = readEvidenceLog();
-  const start = ev.find((l) => l.ev === "auto_capture_start");
+  const start = ev.find((l) => l.ev === "auto_capture_start" && l.sid === sid);
   // The receipt is the only trace a cut pass leaves, so it must be present.
   expect(start).toBeDefined();
   expect(String(start?.trigger)).toBe("idle");
@@ -188,4 +199,58 @@ test("disposal of an armed instance with no turn-end event records auto_capture_
   expect(miss).toBeDefined();
   expect(String(miss?.reason)).toBe("no_turn_end_observed");
   expect(String(miss?.armed)).toBe("true");
+});
+
+test("a cut outranks a later dispose from another instance", () => {
+  const now = Date.now();
+  const ago = (min: number) => new Date(now - min * 60_000).toISOString();
+  // An earlier cut (a start with no completion) and a LATER dispose from a
+  // different idle instance. The observed loss must win; a newer benign line
+  // must not overwrite it. Recency would render the dispose and hide the cut.
+  const lines = [
+    `ev=plugin_load ts=${ago(120)} capture=on`,
+    `ev=auto_capture_start ts=${ago(60)} sid=ses-cut trigger=idle model=fake/model`,
+    `ev=auto_capture_dispose ts=${ago(1)} armed=true turn_end_events=0 passes=0 reason=no_turn_end_observed`,
+  ];
+  const rendered = captureLines(captureHealth(lines, 30, now)).join("\n");
+  expect(rendered).toContain("reached the model call");
+  expect(rendered).not.toContain("NEVER FIRED");
+});
+
+test("an unwritable evidence log does not stop the capture model call", async () => {
+  const loaded = await loadPlugin(root, {
+    autoCapture: true,
+    captureModel: "fake/model",
+  });
+  plugin = loaded;
+  const sid = "ses-ro";
+  // The receipt is the first write after plugin_load. Make it fail: the evidence
+  // file exists and is set read-only, so the synchronous append throws EACCES
+  // before the model call. The pass must still reach generate.text — an
+  // observability write cannot be allowed to cancel the capture it reports.
+  const file = join(evidenceDir(), `${dateStr()}.logfmt`);
+  await waitFor(() => existsSync(file), 3000);
+  chmodSync(file, 0o400);
+  const park = parked();
+  try {
+    loaded.capture.context.messages = thickMessages();
+    loaded.capture.generate.park = park.promise;
+    loaded.capture.generate.response = "[]";
+    await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: sid },
+    });
+    let reached = false;
+    try {
+      await waitFor(() => loaded.capture.generate.calls.length === 1, 3000);
+      reached = true;
+    } catch {
+      reached = false;
+    }
+    expect(reached).toBe(true);
+  } finally {
+    chmodSync(file, 0o600);
+    park.release();
+  }
 });

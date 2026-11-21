@@ -634,21 +634,32 @@ export function configureAutoCapture(
         // async: an async write here yields the event loop several times and
         // measurably shrinks the window the model call has to finish before the
         // host exits. It sits after the context read and the known-rows read on
-        // purpose — a pass disposed during either returns at its abort check and
-        // leaves no trace (the teardown contract) — so a start line with no
-        // `capture_cost` is a pass cut AT the model call, the state otherwise
-        // byte-identical to "disabled" or "ran and found nothing."
+        // purpose, so a start line with no `capture_cost` is a pass cut AT the
+        // model call — the state otherwise byte-identical to "disabled" or "ran
+        // and found nothing." The cost of that placement: a pass cut DURING the
+        // context read or the known-rows read, before this line, still leaves no
+        // trace, so that band is silent by design (see the evidence doc). The
+        // write is guarded like the disposal flush: an unwritable evidence log
+        // (read-only mount, foreign owner, ENOSPC) must never abort the pass
+        // before its model call — observability cannot be allowed to cause the
+        // loss it exists to detect.
         passesStarted++;
-        recordSync(
-          "auto_capture_start",
-          {
-            trigger,
-            ...(modelTag ? { model: modelTag } : {}),
-          },
-          true,
-          sid,
-          captureGate.evidenceContext,
-        );
+        try {
+          recordSync(
+            "auto_capture_start",
+            {
+              trigger,
+              ...(modelTag ? { model: modelTag } : {}),
+            },
+            true,
+            sid,
+            captureGate.evidenceContext,
+          );
+        } catch {
+          // The receipt is best-effort. A failed write here must not stop the
+          // model call or tear down the subscription; the pass simply runs
+          // without leaving its start line.
+        }
         const out = await generateApi.text({
           model,
           prompt: capturePrompt,
