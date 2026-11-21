@@ -6,7 +6,7 @@
 // GATE-3 rivalry cannot cover this: it competes only decision/preference rows,
 // and corrections of remembered facts are context/learning.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWriteGate } from "../../src/gate/gate.ts";
@@ -393,6 +393,30 @@ describe("the gate retires a corrected row in the data", () => {
   });
 
   test("a blocked correction retires nothing", async () => {
+    const path = join(root, "src", "rates.ts");
+    await Bun.write(path, "export const VAT_BPS = 2150;");
+    const first = await write(
+      "This site's fallback VAT rate is 2150 basis points (VAT_BPS). See src/rates.ts.",
+    );
+    expect(first.action).toBe("promoted");
+    unlinkSync(path);
+    const correction =
+      "This site's fallback VAT rate is 1900 basis points (VAT_BPS). See src/rates.ts.";
+    const blocked = await write(correction);
+    expect(blocked.reason).toBe("ref_path_missing");
+    const rows = await loadAll();
+    expect(rows.map((row) => row.ts)).toEqual([first.ts!]);
+    expect(rows[0]?.superseded_by).toBeUndefined();
+
+    await Bun.write(path, "export const VAT_BPS = 1900;");
+    const accepted = await write(correction);
+    expect(accepted.action).toBe("promoted");
+    expect(
+      (await loadAll()).find((row) => row.ts === first.ts)?.superseded_by,
+    ).toBe(accepted.ts);
+  });
+
+  test("a collapsed duplicate retires nothing", async () => {
     await write(
       "This site's fallback VAT rate is 2150 basis points (VAT_BPS).",
     );

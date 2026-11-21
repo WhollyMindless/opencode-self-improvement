@@ -23,6 +23,7 @@ import { prune } from "../../src/store/files/prune.ts";
 import { snapshotFiles } from "../../src/store/files/snapshots.ts";
 import { markSuperseded } from "../../src/store/files/supersede.ts";
 import { restoreSnapshot } from "../../src/store/undo.ts";
+import { setLockAcquiredHook } from "../../src/store/lock.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 const DAY = new Date().toISOString().slice(0, 10);
@@ -163,22 +164,37 @@ describe("restore racing appends", () => {
   test("a restore in flight does not lose a concurrent append", async () => {
     const seeded = await seed(20);
     const [snap] = await snapshotFiles([store()]);
-    const appended = await Promise.all(
-      Array.from({ length: 20 }, (_, i) =>
-        appendMemory({ type: "pattern", scope: "racer", content: `late ${i}` }),
-      ),
-    );
-    const first = seeded[0] ?? "";
-    const res = await Promise.all([
-      restoreSnapshot(snap, memoryRoot(), "merge"),
-      ...appended.map(() =>
-        markSuperseded(first, { superseded_by: "s", reason: "drift" }),
-      ),
-    ]);
-    expect(res[0].restored).toBe(true);
-    const lines = await rawLines();
-    for (const ts of appended)
-      expect(lines.some((l) => l.includes(`ts=${ts}`))).toBe(true);
+    // Restoring the missing first row proves that a publication actually happened.
+    writeFileSync(store(), (await rawLines()).slice(1).join("\n") + "\n");
+    const locked = Promise.withResolvers<void>();
+    setLockAcquiredHook((file) => {
+      if (file === store()) locked.resolve();
+    });
+    try {
+      const restore = restoreSnapshot(snap, memoryRoot(), "merge");
+      await Promise.race([
+        locked.promise,
+        restore.then(() => {
+          throw new Error(
+            "restore finished before acquiring the day-file lock",
+          );
+        }),
+      ]);
+      const [result, appended] = await Promise.all([
+        restore,
+        appendMemory({
+          type: "pattern",
+          scope: "racer",
+          content: "late append during restore",
+        }),
+      ]);
+      expect(result.restored).toBe(true);
+      expect((await loadAll()).map((row) => row.ts).sort()).toEqual(
+        [...seeded, appended].sort(),
+      );
+    } finally {
+      setLockAcquiredHook();
+    }
   }, 30_000);
 
   test("a force restore under contention leaves no row in neither place", async () => {

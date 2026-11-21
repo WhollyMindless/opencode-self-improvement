@@ -121,7 +121,11 @@ describe("memory_recall additive clash", () => {
       query: "BabylonDocs build command",
       limit: 5,
     });
-    expect(out).toContain("npm run build:example-images");
+    expect(
+      out.split("\n").filter((line) => line.startsWith("- [")),
+    ).toHaveLength(1);
+    expect(out).toContain(BUILD_EXAMPLES);
+    expect(out).not.toContain(BUILD);
     expect(out).not.toContain("AMBIGUOUS");
     await loaded.cleanup();
   });
