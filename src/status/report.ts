@@ -177,10 +177,32 @@ export function captureLines(c: CaptureHealth): string[] {
       // `capture_lag` completion receipt. A successful capture whose model
       // returned `[]` writes only the receipt, and is alive, not inert
       // ( F1).
-      if (!c.lastExecuted && c.rows === 0 && c.blocked === 0)
+      if (!c.lastExecuted && c.rows === 0 && c.blocked === 0) {
+        // No completion, no promoted row, no refusal in the window. Rank the
+        // remaining signals by SEVERITY, never by recency: a later benign line
+        // from another instance must not overwrite an earlier loss. These can
+        // coexist in one 30-day window (different sessions and instances), so
+        // precedence is fixed:
+        //   1. a pass reached the model call but recorded no verdict (lastStarted)
+        //      — an observed fact and a real loss, so it wins outright;
+        //   2. an armed instance disposed with no turn-end event observed
+        //      (lastMissed) — a predictive absence, weaker than an observed cut;
+        //   3. nothing ran at all.
+        // A completion anywhere in the window (capture_cost/capture_lag, a
+        // promoted row, a refusal) is reported as alive above; that masks a
+        // same-window cut, a known limitation stated here, not a verdict.
+        if (c.lastStarted)
+          return [
+            "  auto-capture: ARMED — a pass reached the model call but recorded no verdict; the turn-end event arrived and the pass did not complete.",
+          ];
+        if (c.lastMissed)
+          return [
+            "  auto-capture: ARMED BUT NEVER FIRED — no turn-end event was observed before disposal; this state has not been seen on a released host (an idle restart also produces it).",
+          ];
         return [
           "  auto-capture: ARMED BUT NEVER FIRED — capture is on, no auto_capture_* or capture_lag lines in the last 30d",
         ];
+      }
       const fired = c.lastFired ?? c.lastExecuted;
       return [
         `  auto-capture: on, last fired ${fired ? ago(fired) : "now"}, ${c.rows} rows, ${c.blocked} refused`,
