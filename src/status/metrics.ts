@@ -192,6 +192,7 @@ export interface CaptureHealth {
    * instance restarted between turns produces it too.
    */
   lastMissed?: string | null;
+  lastSkipped?: { ts: string; reason: string };
 }
 
 const CAPTURE_STATES: readonly CaptureHealthState[] = [
@@ -216,6 +217,7 @@ export function captureHealth(
   let lastExecuted: string | null = null;
   let lastStarted: string | null = null;
   let lastMissed: string | null = null;
+  let lastSkipped: CaptureHealth["lastSkipped"];
   for (const line of lines) {
     const f = parseLine(line);
     if (!f) continue;
@@ -256,6 +258,13 @@ export function captureHealth(
     }
     if (!ev.startsWith("auto_capture_")) continue;
     if (ts && ts < cutoff) continue;
+    if (
+      ev === "auto_capture_skipped" &&
+      ts &&
+      (!lastSkipped || ts > lastSkipped.ts)
+    ) {
+      lastSkipped = { ts, reason: String(f.reason ?? "") };
+    }
     if (ev.endsWith("promoted")) rows++;
     else if (
       ev.endsWith("blocked") ||
@@ -273,5 +282,6 @@ export function captureHealth(
     lastExecuted,
     lastStarted,
     lastMissed,
+    lastSkipped,
   };
 }

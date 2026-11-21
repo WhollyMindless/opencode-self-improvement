@@ -178,6 +178,15 @@ export function captureLines(c: CaptureHealth): string[] {
       // returned `[]` writes only the receipt, and is alive, not inert
       // ( F1).
       if (!c.lastExecuted && c.rows === 0 && c.blocked === 0) {
+        const skip = c.lastSkipped;
+        if (
+          skip &&
+          skip.ts >= (c.lastStarted ?? "") &&
+          skip.ts >= (c.lastMissed ?? "")
+        ) {
+          const reason = skip.reason ? ` (${skip.reason})` : "";
+          return [`  auto-capture: on, last turn skipped${reason}`];
+        }
         // A pass reached the model call but recorded no verdict, or an armed
         // instance was disposed with no turn-end event observed. Render whichever
         // line is newer: a stale start must not outrank a fresh dispose, nor the

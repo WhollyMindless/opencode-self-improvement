@@ -167,9 +167,7 @@ test("a deliberately skipped turn records no start line and is not reported as a
   expect(ev.some((l) => l.ev === "auto_capture_start")).toBe(false);
   // And the rendered health must not diagnose this healthy skip as a lost pass.
   const rendered = captureLines(captureHealth(rawLines())).join("\n");
-  expect(rendered).not.toMatch(
-    /started|reached the model call|cut by host teardown/,
-  );
+  expect(rendered).toContain("skipped (transcript_too_thin)");
 });
 
 test("disposal of an armed instance with no turn-end event records auto_capture_dispose", async () => {
