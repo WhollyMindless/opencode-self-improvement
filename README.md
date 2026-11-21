@@ -150,7 +150,7 @@ A write that cites code references builds one tree index — a single recursive 
 
 ## The store keeps score
 
-The plugin keeps a use ledger — a due-date card for every row: who looked at it, when, and how it reached them. It is append-only, never ingested as a memory, and reported in `memory_status` and the `/memory` panel.
+The append-only use ledger records who received each row, when, and how. It stays outside memory ingestion. View it in `memory_status` or the `/memory` panel.
 
 - **Use has three distinct sources** — the row rode the injected block, `memory_recall` returned it, or a grep/read pull appended it — because "the model asked" and "the harness offered" are different facts. No prompt content is stored: the ledger keeps a scan-truncated string from the *memory* side, never your message.
 - **Reinforcement is a tie-break only** (`useBoost ≤ 1.0`): a recently used row wins a tie and can never outrank a real score gap.
