@@ -177,6 +177,20 @@ export interface CaptureHealth {
    * only this line, so the inert verdict must consult it ( F1).
    */
   lastExecuted: string | null;
+  /**
+   * Newest `auto_capture_start` receipt: the turn-end event reached the plugin
+   * and a pass began, even if it never completed. A pass cut by process
+   * exit leaves this line and no `capture_cost`, which is a different fact from
+   * "the event never arrived" (no start line) and from "ran and found nothing"
+   * (a `capture_lag` receipt).
+   */
+  lastStarted?: string | null;
+  /**
+   * Newest `auto_capture_dispose` flush: an armed instance was disposed without
+   * ever receiving a turn-end event. The host dispatched turn-end and
+   * exited before the subscription saw it.
+   */
+  lastMissed?: string | null;
 }
 
 const CAPTURE_STATES: readonly CaptureHealthState[] = [
@@ -199,6 +213,8 @@ export function captureHealth(
   let blocked = 0;
   let lastFired: string | null = null;
   let lastExecuted: string | null = null;
+  let lastStarted: string | null = null;
+  let lastMissed: string | null = null;
   for (const line of lines) {
     const f = parseLine(line);
     if (!f) continue;
@@ -223,6 +239,20 @@ export function captureHealth(
         lastExecuted = ts;
       continue;
     }
+    if (ev === "auto_capture_start") {
+      // A pass began (the turn-end event reached the plugin). Tracked apart from
+      // lastFired: a start with no completion is a cut, not a verdict, so
+      // it must not make a never-completed capture look "fired and alive."
+      if (ts && ts >= cutoff && (!lastStarted || ts > lastStarted))
+        lastStarted = ts;
+      continue;
+    }
+    if (ev === "auto_capture_dispose") {
+      // The disposal flush: armed, disposed, never a turn-end event.
+      if (ts && ts >= cutoff && (!lastMissed || ts > lastMissed))
+        lastMissed = ts;
+      continue;
+    }
     if (!ev.startsWith("auto_capture_")) continue;
     if (ts && ts < cutoff) continue;
     if (ev.endsWith("promoted")) rows++;
@@ -234,5 +264,13 @@ export function captureHealth(
       blocked++;
     if (ts && (!lastFired || ts > lastFired)) lastFired = ts;
   }
-  return { state, rows, blocked, lastFired, lastExecuted };
+  return {
+    state,
+    rows,
+    blocked,
+    lastFired,
+    lastExecuted,
+    lastStarted,
+    lastMissed,
+  };
 }

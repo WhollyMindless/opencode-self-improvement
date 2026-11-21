@@ -177,10 +177,24 @@ export function captureLines(c: CaptureHealth): string[] {
       // `capture_lag` completion receipt. A successful capture whose model
       // returned `[]` writes only the receipt, and is alive, not inert
       // ( F1).
-      if (!c.lastExecuted && c.rows === 0 && c.blocked === 0)
+      if (!c.lastExecuted && c.rows === 0 && c.blocked === 0) {
+        // A pass began (the turn-end event reached the plugin) but never
+        // completed — the host exited mid-pass. Distinct from "never fired": the
+        // event arrived, the work was cut.
+        if (c.lastStarted)
+          return [
+            "  auto-capture: ARMED — a pass started but never completed (cut by host teardown before a verdict; #406). The turn-end event reached the plugin; the model call did not finish.",
+          ];
+        // An armed instance was disposed without the subscription ever
+        // receiving a turn-end event — the host dispatched turn-end and exited.
+        if (c.lastMissed)
+          return [
+            "  auto-capture: ARMED BUT NEVER FIRED — the turn-end event was not delivered to the plugin (host exited before dispatch reached it; #406). No pass could start.",
+          ];
         return [
           "  auto-capture: ARMED BUT NEVER FIRED — capture is on, no auto_capture_* or capture_lag lines in the last 30d",
         ];
+      }
       const fired = c.lastFired ?? c.lastExecuted;
       return [
         `  auto-capture: on, last fired ${fired ? ago(fired) : "now"}, ${c.rows} rows, ${c.blocked} refused`,

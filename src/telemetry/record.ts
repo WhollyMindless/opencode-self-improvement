@@ -1,7 +1,7 @@
 // Evidence log writer. One logfmt line per event, appended in hook order to
 // ~/.config/opencode/memory/evidence/<date>.logfmt. Evidence is DATA: never
 // injected into chat, and stored outside every repo.
-import { existsSync, realpathSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { evidenceDir } from "../core/config/paths.ts";
@@ -135,15 +135,21 @@ export function targetRepoFields(target: {
     : { repo: "global", repoPath: undefined };
 }
 
-export async function record(
+// Builds one evidence line exactly as `record` would, synchronously. Split out
+// so `recordSync` can flush a line without yielding the event loop — the
+// capture-start receipt must land before the host can cut the handler, and the
+// async `appendLog` path (mkdir + open + chmod + stat + append + close) yields
+// several times, which measurably shrinks the window the capture model call has
+// to finish on a fast-exiting `opencode run`.
+function buildEvidenceLine(
   ev: EvidenceEvent,
-  fields: Record<string, unknown> = {},
-  includeContext = true,
+  fields: Record<string, unknown>,
+  includeContext: boolean,
   sessionID?: string,
   context?: EvidenceContext,
-): Promise<void> {
+): string {
   const { sid, call, scope } = context ?? captureEvidenceContext(sessionID);
-  const line = formatLine({
+  return formatLine({
     ev,
     ts: new Date().toISOString(),
     // A captured unresolved owner still needs a privacy label: without sid or
@@ -157,7 +163,53 @@ export async function record(
     ...(scope ? { repo: scope.key, repoPath: scope.path } : {}),
     ...scrubFields(fields),
   });
+}
+
+export async function record(
+  ev: EvidenceEvent,
+  fields: Record<string, unknown> = {},
+  includeContext = true,
+  sessionID?: string,
+  context?: EvidenceContext,
+): Promise<void> {
+  const line = buildEvidenceLine(
+    ev,
+    fields,
+    includeContext,
+    sessionID,
+    context,
+  );
   await appendLog(join(evidenceDir(), `${dateStr()}.logfmt`), line);
+}
+
+/**
+ * Synchronous counterpart to `record`. Use ONLY where a write must land before
+ * the process can be cut — currently the capture-start receipt. It does
+ * not yield, so the host's exit logic (also on the event loop) cannot preempt
+ * it, and it leaves the model call's teardown window intact. Same line shape,
+ * same redaction, same O_APPEND semantics as `appendLog`.
+ */
+export function recordSync(
+  ev: EvidenceEvent,
+  fields: Record<string, unknown> = {},
+  includeContext = true,
+  sessionID?: string,
+  context?: EvidenceContext,
+): void {
+  const dir = evidenceDir();
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const line = buildEvidenceLine(
+    ev,
+    fields,
+    includeContext,
+    sessionID,
+    context,
+  );
+  appendFileSync(
+    join(dir, `${dateStr()}.logfmt`),
+    line.endsWith("\n") ? line : `${line}\n`,
+    { mode: 0o600, flag: "a" },
+  );
 }
 
 export function contentHash(content: string): string {
