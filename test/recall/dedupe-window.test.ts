@@ -336,6 +336,43 @@ describe("dedupeWindowGrouped", () => {
     expect(out.groups).toEqual([]);
   });
 
+  // The two mixed-rank orderings of the same fixture: the substituted row now
+  // arrives after an unrelated row, so it meets the additive pair from the far
+  // side. Both branches of the ride decision have to hold here, not just the
+  // one the original fixture reaches.
+  const mixedOrder = (a: number, b: number, d: number) => [
+    mem("release", CHECKLIST, `2026-01-01T00:00:0${a}.000Z`),
+    printer("2026-01-01T00:00:01.000Z"),
+    mem("release", WITH_STAGING, `2026-01-01T00:00:0${b}.000Z`),
+    mem("release", WITH_ROLLBACKS, `2026-01-01T00:00:0${d}.000Z`),
+    calendar("2026-01-01T00:00:05.000Z"),
+  ];
+  const PRINTER = "release printer driver requires manual installation";
+  const CALENDAR = "release calendar meeting uses the shared agenda";
+
+  test("a candidate that wins one clash and loses another does not ride", () => {
+    // The substituted row beats the older additive row but loses to the newer
+    // one. Writing the slot it won would drop a row it never outranked.
+    const out = dedupeWindowGrouped(mixedOrder(4, 2, 3), 4, DEFAULT_THRESHOLD);
+    expect(out.rows.map((m) => m.content)).toEqual([
+      CHECKLIST,
+      PRINTER,
+      WITH_STAGING,
+      CALENDAR,
+    ]);
+  });
+
+  test("a candidate that wins both clashes takes the first slot, not the last", () => {
+    // Slot choice is rank, not scan order: taking the last clashing slot moved
+    // an unrelated row ahead of the winner and changed the top recall result.
+    const out = dedupeWindowGrouped(mixedOrder(0, 2, 3), 4, DEFAULT_THRESHOLD);
+    expect(out.rows.map((m) => m.content)).toEqual([
+      WITH_ROLLBACKS,
+      PRINTER,
+      CALENDAR,
+    ]);
+  });
+
   test("grouping spends slots and never exceeds the limit", () => {
     const base =
       "the ingest worker retries a failed batch three times then parks it on the dead letter queue";

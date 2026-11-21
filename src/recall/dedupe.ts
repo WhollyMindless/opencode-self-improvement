@@ -272,7 +272,7 @@ export function dedupeWindowGrouped(
     // a slot on a duplicate while a distinct row waits outside — the exact loss
     // this pass exists to prevent. A collapse therefore outranks a group.
     let addition = -1; // first clash that names something new
-    let collapse = -1; // a clash that is a copy or a correction
+    let collapse = -1; // FIRST clash that is a copy or a correction
     // Every collapse clash the candidate wins, not just the first. A row can
     // beat two kept rows in one pass and the two classes differ: it may be a
     // substitution of one and an exact copy of another. Taking only the first
@@ -306,7 +306,7 @@ export function dedupeWindowGrouped(
         collapse = pos;
         break;
       }
-      collapse = pos;
+      if (collapse < 0) collapse = pos;
       if (ranked[k]!.ts >= ranked[i]!.ts) outranked = true;
       else beaten.push(pos);
     }
@@ -318,11 +318,14 @@ export function dedupeWindowGrouped(
     ) {
       kept.push(i);
     } else if (collapse >= 0) {
-      if (ranked[i]!.ts > ranked[kept[collapse]!]!.ts) kept[collapse] = i;
-      // The slots the candidate wins against must go with the slot it takes,
-      // and only when the candidate actually rides: a vacated slot is refilled
-      // by the next distinct row, which is the whole point of the pass.
-      if (!outranked && kept[collapse] === i && beaten.length > 1) {
+      // Decided before any slot changes. A candidate that loses to a newer kept
+      // row does not ride, so it must not overwrite the older row it also
+      // beat: that would drop a row the candidate never outranked.
+      // A winner takes the FIRST clashing slot, keeping its rank, and every
+      // other slot it won is removed so the scan refills it.
+      const rides = !outranked && ranked[i]!.ts > ranked[kept[collapse]!]!.ts;
+      if (rides) {
+        kept[collapse] = i;
         for (const pos of beaten) {
           if (pos !== collapse) vacated.add(pos);
         }
