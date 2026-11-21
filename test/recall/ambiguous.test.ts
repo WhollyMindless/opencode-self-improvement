@@ -47,6 +47,49 @@ describe("ambiguousLine", () => {
     );
   });
 
+  const REQ_OLDER = mem(
+    "release",
+    "the release build requires node python and docker installed on the runner machine",
+  );
+  const REQ_NEWER: Memory = {
+    ...REQ_OLDER,
+    ts: "2026-01-01T00:00:01.000Z",
+    content:
+      "the release build requires node and docker installed on the runner machine",
+  };
+
+  test("a newer row that drops a token is not called a peer of the older one", () => {
+    // Containment cannot distinguish "the longer row adds a case" from "the
+    // newer row corrected the older one". Asserting neither supersedes the other
+    // states as fact the thing the text cannot establish.
+    const line = ambiguousLine([REQ_OLDER, REQ_NEWER], [1, 2]);
+    expect(line).toContain("only in 1: python");
+    expect(line).toContain("row 2 drops python from row 1");
+    expect(line).toContain("may be a correction rather than a narrower case");
+    expect(line).toContain("both stay available");
+    expect(line).not.toContain("neither supersedes the other");
+  });
+
+  test("a newer row that only adds keeps the neutral instruction", () => {
+    const older: Memory = { ...BUILD, ts: "2026-01-01T00:00:00.000Z" };
+    const newer: Memory = {
+      ...BUILD_EXAMPLES,
+      ts: "2026-01-01T00:00:01.000Z",
+    };
+    const line = ambiguousLine([older, newer], [1, 2]);
+    expect(line).toContain("neither supersedes the other");
+    expect(line).not.toContain("drops");
+  });
+
+  test("a family sharing one timestamp carries no direction and is not guessed", () => {
+    const line = ambiguousLine(
+      [REQ_OLDER, { ...REQ_NEWER, ts: REQ_OLDER.ts }],
+      [1, 2],
+    );
+    expect(line).toContain("neither supersedes the other");
+    expect(line).not.toContain("drops");
+  });
+
   test("the token list is capped and says how much was withheld", () => {
     const base =
       "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo";
