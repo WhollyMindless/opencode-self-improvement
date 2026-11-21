@@ -66,25 +66,28 @@ function resultText(result: unknown): string | undefined {
   return undefined;
 }
 
-// Only decode results that can settle a placement in this session.
-function toolResults(
+// Each copy must independently prove its rows. Replayed copies cannot combine
+// their line counts to identify otherwise ambiguous rows.
+function observedRows(
   messages: unknown,
   pending: Map<string, HeldPull>,
-): Map<string, string> {
-  const out = new Map<string, string>();
-  if (!Array.isArray(messages)) return out;
+): Map<HeldPull, Set<Memory>> {
+  const observed = new Map<HeldPull, Set<Memory>>();
+  if (!Array.isArray(messages)) return observed;
   for (const msg of messages) {
     if (msg?.role !== "tool" || !Array.isArray(msg.content)) continue;
     for (const part of msg.content) {
       if (part?.type !== "tool-result") continue;
       const entry = pending.get(part.id);
       if (!entry || entry.tool !== part.name) continue;
-      const text = resultText(part.result) ?? "";
-      if (!out.has(entry.callID) || text.split(/\r?\n/).includes(entry.header))
-        out.set(entry.callID, text);
+      const rows = survivingRows(entry, resultText(part.result) ?? "");
+      if (!rows) continue;
+      const kept = observed.get(entry) ?? new Set<Memory>();
+      for (const row of rows) kept.add(row);
+      observed.set(entry, kept);
     }
   }
-  return out;
+  return observed;
 }
 
 // The placement header distinguishes this block from quoted output and earlier calls.
@@ -115,8 +118,7 @@ export interface PullReceipts {
   /**
    * Settle the placements one request can answer. `sid` and `messages` come
    * from one session.context event. A matching placement header settles the
-   * entry before any await. An absent header can be reported once while
-   * the placement remains eligible until its deadline.
+   * entry before any await. A missing header leaves the placement pending.
    */
   settle(
     sid: string | undefined,
@@ -140,7 +142,6 @@ export function createPullReceipts({
 } = {}): PullReceipts {
   // Insertion-ordered: the first entry is always the oldest placement.
   const held = new Map<string, HeldPull>();
-  const absent = new WeakSet<HeldPull>();
   const keyOf = (sid: string, callID: string) => `${sid}\u0000${callID}`;
 
   return {
@@ -186,26 +187,9 @@ export function createPullReceipts({
         if (entry.sid === sid) pending.set(entry.callID, entry);
       }
       if (!pending.size) return { credits, losses };
-      const results = toolResults(messages, pending);
-      for (const [key, entry] of held) {
-        if (entry.sid !== sid) continue;
-        const text = results.get(entry.callID);
-        if (text === undefined) continue;
-        const rows = survivingRows(entry, text);
-        if (rows === undefined) {
-          // A replay of an earlier call can have this ID. Report the missing
-          // block once, but allow a later request to identify the real placement.
-          if (!absent.has(entry)) {
-            absent.add(entry);
-            losses.push({
-              held: entry,
-              rows: entry.rows.length,
-              reason: "trimmed",
-            });
-          }
-          continue;
-        }
-        held.delete(key);
+      for (const [entry, visible] of observedRows(messages, pending)) {
+        held.delete(keyOf(entry.sid, entry.callID));
+        const rows = entry.rows.filter((row) => visible.has(row));
         if (rows.length) credits.push({ held: entry, rows });
         if (rows.length < entry.rows.length)
           losses.push({

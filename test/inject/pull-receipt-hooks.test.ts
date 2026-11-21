@@ -106,6 +106,7 @@ async function request(
   sid: string,
   callID: string,
   text: string,
+  ...others: { id: string; text: string }[]
 ) {
   await p.sessionHooks.context({
     sessionID: sid,
@@ -113,14 +114,12 @@ async function request(
     messages: [
       {
         role: "tool",
-        content: [
-          {
-            type: "tool-result",
-            id: callID,
-            name: "read",
-            result: { type: "content", value: [{ type: "text", text }] },
-          },
-        ],
+        content: [{ id: callID, text }, ...others].map(({ id, text }) => ({
+          type: "tool-result",
+          id,
+          name: "read",
+          result: { type: "content", value: [{ type: "text", text }] },
+        })),
       },
     ],
   });
@@ -181,10 +180,12 @@ describe("Feature: a pull is credited by the request that carries it", () => {
     await p.sessionHooks.prompt({ sessionID: sid, prompt: { text: "go" } });
     const event = await read(p, sid, "call-trimmed");
     expect(textOf(event)).toContain(ROW);
-    // A second plugin's execute.after hook, registered after memory.
-    event.result.content = [
-      { type: "text", text: textOf(event).slice(0, 200) },
-    ];
+    // Keep the header so the request identifies this placement, then clip its row.
+    const clipped = textOf(event)
+      .split("\n")
+      .filter((line) => !line.includes(ROW))
+      .join("\n");
+    event.result.content = [{ type: "text", text: clipped }];
 
     resetSessionScopes();
     setRepoScope(null);
@@ -224,6 +225,7 @@ describe("Feature: a pull is credited by the request that carries it", () => {
     expect(first).not.toBe(second);
     await request(p, sid, "reused", first);
     expect(await pullCredits()).toEqual([]);
+    expect(ev(readEvidenceLog(), "pull_undelivered")).toHaveLength(0);
     const third = textOf(await read(p, sid, "reused"));
     await request(p, sid, "reused", third + "\n" + PULL_HEADER);
     expect(await pullCredits()).toHaveLength(1);
@@ -302,6 +304,7 @@ describe("Feature: a pull is credited by the request that carries it", () => {
     const p = await plugin();
     const sid = "ses-contention";
     const event = await read(p, sid, "busy");
+    const second = await read(p, sid, "also-busy");
     const acquired = Promise.withResolvers<void>();
     const gate = Promise.withResolvers<void>();
     const holding = withStoreLock(hitsFile(), async () => {
@@ -311,9 +314,25 @@ describe("Feature: a pull is credited by the request that carries it", () => {
     await acquired.promise;
     try {
       const start = performance.now();
-      await request(p, sid, "busy", textOf(event));
+      await request(p, sid, "busy", textOf(event), {
+        id: "also-busy",
+        text: textOf(second),
+      });
       expect(performance.now() - start).toBeLessThan(1000);
       expect(await pullCredits()).toEqual([]);
+      const skipped = ev(readEvidenceLog(), "pull_credit_skipped");
+      expect(skipped.map((line) => line.reason)).toEqual([
+        "write_failed",
+        "budget",
+      ]);
+      expect(skipped[0]).toMatchObject({
+        reason: "write_failed",
+        tool: "read",
+        rows: "1",
+        repoPath: repo,
+      });
+      expect(skipped[1]).toMatchObject({ rows: "1", repoPath: repo });
+      expect(JSON.stringify(skipped)).not.toContain(CUE);
     } finally {
       gate.resolve();
       await holding;

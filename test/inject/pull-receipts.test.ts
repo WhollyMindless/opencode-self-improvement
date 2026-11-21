@@ -111,8 +111,14 @@ describe("Feature: credit what the request carries", () => {
       T0 + 1,
     );
     expect(credits).toEqual([]);
-    expect(losses).toHaveLength(1);
-    expect(losses[0]).toMatchObject({ rows: 1, reason: "trimmed" });
+    expect(losses).toEqual([]);
+    const expired = book.settle("ses-a", [], T0 + HELD_PULL_TTL_MS + 1);
+    expect(expired.losses.map(({ rows, reason }) => [rows, reason])).toEqual([
+      [1, "expired"],
+    ]);
+    expect(book.settle("ses-a", [], T0 + HELD_PULL_TTL_MS + 2).losses).toEqual(
+      [],
+    );
   });
 
   test("an earlier pull with identical rows cannot confirm a new placement", () => {
@@ -124,13 +130,14 @@ describe("Feature: credit what the request carries", () => {
       T0 + 1,
     );
     expect(credits).toHaveLength(0);
-    expect(losses).toHaveLength(1);
+    expect(losses).toEqual([]);
     expect(
       book.settle("ses-a", request("call-1", delivered([A])), T0 + 2).losses,
     ).toHaveLength(0);
     const fresh = delivered([A]).replace(PULL_HEADER, PULL_HEADER + " [fresh]");
     const later = book.settle("ses-a", request("call-1", fresh), T0 + 3);
     expect(later.credits[0]?.rows).toEqual([A]);
+    expect(later.losses).toEqual([]);
     expect(book.size()).toBe(0);
   });
 
@@ -148,6 +155,24 @@ describe("Feature: credit what the request carries", () => {
       expect(credits.map((c) => c.rows)).toEqual([[A]]);
       expect(losses).toEqual([]);
     }
+  });
+
+  test("duplicate results credit each row proved by any copy in either order", () => {
+    const full = request("call-1", delivered([A, B]));
+    const clipped = request("call-1", delivered([B]));
+    for (const messages of [full.concat(clipped), clipped.concat(full)]) {
+      const book = createPullReceipts();
+      book.hold(placed([A, B]));
+      const { credits, losses } = book.settle("ses-a", messages, T0 + 1);
+      expect(credits.map((c) => c.rows)).toEqual([[A, B]]);
+      expect(losses).toEqual([]);
+    }
+    const book = createPullReceipts();
+    book.hold(placed([A, { ...A, ts: B.ts }]));
+    const single = request("call-1", delivered([A]));
+    const result = book.settle("ses-a", single.concat(single), T0 + 1);
+    expect(result.credits).toEqual([]);
+    expect(result.losses.map((l) => l.rows)).toEqual([2]);
   });
 
   test("a different tool with a reused call ID cannot settle the placement", () => {
@@ -196,7 +221,8 @@ describe("Feature: credit what the request carries", () => {
       T0 + 1,
     );
     expect(credits).toEqual([]);
-    expect(losses[0]).toMatchObject({ rows: 1, reason: "trimmed" });
+    expect(losses).toEqual([]);
+    expect(book.size()).toBe(1);
   });
 
   test("Scenario: two rows render the same line and one copy survives — neither ID is credited", () => {
@@ -243,7 +269,7 @@ describe("Feature: credit what the request carries", () => {
     },
   );
 
-  test("Scenario: a JSON result has no rendered line — reported, not credited", () => {
+  test("Scenario: a JSON result without the placement header remains pending", () => {
     const book = createPullReceipts();
     book.hold(placed([A]));
     const { credits, losses } = book.settle(
@@ -252,7 +278,8 @@ describe("Feature: credit what the request carries", () => {
       T0 + 1,
     );
     expect(credits).toEqual([]);
-    expect(losses[0]).toMatchObject({ rows: 1, reason: "trimmed" });
+    expect(losses).toEqual([]);
+    expect(book.size()).toBe(1);
   });
 });
 

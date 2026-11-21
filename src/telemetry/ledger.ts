@@ -31,6 +31,8 @@ import { withStoreLock, LOCK_WRITE } from "../store/lock.ts";
 import type { Memory } from "../store/model/memory.ts";
 import type { ReadSet } from "../consolidate/propose.ts";
 
+import { type EvidenceContext, record } from "./record.ts";
+
 export type HitSource = "inject" | "pull" | "recall";
 
 export { HITS_FILENAME };
@@ -140,7 +142,12 @@ export async function recordHits(
   now = Date.now(),
   turn?: number,
   turnKey?: string,
-  receipt?: { lockWaitMs: number; observedAt: number },
+  receipt?: {
+    lockWaitMs: number;
+    observedAt: number;
+    tool?: string;
+    evidence?: EvidenceContext;
+  },
 ): Promise<boolean> {
   if (!rows.length) return false;
   const ids = rows.map((m) => m.ts);
@@ -167,6 +174,21 @@ export async function recordHits(
   });
   inFlight.add(key);
   let cooldown = RETRY_BACKOFF_MS;
+  const evidence = receipt?.evidence;
+  const lock = receipt
+    ? { ...LOCK_WRITE, timeoutMs: receipt.lockWaitMs }
+    : LOCK_WRITE;
+  if (receipt && evidence) {
+    lock.onEvent = (event, waitedMs) => {
+      void record(
+        "store_lock",
+        { event, waited_ms: waitedMs, op: "write" },
+        false,
+        sid,
+        evidence,
+      ).catch(() => undefined);
+    };
+  }
   try {
     await withStoreLock(
       hitsFile(),
@@ -174,7 +196,7 @@ export async function recordHits(
         await rotateIfNeeded(!receipt);
         await appendLog(hitsFile(), line);
       },
-      receipt ? { ...LOCK_WRITE, timeoutMs: receipt.lockWaitMs } : LOCK_WRITE,
+      lock,
     );
     cooldown = THROTTLE_MS;
     return true;
@@ -182,6 +204,15 @@ export async function recordHits(
     // Fail-closed lock contention can drop this use observation. Decay and
     // consolidation therefore see a best-effort ledger, not proof of non-use;
     // retrieval remains available even when its telemetry cannot be persisted.
+    if (evidence && receipt?.tool) {
+      await record(
+        "pull_credit_skipped",
+        { tool: receipt.tool, rows: rows.length, reason: "write_failed" },
+        false,
+        sid,
+        evidence,
+      ).catch(() => undefined);
+    }
     return false; // telemetry never breaks retrieval
   } finally {
     nextAttempt.set(key, now + cooldown);

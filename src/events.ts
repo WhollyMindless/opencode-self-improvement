@@ -42,6 +42,8 @@ import { compactionAnchor } from "./inject/anchor.ts";
 /** Placement and observation clocks for a deferred pull receipt. */
 export interface RideAt {
   lockWaitMs: number;
+  tool: string;
+  evidence: ReturnType<typeof captureEvidenceContext>;
   placedAt: number;
   observedAt: number;
   turn?: number;
@@ -271,11 +273,13 @@ export async function registerHooks(
             false,
             held.sid,
             held.evidence,
-          );
+          ).catch(() => undefined);
           continue;
         }
         await noteHits("pull", held.sid, rows, held.query, {
           lockWaitMs,
+          tool: held.tool,
+          evidence: held.evidence,
           placedAt: held.at,
           observedAt,
           turn: held.turn,

@@ -210,7 +210,7 @@ const impl = {
         at?.placedAt ?? Date.now(),
         observed?.turn,
         observed?.key,
-        at && { lockWaitMs: at.lockWaitMs, observedAt: at.observedAt },
+        at,
       );
     };
     // The host listener owns measured usage; the epoch controller drops it

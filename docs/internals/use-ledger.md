@@ -45,8 +45,9 @@ when its complete line survives after that placement’s header. If
 several rows render to the same line and fewer copies survive, none of those row
 IDs is credited, because the request cannot say which one rode. Each placement is
 credited at most once. If a matching call ID occurs without the placement header,
-the plugin reports the absence once and can still recognize the placement in a
-later request. The ledger timestamp is the time of observation in the context hook.
+the placement stays pending. A later request can confirm it. Expiry, eviction or
+replacement records a single final loss for a placement that stayed unconfirmed.
+If a request repeats a result, each copy can confirm whole rows independently. The ledger timestamp is the time of observation in the context hook.
 A gate earlier in the tool batch therefore cannot count as following retrieval. The
 hourly throttle and turn identity still come from placement. The `terms` come from
 the query the pull searched.
@@ -56,13 +57,16 @@ Ledger throttling, write failures, or process shutdown can also leave a row with
 a receipt. Pull receipts share a 50 ms lock-wait budget per request, including
 conversion of a legacy lock database on first use. A skipped
 attempt after this budget expires emits `pull_credit_skipped reason=budget`.
+A failed ledger write emits `pull_credit_skipped reason=write_failed` with the
+placement’s scope and row count. A throttled duplicate produces neither event.
+Lock acquisition uses a monotonic clock, including cold journal conversion.
 On Windows, pull receipts attempt rotation once. A reader that prevents
 replacement leaves the existing ledger intact. Filesystem I/O can still add latency.
 
 - `pull_undelivered` (no `stage`): the pull computed rows and found nowhere to
   write them. A host that changes its result shape should show up as a failure,
   not as a quieter ledger.
-- `pull_undelivered stage=request`: the request carried the call, but these rows
+- `pull_undelivered stage=request`: the request carried the placement header, but these rows
   were missing or cut.
 - `pull_unconfirmed reason=expired|evicted|no_call|replaced`: no request settled the
   placement. Expiry is checked on later context activity, after 30 minutes. The
