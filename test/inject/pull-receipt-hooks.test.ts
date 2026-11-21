@@ -94,7 +94,9 @@ async function read(
     sessionID: sid,
     callID,
     tool: "read",
-    input: { filePath: join(repo, "notes.txt") },
+    // The file path also enters the recall query. Keep the temp directory's
+    // "pull-receipt" words from matching a seeded row on unrelated reads.
+    input: { filePath: "notes.txt" },
     result: { content: [{ type: "text", text: output }] },
   };
   await p.toolHooks["execute.after"](event);
