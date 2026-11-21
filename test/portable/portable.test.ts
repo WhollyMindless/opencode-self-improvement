@@ -7,7 +7,7 @@
 // defaults to dry-run; a real run snapshots (prune's snapshotFiles helper)
 // before any mutation and supersedes rather than deletes. Hermetic: temp
 // OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
   appendFileSync,
   existsSync,
@@ -491,6 +491,26 @@ describe("import frontier policy", () => {
 // --- findStaleOpen -----------------------------------------------------------------
 
 describe("findStaleOpen", () => {
+  test("orders second- and millisecond-precision rows by instant at the cutoff", async () => {
+    const clock = spyOn(Date, "now").mockReturnValue(
+      Date.parse("2026-01-15T12:00:00.500Z"),
+    );
+    try {
+      const stamps = ["00.501Z", "00.400Z", "00.500Z", "00Z"].map(
+        (s) => "2026-01-01T12:00:" + s,
+      );
+      for (const ts of stamps)
+        seed("context", "cutoff", ts, { ts, status: "open" });
+      const stale = await findStaleOpen(14);
+      expect(stale.map((row) => row.ts)).toEqual([
+        "2026-01-01T12:00:00Z",
+        "2026-01-01T12:00:00.400Z",
+      ]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   test("only active open rows older than the cutoff, oldest first", async () => {
     seed("context", "a", "Fresh open thread that must not be listed.", {
       status: "open",
