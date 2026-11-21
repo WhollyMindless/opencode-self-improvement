@@ -145,4 +145,69 @@ describe("ambiguousLine", () => {
     expect(line.split("\n").length).toBe(1);
     expect(line.match(/Action:/g)?.length).toBe(1);
   });
+
+  test("a three-member family names each dropped token with only the rows that held it", () => {
+    // The newest row drops `monitoring` from BOTH older rows and `alerts` from
+    // row 2 only. A pooled source list printed "drops monitoring, alerts from
+    // rows 1 and 2", claiming alerts came from row 1, which never had it — and
+    // contradicting the "only in 2: alerts" the same line already printed.
+    const base = "the release pipeline builds and tags the image";
+    const a = mem("release", `${base} monitoring`);
+    const b: Memory = {
+      ...mem("release", `${base} monitoring alerts`),
+      ts: "2026-01-01T00:00:01.000Z",
+    };
+    const c: Memory = {
+      ...mem("release", base),
+      ts: "2026-01-01T00:00:02.000Z",
+    };
+    const line = ambiguousLine([a, b, c], [1, 2, 3]);
+    expect(line).toContain(
+      "row 3 drops monitoring from rows 1 and 2 and alerts from row 2",
+    );
+    expect(line).toContain("only in 2: alerts");
+    // Never claim a token was dropped from a row that never carried it.
+    expect(line).not.toContain("alerts from rows 1 and 2");
+    expect(line).not.toContain("drops monitoring, alerts");
+  });
+
+  test("a keyword-only difference does not assert a removal the reader cannot see", () => {
+    // The recall renderer prints `content` and never `kw`, so a keyword on the
+    // older row is invisible in both rows. Claiming it was dropped describes
+    // text that appears nowhere, so the drop clause must be absent.
+    const older: Memory = {
+      ...mem("release", "the cache is invalidated on write"),
+      kw: ["python"],
+    };
+    const newer: Memory = {
+      ...mem("release", "the cache is invalidated on write"),
+      ts: "2026-01-01T00:00:01.000Z",
+    };
+    const line = ambiguousLine([older, newer], [1, 2]);
+    expect(line).not.toContain("drops");
+    expect(line).toContain("neither supersedes the other");
+  });
+
+  test("the dropped-token list is capped and says how much was withheld", () => {
+    // The drop clause shares MAX_MARKER_TOKENS with the side lists; nothing else
+    // bounds it, so a wide correction would otherwise dump its whole vocabulary
+    // into the prompt.
+    const older = mem(
+      "review",
+      "alpha bravo charlie delta echo foxtrot golf hotel india",
+    );
+    const newer: Memory = {
+      ...mem("review", "alpha"),
+      ts: "2026-01-01T00:00:01.000Z",
+    };
+    const dropped = [...contentTokens(older)].filter(
+      (t) => !contentTokens(newer).has(t),
+    );
+    expect(dropped.length).toBeGreaterThan(MAX_MARKER_TOKENS);
+    const line = ambiguousLine([older, newer], [1, 2]);
+    expect(line).toContain(`(+${dropped.length - MAX_MARKER_TOKENS} more)`);
+    // The withheld tail must not appear anywhere in the line.
+    for (const tok of dropped.slice(MAX_MARKER_TOKENS))
+      expect(line).not.toContain(tok);
+  });
 });
