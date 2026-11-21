@@ -4,12 +4,17 @@ import type { ToolRegister } from "./deps.ts";
 import { memoryRoot } from "../core/config/paths.ts";
 import { record } from "../telemetry/record.ts";
 import { withStoreBatch } from "../store/lock.ts";
-import { loadAll } from "../store/files/load.ts";
+import { loadAll, toMemory } from "../store/files/load.ts";
+import { stampRow } from "../store/files/snapshots.ts";
+import { formatLine } from "../core/logfmt/format.ts";
+import {
+  absorbAliases,
+  sameConsolidationScope,
+} from "../consolidate/propose.ts";
 import { clearSuperseded, markSuperseded } from "../store/files/supersede.ts";
 import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
-import { isActive } from "../store/model/predicates.ts";
+import { isActive, isInjectable } from "../store/model/predicates.ts";
 import { MergeReviewArgs, validated } from "./schema.ts";
-import { join } from "node:path";
 
 export const register: ToolRegister = (editor, deps) => {
   const { toolIds, bindSessionIdentity, direct } = deps;
@@ -55,6 +60,7 @@ export const register: ToolRegister = (editor, deps) => {
         // A batch may publish the loser then refuse a later file. The sink
         // records that publish before the overall promise settles.
         const mergeDurable: string[] = [];
+        let consolidationStarted = false;
         try {
           return await withStoreBatch(
             memoryRoot(),
@@ -126,6 +132,52 @@ export const register: ToolRegister = (editor, deps) => {
                     ` after this review was written; reviving the survivor would erase that supersession. Nothing was done. No evidence written.`,
                 };
               }
+              if (args.consolidate) {
+                if (
+                  !isInjectable(loserRow) ||
+                  !isInjectable(survivorRow) ||
+                  loserRow.status === "open" ||
+                  survivorRow.status === "open" ||
+                  !sameConsolidationScope(loserRow, survivorRow) ||
+                  all.filter(
+                    (m) => m.ts === args.loser || m.ts === args.survivor,
+                  ).length !== 2
+                ) {
+                  return {
+                    content:
+                      "Consolidation blocked: the proposal requires two distinct, available settled rows of the same type, scope and repository. Run memory_consolidate again.",
+                  };
+                }
+                // Publish the aliases first. If retirement fails, the loser
+                // remains searchable and reapplying the union is idempotent.
+                consolidationStarted = true;
+                const present = await stampRow(
+                  survivorRow.file,
+                  survivorRow.ts,
+                  (fields) => {
+                    const current = toMemory(
+                      fields,
+                      survivorRow.file,
+                      survivorRow.index,
+                    );
+                    if (
+                      !current ||
+                      !isInjectable(current) ||
+                      current.status === "open" ||
+                      !sameConsolidationScope(current, loserRow)
+                    ) {
+                      throw new Error("survivor changed since the proposal");
+                    }
+                    const merged = absorbAliases(current, loserRow);
+                    const kw = merged.kw?.join(",");
+                    const tags = merged.tags!.join(",");
+                    if (fields.kw === kw && fields.tags === tags) return null;
+                    return formatLine({ ...fields, kw, tags });
+                  },
+                );
+                if (present === null)
+                  throw new Error("survivor no longer exists");
+              }
               const ok = await markSuperseded(
                 args.loser,
                 {
@@ -138,6 +190,11 @@ export const register: ToolRegister = (editor, deps) => {
                 mergeDurable,
               );
               if (!ok) {
+                if (args.consolidate)
+                  return {
+                    content:
+                      "Consolidation incomplete: the survivor has its aliases, but the loser was unavailable for retirement. Run memory_consolidate again.",
+                  };
                 return {
                   content:
                     "merge_review: loser not found or already superseded — nothing to resolve. No evidence written.",
@@ -149,10 +206,12 @@ export const register: ToolRegister = (editor, deps) => {
               // but only the marker this review owns: the guard above
               // already refused anything else, and this re-check runs under the
               // file lock against the line as it is at mutation time.
-              const revived = await clearSuperseded(args.survivor, {
-                supersededBy: args.loser,
-                reason: args.reason,
-              });
+              const revived =
+                !args.consolidate &&
+                (await clearSuperseded(args.survivor, {
+                  supersededBy: args.loser,
+                  reason: args.reason,
+                }));
               // The response has always claimed "Evidence recorded" — now it
               // is true, and it names the session the merge ran FOR (
               // residue on this line). The host tool_result hook covers
@@ -197,6 +256,10 @@ export const register: ToolRegister = (editor, deps) => {
           // follow-up (evidence/revive), not a blanket "nothing was done".
           const why = err instanceof Error ? err.message : String(err);
           if (mergeDurable.length === 0) {
+            if (consolidationStarted)
+              return {
+                content: `Consolidation incomplete: no retirement confirmed. The survivor may already have the aliases. Retry after checking the store. ${why}`,
+              };
             return {
               content: `merge_review blocked: ${why} — nothing was done. Retry.`,
             };

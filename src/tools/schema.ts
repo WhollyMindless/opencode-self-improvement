@@ -147,6 +147,12 @@ export const EvidenceArgs = z.object({
 });
 
 export const MergeReviewArgs = z.object({
+  consolidate: z
+    .boolean()
+    .optional()
+    .describe(
+      "Apply a consolidation proposal, retaining the absorbed row's retrieval aliases on its same-scope survivor",
+    ),
   loser: z
     .string()
     .describe(

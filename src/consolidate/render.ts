@@ -23,7 +23,10 @@ export function renderProposals(report: ProposalReport): string {
       ),
       `  reads  ${p.reads.length} logged · best member alone ${p.bestMemberBefore} · merged ${p.readsAfter}`,
       `  budget ${p.bytesBefore}c → ${p.bytesAfter}c for this cluster`,
-      `  resolve: memory_merge_review(loser="${p.losers[0]!.ts}", survivor="${p.survivor.ts}", reason="consolidate ${p.id}")`,
+      ...p.losers.map(
+        (loser) =>
+          `  resolve: memory_merge_review(loser="${loser.ts}", survivor="${p.survivor.ts}", reason="consolidate ${p.id}", consolidate=true)`,
+      ),
       "",
     );
   }

@@ -27,6 +27,7 @@ import { removeStore } from "../helpers/remove-store.ts";
 // change has to be *said* out loud:
 //   * `kw` added to memory_remember and memory_update (write-time
 //     retrieval keywords: indexed by the store, never rendered).
+//   * Optional consolidation on memory_merge_review retains retrieval aliases.
 const KW_WIRE = {
   type: "array",
   items: { type: "string" },
@@ -208,6 +209,11 @@ const EXPECTED_WIRE = {
   memory_merge_review: {
     type: "object",
     properties: {
+      consolidate: {
+        type: "boolean",
+        description:
+          "Apply a consolidation proposal, retaining the absorbed row's retrieval aliases on its same-scope survivor",
+      },
       loser: {
         type: "string",
         description:
