@@ -274,6 +274,68 @@ describe("dedupeWindowGrouped", () => {
     expect(out.groups).toEqual([]);
   });
 
+  // One statement of the checklist, three ways: the longer row adds a stage,
+  // the substituted row swaps one step for another, and the last two rows are
+  // the longer row typed twice.
+  const CHECKLIST =
+    "release checklist covers packaging signing testing auditing deployment monitoring alerts backups metrics tracing documentation";
+  const WITH_STAGING = `${CHECKLIST} staging`;
+  const WITH_ROLLBACKS = CHECKLIST.replace("documentation", "rollbacks");
+  const printer = (ts: string) =>
+    mem("release", "release printer driver requires manual installation", ts);
+  const calendar = (ts: string) =>
+    mem("release", "release calendar meeting uses the shared agenda", ts);
+  const clashFixture = () => [
+    mem("release", CHECKLIST, "2026-01-01T00:00:00.000Z"),
+    mem("release", WITH_STAGING, "2026-01-01T00:00:01.000Z"),
+    mem("release", WITH_ROLLBACKS, "2026-01-01T00:00:02.000Z"),
+    mem("release", WITH_STAGING, "2026-01-01T00:00:03.000Z"),
+    printer("2026-01-01T00:00:04.000Z"),
+    calendar("2026-01-01T00:00:05.000Z"),
+  ];
+
+  test("a row that wins two clashes at once leaves one copy, not two", () => {
+    const rows = clashFixture();
+    // Pinned so a tokenizer change cannot make this vacuous: the newest row is
+    // a substitution of the row it meets first AND an exact copy of the row
+    // behind it. Stopping at the first clash moved it into the first slot and
+    // left the copy beside it — the same text twice, and a distinct row
+    // outside the window never arrived.
+    expect(
+      jaccard(contentTokens(rows[2]!), contentTokens(rows[3]!)),
+    ).toBeGreaterThanOrEqual(DEFAULT_THRESHOLD);
+    expect(classifyPair(contentTokens(rows[2]!), contentTokens(rows[3]!))).toBe(
+      "substitution",
+    );
+    expect(classifyPair(contentTokens(rows[1]!), contentTokens(rows[3]!))).toBe(
+      "identical",
+    );
+    const out = dedupeWindowGrouped(rows, 3, DEFAULT_THRESHOLD);
+    expect(out.rows.map((m) => m.ts)).toEqual([
+      "2026-01-01T00:00:03.000Z",
+      "2026-01-01T00:00:04.000Z",
+      "2026-01-01T00:00:05.000Z",
+    ]);
+    expect(out.rows.filter((m) => m.content === WITH_STAGING).length).toBe(1);
+  });
+
+  test("the same fixture returns the same window with grouping off", () => {
+    // The rollback path must not disagree: it stops at the first clash, so it
+    // never reached the duplicate in the first place.
+    const out = dedupeWindowGrouped(
+      clashFixture(),
+      3,
+      DEFAULT_THRESHOLD,
+      false,
+    );
+    expect(out.rows.map((m) => m.ts)).toEqual([
+      "2026-01-01T00:00:03.000Z",
+      "2026-01-01T00:00:04.000Z",
+      "2026-01-01T00:00:05.000Z",
+    ]);
+    expect(out.groups).toEqual([]);
+  });
+
   test("grouping spends slots and never exceeds the limit", () => {
     const base =
       "the ingest worker retries a failed batch three times then parks it on the dead letter queue";
