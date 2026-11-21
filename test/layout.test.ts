@@ -1,9 +1,4 @@
-// The test tree mirrors the src module layout: every module's behavior is
-// pinned under `test/<module>/`, so a path tells you what a test covers.
-// Modules covered cross-cuttingly (their behavior is pinned through the host
-// or other modules' tests) must appear in the allowlist below; adding a src
-// module without either a test directory or an allowlist entry fails here,
-// which is what keeps the mapping from drifting back to a flat directory.
+// Each src module needs a matching test directory or a documented exception.
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -11,12 +6,12 @@ import { join } from "node:path";
 const ROOT = join(import.meta.dir, "..");
 
 /**
- * src directories whose behavior is pinned outside a same-named test
- * directory: `core` through the host and every module's use of it, `tui`
- * through the terminal smoke suite in `e2e/`. An entry is stale the moment
- * `test/<module>/` with at least one test exists — remove it then.
+ * Host and module tests exercise core. For tui, e2e/load.test.ts checks that
+ * the packed entry compiles with the expected JSX runtime. Panel interactions
+ * have no behavioral test here. Remove an exception when its test directory
+ * gains a test.
  */
-const COVERED_CROSS_CUTTING = new Set(["core", "tui"]);
+const LAYOUT_EXCEPTIONS = new Set(["core", "tui"]);
 
 function srcModules(): string[] {
   return readdirSync(join(ROOT, "src"), { withFileTypes: true })
@@ -35,13 +30,13 @@ function hasTests(module: string): boolean {
 describe("test layout", () => {
   test("every src module has a test directory or an allowlist entry", () => {
     const missing = srcModules().filter(
-      (m) => !COVERED_CROSS_CUTTING.has(m) && !hasTests(m),
+      (m) => !LAYOUT_EXCEPTIONS.has(m) && !hasTests(m),
     );
     expect(missing).toEqual([]);
   });
 
   test("the allowlist names no module that has outgrown it", () => {
-    const stale = [...COVERED_CROSS_CUTTING].filter(hasTests);
+    const stale = [...LAYOUT_EXCEPTIONS].filter(hasTests);
     expect(stale).toEqual([]);
   });
 

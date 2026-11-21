@@ -123,19 +123,21 @@ test("today's evidence stays readable, implicit and explicit", async () => {
   );
 });
 
-test("a day file symlinked out of the evidence dir is not followed", async () => {
-  if (process.platform === "win32") return; // symlink rights; the guard is platform-independent
-  plugin = await loadPlugin(repo);
-  mkdirSync(evidenceDir(), { recursive: true });
-  writeFileSync(
-    join(root, "dayfile-target.logfmt"),
-    'ev=whatever ts="x" note=SYMLINKED_DAYFILE_MARKER\n',
-  );
-  symlinkSync(
-    join(root, "dayfile-target.logfmt"),
-    join(evidenceDir(), "2099-01-01.logfmt"),
-  );
-  const out = await evidenceTool({ date: "2099-01-01" });
-  expect(out).not.toContain("SYMLINKED_DAYFILE_MARKER");
-  expect(out).toContain("blocked");
-});
+test.skipIf(process.platform === "win32")(
+  "a day file symlinked out of the evidence dir is not followed",
+  async () => {
+    plugin = await loadPlugin(repo);
+    mkdirSync(evidenceDir(), { recursive: true });
+    writeFileSync(
+      join(root, "dayfile-target.logfmt"),
+      'ev=whatever ts="x" note=SYMLINKED_DAYFILE_MARKER\n',
+    );
+    symlinkSync(
+      join(root, "dayfile-target.logfmt"),
+      join(evidenceDir(), "2099-01-01.logfmt"),
+    );
+    const out = await evidenceTool({ date: "2099-01-01" });
+    expect(out).not.toContain("SYMLINKED_DAYFILE_MARKER");
+    expect(out).toContain("blocked");
+  },
+);
