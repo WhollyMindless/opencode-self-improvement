@@ -139,6 +139,23 @@ describe("the ledger line", () => {
 });
 
 describe("the throttle", () => {
+  test("observing a delayed pull changes the ride timestamp but preserves the placement throttle", async () => {
+    const t = Date.parse("2026-11-21T12:00:00.000Z");
+    const rows = [row("2026-11-20T10:00:00Z")];
+    const receipt = (placed: number, observed: number) =>
+      recordHits("pull", "delayed", rows, [], placed, 1, "turn", {
+        lockWaitMs: 50,
+        observedAt: observed,
+      });
+    expect(await receipt(t, t + 600_000)).toBe(true);
+    expect(await receipt(t + 3_599_999, t + 4_100_000)).toBe(false);
+    expect(await receipt(t + 3_600_001, t + 4_100_001)).toBe(true);
+    expect((await readRides()).map((ride) => ride.ts)).toEqual([
+      new Date(t + 600_000).toISOString(),
+      new Date(t + 4_100_001).toISOString(),
+    ]);
+  });
+
   test("a filesystem lock refusal backs off repeated calls, then permits another attempt", async () => {
     const t0 = Date.parse("2026-06-01T00:00:00Z");
     const rows = [row("2026-01-01T00:00:00.000Z")];
@@ -564,6 +581,44 @@ describe("the surfaces read the ledger honestly", () => {
 describe.skipIf(process.platform !== "win32")(
   "ledger rotation under Windows reader contention",
   () => {
+    test("a request-time pull gives up a refused rotation without waiting for reader retries", async () => {
+      const original = "ev=padding filler=" + "x".repeat(2_100_000) + "\n";
+      writeFileSync(hitsFile(), original);
+      const fd = openSync(hitsFile(), "r");
+      const started = performance.now();
+      try {
+        const now = Date.now();
+        expect(
+          await recordHits(
+            "pull",
+            "busy-reader",
+            [row("2026-11-21T10:00:00Z")],
+            [],
+            now,
+            1,
+            "turn",
+            { lockWaitMs: 50, observedAt: now },
+          ),
+        ).toBe(false);
+        expect(performance.now() - started).toBeLessThan(800);
+        expect(ledgerText()).toBe(original);
+      } finally {
+        closeSync(fd);
+      }
+      const now = Date.now() + 10000;
+      expect(
+        await recordHits(
+          "pull",
+          "released-reader",
+          [row("2026-11-21T10:00:00Z")],
+          [],
+          now,
+          1,
+          "turn",
+          { lockWaitMs: 50, observedAt: now },
+        ),
+      ).toBe(true);
+    });
     test("a rotation against a reader holding the ledger retries and lands, not silently fails", async () => {
       const filler = Array.from(
         { length: 40_000 },

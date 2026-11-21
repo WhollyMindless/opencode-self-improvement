@@ -44,13 +44,19 @@ in the header. The rendering budget includes this identifier. A row earns credit
 when its complete line survives after that placement’s header. If
 several rows render to the same line and fewer copies survive, none of those row
 IDs is credited, because the request cannot say which one rode. Each placement is
-settled once, by the first request that carries its call. The credit keeps the
-placement's time and turn, so the hourly throttle and the turn join behave as they
-did before. The `terms` still come from the query the pull searched.
+credited at most once. If a matching call ID occurs without the placement header,
+the plugin reports the absence once and can still recognize the placement in a
+later request. The ledger timestamp is the time of observation in the context hook.
+A gate earlier in the tool batch therefore cannot count as following retrieval. The
+hourly throttle and turn identity still come from placement. The `terms` come from
+the query the pull searched.
 
 The evidence log records placement and confirmation failures by tool and row count.
 Ledger throttling, write failures, or process shutdown can also leave a row without
-a receipt. Pull receipts in one request share a 50 ms lock-wait budget.
+a receipt. Pull receipts share a 50 ms lock-wait budget per request. A skipped
+attempt after this budget expires emits `pull_credit_skipped reason=budget`.
+On Windows, pull receipts attempt rotation once. A reader that prevents
+replacement leaves the existing ledger intact. Filesystem I/O can still add latency.
 
 - `pull_undelivered` (no `stage`): the pull computed rows and found nowhere to
   write them. A host that changes its result shape should show up as a failure,

@@ -125,6 +125,13 @@ describe("Feature: credit what the request carries", () => {
     );
     expect(credits).toHaveLength(0);
     expect(losses).toHaveLength(1);
+    expect(
+      book.settle("ses-a", request("call-1", delivered([A])), T0 + 2).losses,
+    ).toHaveLength(0);
+    const fresh = delivered([A]).replace(PULL_HEADER, PULL_HEADER + " [fresh]");
+    const later = book.settle("ses-a", request("call-1", fresh), T0 + 3);
+    expect(later.credits[0]?.rows).toEqual([A]);
+    expect(book.size()).toBe(0);
   });
 
   test("a different tool with a reused call ID cannot settle the placement", () => {

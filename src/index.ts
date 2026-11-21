@@ -190,8 +190,7 @@ const impl = {
       sid: string,
       rows: Memory[],
       query: string,
-      // A credit written after the ride (a pull receipt) passes the ride's
-      // own time and turn; reading them now would name a later turn.
+      // Deferred pull credits retain the original turn and throttle window.
       at?: RideAt,
     ): Promise<void> => {
       if (!rows.length || !query.trim()) return;
@@ -208,10 +207,10 @@ const impl = {
         sid,
         rows,
         terms,
-        at?.now ?? Date.now(),
+        at?.placedAt ?? Date.now(),
         observed?.turn,
         observed?.key,
-        at?.lockWaitMs,
+        at && { lockWaitMs: at.lockWaitMs, observedAt: at.observedAt },
       );
     };
     // The host listener owns measured usage; the epoch controller drops it

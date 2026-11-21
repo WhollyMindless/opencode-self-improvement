@@ -97,7 +97,7 @@ export function resetHitThrottle(): void {
   nextAttempt.clear();
 }
 
-async function rotateIfNeeded(): Promise<void> {
+async function rotateIfNeeded(retryRename = true): Promise<void> {
   let size: number;
   try {
     size = (await stat(hitsFile())).size;
@@ -109,7 +109,9 @@ async function rotateIfNeeded(): Promise<void> {
   // anchor the halving like every other whole-file publish - on
   // Windows the rename can be refused by a reader's handle, and the retry is
   // only safe while nothing else moved this file.
-  const since = await fileIdentity(hitsFile());
+  // A request-time pull attempts the atomic handover once. Other writers
+  // retain the identity-checked retry window for transient Windows readers.
+  const since = retryRename ? await fileIdentity(hitsFile()) : undefined;
   const lines = (await readFile(hitsFile(), "utf8"))
     .split("\n")
     .filter((l) => l.trim());
@@ -138,7 +140,7 @@ export async function recordHits(
   now = Date.now(),
   turn?: number,
   turnKey?: string,
-  lockWaitMs?: number,
+  receipt?: { lockWaitMs: number; observedAt: number },
 ): Promise<boolean> {
   if (!rows.length) return false;
   const ids = rows.map((m) => m.ts);
@@ -148,7 +150,7 @@ export async function recordHits(
   if (eligibleAt !== undefined && now < eligibleAt) return false;
   const line = formatLine({
     ev: "memory_used",
-    ts: new Date(now).toISOString(),
+    ts: new Date(receipt?.observedAt ?? now).toISOString(),
     src: source,
     sid,
     mem: bracketList(ids),
@@ -169,12 +171,10 @@ export async function recordHits(
     await withStoreLock(
       hitsFile(),
       async () => {
-        await rotateIfNeeded();
+        await rotateIfNeeded(!receipt);
         await appendLog(hitsFile(), line);
       },
-      lockWaitMs === undefined
-        ? LOCK_WRITE
-        : { ...LOCK_WRITE, timeoutMs: lockWaitMs },
+      receipt ? { ...LOCK_WRITE, timeoutMs: receipt.lockWaitMs } : LOCK_WRITE,
     );
     cooldown = THROTTLE_MS;
     return true;

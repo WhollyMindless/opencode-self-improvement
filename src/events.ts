@@ -39,10 +39,11 @@ import { peekTurn } from "./core/state.ts";
 import { captureEvidenceContext, record } from "./telemetry/record.ts";
 import { compactionAnchor } from "./inject/anchor.ts";
 
-/** When a ride happened, for a credit written after the fact. */
+/** Placement and observation clocks for a deferred pull receipt. */
 export interface RideAt {
   lockWaitMs: number;
-  now: number;
+  placedAt: number;
+  observedAt: number;
   turn?: number;
   turnKey?: string;
 }
@@ -253,15 +254,30 @@ export async function registerHooks(
     await guarded("session.context (pull receipt)", async () => {
       const sid =
         typeof event?.sessionID === "string" ? event.sessionID : undefined;
-      const { credits, losses } = receipts.settle(sid, event?.messages);
+      const observedAt = Date.now();
+      const { credits, losses } = receipts.settle(
+        sid,
+        event?.messages,
+        observedAt,
+      );
       // All pull receipts in this request share one lock-wait budget.
       const deadline = performance.now() + 50;
       for (const { held, rows } of credits) {
         const lockWaitMs = Math.max(0, Math.ceil(deadline - performance.now()));
-        if (!lockWaitMs) break;
+        if (!lockWaitMs) {
+          await record(
+            "pull_credit_skipped",
+            { tool: held.tool, rows: rows.length, reason: "budget" },
+            false,
+            held.sid,
+            held.evidence,
+          );
+          continue;
+        }
         await noteHits("pull", held.sid, rows, held.query, {
           lockWaitMs,
-          now: held.at,
+          placedAt: held.at,
+          observedAt,
           turn: held.turn,
           turnKey: held.turnKey,
         });

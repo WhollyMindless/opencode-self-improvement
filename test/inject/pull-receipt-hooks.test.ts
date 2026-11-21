@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseLine } from "../../src/core/logfmt/format.ts";
 import { readLines } from "../../src/core/logfmt/read.ts";
-import { resetState } from "../../src/core/state.ts";
+import { peekTurn, resetState } from "../../src/core/state.ts";
 import {
   resetSessionScopes,
   setRepoScope,
@@ -19,6 +19,10 @@ import { withStoreLock } from "../../src/store/lock.ts";
 import { appendMemory } from "../../src/store/files/append.ts";
 import {
   hitsFile,
+  readRides,
+  readOutcomes,
+  recordOutcome,
+  joinUseWithOutcomes,
   resetHitThrottle,
   resetLedgerCache,
 } from "../../src/telemetry/ledger.ts";
@@ -245,6 +249,47 @@ describe("Feature: a pull is credited by the request that carries it", () => {
     });
     expect(JSON.stringify(loss)).not.toContain(ROW);
     expect(await pullCredits()).toEqual([]);
+  });
+
+  test("a gate completed before the context observation cannot be an outcome of that pull", async () => {
+    const id = await appendMemory({
+      type: "learning",
+      scope: "fixture",
+      content: ROW,
+      repo: "global",
+    });
+    const p = await plugin();
+    const sid = "ses-batched-gate";
+    await p.sessionHooks.prompt({ sessionID: sid, prompt: { text: "go" } });
+    const event = await read(p, sid, "call-before-gate");
+    const turn = peekTurn(sid)!;
+    await Bun.sleep(5);
+    const gateTime = Date.now();
+    expect(
+      await recordOutcome(sid, turn.turn, "PASS", "test", gateTime, turn.key),
+    ).toBe(true);
+    await Bun.sleep(5);
+    await request(p, sid, "call-before-gate", textOf(event));
+    const rides = await readRides();
+    const pulled = rides.filter((r) => r.src === "pull");
+    expect(pulled).toHaveLength(1);
+    expect(Date.parse(pulled[0]!.ts!)).toBeGreaterThan(gateTime);
+    expect(
+      joinUseWithOutcomes(pulled, await readOutcomes()).get(id)?.joined,
+    ).toBe(0);
+    expect(
+      await recordOutcome(
+        sid,
+        turn.turn,
+        "PASS",
+        "test",
+        Date.now() + 1,
+        turn.key,
+      ),
+    ).toBe(true);
+    expect(
+      joinUseWithOutcomes(pulled, await readOutcomes()).get(id)?.clean,
+    ).toBe(1);
   });
 
   test("ledger contention leaves the next request responsive", async () => {

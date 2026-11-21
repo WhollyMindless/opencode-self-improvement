@@ -14,7 +14,7 @@ export interface HeldPull {
   lines: string[];
   /** The query the pull searched; never logged, only reduced to shared terms. */
   query: string;
-  /** Placement time: the ride happened then, so the credit carries it. */
+  /** Placement time for expiry and the existing per-row-set throttle. */
   at: number;
   /** Placement turn, read when the block was placed, not when it is credited. */
   turn?: number;
@@ -79,17 +79,19 @@ function toolResults(
       if (part?.type !== "tool-result") continue;
       const entry = pending.get(part.id);
       if (!entry || entry.tool !== part.name) continue;
-      out.set(entry.callID, resultText(part.result) ?? "");
+      const text = resultText(part.result) ?? "";
+      if (!out.has(entry.callID) || text.includes(entry.header))
+        out.set(entry.callID, text);
     }
   }
   return out;
 }
 
 // The placement header distinguishes this block from quoted output and earlier calls.
-function survivingRows(entry: HeldPull, text: string): Memory[] {
+function survivingRows(entry: HeldPull, text: string): Memory[] | undefined {
   const lines = text.split(/\r?\n/);
   const start = lines.indexOf(entry.header);
-  if (start < 0) return [];
+  if (start < 0) return undefined;
   const visible = new Map<string, number>();
   for (const line of lines.slice(start + 1)) {
     visible.set(line, (visible.get(line) ?? 0) + 1);
@@ -112,10 +114,9 @@ export interface PullReceipts {
   hold(entry: HeldPull): PullLoss[];
   /**
    * Settle the placements one request can answer. `sid` and `messages` come
-   * from one session.context event. Each held placement for that session whose
-   * call ID appears as a tool-result is removed before anything awaits, so a
-   * second request for the same session cannot credit it again. Placements
-   * older than the TTL, in any session, are dropped as expired.
+   * from one session.context event. A matching placement header settles the
+   * entry before any await. An absent header can be reported once while
+   * the placement remains eligible until its deadline.
    */
   settle(
     sid: string | undefined,
@@ -139,6 +140,7 @@ export function createPullReceipts({
 } = {}): PullReceipts {
   // Insertion-ordered: the first entry is always the oldest placement.
   const held = new Map<string, HeldPull>();
+  const absent = new WeakSet<HeldPull>();
   const keyOf = (sid: string, callID: string) => `${sid}\u0000${callID}`;
 
   return {
@@ -189,8 +191,21 @@ export function createPullReceipts({
         if (entry.sid !== sid) continue;
         const text = results.get(entry.callID);
         if (text === undefined) continue;
-        held.delete(key);
         const rows = survivingRows(entry, text);
+        if (rows === undefined) {
+          // A replay of an earlier call can have this ID. Report the missing
+          // block once, but allow a later request to identify the real placement.
+          if (!absent.has(entry)) {
+            absent.add(entry);
+            losses.push({
+              held: entry,
+              rows: entry.rows.length,
+              reason: "trimmed",
+            });
+          }
+          continue;
+        }
+        held.delete(key);
         if (rows.length) credits.push({ held: entry, rows });
         if (rows.length < entry.rows.length)
           losses.push({
