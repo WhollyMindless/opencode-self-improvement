@@ -187,6 +187,33 @@ describe("memory_recall additive clash", () => {
     await loaded.cleanup();
   });
 
+  test("a newer row that drops a requirement is flagged as a possible correction", async () => {
+    // Through the handler, where the rendered positions are what a reader reads.
+    // The older row is listed first, so the marker must name row 2 as the one
+    // that removed Python and must not settle whether it superseded row 1.
+    seed(
+      "the release build requires node python and docker installed on the runner machine",
+      "2026-01-01T00:00:00.000Z",
+      "release",
+    );
+    seed(
+      "the release build requires node and docker installed on the runner machine",
+      "2026-01-01T00:00:01.000Z",
+      "release",
+    );
+    const loaded = await loadPlugin(root);
+    const out = await loaded.tool.memory_recall!.execute({
+      query: "release build",
+      limit: 3,
+    });
+    expect(out.match(/release build requires/g)?.length).toBe(2);
+    expect(out).toContain("AMBIGUOUS (release)");
+    expect(out).toContain("only in 1: python");
+    expect(out).toContain("row 2 drops python from row 1");
+    expect(out).toContain("may be a correction rather than a narrower case");
+    expect(out).not.toContain("neither supersedes the other");
+    await loaded.cleanup();
+  });
   // The checklist stated three ways, then the longer one typed twice, then two
   // unrelated release rows. The duplicate wins a substitution clash on its way
   // past a row it is an exact copy of, so it lands in a slot while its own copy
