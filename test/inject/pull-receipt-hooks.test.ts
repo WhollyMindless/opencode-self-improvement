@@ -80,7 +80,7 @@ async function plugin(): Promise<LoadedPlugin> {
 
 // One read through the registered execute.after hook, in the V2 shape a
 // v2.3 host hands it. Returns the event so a test can play a later plugin.
-async function read(p: LoadedPlugin, sid: string, callID: string) {
+async function read(p: LoadedPlugin, sid: string, callID?: string) {
   const event = {
     sessionID: sid,
     callID,
@@ -223,6 +223,28 @@ describe("Feature: a pull is credited by the request that carries it", () => {
     const third = textOf(await read(p, sid, "reused"));
     await request(p, sid, "reused", third + "\n" + PULL_HEADER);
     expect(await pullCredits()).toHaveLength(1);
+  });
+
+  test("a read without a call ID records a scoped count and earns no credit", async () => {
+    await appendMemory({
+      type: "learning",
+      scope: "fixture",
+      content: ROW,
+      repo: "global",
+    });
+    const p = await plugin();
+    const event = await read(p, "ses-unmatched");
+    expect(textOf(event)).toContain(ROW);
+    const loss = ev(readEvidenceLog(), "pull_unconfirmed");
+    expect(loss).toHaveLength(1);
+    expect(loss[0]).toMatchObject({
+      reason: "no_call",
+      tool: "read",
+      rows: "1",
+      repoPath: repo,
+    });
+    expect(JSON.stringify(loss)).not.toContain(ROW);
+    expect(await pullCredits()).toEqual([]);
   });
 
   test("ledger contention leaves the next request responsive", async () => {

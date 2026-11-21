@@ -57,9 +57,10 @@ a receipt. Pull receipts in one request share a 50 ms lock-wait budget.
   not as a quieter ledger.
 - `pull_undelivered stage=request`: the request carried the call, but these rows
   were missing or cut.
-- `pull_unconfirmed reason=expired|evicted|no_call`: no request settled the
+- `pull_unconfirmed reason=expired|evicted|no_call|replaced`: no request settled the
   placement. Expiry is checked on later context activity, after 30 minutes. The
   256-placement cap also applies when there is no further context activity.
+  Reusing a pending call ID in the same session retires the earlier placement.
 
 The receipt checks the messages as this plugin's `session.context` hook sees them.
 A context hook that another plugin runs later can still change the request, and

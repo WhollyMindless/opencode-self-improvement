@@ -36,7 +36,7 @@ export interface PullLoss {
    * expired — no request carried the call's tool-result within the TTL.
    * evicted — pushed out by the retention cap before any request carried it.
    */
-  reason: "trimmed" | "expired" | "evicted";
+  reason: "trimmed" | "expired" | "evicted" | "replaced";
 }
 
 /** Upper bound on one instance's held placements, across all sessions. */
@@ -146,9 +146,17 @@ export function createPullReceipts({
       const key = keyOf(entry.sid, entry.callID);
       // A repeated call ID replaces the earlier placement; the newest result
       // is the one the host will send.
-      held.delete(key);
-      held.set(key, entry);
       const lost: PullLoss[] = [];
+      const previous = held.get(key);
+      if (previous) {
+        held.delete(key);
+        lost.push({
+          held: previous,
+          rows: previous.rows.length,
+          reason: "replaced",
+        });
+      }
+      held.set(key, entry);
       for (const [oldest, value] of held) {
         if (held.size <= max) break;
         held.delete(oldest);

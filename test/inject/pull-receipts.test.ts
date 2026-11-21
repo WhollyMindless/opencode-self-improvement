@@ -281,7 +281,13 @@ describe("Feature: one placement, one settlement", () => {
   test("Scenario: a repeated call ID replaces the earlier placement", () => {
     const book = createPullReceipts();
     book.hold(placed([A]));
-    book.hold(placed([B]));
+    const replaced = book.hold(placed([B]));
+    expect(replaced).toHaveLength(1);
+    expect(replaced[0]).toMatchObject({
+      reason: "replaced",
+      rows: 1,
+      held: { rows: [A] },
+    });
     expect(book.size()).toBe(1);
     const { credits } = book.settle(
       "ses-a",
