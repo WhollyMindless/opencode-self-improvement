@@ -47,7 +47,8 @@ IDs is credited, because the request cannot say which one rode. Each placement i
 credited at most once. If a matching call ID occurs without the placement header,
 the placement stays pending. A later request can confirm it. Expiry, eviction or
 replacement records a single final loss for a placement that stayed unconfirmed.
-If a request repeats a result, each copy can confirm whole rows independently. The ledger timestamp is the time of observation in the context hook.
+When a formatter repeats a placement header within a result or the host repeats the result, each copy must independently contain enough matching lines to identify a row. If the process exits while a placement is pending, there is no final loss entry.
+The ledger timestamp is the time of observation in the context hook.
 A gate earlier in the tool batch therefore cannot count as following retrieval. The
 hourly throttle and turn identity still come from placement. The `terms` come from
 the query the pull searched.

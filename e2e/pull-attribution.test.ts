@@ -97,6 +97,14 @@ const scenarios: Scenario[] = [
     delivered: [KEPT, SAME_TEXT],
   },
   {
+    name: "repeating a clipped pair inside one tool result leaves its row IDs ambiguous",
+    formatter: "repeat-clip",
+    order: "after",
+    rows: [KEPT, SAME_TEXT],
+    delivered: [KEPT, KEPT],
+    credited: [],
+  },
+  {
     name: "one identical line survives but its row ID is ambiguous",
     formatter: "clip",
     order: "after",
@@ -229,7 +237,10 @@ test.each(scenarios)(
           expect(trace.after).toBe(`${trace.before}\n${FOOTER}`);
           expect(wire).toContain(FOOTER);
         } else {
-          expect(trace.after).toBe(trace.before.slice(0, -8));
+          const clipped = trace.before.slice(0, -8);
+          expect(trace.after).toBe(
+            formatter === "repeat-clip" ? clipped + "\n" + clipped : clipped,
+          );
           expect(wire).toBe(trace.after);
           // It is possible for a marker to survive even when its row does not.
           expect(wire).toContain(rows[1].content.slice(0, -8));

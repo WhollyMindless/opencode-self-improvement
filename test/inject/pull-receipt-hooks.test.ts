@@ -84,13 +84,18 @@ async function plugin(): Promise<LoadedPlugin> {
 
 // One read through the registered execute.after hook, in the V2 shape a
 // v2.3 host hands it. Returns the event so a test can play a later plugin.
-async function read(p: LoadedPlugin, sid: string, callID?: string) {
+async function read(
+  p: LoadedPlugin,
+  sid: string,
+  callID?: string,
+  output = OUTPUT,
+) {
   const event = {
     sessionID: sid,
     callID,
     tool: "read",
     input: { filePath: join(repo, "notes.txt") },
-    result: { content: [{ type: "text", text: OUTPUT }] },
+    result: { content: [{ type: "text", text: output }] },
   };
   await p.toolHooks["execute.after"](event);
   return event;
@@ -303,8 +308,33 @@ describe("Feature: a pull is credited by the request that carries it", () => {
     });
     const p = await plugin();
     const sid = "ses-contention";
+    const alternate = "ZX_CURSOR_STALLED pager pagination";
+    const recent = "MQTT_RETAINED_FRAME broker topic";
+    for (const content of [alternate, recent])
+      await appendMemory({
+        type: "learning",
+        scope: "fixture",
+        content,
+        repo: "global",
+      });
+    const prior = await read(p, sid, "prior", recent);
+    await request(p, sid, "prior", textOf(prior));
+    expect(await pullCredits()).toHaveLength(1);
     const event = await read(p, sid, "busy");
-    const second = await read(p, sid, "also-busy");
+    const second = await read(p, sid, "also-busy", alternate);
+    const third = await read(p, sid, "throttled", recent);
+    for (const [placed, content] of [
+      [event, ROW],
+      [second, alternate],
+      [third, recent],
+    ] as const)
+      expect(
+        textOf(placed)
+          .split("\n")
+          .filter((line) => line.startsWith("- ["))
+          .map((line) => line.endsWith(content)),
+      ).toEqual([true]);
+
     const acquired = Promise.withResolvers<void>();
     const gate = Promise.withResolvers<void>();
     const holding = withStoreLock(hitsFile(), async () => {
@@ -314,12 +344,19 @@ describe("Feature: a pull is credited by the request that carries it", () => {
     await acquired.promise;
     try {
       const start = performance.now();
-      await request(p, sid, "busy", textOf(event), {
-        id: "also-busy",
-        text: textOf(second),
-      });
+      await request(
+        p,
+        sid,
+        "busy",
+        textOf(event),
+        {
+          id: "also-busy",
+          text: textOf(second),
+        },
+        { id: "throttled", text: textOf(third) },
+      );
       expect(performance.now() - start).toBeLessThan(1000);
-      expect(await pullCredits()).toEqual([]);
+      expect(await pullCredits()).toHaveLength(1);
       const skipped = ev(readEvidenceLog(), "pull_credit_skipped");
       expect(skipped.map((line) => line.reason)).toEqual([
         "write_failed",

@@ -168,18 +168,22 @@ function onLockTimeout<T>(
   throw new Error(busyMessage(file, ms));
 }
 
-// Resolves when the task stored as this key has finished, handing the turn to
-// whoever queued after it.
-const turns = new Map<string, Promise<void>>();
+// An entry exists while one owner holds the turn. Waiters can leave the FIFO
+// on timeout without releasing the owner or waking its successor.
+const turns = new Map<string, Set<() => void>>();
 
-async function timed(prev: Promise<void>, ms: number): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const gained = await Promise.race([
-    prev.then(() => true),
-    new Promise<boolean>((res) => (timer = setTimeout(() => res(false), ms))),
-  ]);
-  clearTimeout(timer);
-  return gained;
+function waitForTurn(waiters: Set<() => void>, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const grant = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      waiters.delete(grant);
+      resolve(false);
+    }, ms);
+    waiters.add(grant);
+  });
 }
 
 /**
@@ -554,30 +558,25 @@ async function acquire<T>(
     return await fn();
   }
 
-  let releaseTurn!: () => void;
-  const myTurnEnded = new Promise<void>((res) => (releaseTurn = res));
-  const queuedBehind = turns.get(dbPath);
-  turns.set(dbPath, myTurnEnded);
-
-  const finish = () => {
-    releaseTurn();
-    if (turns.get(dbPath) === myTurnEnded) turns.delete(dbPath);
-  };
-
-  if (queuedBehind) {
-    const gained = await timed(queuedBehind, timeoutMs);
-    if (!gained) {
-      // Give up our place in line rather than park everyone behind us on a
-      // writer that is not going to finish.
-      finish();
+  let waiters = turns.get(dbPath);
+  if (waiters) {
+    if (!(await waitForTurn(waiters, timeoutMs)))
       return onLockTimeout(file, fn, opts, performance.now() - started);
-    }
+  } else {
+    waiters = new Set();
+    turns.set(dbPath, waiters);
   }
 
   try {
     return await holdLock(dbPath, file, fn, opts, started, started + timeoutMs);
   } finally {
-    finish();
+    const next = waiters.values().next().value;
+    if (next) {
+      waiters.delete(next);
+      next();
+    } else {
+      turns.delete(dbPath);
+    }
   }
 }
 

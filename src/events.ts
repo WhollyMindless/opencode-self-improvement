@@ -266,16 +266,6 @@ export async function registerHooks(
       const deadline = performance.now() + 50;
       for (const { held, rows } of credits) {
         const lockWaitMs = Math.max(0, Math.ceil(deadline - performance.now()));
-        if (!lockWaitMs) {
-          await record(
-            "pull_credit_skipped",
-            { tool: held.tool, rows: rows.length, reason: "budget" },
-            false,
-            held.sid,
-            held.evidence,
-          ).catch(() => undefined);
-          continue;
-        }
         await noteHits("pull", held.sid, rows, held.query, {
           lockWaitMs,
           tool: held.tool,

@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 
 export const FOOTER = "READ-FORMATTER-FOOTER-462";
-export type Formatter = "limit" | "footer" | "clip";
+export type Formatter = "limit" | "footer" | "clip" | "repeat-clip";
 
 interface ToolResult {
   content: Array<{ type: string; text?: string }>;
@@ -36,7 +36,10 @@ export default {
   setup: async (ctx: Context) => {
     const mode = process.env.E2E_PULL_FORMATTER;
     const tracePath = process.env.E2E_PULL_FORMATTER_TRACE;
-    if (!tracePath || !["limit", "footer", "clip"].includes(mode ?? "")) {
+    if (
+      !tracePath ||
+      !["limit", "footer", "clip", "repeat-clip"].includes(mode ?? "")
+    ) {
       throw new Error(
         "pull formatter fixture is missing its mode or trace path",
       );
@@ -52,7 +55,12 @@ export default {
       } else {
         const text =
           mode === "limit" ? before.slice(0, 200) : before.slice(0, -8);
-        event.result.content = [{ type: "text", text }];
+        event.result.content = [
+          {
+            type: "text",
+            text: mode === "repeat-clip" ? text + "\n" + text : text,
+          },
+        ];
       }
       const after = event.result.content
         .filter((part) => part.type === "text")

@@ -96,16 +96,25 @@ function survivingRows(entry: HeldPull, text: string): Memory[] | undefined {
   const start = lines.indexOf(entry.header);
   if (start < 0) return undefined;
   const visible = new Map<string, number>();
-  for (const line of lines.slice(start + 1)) {
-    visible.set(line, (visible.get(line) ?? 0) + 1);
+  const inBlock = new Map<string, number>();
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (line === entry.header) {
+      inBlock.clear();
+      continue;
+    }
+    const count = (inBlock.get(line) ?? 0) + 1;
+    inBlock.set(line, count);
+    // A formatter can repeat a clipped block inside a single tool result.
+    // Keep the highest count in one block; separate copies cannot prove twins.
+    if (count > (visible.get(line) ?? 0)) visible.set(line, count);
   }
-  // Different IDs can render the same line. If only some copies survived,
-  // their individual IDs cannot be recovered from the observed text.
+  const required = new Map<string, number>();
+  for (const line of entry.lines)
+    required.set(line, (required.get(line) ?? 0) + 1);
   return entry.rows.filter((_, i) => {
     const line = entry.lines[i]!;
-    return (
-      (visible.get(line) ?? 0) >= entry.lines.filter((l) => l === line).length
-    );
+    return (visible.get(line) ?? 0) >= required.get(line)!;
   });
 }
 

@@ -175,6 +175,25 @@ describe("Feature: credit what the request carries", () => {
     expect(result.losses.map((l) => l.rows)).toEqual([2]);
   });
 
+  test("one result with repeated clipped blocks cannot combine ambiguous copies", () => {
+    const twin = { ...A, ts: B.ts };
+    const clipped = delivered([A]);
+    const complete = delivered([A, twin]);
+    for (const [text, expected] of [
+      [clipped + "\r\n" + clipped, []],
+      [clipped + "\n" + complete, [A, twin]],
+      [complete + "\n" + clipped, [A, twin]],
+    ] as const) {
+      const book = createPullReceipts();
+      book.hold(placed([A, twin]));
+      const result = book.settle("ses-a", request("call-1", text), T0 + 1);
+      expect(result.credits.flatMap((c) => c.rows)).toEqual([...expected]);
+      expect(result.losses.map((l) => l.rows)).toEqual(
+        expected.length ? [] : [2],
+      );
+    }
+  });
+
   test("a different tool with a reused call ID cannot settle the placement", () => {
     const book = createPullReceipts();
     book.hold(placed([A], { tool: "grep" }));

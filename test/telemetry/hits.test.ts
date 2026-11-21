@@ -113,6 +113,33 @@ describe("the ledger line", () => {
     expect(ledger.lines).toBe(1);
   });
 
+  test("a timed-out pull preserves the queue for pending and later gate writers", async () => {
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const holder = withStoreLock(hitsFile(), async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    await entered.promise;
+    const now = Date.now();
+    const pull = recordHits("pull", "s", [row("one")], [], now, 1, "turn", {
+      lockWaitMs: 50,
+      observedAt: now,
+    });
+    const waiting = recordOutcome("s", 1, "PASS", "first");
+    const saved = await pull;
+    const arriving = recordOutcome("s", 2, "PASS", "second");
+    release.resolve();
+    await holder;
+    expect(saved).toBe(false);
+    expect(await Promise.all([waiting, arriving])).toEqual([true, true]);
+    expect((await readOutcomes()).map((outcome) => outcome.cmd)).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(getDroppedOutcomeWrites()).toBe(0);
+  });
+
   test("a cold ledger lock respects the receipt budget during legacy journal conversion", async () => {
     const db = new Database(lockDatabaseFor(hitsFile()));
     const rows = [row("2026-01-01T00:00:00.000Z")];

@@ -155,6 +155,18 @@ export async function recordHits(
   if (inFlight.has(key)) return false;
   const eligibleAt = nextAttempt.get(key);
   if (eligibleAt !== undefined && now < eligibleAt) return false;
+  if (receipt && receipt.lockWaitMs <= 0) {
+    if (receipt.evidence && receipt.tool) {
+      await record(
+        "pull_credit_skipped",
+        { tool: receipt.tool, rows: rows.length, reason: "budget" },
+        false,
+        sid,
+        receipt.evidence,
+      ).catch(() => undefined);
+    }
+    return false;
+  }
   const line = formatLine({
     ev: "memory_used",
     ts: new Date(receipt?.observedAt ?? now).toISOString(),
