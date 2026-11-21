@@ -1,13 +1,24 @@
 // Evidence log writer. One logfmt line per event, appended in hook order to
 // ~/.config/opencode/memory/evidence/<date>.logfmt. Evidence is DATA: never
 // injected into chat, and stored outside every repo.
-import { appendFileSync, existsSync, mkdirSync, realpathSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  constants,
+  existsSync,
+  fchmodSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  realpathSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { evidenceDir } from "../core/config/paths.ts";
 import { dateStr } from "../core/time.ts";
-import { formatLine } from "../core/logfmt/format.ts";
+import { formatLine, IS_WINDOWS } from "../core/logfmt/format.ts";
 import { appendLog } from "../core/logfmt/publish.ts";
+import { tightenDirectory } from "../core/permissions.ts";
 import {
   repoScope,
   sessionScope,
@@ -184,10 +195,12 @@ export async function record(
 
 /**
  * Synchronous counterpart to `record`. Use ONLY where a write must land before
- * the process can be cut — currently the capture-start receipt. It does
- * not yield, so the host's exit logic (also on the event loop) cannot preempt
- * it, and it leaves the model call's teardown window intact. Same line shape,
- * same redaction, same O_APPEND semantics as `appendLog`.
+ * the process can be cut — currently the capture-start receipt. It does not
+ * yield, so the host's exit logic (also on the event loop) cannot preempt it,
+ * and it leaves the model call's teardown window intact. Same line shape and
+ * redaction as `record`, and the same file protections as `appendLog`: the
+ * directory is tightened, the file is opened `O_NOFOLLOW` and its mode is
+ * narrowed to `0o600` before the append.
  */
 export function recordSync(
   ev: EvidenceEvent,
@@ -198,6 +211,7 @@ export function recordSync(
 ): void {
   const dir = evidenceDir();
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  tightenDirectory(dir);
   const line = buildEvidenceLine(
     ev,
     fields,
@@ -205,11 +219,22 @@ export function recordSync(
     sessionID,
     context,
   );
-  appendFileSync(
-    join(dir, `${dateStr()}.logfmt`),
-    line.endsWith("\n") ? line : `${line}\n`,
-    { mode: 0o600, flag: "a" },
+  const next = line.endsWith("\n") ? line : `${line}\n`;
+  const file = join(dir, `${dateStr()}.logfmt`);
+  const fd = openSync(
+    file,
+    constants.O_WRONLY |
+      constants.O_APPEND |
+      constants.O_CREAT |
+      (constants.O_NOFOLLOW ?? 0),
+    0o600,
   );
+  try {
+    if (!IS_WINDOWS) fchmodSync(fd, fstatSync(fd).mode & 0o600);
+    appendFileSync(fd, next);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export function contentHash(content: string): string {

@@ -507,35 +507,6 @@ export function configureAutoCapture(
             if (msgs !== before) transcript = flattenTranscript(msgs);
           }
         }
-        // The turn-end event reached the plugin and a pass began, past the
-        // context read. This receipt is written SYNCHRONOUSLY so it lands without
-        // yielding the event loop — the host's exit logic cannot preempt a
-        // synchronous write, and the model call keeps its full teardown window.
-        // (An async write here flushed too, but its several awaits measurably
-        // shrank that window and cost first-turn capture_cost delivery, so the
-        // receipt must not be async.) It sits AFTER the context read on purpose:
-        // a pass disposed DURING the context read returns at the abort check above
-        // and leaves no trace, which is the teardown contract; a pass cut at
-        // the model call — the long await, and the dominant lost-pass case — records
-        // this line and then nothing. Measured 2026-11-21 on opencode v2.3.0: a
-        // handler that awaits the model records nothing 0/10 while cleanup fires
-        // 10/10. The line separates the states the issue calls indistinguishable:
-        //   no `auto_capture_start` after a turn   -> the event never reached us
-        //   `auto_capture_start` + `capture_cost`   -> the pass ran to a verdict
-        //   `auto_capture_start`, no `capture_cost` -> cut by process exit before
-        //     a verdict (the lost-pass signature).
-        passesStarted++;
-        recordSync(
-          "auto_capture_start",
-          {
-            session: sid,
-            trigger,
-            ...(modelTag ? { model: modelTag } : {}),
-          },
-          true,
-          sid,
-          captureGate.evidenceContext,
-        );
         if (captureOnSignal) {
           let verdict = captureSignalSince(session(sid), cursor.turn);
           if (
@@ -655,6 +626,29 @@ export function configureAutoCapture(
           attested,
         );
         const promptChars = capturePrompt.length;
+        // The receipt that a capture pass began, written SYNCHRONOUSLY at the
+        // last point before the model call — after every skip decision, so a turn
+        // that deliberately skipped (no signal, thin transcript) records
+        // `auto_capture_skipped` and never this line. `auto_capture_start` means
+        // exactly one thing: the pass reached the model call. It must not be
+        // async: an async write here yields the event loop several times and
+        // measurably shrinks the window the model call has to finish before the
+        // host exits. It sits after the context read and the known-rows read on
+        // purpose — a pass disposed during either returns at its abort check and
+        // leaves no trace (the teardown contract) — so a start line with no
+        // `capture_cost` is a pass cut AT the model call, the state otherwise
+        // byte-identical to "disabled" or "ran and found nothing."
+        passesStarted++;
+        recordSync(
+          "auto_capture_start",
+          {
+            trigger,
+            ...(modelTag ? { model: modelTag } : {}),
+          },
+          true,
+          sid,
+          captureGate.evidenceContext,
+        );
         const out = await generateApi.text({
           model,
           prompt: capturePrompt,
@@ -1127,8 +1121,8 @@ export function configureAutoCapture(
             if (!captureTriggerFor(raw)) continue;
             // The turn-end event reached this subscription. Counted before
             // the session-id and cooldown checks so a delivered-but-cooled event
-            // still proves the event arrived — only a zero here means the host
-            // never dispatched it, which is the state the disposal flush reports.
+            // still proves the event arrived — only a zero here means no turn-end
+            // event reached this instance, the only case the disposal flush records.
             turnEndSeen++;
             const sid = captureSessionID(raw);
             if (sid === undefined) continue;
@@ -1185,16 +1179,16 @@ export function configureAutoCapture(
         // the unanswered ones, drain the answered ones.
         controller.abort();
         await drainInFlight();
-        // Disposal flush: the one capture signal that does NOT depend on the
-        // turn-end event arriving. If this armed instance is being disposed and
-        // never received a single turn-end event and started no pass, the host
-        // dispatched turn-end and exited without the subscription ever seeing it —
-        // the state the issue could not tell apart from "disabled" or "ran and
-        // found nothing." A pass that started (idle or compaction) already left an
-        // `auto_capture_start` line, so this fires only for the never-delivered
-        // case. Guarded and existence-checked: a disposed instance must not
-        // resurrect a store its caller removed (the teardown contract), and a
-        // failed heartbeat must never turn cleanup into a throw.
+        // Disposal flush: the one capture signal that does not depend on a
+        // turn-end event arriving. If an armed instance is disposed having
+        // observed no turn-end event and started no pass, record that absence.
+        // This line is PREDICTIVE, not observed: on current host versions the
+        // turn-end event reaches the subscription in every measured run, and an
+        // idle instance restarted between turns produces it too — so it names the
+        // state the original report inferred, never an accusation of where a
+        // dispatched event went. Guarded and existence-checked: a disposed
+        // instance must not resurrect a store its caller removed (the teardown
+        // contract), and a failed heartbeat must never turn cleanup into a throw.
         if (turnEndSeen === 0 && passesStarted === 0) {
           try {
             if (existsSync(evidenceDir()))
@@ -1204,7 +1198,7 @@ export function configureAutoCapture(
                   armed: true,
                   turn_end_events: 0,
                   passes: 0,
-                  reason: "turn_end_not_delivered",
+                  reason: "no_turn_end_observed",
                   subscribed: `[${CAPTURE_EVENT_TYPES.join(",")}]`,
                 },
                 false,

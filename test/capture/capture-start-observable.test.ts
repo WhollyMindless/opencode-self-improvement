@@ -1,35 +1,36 @@
-// Regression: a capture pass that the host never lets finish must still
-// leave a trace, so the silent state is distinguishable in the evidence log.
+// Pins the plugin-side contract for a capture pass's evidence lines: the start
+// receipt, the deliberate-skip line, and the disposal flush. These tests stub
+// the event bus and assert the lines the plugin writes; whether the host lets a
+// pass finish (delivery) is exercised by the flaky e2e capture test, not here.
 //
-// The bug. On `opencode run` the host dispatches the turn-end event to plugin
-// subscriptions and exits WITHOUT awaiting the async handler (measured 2026-11-21
-// on opencode v2.3.0: the event reaches event.subscribe 10/10, a handler that
-// awaits the model records nothing 0/10, while cleanup fires 10/10). When the
-// pass is cut before `capture_cost`, the evidence log shows a turn with a tool
-// result and NOTHING after — byte-identical to "capture is disabled" or "capture
-// ran and found nothing." The user gets no memory and no signal anything was
-// missed.
+// The contract:
+//   `auto_capture_start` is written synchronously AFTER the context read and
+//     every skip decision, immediately before the model call. It means exactly
+//     one thing: the pass reached the model call. A pass disposed during the
+//     context read returns at its abort check and leaves no trace (the teardown
+//     contract), so this line is never written before the context read.
+//   `auto_capture_skipped` is written when a turn deliberately skips (no signal,
+//     thin transcript); no start line is written, because a skip is not a cut.
+//   `auto_capture_dispose` is written at disposal when an armed instance observed
+//     no turn-end event and started no pass. It is predictive, not observed on a
+//     released host, and an idle restart between turns produces it too.
 //
-// The fix this pins. The pass records `auto_capture_start` at its FIRST await,
-// before the context read and the model call, so it flushes even when the host
-// exits mid-handler (an async first-write lands 12/12). And disposal records
-// `auto_capture_dispose` when an armed instance is torn down without ever seeing
-// a turn-end event — the one signal that does not depend on the event arriving.
-//
-// These two lines make the three states distinguishable:
-//   disabled                         -> plugin_load capture=off, no start line
-//   ran and found nothing            -> auto_capture_start + capture_cost/capture_lag
-//   started but cut by teardown    -> auto_capture_start, NO capture_cost
-//   event never delivered          -> auto_capture_dispose, no start line
-//
-// Both assertions fail on origin/main, where neither line exists.
+// The states a reader distinguishes from the evidence log:
+//   ran to a verdict              -> auto_capture_start + capture_cost/capture_lag
+//   deliberately skipped          -> auto_capture_skipped, no start line
+//   reached the model, no verdict -> auto_capture_start, no capture_cost
+//   disposed, no turn-end seen    -> auto_capture_dispose, no start line
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resetState } from "../../src/core/state.ts";
 import { setRepoScope } from "../../src/identity/repokey.ts";
 import { resetCaptureCooldowns } from "../../src/index.ts";
+import { evidenceDir } from "../../src/core/config/paths.ts";
+import { dateStr } from "../../src/core/time.ts";
+import { captureHealth } from "../../src/status/metrics.ts";
+import { captureLines } from "../../src/status/report.ts";
 import { type LoadedPlugin, loadPlugin } from "../harness.ts";
 import { readEvidenceLog, sleep } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
@@ -38,7 +39,7 @@ let root: string;
 let plugin: LoadedPlugin | undefined;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "osi-406-start-"));
+  root = mkdtempSync(join(tmpdir(), "osi-start-"));
   process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
   process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
   mkdirSync(join(root, "repo"), { recursive: true });
@@ -64,6 +65,16 @@ async function waitFor(cond: () => boolean, timeoutMs = 10_000): Promise<void> {
     if (Date.now() - start > timeoutMs) throw new Error("waitFor timed out");
     await sleep(5);
   }
+}
+
+/** The raw evidence lines, as `captureHealth` reads them. */
+function rawLines(): string[] {
+  const file = join(evidenceDir(), `${dateStr()}.logfmt`);
+  return existsSync(file)
+    ? readFileSync(file, "utf8")
+        .split("\n")
+        .filter((l) => l.trim() !== "")
+    : [];
 }
 
 /** A generate call the test holds open, then releases. */
@@ -96,7 +107,7 @@ function thickMessages(): unknown[] {
   ];
 }
 
-test("a pass cut at the model call still records auto_capture_start (started-but-cut is observable)", async () => {
+test("a pass cut at the model call records auto_capture_start and no capture_cost", async () => {
   const loaded = await loadPlugin(root, {
     autoCapture: true,
     captureModel: "fake/model",
@@ -119,16 +130,46 @@ test("a pass cut at the model call still records auto_capture_start (started-but
   await waitFor(() => loaded.capture.generate.calls.length === 1);
 
   const ev = readEvidenceLog();
-  const start = ev.find(
-    (l) => l.ev === "auto_capture_start" && l.session === sid,
-  );
-  // FAILS ON origin/main: no such line exists, so the cut pass is invisible.
+  const start = ev.find((l) => l.ev === "auto_capture_start");
+  // The receipt is the only trace a cut pass leaves, so it must be present.
   expect(start).toBeDefined();
   expect(String(start?.trigger)).toBe("idle");
-  // The pass really was cut before its verdict: no completion receipt exists,
-  // which is precisely why the start line is the only trace it leaves.
+  // The pass really was cut before its verdict: no completion receipt exists.
   expect(ev.some((l) => l.ev === "capture_cost")).toBe(false);
   park.release();
+});
+
+test("a deliberately skipped turn records no start line and is not reported as a cut", async () => {
+  const loaded = await loadPlugin(root, {
+    autoCapture: true,
+    captureModel: "fake/model",
+  });
+  plugin = loaded;
+  const sid = "ses-skip";
+  // A one-message transcript: too thin to mine, so the pass skips on purpose.
+  loaded.capture.context.messages = [{ role: "user", content: "hello" }];
+  await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+  loaded.capture.events.push({
+    type: "session.execution.succeeded",
+    data: { sessionID: sid },
+  });
+  await waitFor(() =>
+    readEvidenceLog().some((l) => l.ev === "auto_capture_skipped"),
+  );
+
+  const ev = readEvidenceLog();
+  // The pass skipped before the model call, so no model request was made.
+  expect(loaded.capture.generate.calls.length).toBe(0);
+  expect(ev.some((l) => l.ev === "auto_capture_skipped")).toBe(true);
+  // The invariant: a deliberate skip writes NO start line. `auto_capture_start`
+  // means "the pass reached the model call," so writing it here would make a
+  // healthy skip indistinguishable from a pass cut mid-model-call.
+  expect(ev.some((l) => l.ev === "auto_capture_start")).toBe(false);
+  // And the rendered health must not diagnose this healthy skip as a lost pass.
+  const rendered = captureLines(captureHealth(rawLines())).join("\n");
+  expect(rendered).not.toMatch(
+    /started|reached the model call|cut by host teardown/,
+  );
 });
 
 test("disposal of an armed instance with no turn-end event records auto_capture_dispose", async () => {
@@ -138,15 +179,13 @@ test("disposal of an armed instance with no turn-end event records auto_capture_
   });
   plugin = loaded;
   await waitFor(() => loaded.capture.events.subscribeCalls === 2);
-  // No turn-end event is ever delivered — the host exited before dispatch
-  // reached the subscription. Disposal is the only chance to record it.
+  // No turn-end event is ever delivered. Disposal is the only chance to record
+  // the absence — a predictive line, not an accusation of where an event went.
   await loaded.cleanup();
   plugin = undefined; // already disposed; do not double-flush in afterEach
 
   const miss = readEvidenceLog().find((l) => l.ev === "auto_capture_dispose");
-  // FAILS ON origin/main: no such line exists, so "event never arrived" is
-  // indistinguishable from "capture disabled" or "capture ran and found nothing."
   expect(miss).toBeDefined();
-  expect(String(miss?.reason)).toBe("turn_end_not_delivered");
+  expect(String(miss?.reason)).toBe("no_turn_end_observed");
   expect(String(miss?.armed)).toBe("true");
 });

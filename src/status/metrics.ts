@@ -178,17 +178,18 @@ export interface CaptureHealth {
    */
   lastExecuted: string | null;
   /**
-   * Newest `auto_capture_start` receipt: the turn-end event reached the plugin
-   * and a pass began, even if it never completed. A pass cut by process
-   * exit leaves this line and no `capture_cost`, which is a different fact from
-   * "the event never arrived" (no start line) and from "ran and found nothing"
-   * (a `capture_lag` receipt).
+   * Newest `auto_capture_start` receipt: a pass reached the model call. It is
+   * written only after every skip decision, so a deliberate skip never sets it.
+   * A start with no `capture_cost` means completion was unobserved — a different
+   * fact from a deliberate skip (`auto_capture_skipped`, no start line) and from
+   * a completed run (a `capture_lag` receipt).
    */
   lastStarted?: string | null;
   /**
-   * Newest `auto_capture_dispose` flush: an armed instance was disposed without
-   * ever receiving a turn-end event. The host dispatched turn-end and
-   * exited before the subscription saw it.
+   * Newest `auto_capture_dispose` flush: an armed instance was disposed with no
+   * turn-end event observed and no pass started. Predictive — built for the state
+   * the original report inferred, not one observed on a released host; an idle
+   * instance restarted between turns produces it too.
    */
   lastMissed?: string | null;
 }
