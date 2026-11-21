@@ -6,7 +6,9 @@
 // What a "use" is, deliberately narrow:
 //   inject  — the rows that actually survived into an epoch block (offered to
 //             the model on every request of that epoch);
-//   pull    — rows appended to a grep/glob/read result by the contextual pull;
+//   pull    — rows appended to a grep/glob/read result by the contextual pull
+//             and still whole in the next request for that call
+//             (src/inject/pull-receipts.ts);
 //   recall  — rows returned by a memory_recall call.
 //
 // What it is NOT: evidence is a different file and a different contract. This
@@ -136,6 +138,7 @@ export async function recordHits(
   now = Date.now(),
   turn?: number,
   turnKey?: string,
+  lockWaitMs?: number,
 ): Promise<boolean> {
   if (!rows.length) return false;
   const ids = rows.map((m) => m.ts);
@@ -169,7 +172,9 @@ export async function recordHits(
         await rotateIfNeeded();
         await appendLog(hitsFile(), line);
       },
-      LOCK_WRITE,
+      lockWaitMs === undefined
+        ? LOCK_WRITE
+        : { ...LOCK_WRITE, timeoutMs: lockWaitMs },
     );
     cooldown = THROTTLE_MS;
     return true;

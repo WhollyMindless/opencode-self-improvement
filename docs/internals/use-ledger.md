@@ -34,10 +34,38 @@ harness offered" are different facts:
    be credited here for something the model had not asked about yet
    (`pullOutputChars` in [docs/reference/options.md](../reference/options.md) dials it back).
 
-Credit is recorded only when the bytes were actually placed on the result. When a
-pull computed rows and found nowhere to write them, the evidence log gets a
-`pull_undelivered` line instead — a host that changes its result shape should show
-up as a failure, not as a quieter ledger.
+A pull is credited when the next request carries it, not when it is placed.
+Another plugin's `tool.execute.after` hook can run after this one and shorten the
+result, so placing the block proves nothing about what the model receives
+([#462](https://github.com/abogartz/opencode-self-improvement/issues/462)). The
+plugin holds the placed rows until the next `session.context` request for the same
+session. It matches the tool name, call ID and a fresh 16-character identifier
+in the header. The rendering budget includes this identifier. A row earns credit
+when its complete line survives after that placement’s header. If
+several rows render to the same line and fewer copies survive, none of those row
+IDs is credited, because the request cannot say which one rode. Each placement is
+settled once, by the first request that carries its call. The credit keeps the
+placement's time and turn, so the hourly throttle and the turn join behave as they
+did before. The `terms` still come from the query the pull searched.
+
+The evidence log records placement and confirmation failures by tool and row count.
+Ledger throttling, write failures, or process shutdown can also leave a row without
+a receipt. Pull receipts in one request share a 50 ms lock-wait budget.
+
+- `pull_undelivered` (no `stage`): the pull computed rows and found nowhere to
+  write them. A host that changes its result shape should show up as a failure,
+  not as a quieter ledger.
+- `pull_undelivered stage=request`: the request carried the call, but these rows
+  were missing or cut.
+- `pull_unconfirmed reason=expired|evicted|no_call`: no request settled the
+  placement. Expiry is checked on later context activity, after 30 minutes. The
+  256-placement cap also applies when there is no further context activity.
+
+The receipt checks the messages as this plugin's `session.context` hook sees them.
+A context hook that another plugin runs later can still change the request, and
+provider-side truncation is not visible. The credit is one step closer to the
+provider than placement, but it is not the provider's own bytes. A pull that is
+never followed by a request is not credited, so pull counts are a floor.
 
 The writer throttles identical sets of retrieved rows to one successful line
 per session and source per hour. A row can appear in multiple sets.
