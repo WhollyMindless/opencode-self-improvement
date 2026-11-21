@@ -134,6 +134,22 @@ describe("Feature: credit what the request carries", () => {
     expect(book.size()).toBe(0);
   });
 
+  test("a quoted header cannot displace an exact header in either result order", () => {
+    const entry = placed([A], { header: PULL_HEADER + " [fresh]" });
+    const exact = request(
+      entry.callID,
+      [entry.header, formatMemory(A)].join("\r\n"),
+    );
+    const quoted = request(entry.callID, "quoted " + entry.header);
+    for (const messages of [exact.concat(quoted), quoted.concat(exact)]) {
+      const book = createPullReceipts();
+      book.hold(entry);
+      const { credits, losses } = book.settle(entry.sid, messages, T0 + 1);
+      expect(credits.map((c) => c.rows)).toEqual([[A]]);
+      expect(losses).toEqual([]);
+    }
+  });
+
   test("a different tool with a reused call ID cannot settle the placement", () => {
     const book = createPullReceipts();
     book.hold(placed([A], { tool: "grep" }));

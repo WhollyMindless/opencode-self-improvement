@@ -80,7 +80,7 @@ function toolResults(
       const entry = pending.get(part.id);
       if (!entry || entry.tool !== part.name) continue;
       const text = resultText(part.result) ?? "";
-      if (!out.has(entry.callID) || text.includes(entry.header))
+      if (!out.has(entry.callID) || text.split(/\r?\n/).includes(entry.header))
         out.set(entry.callID, text);
     }
   }

@@ -4,6 +4,7 @@
 // be written into `terms`, what the ledger can honestly claim about rows it
 // has never seen, and the qualifier the surfaces must carry when the ledger
 // is too young to call anything "never retrieved".
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   closeSync,
@@ -31,7 +32,11 @@ import {
 } from "../../src/status/store-summary.ts";
 import { appendMemory } from "../../src/store/files/append.ts";
 import { loadAll } from "../../src/store/files/load.ts";
-import { LOCK_WRITE, withStoreLock } from "../../src/store/lock.ts";
+import {
+  lockDatabaseFor,
+  LOCK_WRITE,
+  withStoreLock,
+} from "../../src/store/lock.ts";
 import type { Memory } from "../../src/store/model/memory.ts";
 import {
   getDroppedOutcomeWrites,
@@ -106,6 +111,28 @@ describe("the ledger line", () => {
     });
     expect(ledger.since).toBe("2026-06-01T00:00:00.000Z");
     expect(ledger.lines).toBe(1);
+  });
+
+  test("a cold ledger lock respects the receipt budget during legacy journal conversion", async () => {
+    const db = new Database(lockDatabaseFor(hitsFile()));
+    const rows = [row("2026-01-01T00:00:00.000Z")];
+    const receipt = (sid: string) =>
+      recordHits("pull", sid, rows, [], Date.now(), 1, "turn", {
+        lockWaitMs: 50,
+        observedAt: Date.now(),
+      });
+    try {
+      db.run("PRAGMA journal_mode = WAL");
+      db.run("BEGIN IMMEDIATE");
+      const start = performance.now();
+      expect(await receipt("held")).toBe(false);
+      expect(performance.now() - start).toBeLessThan(1000);
+      expect((await readRides()).length).toBe(0);
+    } finally {
+      db.close();
+    }
+    expect(await receipt("released")).toBe(true);
+    expect((await readRides()).map((ride) => ride.sid)).toEqual(["released"]);
   });
 
   test("an empty row-set is not a use, and terms are capped", async () => {

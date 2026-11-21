@@ -53,7 +53,8 @@ the query the pull searched.
 
 The evidence log records placement and confirmation failures by tool and row count.
 Ledger throttling, write failures, or process shutdown can also leave a row without
-a receipt. Pull receipts share a 50 ms lock-wait budget per request. A skipped
+a receipt. Pull receipts share a 50 ms lock-wait budget per request, including
+conversion of a legacy lock database on first use. A skipped
 attempt after this budget expires emits `pull_credit_skipped reason=budget`.
 On Windows, pull receipts attempt rotation once. A reader that prevents
 replacement leaves the existing ledger intact. Filesystem I/O can still add latency.

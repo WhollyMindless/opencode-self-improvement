@@ -115,8 +115,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_ON_TIMEOUT = "fail";
 const MIN_BACKOFF_MS = 1;
 const MAX_BACKOFF_MS = 25;
-// Leaving a legacy WAL journal is a once-per-process-per-lock setup step, not
-// the hot path, so it gets its own bound rather than the caller's budget.
+// Legacy journal conversion has its own ceiling within the acquisition deadline.
 const JOURNAL_CONVERT_BUDGET_MS = 5_000;
 
 // The one source of the timeout policy: both give-up paths — the FIFO
@@ -337,7 +336,10 @@ async function harden(dbPath: string): Promise<void> {
   await chmod(dbPath, 0o600).catch(() => undefined);
 }
 
-async function lockDatabase(dbPath: string): Promise<Database> {
+async function lockDatabase(
+  dbPath: string,
+  deadline: number,
+): Promise<Database> {
   const cached = lockDbs.get(dbPath);
   if (cached) {
     // Touch: this directory is in use, so it moves to the protected end of the
@@ -367,7 +369,7 @@ async function lockDatabase(dbPath: string): Promise<Database> {
     // policy stays ours — async, bounded, and sharing one budget with the FIFO
     // hand-off above.
     db.run("PRAGMA busy_timeout = 0");
-    await ensureLockJournal(db, dbPath);
+    await ensureLockJournal(db, dbPath, deadline);
   } catch (err) {
     db.close();
     throw err;
@@ -402,11 +404,15 @@ const journalMode = (db: Database): string =>
  * LEAVE WAL is refused rather than run that way: the sidecar churn would come
  * back per store, silently.
  */
-async function ensureLockJournal(db: Database, dbPath: string): Promise<void> {
+async function ensureLockJournal(
+  db: Database,
+  dbPath: string,
+  deadline: number,
+): Promise<void> {
+  const started = Date.now();
+  const until = Math.min(deadline, started + JOURNAL_CONVERT_BUDGET_MS);
   let backoff = MIN_BACKOFF_MS;
-  let waited = 0;
   for (;;) {
-    const step = Date.now();
     try {
       const mode = journalMode(db);
       if (mode === "delete") return;
@@ -431,14 +437,14 @@ async function ensureLockJournal(db: Database, dbPath: string): Promise<void> {
         );
       }
     }
-    await sleep(backoff);
-    waited += Date.now() - step;
-    backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
-    if (waited >= JOURNAL_CONVERT_BUDGET_MS) {
+    const remaining = until - Date.now();
+    if (remaining <= 0) {
       throw new Error(
-        `store lock could not leave write-ahead journal mode for ${dbPath} after ${waited}ms — another process is holding the lock database in a state that refuses it`,
+        `store lock could not leave write-ahead journal mode for ${dbPath} after ${Date.now() - started}ms — another process is holding the lock database in a state that refuses it`,
       );
     }
+    await sleep(Math.min(backoff, remaining));
+    backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
   }
 }
 
@@ -471,8 +477,9 @@ async function holdLock<T>(
   budgetMs: number,
   now: () => number = Date.now,
 ): Promise<T> {
-  let db = await lockDatabase(dbPath);
   const started = now();
+  const deadline = started + budgetMs;
+  let db = await lockDatabase(dbPath, deadline);
   let backoff = MIN_BACKOFF_MS;
   let reconnected = false;
   for (;;) {
@@ -486,7 +493,7 @@ async function holdLock<T>(
           // try again on a fresh connection; a second failure surfaces.
           reconnected = true;
           dropLockDatabase(dbPath);
-          db = await lockDatabase(dbPath);
+          db = await lockDatabase(dbPath, deadline);
           continue;
         }
         const info = err as { code?: string; errno?: number };
@@ -494,7 +501,8 @@ async function holdLock<T>(
           `[code=${info.code ?? "-"} errno=${info.errno ?? "-"}] store lock unavailable for ${basename(file)}: ${(err as Error).message}`,
         );
       }
-      if (now() - started >= budgetMs) {
+      const remaining = deadline - now();
+      if (remaining <= 0) {
         opts.onEvent?.("timeout", now() - started);
         if (timeoutPolicy(opts) === "fail") {
           throw new Error(busyMessage(file, now() - started));
@@ -505,7 +513,7 @@ async function holdLock<T>(
         // believe it did.
         return await fn();
       }
-      await sleep(backoff);
+      await sleep(Math.min(backoff, remaining));
       backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
     }
   }
