@@ -28,6 +28,7 @@ import {
   recordBestEffort,
   recordCaptureLagBestEffort,
   recordSyncBestEffort,
+  safeErrorMessage,
 } from "../telemetry/record.ts";
 import { type AvailabilityIndex, availabilityIndex } from "./available.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
@@ -1171,9 +1172,11 @@ export function configureAutoCapture(
               // copy: when the evidence log is the broken channel, the receipt
               // below cannot land and the underlying failure would vanish with
               // it — the counter names only the receipt event, not its cause.
+              // ONE rendering feeds both, so the two channels of this one
+              // failure cannot diverge in what they expose.
+              const failure = safeErrorMessage(err);
               console.warn(
-                "[opencode-self-improvement] auto-capture (idle) hook failed (ignored):",
-                err,
+                `[opencode-self-improvement] auto-capture (idle) hook failed (ignored): ${failure}`,
               );
               // Fail-closed for the SESSION, never silent in the store: the
               // same silence that hid the 2.2.5 shape break would make a
@@ -1184,9 +1187,7 @@ export function configureAutoCapture(
                   session: sid ?? "?",
                   trigger: "idle",
                   reason: "capture_threw",
-                  error: redactSecrets(
-                    String((err as Error)?.message ?? err),
-                  ).slice(0, 200),
+                  error: failure,
                 },
                 true,
                 sid,

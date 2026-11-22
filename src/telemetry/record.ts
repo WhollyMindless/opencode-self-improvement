@@ -345,6 +345,21 @@ function describeError(err: unknown): string {
   }
 }
 
+// The one rendering every channel of ONE failure shares. The console line and
+// the evidence receipt are the same fact on two channels, so they must not
+// carry different privacy guarantees: neither formats the error itself.
+const MIRRORED_ERROR_MAX = 200;
+
+/**
+ * A failure as reportable text: message only, credential-scrubbed, capped. Use
+ * it for every output that mirrors an error — console, evidence line, counter —
+ * and never hand the original object to a surface, because that carries the
+ * stack and every unscrubbed field on it.
+ */
+export function safeErrorMessage(err: unknown): string {
+  return redactSecrets(describeError(err)).slice(0, MIRRORED_ERROR_MAX);
+}
+
 function noteDroppedWrite(event: EvidenceEvent, err: unknown): void {
   const key = evidenceDir();
   const prev = droppedWrites.get(key);
@@ -356,7 +371,7 @@ function noteDroppedWrite(event: EvidenceEvent, err: unknown): void {
     // "nothing was lost" to every surface that tests it for truth. Scrubbed at
     // the same boundary as every other mirrored error: a path is what an fs
     // failure carries, but a throw from line building carries field values.
-    lastError: redactSecrets(describeError(err)),
+    lastError: safeErrorMessage(err),
   });
   // A long-lived server sees many stores. Bound the map the way the ledger's
   // throttle does, and never evict the entry just written — an entry set twice

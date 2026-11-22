@@ -13,7 +13,7 @@
 //   it cannot land either — so `memory_status` reads it from process memory.
 //   It is keyed by the evidence directory: one store's broken log is not
 //   another store's.
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
@@ -34,10 +34,11 @@ import {
   recordBestEffort,
   recordCaptureLagBestEffort,
   recordSyncBestEffort,
+  safeErrorMessage,
 } from "../../src/telemetry/record.ts";
 import { evidenceWriteLines } from "../../src/status/report.ts";
 import { type LoadedPlugin, loadPlugin } from "../harness.ts";
-import { sleep } from "../helpers/logfmt.ts";
+import { readEvidenceLog, sleep } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
@@ -211,6 +212,84 @@ test("a credential-shaped path in a dropped write is scrubbed before it is kept"
   } finally {
     process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
   }
+});
+
+test("the console line and the failure receipt render one failure the same way", async () => {
+  const loaded = await loadPlugin(root, {
+    autoCapture: true,
+    captureModel: "fake/model",
+  });
+  plugin = loaded;
+  loaded.capture.context.messages = [
+    {
+      role: "user",
+      content:
+        "We finished the archive change. Remember that the nightly archive job keeps fourteen " +
+        "days of tarballs, and the batch importer respects the staging rate limit of 120 " +
+        "requests per minute per key, which matters for the importer.",
+    },
+  ];
+  await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+  const token = "sk-AbCdEfGhIjKlMnOpQrSt";
+  const prefix =
+    "[opencode-self-improvement] auto-capture (idle) hook failed (ignored): ";
+  const warned: string[] = [];
+  const warn = spyOn(console, "warn").mockImplementation(
+    (...args: unknown[]) => {
+      warned.push(args.map((a) => String(a)).join(" "));
+    },
+  );
+  try {
+    loaded.capture.generate.throws = new Error(
+      `provider rejected ${token} ${"y".repeat(300)}`,
+    );
+    loaded.capture.events.push({
+      type: "session.execution.succeeded",
+      data: { sessionID: "ses-warn" },
+    });
+    await waitFor(() => loaded.capture.generate.calls.length === 1);
+    // The warn lands first, the receipt after it. Wait for the log line so the
+    // pair below is settled rather than raced.
+    await waitFor(() =>
+      readEvidenceLog().some(
+        (l) => l.ev === "auto_capture_refused" && l.reason === "capture_threw",
+      ),
+    );
+  } finally {
+    warn.mockRestore();
+    loaded.capture.generate.throws = undefined;
+  }
+  const line = warned.find((l) => l.startsWith(prefix)) ?? "";
+  const receipt = readEvidenceLog().find(
+    (l) => l.ev === "auto_capture_refused" && l.reason === "capture_threw",
+  );
+  // Neither channel may carry the credential, and neither carries the stack:
+  // the message is the only thing either surface renders.
+  expect(line).not.toContain(token);
+  expect(line).toContain("[redacted]");
+  // One computation feeds both, so the console tail and the receipt field are
+  // the same string — the cap is whatever that one place applies, here and there.
+  expect(line.slice(prefix.length)).toBe(String(receipt?.error));
+  expect(String(receipt?.error).length).toBeLessThanOrEqual(200);
+});
+
+test("the mirrored failure text is scrubbed, capped and unthrowable", () => {
+  const token = "sk-AbCdEfGhIjKlMnOpQrSt";
+  const message = safeErrorMessage(
+    new Error(`rejected ${token} ${"z".repeat(400)}`),
+  );
+  expect(message).not.toContain(token);
+  expect(message).toContain("[redacted]");
+  expect(message.length).toBe(200);
+  // A rejection whose own toString throws must not escape the reporter.
+  const hostile = {
+    toString() {
+      throw new Error("toString exploded");
+    },
+  };
+  expect(safeErrorMessage(hostile)).toContain("unprintable object");
+  // A Symbol needs no rescue: the explicit conversion handles it.
+  expect(safeErrorMessage(Symbol("boom"))).toBe("Symbol(boom)");
 });
 
 test("memory_status reports dropped evidence writes after a broken log", async () => {
