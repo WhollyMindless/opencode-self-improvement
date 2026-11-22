@@ -29,6 +29,7 @@ import {
 import { renderMemoryReport } from "../status/report.ts";
 import { blockedRecent } from "../status/write.ts";
 import { summarizeStore } from "../status/store-summary.ts";
+import { droppedEvidenceWrites } from "../telemetry/record.ts";
 
 export const register: ToolRegister = (editor, deps) => {
   const { toolIds, sessions, direct } = deps;
@@ -91,6 +92,9 @@ export const register: ToolRegister = (editor, deps) => {
             // capture state read from the same evidence window, so the
             // chat surface distinguishes off / misconfigured / inert / alive.
             capture: captureHealth(evidenceLines),
+            // Lost evidence writes cannot report themselves through the log, so
+            // this one number comes from this process instead.
+            evidence: droppedEvidenceWrites(),
           }),
         };
       },

@@ -302,3 +302,137 @@ export async function recordWriteBlocked(
     context,
   );
 }
+
+// ---- the best-effort evidence policy --------------------------------------
+//
+// The evidence log describes a feature; it is not a dependency of it. A write
+// that fails costs one line and must cost nothing else: not the pass that wrote
+// it, and not the event subscription that hands capture every later turn. The
+// capture path therefore writes only through the wrappers below, which state the
+// decision once instead of at each call site — a per-site `try` is a policy a
+// later receipt can forget.
+//
+// `record` and `recordSync` keep throwing for every other caller. A viewer edit
+// or a gate refusal that cannot write its audit line is a failed operation the
+// operator must see; a capture receipt that cannot write its line is a missing
+// footnote on an operation that succeeded.
+//
+// The counter is the only channel that can report this failure — a line about an
+// unwritable log cannot land either — so it lives in process memory and
+// `memory_status` reads it back. It is keyed by the evidence directory: one
+// store's broken log is not another store's, and a shared server holds several.
+export interface DroppedEvidenceWrites {
+  /** Evidence writes this process lost for this store. */
+  dropped: number;
+  /** Event name of the most recent loss. */
+  lastEvent: string;
+  /** How the file layer reported the most recent loss. */
+  lastError: string;
+}
+
+const droppedWrites = new Map<string, DroppedEvidenceWrites>();
+
+// Reportable text for a rejection, without becoming the failure it reports.
+// `String` handles a Symbol (`"Symbol(...)"`); what it cannot survive is a
+// rejection whose own `toString` throws, and this runs inside the handler that
+// exists to swallow exactly that class of throw.
+function describeError(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  try {
+    return String(err);
+  } catch {
+    return `unprintable ${typeof err}`;
+  }
+}
+
+// The one rendering every channel of ONE failure shares. The console line and
+// the evidence receipt are the same fact on two channels, so they must not
+// carry different privacy guarantees: neither formats the error itself.
+const MIRRORED_ERROR_MAX = 200;
+
+/**
+ * A failure as reportable text: message only, credential-scrubbed, capped. Use
+ * it for every output that mirrors an error — console, evidence line, counter —
+ * and never hand the original object to a surface, because that carries the
+ * stack and every unscrubbed field on it.
+ */
+export function safeErrorMessage(err: unknown): string {
+  return redactSecrets(describeError(err)).slice(0, MIRRORED_ERROR_MAX);
+}
+
+function noteDroppedWrite(event: EvidenceEvent, err: unknown): void {
+  const key = evidenceDir();
+  const prev = droppedWrites.get(key);
+  droppedWrites.set(key, {
+    dropped: (prev?.dropped ?? 0) + 1,
+    lastEvent: event,
+    // NOT `(err as Error).message`: a messageless Error or a non-Error
+    // rejection would make this field empty, and an empty field reads as
+    // "nothing was lost" to every surface that tests it for truth. Scrubbed at
+    // the same boundary as every other mirrored error: a path is what an fs
+    // failure carries, but a throw from line building carries field values.
+    lastError: safeErrorMessage(err),
+  });
+  // A long-lived server sees many stores. Bound the map the way the ledger's
+  // throttle does, and never evict the entry just written — an entry set twice
+  // keeps its original position, so the oldest key can be the live one.
+  if (droppedWrites.size > 64) {
+    for (const k of [...droppedWrites.keys()].slice(0, 32)) {
+      if (k !== key) droppedWrites.delete(k);
+    }
+  }
+}
+
+/**
+ * This process's lost evidence writes for the current store, or null when this
+ * store has lost none. Absent and zero are the same claim here, so only the
+ * failure case is worth a line.
+ */
+export function droppedEvidenceWrites(): DroppedEvidenceWrites | null {
+  return droppedWrites.get(evidenceDir()) ?? null;
+}
+
+/** `record` under the best-effort policy: a failed line is counted, not thrown. */
+export async function recordBestEffort(
+  ev: EvidenceEvent,
+  fields: Record<string, unknown> = {},
+  includeContext = true,
+  sessionID?: string,
+  context?: EvidenceContext,
+): Promise<void> {
+  try {
+    await record(ev, fields, includeContext, sessionID, context);
+  } catch (err) {
+    noteDroppedWrite(ev, err);
+  }
+}
+
+/** `recordSync` under the best-effort policy. */
+export function recordSyncBestEffort(
+  ev: EvidenceEvent,
+  fields: Record<string, unknown> = {},
+  includeContext = true,
+  sessionID?: string,
+  context?: EvidenceContext,
+): void {
+  try {
+    recordSync(ev, fields, includeContext, sessionID, context);
+  } catch (err) {
+    noteDroppedWrite(ev, err);
+  }
+}
+
+/** `recordCaptureLag` under the best-effort policy. */
+export async function recordCaptureLagBestEffort(
+  session: string,
+  lagMs: number | null,
+  outcome: string,
+  context?: EvidenceContext,
+  model?: string,
+): Promise<void> {
+  try {
+    await recordCaptureLag(session, lagMs, outcome, context, model);
+  } catch (err) {
+    noteDroppedWrite("capture_lag", err);
+  }
+}
