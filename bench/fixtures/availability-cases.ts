@@ -152,6 +152,41 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "#397 review — matching PART of a candidate does not establish the WHOLE fact",
   },
+  // ── A figure reassembled across fragments: the tree states none of it ──────
+  // `claims()` splits on `.`, so a dotted figure arrives as separate integers
+  // and each can match its own sentence. The whole-token subset check is what
+  // makes "the tree states every figure" true again.
+  {
+    id: "reassembled-decimal",
+    tree: "# budget\n\nThe budget is 1 second per call. Retry after 5 seconds.\n",
+    candidate: "The budget is 1.5 seconds.",
+    expectTag: false,
+    source: "PR #493 review B1 — 1.5 reassembled from `1 second` + `5 seconds`",
+  },
+  {
+    id: "reassembled-version",
+    tree: "# release\n\nWe ship version 1 release per week. Workers rose to 4. The pool size is 3.\n",
+    candidate: "We ship version 1.4.3.",
+    expectTag: false,
+    source: "PR #493 review B1 — a version reassembled from 1, 4 and 3",
+  },
+  {
+    id: "reassembled-address",
+    tree: "# network\n\nThe gateway address is 10 ms per hop. We raised the pool to 20. Drain for 30 s, then 40 s.\n",
+    candidate: "The gateway address is 10.20.30.40.",
+    expectTag: false,
+    source:
+      "PR #493 review B1 — an address reassembled from four separate figures",
+  },
+  {
+    id: "figure-stated-whole-still-restatable",
+    tree: "# limits\n\nThe timeout is 5000 ms.\n",
+    candidate: "The timeout is 5000 ms.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "PR #493 review B1 — the subset check must not neuter a true restatement",
+  },
   // ── Declared gate: where it does and does not reach ───────────────────────
   // Review round 4 (WhollyMindless) found that every case below declared its
   // command in README prose, so the TEXT branch decided all of them and a
@@ -248,6 +283,30 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     expectTag: false,
     source:
       "#402 veto 2 — a changed figure is a different fact, not a rephrasing",
+  },
+  {
+    id: "gate-figure-self-cert-flag",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({ scripts: { test: "bun test" } }),
+    },
+    candidate: "Run `bun test --timeout 5000`.",
+    expectTag: false,
+    source:
+      "PR #493 review B1 — the candidate's own span carried the figure that cleared the veto; only the declaration may vouch for a number",
+  },
+  {
+    id: "gate-figure-self-cert-option",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { ship: "rsync -az dist box:/srv" },
+      }),
+    },
+    candidate: "`rsync -az dist box:/srv --bwlimit=100`.",
+    expectTag: false,
+    source:
+      "PR #493 review B1 — same class: the span declared its own figure; the declaration states none",
   },
   {
     id: "prose-command-not-a-code-span",

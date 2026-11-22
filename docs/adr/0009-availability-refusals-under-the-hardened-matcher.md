@@ -9,6 +9,11 @@ A capture candidate whose every assertion the working tree states verbatim —
 modulo case, wrapping and markup — or whose only content is a command the
 project's own gates declare, is REFUSED at capture time and logged on the
 `auto_capture_restatable` evidence line, which names the file or the gate.
+The figure-subset invariant bounds both paths: a refusal claims the tree
+states EVERY figure the candidate states, as whole tokens (`1.5`, `1.4.3`,
+`10.20.30.40` are single figures), and on the gate path the figures are
+compared against the declared command, never against the candidate's own
+spans.
 
 The refusal is scoped to the auto-capture path. `memory_remember`, updates,
 imports and consolidation write what their callers ask for; a user may store a

@@ -205,13 +205,14 @@ const NEGATION =
  * The relative use, where one text's polarity is compared with another's, is
  * `cueNegated`, and the difference is not academic. Equality gets EASIER as both
  * predicates get broader, and in `findClause` an agreement is what CREATES the
- * refusal. Measured on the round-3 case: tree `Do not assume the cleaner removes
- * unused rows.`, candidate `The cleaner removes unused rows.` — `polaritySigns`
- * reads the dual-role `removes` as negative in BOTH strings, the union agrees,
- * and the affirmative claim is refused as restating the sentence that warns
- * against it. The cue list alone sees `not` on one side and nothing on the other
- * and declines. That is the defect this veto exists for, arriving from the
- * opposite direction.
+ * refusal. The union predicate must never be that comparison: on the tree
+ * `Do not assume the cleaner removes unused rows.` against the candidate
+ * `The cleaner removes unused rows.`, `polaritySigns` reads the dual-role
+ * `removes` as negative in BOTH strings, the union agrees, and the affirmative
+ * claim is refused as restating the sentence that warns against it. The cue
+ * list alone sees `not` on one side and nothing on the other and declines;
+ * `test/capture/availability-case-bank.test.ts` pins that shape. That is the
+ * defect this veto exists for, arriving from the opposite direction.
  */
 function negated(text: string): boolean {
   return NEGATION.test(text) || polaritySigns(text).includes(POL_NEG);
@@ -227,19 +228,39 @@ function cueNegated(text: string): boolean {
 }
 
 /**
- * VETO 2: a figure the matched declaration does not carry.
+ * VETO 2: a figure the matched DECLARATION does not carry.
  *
  * `core/tokenize.ts` states the rule and `store/tombstones/tombstone.ts`
  * measures it on this repo's own data: a correction scores HIGHER than an honest
  * rewording, so overlap alone cannot separate "the same fact again" from "the
  * fact has changed". On the declared-command path the manifest states only that
- * a command exists, so any number the row asserts has to be in the command
- * itself or the row is new.
+ * a command exists, so any number the row asserts has to be in the DECLARED
+ * command — `gate.label` — or the row is new. The comparison text is never the
+ * candidate's own spans: a row whose command span carries a flag value
+ * (`--timeout 5000`) would supply the figure that clears its own veto, and the
+ * declaration, not the row, is what must vouch for the number.
+ * `numericTokens` keeps dotted numbers whole, so versions and addresses are
+ * single figures and cannot be assembled out of separate integers.
  */
 function introducesNewNumber(text: string, matched: string): boolean {
   const known = new Set(numericTokens(matched));
   for (const n of numericTokens(text)) if (!known.has(n)) return true;
   return false;
+}
+
+/**
+ * True when every figure `text` states appears in `known` as a whole token —
+ * the veto-2 rule aimed at the whole tracked-file haystack instead of one
+ * declaration. `claims()` splits on `.` as well as `,`, so a figure the tree
+ * never states (`1.5`, `1.4.3`, `10.20.30.40`) can otherwise reassemble from
+ * fragments of separate sentences (`1 second`, `5 seconds`) and ride the
+ * refusal; a corrected figure is the transport class, the row the store
+ * exists to keep. Fails safe in both directions of uncertainty: a candidate
+ * with no figures has an empty set and stays restatable.
+ */
+function figuresWithin(text: string, known: Set<string>): boolean {
+  for (const n of numericTokens(text)) if (!known.has(n)) return false;
+  return true;
 }
 // The scan is bounded by bytes, not files: a monorepo's tracked list is huge and
 // the point is a cheap check, not an index. One capture pass already pays for a
@@ -665,6 +686,11 @@ export function availabilityIndex(
     return "?";
   };
 
+  // Every figure the tracked tree states, as whole tokens, computed once per
+  // pass: a refusal on the text path must not go out while the candidate
+  // carries a figure the tree never states as one.
+  const hayFigures = new Set(numericTokens(haystack));
+
   return {
     check(content: string): AvailabilityVerdict | null {
       // Matching PART of a candidate does not
@@ -691,7 +717,15 @@ export function availabilityIndex(
       // done. Verdict logic reads `needed`/`first`, never these.
       const safeWhole = norm(redactSecrets(content));
       const safeFirst = claims(safeWhole)[0] ?? safeWhole;
-      if (haystack && allRestatable(haystack, needed)) {
+      // A refusal here claims the tree states EVERY figure the candidate
+      // states. Fragment matching cannot: `claims()` splits on `.`, so
+      // `1.5 seconds` arrives as `1` and `5` and each matches a different
+      // sentence. The subset check is the whole-token answer.
+      if (
+        haystack &&
+        figuresWithin(content, hayFigures) &&
+        allRestatable(haystack, needed)
+      ) {
         return {
           reason: "in_tracked_file",
           where:
@@ -733,7 +767,10 @@ export function availabilityIndex(
         // veto-only shape: the vocabulary never has to be perfect, because a
         // miss keeps the row instead of deleting it.
         if (forbidsCommand(content, spans)) return null;
-        if (introducesNewNumber(content, spans.join(" "))) return null;
+        // The comparison text is the DECLARED command, never the candidate's
+        // spans: a span carrying `--timeout 5000` would vouch for its own
+        // figure, and the manifest states no such number.
+        if (introducesNewNumber(content, gate.label)) return null;
         const undeclared = spans.some((s) => gateHit([s], gates) === null);
         let residual = content;
         for (const span of spans) residual = residual.split(span).join(" ");

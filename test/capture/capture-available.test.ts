@@ -580,6 +580,31 @@ describe("capture availability refusal", () => {
     expect((await rowsWith("av-guided-copy")).length).toBe(0);
   });
 
+  test("a corrected figure is not a restatement of the figures beside it", async () => {
+    // The tree states `1` and `5`; the candidate states `1.5`. Fragment
+    // matching alone calls that restatable — each piece matches its own
+    // sentence — and refuses the corrected number, which is the transport
+    // class: the fact the store exists to carry. The refusal requires every
+    // figure the candidate states to appear in the tree as a whole token.
+    const repo = join(fixture.root, "corrected-figure");
+    mkdirSync(repo, { recursive: true });
+    writeFileSync(
+      join(repo, "README.md"),
+      "# Budget\n\nThe budget is 1 second per call. Retry after 5 seconds.\n",
+    );
+    git(repo, "init", "-q");
+    git(repo, "add", ".");
+    await capture(repo, [
+      {
+        type: "learning",
+        scope: "av-fig-15",
+        content: "The budget is 1.5 seconds.",
+      },
+    ]);
+    expect(refusalFor("av-fig-15")).toHaveLength(0);
+    expect((await rowsWith("av-fig-15")).length).toBe(1);
+  });
+
   test("a dual-role verb does not mask a scope negation", async () => {
     // The union of the cue list with `polaritySigns` was applied to BOTH sides of
     // the polarity comparison in `findClause`, and that comparison CREATES
