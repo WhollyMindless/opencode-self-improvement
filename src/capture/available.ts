@@ -355,6 +355,12 @@ interface Slice {
 interface Gate {
   label: string;
   where: string;
+  /**
+   * True for a step among siblings — a Makefile recipe, a workflow `run:` line.
+   * Those share one `where` across the whole file while stating nothing about
+   * each other, so the label is all the declaration it has.
+   */
+  solo?: boolean;
 }
 
 function readTracked(repoDir: string, file: string): string | null {
@@ -374,9 +380,9 @@ function skipPath(file: string): boolean {
 
 function parseGates(repoDir: string, files: string[]): Gate[] {
   const gates: Gate[] = [];
-  const add = (label: string, where: string) => {
+  const add = (label: string, where: string, solo = false) => {
     const n = norm(label);
-    if (n.length >= 2 && n.length <= 80) gates.push({ label: n, where });
+    if (n.length >= 2 && n.length <= 80) gates.push({ label: n, where, solo });
   };
   for (const file of files) {
     if (skipPath(file)) continue;
@@ -407,13 +413,13 @@ function parseGates(repoDir: string, files: string[]): Gate[] {
         const target = /^([A-Za-z0-9_.%-]+)\s*:(?!=)/.exec(line);
         if (target?.[1]) add(target[1], `${file} target ${target[1]}`);
         const recipe = /^\t+([^\s].*)$/.exec(line);
-        if (recipe?.[1]) add(recipe[1], `${file} recipe`);
+        if (recipe?.[1]) add(recipe[1], `${file} recipe`, true);
       }
       continue;
     }
     for (const line of text.split("\n")) {
       const run = /^\s*-?\s*run:\s*["']?(.+?)["']?\s*$/.exec(line);
-      if (run?.[1]) add(run[1], `${file} run`);
+      if (run?.[1]) add(run[1], `${file} run`, true);
     }
   }
   return gates;
@@ -462,9 +468,12 @@ function spanWords(span: string): string[] {
  * publish"` declared, `npm run deploy -- --target canary` reduced to the same
  * empty residual as the bare invocation, and the canary target — the only fact
  * the session brought — was refused with the command it rode. The declaration
- * is every label the manifest states under the same `where` (the script name
- * and its command), so `--prod` declared in the command vouches for `--prod`
- * in the row and the plain invocation stays a provable restatement.
+ * is the matched label plus the labels sharing its `where`, when that `where`
+ * names one command: a script name and its command vouch together, so
+ * `--prod` declared in the command vouches for `--prod` in the row and the
+ * plain invocation stays a provable restatement. A step-kind `where` names a
+ * file, not a command, so there the matched label alone vouches — recipes and
+ * workflow steps do not state each other's flags.
  */
 function spanCarriesUndeclared(
   spans: string[],
@@ -866,9 +875,16 @@ export function availabilityIndex(
         // declaration does not state — a forwarded `--target canary` — has to
         // decline the refusal here or it is erased before anything sees it.
         const declared = new Set<string>();
-        for (const g of gates)
-          if (g.where === gate.where)
-            for (const w of tokens(g.label)) declared.add(w);
+        for (const g of gates) {
+          if (g.where !== gate.where) continue;
+          // A step-kind `where` names a file, not a command: every recipe in a
+          // Makefile and every `run:` in a workflow shares it while stating
+          // nothing about its siblings, so a neighbouring step must not vouch
+          // for a flag this one never mentions. A per-script `where` describes
+          // ONE command, so its name and its command vouch together.
+          if (gate.solo && g.label !== gate.label) continue;
+          for (const w of tokens(g.label)) declared.add(w);
+        }
         if (spanCarriesUndeclared(spans, declared)) return null;
         const undeclared = spans.some((s) => gateHit([s], gates) === null);
         let residual = content;

@@ -657,6 +657,32 @@ describe("capture availability refusal", () => {
     expect((await rowsWith("av-canary")).length).toBe(1);
   });
 
+  test("a sibling workflow step does not vouch for a flag", async () => {
+    // Every `run:` in a workflow file shares one declaration site, so the
+    // union that let a neighbouring step vouch for a word made
+    // `npm run build --prod` look declared when only the push step uses
+    // `--prod`. The flag combination is what the session observed.
+    const repo = join(fixture.root, "workflow-sibling");
+    mkdirSync(repo, { recursive: true });
+    writeFileSync(join(repo, "README.md"), "# widget\n\nNothing here.\n");
+    mkdirSync(join(repo, ".github/workflows"), { recursive: true });
+    writeFileSync(
+      join(repo, ".github/workflows/ci.yml"),
+      "name: ci\non: push\njobs:\n  a:\n    steps:\n      - run: npm run build\n      - run: docker push app --prod\n",
+    );
+    git(repo, "init", "-q");
+    git(repo, "add", ".");
+    await capture(repo, [
+      {
+        type: "learning",
+        scope: "av-wf-flag",
+        content: "Run `npm run build --prod`.",
+      },
+    ]);
+    expect(refusalFor("av-wf-flag")).toHaveLength(0);
+    expect((await rowsWith("av-wf-flag")).length).toBe(1);
+  });
+
   test("a dual-role verb does not mask a scope negation", async () => {
     // The union of the cue list with `polaritySigns` was applied to BOTH sides of
     // the polarity comparison in `findClause`, and that comparison CREATES

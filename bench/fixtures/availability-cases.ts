@@ -359,6 +359,46 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "PR #493 review counterpart — an argument the declaration states leaves the plain invocation a provable restatement",
   },
+  // ── A step-kind declaration vouches for its own step only ─────────────────
+  // Every recipe in a Makefile and every `run:` in a workflow shares one
+  // `where` while stating nothing about its siblings.
+  {
+    id: "gate-workflow-sibling-flag",
+    tree: NEUTRAL_README,
+    files: {
+      ".github/workflows/ci.yml":
+        "name: ci\non: push\njobs:\n  a:\n    steps:\n      - run: npm run build\n      - run: docker push app --prod\n",
+    },
+    candidate: "Run `npm run build --prod`.",
+    expectTag: false,
+    source:
+      "PR #493 review B2 — the build step never states --prod; the neighbouring push step cannot vouch for it",
+  },
+  {
+    id: "gate-workflow-same-step-flag",
+    tree: NEUTRAL_README,
+    files: {
+      ".github/workflows/ci.yml":
+        "name: ci\non: push\njobs:\n  a:\n    steps:\n      - run: npm run build --prod\n",
+    },
+    candidate: "Run `npm run build --prod`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "PR #493 review B2 counterpart — the same step declares the flag, so the invocation is a restatement",
+  },
+  {
+    id: "gate-makefile-sibling-word",
+    tree: NEUTRAL_README,
+    files: {
+      Makefile:
+        "ship:\n\trsync dist box:/srv\nbackup:\n\ttar czf backup.tgz dist\n",
+    },
+    candidate: "Run `rsync dist box:/srv tar`.",
+    expectTag: false,
+    source:
+      "PR #493 review B2 — `tar` belongs to the backup recipe, not to the one the row quotes",
+  },
   {
     id: "prose-command-not-a-code-span",
     tree: NEUTRAL_README,

@@ -19,9 +19,12 @@ punctuation and whitespace, so a label from one line cannot be joined to a
 value from another and the tree, not the session, owns every pairing it is
 credited with stating. On the gate path the same invariant reads the span
 itself rather than the residual it will be stripped into: every word of a
-command span must be a word the declaration states — the script name and its
-command together — so a forwarded argument the manifest never mentions keeps
-its row, and the plain invocation stays a provable restatement.
+command span must be a word the declaration states — for a per-script
+declaration, its name and its command together — so a forwarded argument the
+manifest never mentions keeps its row, and the plain invocation stays a
+provable restatement. A step-kind declaration (a Makefile `recipe`, a workflow
+`run:`) names a file rather than a command, so there the matched step alone
+vouches: siblings do not state each other's flags.
 
 The refusal is scoped to the auto-capture path. `memory_remember`, updates,
 imports and consolidation write what their callers ask for; a user may store a
