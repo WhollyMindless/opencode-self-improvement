@@ -25,7 +25,9 @@ import { resetState, setCurrent } from "../../src/core/state.ts";
 import {
   rememberSessionDir,
   resetSessionScopes,
+  resolveRepo,
 } from "../../src/identity/repokey.ts";
+import { loadAll } from "../../src/store/files/load.ts";
 import { dateStr } from "../../src/core/time.ts";
 import { runWriteGate } from "../../src/gate/gate.ts";
 import {
@@ -69,7 +71,8 @@ skip("R1 — real-repo resolver fidelity (MeshBuilder is split across .pure.ts)"
     process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
     resetState();
     const sid = "r1-promote";
-    rememberSessionDir(sid, LIVE_ROOT!);
+    const liveRoot = LIVE_ROOT!;
+    rememberSessionDir(sid, liveRoot);
     setCurrent({ sessionID: sid, callID: "C1", tool: "grep" });
     await afterTool(
       {
@@ -91,7 +94,7 @@ skip("R1 — real-repo resolver fidelity (MeshBuilder is split across .pure.ts)"
       { output: "export const MeshBuilder = …", metadata: {} },
     );
     const ctx = {
-      liveRoot: LIVE_ROOT!,
+      liveRoot,
       evidenceCalls: evidenceCalls(sid),
       hasGateCheck: hasGateCheck(sid),
       hasEngagement: hasEngagement(sid),
@@ -107,6 +110,9 @@ skip("R1 — real-repo resolver fidelity (MeshBuilder is split across .pure.ts)"
       ctx,
     );
     expect(outcome.action).toBe("promoted");
+    if (outcome.action !== "promoted") return;
+    const stored = (await loadAll()).find((row) => row.ts === outcome.ts);
+    expect(stored?.repo).toBe(resolveRepo(liveRoot).key);
   });
 
   test("shorthand usage (fewer args than the live signature) is NOT drift", async () => {
