@@ -518,11 +518,17 @@ function contiguousIn(operand: string[], labels: string[]): boolean {
  * refusal costs a fact.
  */
 function operandsDeclared(spans: string[], gate: Gate, gates: Gate[]): boolean {
-  const labels = vouchLabels(gate, gates);
   for (const span of spans) {
     const matched = gateHit([span], gates) ?? gate;
+    // Each span vouches with its OWN declaration. One shared label set let a
+    // second, unrelated mention lend its operands to the first: with `build:
+    // "compiler"` and `deploy: "deploy-tool publish --target staging …"`, the
+    // row `Run \`npm run deploy\`. Run \`npm run build -- --target staging\`.`
+    // checked the build operand against the deploy command, which happens to
+    // contain it, and the bare deploy mention hid the build information.
     const candidates = operandCandidates(span, matched);
     if (candidates.length === 0) return false;
+    const labels = vouchLabels(matched, gates);
     if (!candidates.some((o) => o.length === 0 || contiguousIn(o, labels)))
       return false;
   }

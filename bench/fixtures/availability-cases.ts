@@ -444,6 +444,75 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "PR #493 review B3 — semantically the same command, but order-irrelevance is not something the check can prove, so the row is kept",
   },
+  // ── Each span vouches with its own declaration ────────────────────────────
+  // The pair is the test: the same build operand is kept alone, and must stay
+  // kept when a bare mention of another script is added in front of it.
+  {
+    id: "gate-multi-span-single-operand",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          build: "compiler",
+          deploy: "deploy-tool publish --target staging --fallback canary",
+        },
+      }),
+    },
+    candidate: "Run `npm run build -- --target staging`.",
+    expectTag: false,
+    source:
+      "PR #493 review B4 — the single-span half of the pair: the build script states no target",
+  },
+  {
+    id: "gate-multi-span-borrowed-labels",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          build: "compiler",
+          deploy: "deploy-tool publish --target staging --fallback canary",
+        },
+      }),
+    },
+    candidate: "Run `npm run deploy`. Run `npm run build -- --target staging`.",
+    expectTag: false,
+    source:
+      "PR #493 review B4 — the deploy mention must not lend its operands to the build span",
+  },
+  {
+    id: "gate-multi-span-borrowed-labels-reversed",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          build: "compiler",
+          deploy: "deploy-tool publish --target staging --fallback canary",
+        },
+      }),
+    },
+    candidate: "Run `npm run build -- --target staging`. Run `npm run deploy`.",
+    expectTag: false,
+    source:
+      "PR #493 review B4 — the same pair in the other order, so the rule is not an accident of which span matched first",
+  },
+  {
+    id: "gate-multi-span-both-declared",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          build: "compiler --fast",
+          deploy: "deploy-tool publish --target staging",
+        },
+      }),
+    },
+    candidate:
+      "Run `npm run deploy -- --target staging`. Run `npm run build -- --fast`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "PR #493 review B4 counterpart — each operand vouched by its own declaration is a row the tree states in full",
+  },
   {
     id: "prose-command-not-a-code-span",
     tree: NEUTRAL_README,
