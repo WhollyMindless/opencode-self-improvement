@@ -17,27 +17,39 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..", "..");
-const MAX_LINES = 300;
+const MAX_LINES = 227;
 const MAX_WORDS = 4028;
-const MAX_ISSUE_REFS = 9;
+const MAX_ISSUE_REFS = 8;
 
 const readme = readFileSync(join(ROOT, "README.md"), "utf8");
-const lines = readme.split("\n").length;
+// The same convention `wc -l` reports: a trailing newline terminates the last
+// line, it is not a line of its own. A count nobody can reproduce from a shell
+// is a number two readers cannot compare.
+const lines = readme.replace(/\n$/, "").split("\n").length;
 const words = readme.trim().split(/\s+/).filter(Boolean).length;
 const issueRefs = [...readme.matchAll(/(?<![\w/])#\d{3,}/g)].length;
 
 describe("README stays an introduction", () => {
   test(`fits the page budget: ${lines} lines of ${MAX_LINES}`, () => {
-    expect(lines).toBeLessThanOrEqual(MAX_LINES);
+    expect(
+      lines,
+      "ratchet: move the depth into docs/ and link it, do not raise MAX_LINES",
+    ).toBeLessThanOrEqual(MAX_LINES);
   });
 
   // The check a line count cannot make: a paragraph rewritten longer leaves the
   // line total untouched.
   test(`fits the prose budget: ${words} words of ${MAX_WORDS}`, () => {
-    expect(words).toBeLessThanOrEqual(MAX_WORDS);
+    expect(
+      words,
+      "ratchet: cut or move prose to docs/, do not raise MAX_WORDS",
+    ).toBeLessThanOrEqual(MAX_WORDS);
   });
 
   test(`carries no more issue references than it already does: ${issueRefs} of ${MAX_ISSUE_REFS}`, () => {
-    expect(issueRefs).toBeLessThanOrEqual(MAX_ISSUE_REFS);
+    expect(
+      issueRefs,
+      "existing debt, not an allowance: say it in the sentence, do not raise MAX_ISSUE_REFS",
+    ).toBeLessThanOrEqual(MAX_ISSUE_REFS);
   });
 });
