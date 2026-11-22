@@ -631,6 +631,32 @@ describe("capture availability refusal", () => {
     expect((await rowsWith("av-pair")).length).toBe(1);
   });
 
+  test("a forwarded argument the declaration omits is not part of the command", async () => {
+    // Reported as a transport loss: stripping the command span before reading
+    // the residual took `-- --target canary` with it, so this row earned the
+    // same `declared_gate` verdict as the bare invocation while carrying the
+    // one fact the session brought. The declaration is the script AND its
+    // command; a word neither states declines the refusal.
+    const repo = join(fixture.root, "forwarded-arg");
+    mkdirSync(repo, { recursive: true });
+    writeFileSync(join(repo, "README.md"), "# widget\n\nNothing here.\n");
+    writeFileSync(
+      join(repo, "package.json"),
+      JSON.stringify({ scripts: { deploy: "deploy-tool publish" } }),
+    );
+    git(repo, "init", "-q");
+    git(repo, "add", ".");
+    await capture(repo, [
+      {
+        type: "learning",
+        scope: "av-canary",
+        content: "Run `npm run deploy -- --target canary`.",
+      },
+    ]);
+    expect(refusalFor("av-canary")).toHaveLength(0);
+    expect((await rowsWith("av-canary")).length).toBe(1);
+  });
+
   test("a dual-role verb does not mask a scope negation", async () => {
     // The union of the cue list with `polaritySigns` was applied to BOTH sides of
     // the polarity comparison in `findClause`, and that comparison CREATES

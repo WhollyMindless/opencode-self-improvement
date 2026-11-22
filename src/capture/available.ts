@@ -53,7 +53,12 @@
 // measured benefit capture has. Every uncertainty keeps the candidate.
 import { lstatSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { POL_NEG, numericTokens, polaritySigns } from "../core/tokenize.ts";
+import {
+  POL_NEG,
+  numericTokens,
+  polaritySigns,
+  tokens,
+} from "../core/tokenize.ts";
 import { redactSecrets } from "../store/secrets.ts";
 
 /** What made a candidate restatable, and where the next session can get it. */
@@ -439,6 +444,37 @@ function runners(span: string): string[] {
   return forms;
 }
 
+/**
+ * What a span asserts about the command, once the runner is gone: the words a
+ * declaration could vouch for. Punctuation carries no claim, so `--` and `:`
+ * drop out with the tokenizer.
+ */
+function spanWords(span: string): string[] {
+  const forms = runners(span);
+  return tokens(forms[forms.length - 1] ?? "");
+}
+
+/**
+ * VETO 3: does a span state anything the declaration does not?
+ *
+ * Stripping the whole span from the row before checking the residual hides
+ * what the span carried beyond the command: with `deploy: "deploy-tool
+ * publish"` declared, `npm run deploy -- --target canary` reduced to the same
+ * empty residual as the bare invocation, and the canary target — the only fact
+ * the session brought — was refused with the command it rode. The declaration
+ * is every label the manifest states under the same `where` (the script name
+ * and its command), so `--prod` declared in the command vouches for `--prod`
+ * in the row and the plain invocation stays a provable restatement.
+ */
+function spanCarriesUndeclared(
+  spans: string[],
+  declared: Set<string>,
+): boolean {
+  for (const span of spans)
+    for (const w of spanWords(span)) if (!declared.has(w)) return true;
+  return false;
+}
+
 // Matching is positional, never substring. A gate named `all` must not refuse a
 // row that says `install all deps`, and `test` must not refuse a row about
 // "the test suite". So a single-word gate (a script name, a make target) only
@@ -798,8 +834,11 @@ export function availabilityIndex(
       //   - an EMPTY claim list counted as proof, so "Never `npm run deploy`."
       //     refused with its only claim — `never` — dropped as too short.
       // A gate refusal needs all three, each positively established:
-      //   1. every command span the row states is declared. An undeclared one is
-      //      a fact the tree does not hold, whatever the rest of the row says;
+      //   1. every command span the row states is declared IN FULL — the
+      //      script exists AND every word of the span is a word the
+      //      declaration states. An undeclared span, or a declared one
+      //      carrying an argument the manifest never mentions, is a fact the
+      //      tree does not hold, whatever the rest of the row says;
       //   2. what survives stripping them is nothing but FILLER — the bare
       //      mention "ship with X", which is what the manifest does declare; or
       //   3. otherwise, every assertion left in it is one the tracked files
@@ -822,6 +861,15 @@ export function availabilityIndex(
         // spans: a span carrying `--timeout 5000` would vouch for its own
         // figure, and the manifest states no such number.
         if (introducesNewNumber(content, gate.label)) return null;
+        // Same rule one level up, over words rather than figures: the strip
+        // below removes the ENTIRE span, so anything the span carries that the
+        // declaration does not state — a forwarded `--target canary` — has to
+        // decline the refusal here or it is erased before anything sees it.
+        const declared = new Set<string>();
+        for (const g of gates)
+          if (g.where === gate.where)
+            for (const w of tokens(g.label)) declared.add(w);
+        if (spanCarriesUndeclared(spans, declared)) return null;
         const undeclared = spans.some((s) => gateHit([s], gates) === null);
         let residual = content;
         for (const span of spans) residual = residual.split(span).join(" ");

@@ -328,6 +328,37 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "PR #493 review B1 — same class: the span declared its own figure; the declaration states none",
   },
+  // ── A forwarded argument the declaration never mentions ───────────────────
+  // Reported on the PR: stripping the whole span from the row before checking
+  // the residual erased the argument with the command, so the row carrying a
+  // session-only target got the same verdict as the bare invocation.
+  {
+    id: "gate-forwarded-arg-undeclared",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish" },
+      }),
+    },
+    candidate: "Run `npm run deploy -- --target canary`.",
+    expectTag: false,
+    source:
+      "PR #493 review — the manifest declares the script, not the target forwarded to it",
+  },
+  {
+    id: "gate-forwarded-arg-declared",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --prod" },
+      }),
+    },
+    candidate: "Run `npm run deploy -- --prod`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "PR #493 review counterpart — an argument the declaration states leaves the plain invocation a provable restatement",
+  },
   {
     id: "prose-command-not-a-code-span",
     tree: NEUTRAL_README,

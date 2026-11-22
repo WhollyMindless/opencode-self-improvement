@@ -17,7 +17,11 @@ spans. Contiguity bounds the text path: the claims must be found in the
 candidate's order with nothing between one and the next but assertion
 punctuation and whitespace, so a label from one line cannot be joined to a
 value from another and the tree, not the session, owns every pairing it is
-credited with stating.
+credited with stating. On the gate path the same invariant reads the span
+itself rather than the residual it will be stripped into: every word of a
+command span must be a word the declaration states — the script name and its
+command together — so a forwarded argument the manifest never mentions keeps
+its row, and the plain invocation stays a provable restatement.
 
 The refusal is scoped to the auto-capture path. `memory_remember`, updates,
 imports and consolidation write what their callers ask for; a user may store a
