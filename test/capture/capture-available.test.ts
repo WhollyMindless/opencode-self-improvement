@@ -10,8 +10,9 @@
 //
 // The refusal is the hardened matcher's, not a fragment rule's: it fires only
 // when every claim is restatable verbatim modulo formatting, in a sentence of
-// the same polarity, with no figure the tree does not carry. History:
-// docs/adr/.
+// the same polarity, with no figure the tree does not carry, and with the
+// claims contiguous in the tree rather than assembled from separate lines.
+// History: docs/adr/.
 //
 // So the tests split on one axis: a restatable candidate produces a refusal
 // line and NO row, and every other candidate — a restriction on a declared
@@ -603,6 +604,31 @@ describe("capture availability refusal", () => {
     ]);
     expect(refusalFor("av-fig-15")).toHaveLength(0);
     expect((await rowsWith("av-fig-15")).length).toBe(1);
+  });
+
+  test("a label and a value stated by different lines are not one restatement", async () => {
+    // Reported as a transport loss: the tree pairs `cobalt-workers` with
+    // Staging and `ask operations at rollout` with Production, so the pairing
+    // in the candidate is the session's own fact. Each half exists somewhere,
+    // which is exactly what an independent per-claim match cannot see; the
+    // refusal requires the halves to be contiguous in the tree.
+    const repo = join(fixture.root, "cross-line-pair");
+    mkdirSync(repo, { recursive: true });
+    writeFileSync(
+      join(repo, "README.md"),
+      "Staging export pool: cobalt-workers.\nProduction export pool: ask operations at rollout.\n",
+    );
+    git(repo, "init", "-q");
+    git(repo, "add", ".");
+    await capture(repo, [
+      {
+        type: "learning",
+        scope: "av-pair",
+        content: "Production export pool: cobalt-workers.",
+      },
+    ]);
+    expect(refusalFor("av-pair")).toHaveLength(0);
+    expect((await rowsWith("av-pair")).length).toBe(1);
   });
 
   test("a dual-role verb does not mask a scope negation", async () => {

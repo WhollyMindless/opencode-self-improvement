@@ -187,6 +187,26 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "PR #493 review B1 — the subset check must not neuter a true restatement",
   },
+  // ── A label from one line and a value from another: the pairing is new ─────
+  // Reported as a transport loss on review of the refusal PR. No digits, so the
+  // figure check cannot see it; only contiguity can.
+  {
+    id: "cross-line-label-value-pairing",
+    tree: "Staging export pool: cobalt-workers.\nProduction export pool: ask operations at rollout.\n",
+    candidate: "Production export pool: cobalt-workers.",
+    expectTag: false,
+    source:
+      "PR #493 review — the tree pairs cobalt-workers with Staging; the candidate's pairing came from the session",
+  },
+  {
+    id: "same-line-label-value-pairing",
+    tree: "# pools\n\nProduction export pool: cobalt-workers.\nStaging export pool: ask operations at rollout.\n",
+    candidate: "Production export pool: cobalt-workers.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "PR #493 review counterpart — the same two halves stated by one line are a restatement",
+  },
   // ── Declared gate: where it does and does not reach ───────────────────────
   // Review round 4 (WhollyMindless) found that every case below declared its
   // command in README prose, so the TEXT branch decided all of them and a

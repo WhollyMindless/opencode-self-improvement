@@ -580,9 +580,9 @@ function warnsAgainst(prefix: string): boolean {
  * A reversed clause is not evidence of availability, and every uncertainty in
  * this file keeps the candidate.
  */
-function findClause(hay: string, clause: string): number {
+function findClause(hay: string, clause: string, start = 0): number {
   const reversed = cueNegated(clause);
-  for (let from = 0; ; ) {
+  for (let from = start; ; ) {
     const i = hay.indexOf(clause, from);
     if (i < 0) return -1;
     const before = i > 0 ? hay.charCodeAt(i - 1) : 32;
@@ -602,9 +602,59 @@ function findClause(hay: string, clause: string): number {
   }
 }
 
-/** True when every assertion in `clauses` is restatable from `hay`. */
-function allRestatable(hay: string, clauses: string[]): boolean {
-  return hay !== "" && clauses.every((c) => findClause(hay, c) >= 0);
+/**
+ * Is the text between two matched claims nothing but assertion punctuation and
+ * whitespace? The file joiner breaks contiguity on purpose: two claims from two
+ * files are not one statement.
+ */
+function gapIsPunctuation(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0) return false;
+    if (isBoundary(c) || c === 32 || c === 9) continue;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * True when the tree states `clauses` as ONE contiguous assertion: each in the
+ * candidate's order, with nothing between one and the next but assertion
+ * punctuation and whitespace.
+ *
+ * Matching every claim somewhere in the tree is not enough — two sentences can
+ * conspire. With `Staging export pool: cobalt-workers.` and `Production export
+ * pool: ask operations at rollout.` tracked, both halves of the candidate
+ * `Production export pool: cobalt-workers.` exist, but the pairing is the
+ * candidate's and not the tree's, and the pairing is the fact the session
+ * brought. Reassembled figures fail the same way, one level down.
+ *
+ * Order is part of the claim: a later half found only BEFORE the earlier one is
+ * not the tree stating it. The search takes the earliest admissible hit and
+ * skips a hit the gap disqualifies instead of ending there, so every
+ * uncertainty — including this check's own greediness — declines a refusal,
+ * which is the direction this file fails safe in.
+ */
+function restatedContiguously(hay: string, clauses: string[]): boolean {
+  if (hay === "") return false;
+  let prevEnd = -1;
+  let cursor = 0;
+  for (const clause of clauses) {
+    let hit = -1;
+    for (let from = cursor; ; ) {
+      const i = findClause(hay, clause, from);
+      if (i < 0) break;
+      if (prevEnd < 0 || gapIsPunctuation(hay.slice(prevEnd, i))) {
+        hit = i;
+        break;
+      }
+      from = i + 1;
+    }
+    if (hit < 0) return false;
+    cursor = hit + 1;
+    prevEnd = hit + clause.length;
+  }
+  return true;
 }
 
 export interface AvailabilityIndex {
@@ -718,13 +768,14 @@ export function availabilityIndex(
       const safeWhole = norm(redactSecrets(content));
       const safeFirst = claims(safeWhole)[0] ?? safeWhole;
       // A refusal here claims the tree states EVERY figure the candidate
-      // states. Fragment matching cannot: `claims()` splits on `.`, so
-      // `1.5 seconds` arrives as `1` and `5` and each matches a different
-      // sentence. The subset check is the whole-token answer.
+      // states AND states the whole candidate as one contiguous assertion.
+      // Neither follows from matching each claim somewhere: `claims()` splits
+      // on `.` and `:`, so `1.5 seconds` arrives as `1` and `5`, and a label
+      // from one line can be joined to a value from another.
       if (
         haystack &&
         figuresWithin(content, hayFigures) &&
-        allRestatable(haystack, needed)
+        restatedContiguously(haystack, needed)
       ) {
         return {
           reason: "in_tracked_file",
@@ -777,7 +828,7 @@ export function availabilityIndex(
         const rest = claims(norm(residual));
         if (
           !undeclared &&
-          (rest.length === 0 || allRestatable(haystack, rest))
+          (rest.length === 0 || restatedContiguously(haystack, rest))
         ) {
           return {
             reason: "declared_gate",

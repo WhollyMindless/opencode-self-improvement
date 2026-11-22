@@ -13,7 +13,11 @@ The figure-subset invariant bounds both paths: a refusal claims the tree
 states EVERY figure the candidate states, as whole tokens (`1.5`, `1.4.3`,
 `10.20.30.40` are single figures), and on the gate path the figures are
 compared against the declared command, never against the candidate's own
-spans.
+spans. Contiguity bounds the text path: the claims must be found in the
+candidate's order with nothing between one and the next but assertion
+punctuation and whitespace, so a label from one line cannot be joined to a
+value from another and the tree, not the session, owns every pairing it is
+credited with stating.
 
 The refusal is scoped to the auto-capture path. `memory_remember`, updates,
 imports and consolidation write what their callers ask for; a user may store a
