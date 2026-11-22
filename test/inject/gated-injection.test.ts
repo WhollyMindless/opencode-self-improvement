@@ -85,6 +85,28 @@ test("the registered pull hook credits a row only when it can append the block",
       result: { content: [part] },
     });
     expect(part.text).toContain(content);
+    // The ledger credit waits for the request that carries the formatted
+    // tool result: the hook appends the block, observation records the ride.
+    await plugin.sessionHooks.context({
+      sessionID: event.sessionID,
+      system: [],
+      messages: [
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              id: "with-content",
+              name: "grep",
+              result: {
+                type: "content",
+                value: [{ type: "text", text: part.text }],
+              },
+            },
+          ],
+        },
+      ],
+    });
     const receipts = await readRides();
     expect(receipts).toHaveLength(1);
     expect(receipts[0]).toMatchObject({

@@ -798,7 +798,7 @@ export function configureAutoCapture(
           ledgerText(session(sid).calls),
         );
         if (echoes)
-          await record(
+          await recordBestEffort(
             "auto_capture_brief_echo",
             {
               session: sid,
