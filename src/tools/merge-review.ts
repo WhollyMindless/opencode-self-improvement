@@ -192,7 +192,7 @@ export const register: ToolRegister = (editor, deps) => {
                 if (stale) {
                   return {
                     content:
-                      "Consolidation blocked: the command is missing its preview or would preserve different keywords. Run memory_consolidate again.",
+                      "Consolidation blocked: this command no longer matches the preview or is missing its expected value. Run memory_consolidate again and review the new read estimate before applying it.",
                   };
                 }
                 if (present === null)
