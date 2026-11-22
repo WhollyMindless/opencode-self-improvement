@@ -22,6 +22,10 @@ import {
   parseLine,
 } from "../../src/core/logfmt/format.ts";
 import { resetState, setCurrent } from "../../src/core/state.ts";
+import {
+  rememberSessionDir,
+  resetSessionScopes,
+} from "../../src/identity/repokey.ts";
 import { dateStr } from "../../src/core/time.ts";
 import { runWriteGate } from "../../src/gate/gate.ts";
 import {
@@ -38,6 +42,8 @@ const LIVE_ROOT = CANDIDATES.map((p) => p.replace(/^~/, homedir())).find((p) =>
 const skip = LIVE_ROOT ? describe : describe.skip;
 
 skip("R1 — real-repo resolver fidelity (MeshBuilder is split across .pure.ts)", () => {
+  afterEach(resetSessionScopes);
+
   test("BABYLON.MeshBuilder.CreateBox resolves to a real source file with a real signature", async () => {
     const forms = extractCallForms(
       "use BABYLON.MeshBuilder.CreateBox(name, options, scene)",
@@ -63,6 +69,7 @@ skip("R1 — real-repo resolver fidelity (MeshBuilder is split across .pure.ts)"
     process.env.OPENCODE_COMMANDS_DIR = join(root, "commands");
     resetState();
     const sid = "r1-promote";
+    rememberSessionDir(sid, LIVE_ROOT!);
     setCurrent({ sessionID: sid, callID: "C1", tool: "grep" });
     await afterTool(
       {
