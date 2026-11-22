@@ -1,13 +1,13 @@
 //through the shipped tool: memory_consolidate proposes, reports, and never
 // writes. The store before and after the call must be byte-identical.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryRoot } from "../../src/core/config/paths.ts";
 import { resetState } from "../../src/core/state.ts";
 import { appendMemory } from "../../src/store/files/append.ts";
-import { loadAll } from "../../src/store/files/load.ts";
+import { loadAll, memoryFiles } from "../../src/store/files/load.ts";
 import { recordHits } from "../../src/telemetry/ledger.ts";
 import { loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
@@ -34,6 +34,36 @@ const C =
   "finance reconciles the zebra brasserie ledger nightly and mails a digest before opening bell";
 
 describe("memory_consolidate tool", () => {
+  test("consolidating an open row refuses before either row changes", async () => {
+    const plugin = await loadPlugin(root);
+    try {
+      const fields = { type: "learning", scope: "build" };
+      const survivor = await appendMemory({
+        ...fields,
+        content: A,
+        status: "settled",
+      });
+      const loser = await appendMemory({
+        ...fields,
+        content: B,
+        status: "open",
+        kw: ["feldspar"],
+      });
+      const storedBytes = async () =>
+        (await memoryFiles()).map((path) => [path, readFileSync(path)]);
+      const before = await storedBytes();
+      expect(before.length).toBeGreaterThan(0);
+      const result = await plugin.tools.memory_merge_review!.execute(
+        { loser, survivor, reason: "duplicate build notes", consolidate: true },
+        { sessionID: "ses_consolidate_open" },
+      );
+      expect(result.content).toContain("Consolidation blocked");
+      expect(await storedBytes()).toEqual(before);
+    } finally {
+      await plugin.cleanup();
+    }
+  });
+
   test.each([2, 3])(
     "applying the proposed commands preserves all %i measured keyword searches",
     async (count) => {

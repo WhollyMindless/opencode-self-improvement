@@ -35,6 +35,7 @@ export function renderProposals(report: ProposalReport): string {
       `injected ${report.injectedBefore}c → ${report.injectedAfter}c`,
   );
   out.push(
+    "Run each proposal's resolve commands from top to bottom to retain the keywords used in its read estimate.",
     "Resolving is supersede-not-delete: absorbed rows stay recoverable via memory_undo.",
   );
   return out.join("\n");
