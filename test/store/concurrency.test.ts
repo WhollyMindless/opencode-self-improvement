@@ -23,7 +23,10 @@ import { prune } from "../../src/store/files/prune.ts";
 import { snapshotFiles } from "../../src/store/files/snapshots.ts";
 import { markSuperseded } from "../../src/store/files/supersede.ts";
 import { restoreSnapshot } from "../../src/store/undo.ts";
-import { setLockAcquiredHook } from "../../src/store/lock.ts";
+import {
+  setLockAcquiredHook,
+  setLockBusyInjector,
+} from "../../src/store/lock.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 const DAY = new Date().toISOString().slice(0, 10);
@@ -158,6 +161,26 @@ describe("prune racing appends", () => {
     for (const ts of newTs)
       expect(lines.some((l) => l.includes(`ts=${ts}`))).toBe(true);
   }, 30_000);
+});
+
+test("undo cannot replace a row between consolidation validation and retirement", async () => {
+  await seed(2);
+  const [snap] = await snapshotFiles([store()]);
+  const changed = (await rawLines()).slice(1).join("\n") + "\n";
+  writeFileSync(store(), changed);
+  setLockBusyInjector((file) => file === "update-order");
+  try {
+    await expect(restoreSnapshot(snap, memoryRoot(), "force")).rejects.toThrow(
+      "busy",
+    );
+    expect(readFileSync(store(), "utf8")).toBe(changed);
+  } finally {
+    setLockBusyInjector();
+  }
+  expect((await restoreSnapshot(snap, memoryRoot(), "force")).restored).toBe(
+    true,
+  );
+  expect(await rawLines()).toHaveLength(2);
 });
 
 describe("restore racing appends", () => {

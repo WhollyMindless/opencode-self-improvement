@@ -39,7 +39,7 @@ import { readLines } from "../core/logfmt/read.ts";
 import { contentHash } from "../telemetry/record.ts";
 import { isWithin } from "./containment.ts";
 import { snapshotFiles } from "./files/snapshots.ts";
-import { LOCK_RESTORE, withStoreLock } from "./lock.ts";
+import { LOCK_RESTORE, withStoreBatch, withStoreLock } from "./lock.ts";
 import {
   ADMIN_READER,
   lineVisibleTo,
@@ -217,6 +217,22 @@ export async function restoreSnapshot(
   reader: Reader = ADMIN_READER,
 ): Promise<RestoreResult> {
   const snap = await resolveSnapshot(snapshot, memoryRootDir);
+  // A restore can replace either seat of a merge. Join its outer lock before
+  // taking a day-file lock so both seats stay stable through retirement.
+  return withStoreBatch(
+    memoryRootDir,
+    "update-order",
+    () => restoreResolvedSnapshot(snap, memoryRootDir, mode, reader),
+    LOCK_RESTORE,
+  );
+}
+
+async function restoreResolvedSnapshot(
+  snap: Awaited<ReturnType<typeof resolveSnapshot>>,
+  memoryRootDir: string,
+  mode: RestoreMode,
+  reader: Reader,
+): Promise<RestoreResult> {
   const rootReal = await realpath(resolve(memoryRootDir));
   const realTarget = resolve(rootReal, snap.original);
   if (!isWithin(rootReal, realTarget)) {
