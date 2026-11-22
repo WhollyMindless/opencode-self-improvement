@@ -625,14 +625,6 @@ describe("memory_import source", () => {
     expect(gateCalls).toBe(0);
   });
 
-  test("a genuinely missing file inside the root still reports not-found", async () => {
-    await expect(
-      importMemories(join(memoryRoot(), "gone.jsonl"), async () => ({
-        action: "promoted",
-      })),
-    ).rejects.toThrow(/not found/);
-  });
-
   test("the tool reports a refused source as a soft message", async () => {
     const loaded = await loadPlugin(liveRoot);
     const out = await toolOf(

@@ -28,6 +28,7 @@ import { appendMemory } from "../../src/store/files/append.ts";
 import { loadAll } from "../../src/store/files/load.ts";
 import { isActive } from "../../src/store/model/predicates.ts";
 import { loadPlugin } from "../harness.ts";
+import { readRides } from "../../src/telemetry/ledger.ts";
 import { ev, readEvidenceLog as evidence, field } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
@@ -48,6 +49,53 @@ afterEach(() => {
   delete process.env.OPENCODE_MEMORY_DIR;
   delete process.env.OPENCODE_COMMANDS_DIR;
   removeStore(root);
+});
+
+test("the registered pull hook credits a row only when it can append the block", async () => {
+  const plugin = await loadPlugin(liveRoot);
+  try {
+    const content = "The cinnabar thermistor needs calibration before testing.";
+    const ts = await appendMemory({
+      type: "learning",
+      scope: "sensors",
+      repo: "global",
+      content,
+      status: "settled",
+    });
+    const event = {
+      sessionID: "ses_pull_delivery",
+      tool: "grep",
+      input: { pattern: "cinnabar thermistor" },
+    };
+    const after = plugin.toolHooks["execute.after"]!;
+    await after({
+      ...event,
+      callID: "without-content",
+      result: { output: "sensor reading" },
+    });
+    expect(await readRides()).toHaveLength(0);
+    const failures = () => ev(evidence(), "pull_undelivered");
+    expect(failures()).toHaveLength(1);
+    expect(failures()[0]).toMatchObject({ tool: "grep", rows: "1" });
+
+    const part = { type: "text", text: "sensor reading" };
+    await after({
+      ...event,
+      callID: "with-content",
+      result: { content: [part] },
+    });
+    expect(part.text).toContain(content);
+    const receipts = await readRides();
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      src: "pull",
+      sid: event.sessionID,
+      mems: [ts],
+    });
+    expect(failures()).toHaveLength(1);
+  } finally {
+    await plugin.cleanup();
+  }
 });
 
 function ctx(sid: string): GateContext {

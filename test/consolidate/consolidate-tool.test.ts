@@ -1,13 +1,13 @@
 //through the shipped tool: memory_consolidate proposes, reports, and never
 // writes. The store before and after the call must be byte-identical.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { memoryRoot } from "../../src/core/config/paths.ts";
 import { resetState } from "../../src/core/state.ts";
 import { appendMemory } from "../../src/store/files/append.ts";
-import { loadAll } from "../../src/store/files/load.ts";
+import { loadAll, memoryFiles } from "../../src/store/files/load.ts";
 import { recordHits } from "../../src/telemetry/ledger.ts";
 import { loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
@@ -34,6 +34,98 @@ const C =
   "finance reconciles the zebra brasserie ledger nightly and mails a digest before opening bell";
 
 describe("memory_consolidate tool", () => {
+  test("consolidating an open row refuses before either row changes", async () => {
+    const plugin = await loadPlugin(root);
+    try {
+      const fields = { type: "learning", scope: "build" };
+      const survivor = await appendMemory({
+        ...fields,
+        content: A,
+        status: "settled",
+      });
+      const loser = await appendMemory({
+        ...fields,
+        content: B,
+        status: "open",
+        kw: ["feldspar"],
+      });
+      const storedBytes = async () =>
+        (await memoryFiles()).map((path) => [path, readFileSync(path)]);
+      const before = await storedBytes();
+      expect(before.length).toBeGreaterThan(0);
+      const result = await plugin.tools.memory_merge_review!.execute(
+        { loser, survivor, reason: "duplicate build notes", consolidate: true },
+        { sessionID: "ses_consolidate_open" },
+      );
+      expect(result.content).toContain("Consolidation blocked");
+      expect(await storedBytes()).toEqual(before);
+    } finally {
+      await plugin.cleanup();
+    }
+  });
+
+  test.each([2, 3])(
+    "applying the proposed commands preserves all %i measured keyword searches",
+    async (count) => {
+      const plugin = await loadPlugin(root);
+      const ctx = { sessionID: "ses_consolidate_replay" };
+      const rows = [
+        { content: A, keyword: "cinnabar" },
+        { content: B, keyword: "feldspar" },
+        { content: A + " locally", keyword: "vermillion" },
+      ].slice(0, count);
+      try {
+        for (const { content, keyword } of rows) {
+          await appendMemory({
+            type: "learning",
+            scope: "build",
+            status: "settled",
+            content,
+            kw: [keyword],
+          });
+        }
+        const recall = async (keyword: string) =>
+          (await plugin.tools.memory_recall!.execute({ query: keyword }, ctx))
+            .content;
+        for (const { content, keyword } of rows) {
+          expect(await recall(keyword)).toContain(content);
+        }
+
+        const report = await plugin.tools.memory_consolidate!.execute({}, ctx);
+        expect(report.content).toMatch(
+          new RegExp(`reads  ${count} logged .*merged ${count}`),
+        );
+        const commands = [
+          ...report.content.matchAll(
+            /resolve: memory_merge_review\(loser="([^"]+)", survivor="([^"]+)", reason="([^"]+)"(, consolidate=true)?\)/g,
+          ),
+        ];
+        expect(commands).toHaveLength(count - 1);
+        for (const [, loser, survivor, reason, consolidate] of commands) {
+          const result = await plugin.tools.memory_merge_review!.execute(
+            {
+              loser,
+              survivor,
+              reason,
+              ...(consolidate ? { consolidate: true } : {}),
+            },
+            ctx,
+          );
+          expect(result.content).toContain("Resolved merge:");
+        }
+        const active = (await loadAll()).filter((row) => !row.superseded_by);
+        expect(active).toHaveLength(1);
+        const canonical = active[0]!;
+        expect(canonical.ts).toBe(commands[0]![2]!);
+        for (const { keyword } of rows) {
+          expect(await recall(keyword)).toContain(canonical.content);
+        }
+      } finally {
+        await plugin.cleanup();
+      }
+    },
+  );
+
   test("it proposes the near-duplicates and leaves the store byte-identical", async () => {
     const p = await loadPlugin(process.cwd());
     for (const content of [A, B, C]) {

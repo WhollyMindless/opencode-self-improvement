@@ -26,7 +26,11 @@
 //   3. PROPOSALS, not writes. Nothing here mutates the store. A human resolves a
 //      proposal through memory_merge_review (supersede-not-delete, recoverable).
 //   4. The most recently used member is never a loser (the rule, inherited).
-import type { Memory } from "../store/model/memory.ts";
+import {
+  MAX_KEYWORDS,
+  type Memory,
+  normalizeKeywords,
+} from "../store/model/memory.ts";
 import type { UseSignal } from "../telemetry/ledger.ts";
 import { cmpTs } from "../core/cmp-ts.ts";
 import { formatMemory } from "../inject/format.ts";
@@ -36,7 +40,17 @@ import { scoreMemories, words } from "../recall/score.ts";
 export const DEFAULT_JACCARD = 0.55;
 
 /** Aliases are useful up to a point; a merged row that hoards 60 words is noise. */
-export const MAX_MERGED_KW = 12;
+export const MAX_MERGED_KW = MAX_KEYWORDS;
+
+/** Copying aliases must preserve the original rows' visibility. */
+export function sameConsolidationScope(a: Memory, b: Memory): boolean {
+  return (
+    a.type === b.type &&
+    a.scope === b.scope &&
+    (a.repo ?? "global") === (b.repo ?? "global") &&
+    a.repoPath === b.repoPath
+  );
+}
 
 export interface ReadSet {
   /** The terms a real read used, exactly as the ledger recorded them. */
@@ -106,7 +120,7 @@ export function clustersFor(
     for (let j = i + 1; j < pool.length; j++) {
       const a = pool[i]!;
       const b = pool[j]!;
-      if (a.scope !== b.scope || a.type !== b.type) continue;
+      if (!sameConsolidationScope(a, b)) continue;
       if (jaccard(toks[i]!, toks[j]!) >= min) union(i, j);
     }
   }
@@ -160,36 +174,20 @@ export interface MergePlan {
   reasons: string[];
 }
 
-/** Distinctive vocabulary of the absorbed rows: what the survivor does not say. */
-function inheritedKw(cluster: Memory[], survivor: Memory): string[] {
+/** One printed resolution step. Replay and persistence use the same keyword budget. */
+export function absorbAliases(survivor: Memory, loser: Memory): Memory {
   const have = new Set(
     words(`${survivor.content} ${(survivor.kw ?? []).join(" ")}`),
   );
-  const out = [...(survivor.kw ?? [])];
-  for (const m of cluster) {
-    if (m.ts === survivor.ts) continue;
-    for (const k of m.kw ?? []) if (!out.includes(k)) out.push(k);
-    // Only distinctive words the absorbed row was FOUND by, in practice: its
-    // own vocabulary minus what the survivor already carries.
-    for (const w of words(m.content)) {
-      if (!have.has(w) && !out.includes(w)) out.push(w);
-    }
-  }
-  return out.slice(0, MAX_MERGED_KW);
-}
-
-function buildMerged(cluster: Memory[], survivor: Memory): Memory {
-  const kw = inheritedKw(cluster, survivor);
   return {
     ...survivor,
-    kw: kw.length ? kw : undefined,
-    tags: [
-      ...new Set([
-        "consolidated",
-        ...(survivor.tags ?? []),
-        ...cluster.flatMap((m) => m.tags ?? []),
-      ]),
-    ].slice(0, 12),
+    kw: normalizeKeywords([
+      ...(survivor.kw ?? []),
+      ...(loser.kw ?? []),
+      ...words(loser.content).filter((word) => !have.has(word)),
+    ]),
+    // The surviving prose keeps its own provenance.
+    tags: [...new Set([...(survivor.tags ?? []), "consolidated"])],
   };
 }
 
@@ -246,7 +244,7 @@ export function proposeCluster(
 ): MergePlan {
   const survivor = survivorFor(cluster, use);
   const losers = cluster.filter((m) => m !== survivor);
-  const merged = buildMerged(cluster, survivor);
+  const merged = losers.reduce(absorbAliases, survivor);
   const reads = readsFor(cluster, allReads);
 
   // The bar the ticket sets: the merged row must catch at least as many of the

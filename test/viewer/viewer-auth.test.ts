@@ -204,21 +204,23 @@ describe("viewer token auth", () => {
     }
   });
 
-  test("reusing a valid token tightens an exposed token file to 0600", () => {
-    if (process.platform === "win32") return;
-    const root = mkdtempSync(join(tmpdir(), "osi-viewer-auth-"));
-    try {
-      const result = runViewer(
-        {
-          OPENCODE_VIEWER_HOST: "127.0.0.1",
-          OPENCODE_VIEWER_ALLOWED_HOSTS: "192.0.2.10",
-        },
-        root,
-        EVAL_REUSE_MODE,
-      );
-      expect(result.exitCode, result.stderr.toString()).toBe(0);
-    } finally {
-      removeStore(root);
-    }
-  });
+  test.skipIf(process.platform === "win32")(
+    "reusing a valid token tightens an exposed token file to 0600",
+    () => {
+      const root = mkdtempSync(join(tmpdir(), "osi-viewer-auth-"));
+      try {
+        const result = runViewer(
+          {
+            OPENCODE_VIEWER_HOST: "127.0.0.1",
+            OPENCODE_VIEWER_ALLOWED_HOSTS: "192.0.2.10",
+          },
+          root,
+          EVAL_REUSE_MODE,
+        );
+        expect(result.exitCode, result.stderr.toString()).toBe(0);
+      } finally {
+        removeStore(root);
+      }
+    },
+  );
 });

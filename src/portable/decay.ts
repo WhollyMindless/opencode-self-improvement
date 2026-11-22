@@ -1,5 +1,5 @@
 // decay — split from src/portable.ts. Declaration bodies are unchanged.
-import { open } from "node:fs/promises";
+import { cmpTs } from "../core/cmp-ts.ts";
 import { loadAll } from "../store/files/load.ts";
 import { type Memory } from "../store/model/memory.ts";
 import { isInjectable } from "../store/model/predicates.ts";
@@ -7,8 +7,7 @@ import { isVisibleTo, readerFromSid } from "../store/model/visibility.ts";
 
 // --- decay support --------------------------------------------------------------
 
-// Active open threads with ts older than `days` days, oldest first (both sides
-// are UTC-Z ISO strings, so plain lexicographic compare is correct).
+// Legacy rows may omit milliseconds. Compare instants for both the cutoff and order.
 export async function findStaleOpen(
   days: number,
   sid?: string,
@@ -24,8 +23,8 @@ export async function findStaleOpen(
           isInjectable(m) &&
           isVisibleTo(m, reader) &&
           m.status === "open" &&
-          m.ts < cutoff,
+          cmpTs(m.ts, cutoff) < 0,
       )
-      .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0))
+      .sort((a, b) => cmpTs(a.ts, b.ts))
   );
 }
