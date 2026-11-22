@@ -209,6 +209,11 @@ const EXPECTED_WIRE = {
   memory_merge_review: {
     type: "object",
     properties: {
+      expected: {
+        type: "string",
+        description:
+          "Copy this step's expected value from the printed consolidation command.",
+      },
       consolidate: {
         type: "boolean",
         description:
