@@ -451,37 +451,82 @@ function runners(span: string): string[] {
 }
 
 /**
- * What a span asserts about the command, once the runner is gone: the words a
- * declaration could vouch for. Punctuation carries no claim, so `--` and `:`
- * drop out with the tokenizer.
+ * The labels that vouch for a declaration: the matched one, plus those sharing
+ * its `where` when that `where` names ONE command. A script declaration states
+ * its name and its command together, so `--prod` written in the command vouches
+ * for `--prod` in the row. A step-kind `where` names a FILE — every recipe in a
+ * Makefile, every `run:` in a workflow — and siblings state nothing about each
+ * other, so there the matched label alone vouches.
  */
-function spanWords(span: string): string[] {
-  const forms = runners(span);
-  return tokens(forms[forms.length - 1] ?? "");
+function vouchLabels(gate: Gate, gates: Gate[]): string[] {
+  const out: string[] = [];
+  for (const g of gates) {
+    if (g.where !== gate.where) continue;
+    if (gate.solo && g.label !== gate.label) continue;
+    out.push(g.label);
+  }
+  return out;
 }
 
 /**
- * VETO 3: does a span state anything the declaration does not?
- *
- * Stripping the whole span from the row before checking the residual hides
- * what the span carried beyond the command: with `deploy: "deploy-tool
- * publish"` declared, `npm run deploy -- --target canary` reduced to the same
- * empty residual as the bare invocation, and the canary target — the only fact
- * the session brought — was refused with the command it rode. The declaration
- * is the matched label plus the labels sharing its `where`, when that `where`
- * names one command: a script name and its command vouch together, so
- * `--prod` declared in the command vouches for `--prod` in the row and the
- * plain invocation stays a provable restatement. A step-kind `where` names a
- * file, not a command, so there the matched label alone vouches — recipes and
- * workflow steps do not state each other's flags.
+ * What a span states around the command it names: the tokens left after the
+ * runner vocabulary and the matched label, one candidate per span form in which
+ * that label appears. An empty candidate is the bare invocation.
  */
-function spanCarriesUndeclared(
-  spans: string[],
-  declared: Set<string>,
-): boolean {
-  for (const span of spans)
-    for (const w of spanWords(span)) if (!declared.has(w)) return true;
+function operandCandidates(span: string, gate: Gate): string[][] {
+  const out: string[][] = [];
+  for (const form of runners(span)) {
+    const at = form.indexOf(gate.label);
+    if (at < 0) continue;
+    out.push(
+      tokens(`${form.slice(0, at)} ${form.slice(at + gate.label.length)}`),
+    );
+  }
+  return out;
+}
+
+/** Is `operand` a contiguous token run inside any vouching label? */
+function contiguousIn(operand: string[], labels: string[]): boolean {
+  for (const label of labels) {
+    const decl = tokens(label);
+    for (let i = 0; i + operand.length <= decl.length; i++) {
+      if (operand.every((w, j) => decl[i + j] === w)) return true;
+    }
+  }
   return false;
+}
+
+/**
+ * VETO 3: does every span add only a run the declaration states?
+ *
+ * Stripping the whole span before reading the residual hides what the span
+ * carried: with `deploy: "deploy-tool publish"` declared, `npm run deploy --
+ * --target canary` reduced to the same empty residual as the bare invocation,
+ * and the canary target — the session's only fact — was refused with the
+ * command it rode. Set membership of the span's words does not close that
+ * either: `--target staging --fallback canary` declared against `--target
+ * canary --fallback staging` has every word present and the pairing wrong, and
+ * a flag reorder or a stripped value reaches the same hole.
+ *
+ * So the gate path asks the tree path's question — contiguity, not presence.
+ * The operand must be a contiguous token run inside a vouching label; the empty
+ * operand is the bare invocation, which the declaration states on its own.
+ * Anything the check cannot establish — the label not located, values swapped,
+ * flags reordered, an operand broken by a word the declaration omits — keeps
+ * the row. Reordering valueless flags keeps too: order-irrelevance is not a
+ * thing a token comparison can prove, a wrong keep costs a row, and a wrong
+ * refusal costs a fact.
+ */
+function operandsDeclared(spans: string[], gate: Gate, gates: Gate[]): boolean {
+  const labels = vouchLabels(gate, gates);
+  for (const span of spans) {
+    const matched = gateHit([span], gates) ?? gate;
+    const candidates = operandCandidates(span, matched);
+    if (candidates.length === 0) return false;
+    if (!candidates.some((o) => o.length === 0 || contiguousIn(o, labels)))
+      return false;
+  }
+  return true;
 }
 
 // Matching is positional, never substring. A gate named `all` must not refuse a
@@ -843,11 +888,11 @@ export function availabilityIndex(
       //   - an EMPTY claim list counted as proof, so "Never `npm run deploy`."
       //     refused with its only claim — `never` — dropped as too short.
       // A gate refusal needs all three, each positively established:
-      //   1. every command span the row states is declared IN FULL — the
-      //      script exists AND every word of the span is a word the
-      //      declaration states. An undeclared span, or a declared one
-      //      carrying an argument the manifest never mentions, is a fact the
-      //      tree does not hold, whatever the rest of the row says;
+      //   1. every command span the row states is declared AS A RUN — the
+      //      script exists, AND the operands it adds are a contiguous token
+      //      run in the declaration. An undeclared span, or operands the
+      //      declaration states only in another order or pairing, is a fact
+      //      the tree does not hold, whatever the rest of the row says;
       //   2. what survives stripping them is nothing but FILLER — the bare
       //      mention "ship with X", which is what the manifest does declare; or
       //   3. otherwise, every assertion left in it is one the tracked files
@@ -870,22 +915,9 @@ export function availabilityIndex(
         // spans: a span carrying `--timeout 5000` would vouch for its own
         // figure, and the manifest states no such number.
         if (introducesNewNumber(content, gate.label)) return null;
-        // Same rule one level up, over words rather than figures: the strip
-        // below removes the ENTIRE span, so anything the span carries that the
-        // declaration does not state — a forwarded `--target canary` — has to
-        // decline the refusal here or it is erased before anything sees it.
-        const declared = new Set<string>();
-        for (const g of gates) {
-          if (g.where !== gate.where) continue;
-          // A step-kind `where` names a file, not a command: every recipe in a
-          // Makefile and every `run:` in a workflow shares it while stating
-          // nothing about its siblings, so a neighbouring step must not vouch
-          // for a flag this one never mentions. A per-script `where` describes
-          // ONE command, so its name and its command vouch together.
-          if (gate.solo && g.label !== gate.label) continue;
-          for (const w of tokens(g.label)) declared.add(w);
-        }
-        if (spanCarriesUndeclared(spans, declared)) return null;
+        // The strip below removes the ENTIRE span, so what the span carries has
+        // to be settled here or it is erased before anything reads it.
+        if (!operandsDeclared(spans, gate, gates)) return null;
         const undeclared = spans.some((s) => gateHit([s], gates) === null);
         let residual = content;
         for (const span of spans) residual = residual.split(span).join(" ");

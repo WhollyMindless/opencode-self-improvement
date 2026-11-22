@@ -399,6 +399,51 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "PR #493 review B2 — `tar` belongs to the backup recipe, not to the one the row quotes",
   },
+  // ── Operands must be a run the declaration states, not a word bag ─────────
+  {
+    id: "gate-swapped-option-values",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          deploy: "deploy-tool publish --target staging --fallback canary",
+        },
+      }),
+    },
+    candidate: "Run `npm run deploy -- --target canary --fallback staging`.",
+    expectTag: false,
+    source:
+      "PR #493 review B3 — every word is declared and the pairing is not; the manifest pairs each option with the opposite value",
+  },
+  {
+    id: "gate-contiguous-prefix-operands",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          deploy: "deploy-tool publish --target staging --fallback canary",
+        },
+      }),
+    },
+    candidate: "Run `npm run deploy -- --target staging`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "PR #493 review B3 counterpart — a run the declaration states verbatim is still a restatement",
+  },
+  {
+    id: "gate-reordered-flags",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --dry --verbose" },
+      }),
+    },
+    candidate: "Run `npm run deploy -- --verbose --dry`.",
+    expectTag: false,
+    source:
+      "PR #493 review B3 — semantically the same command, but order-irrelevance is not something the check can prove, so the row is kept",
+  },
   {
     id: "prose-command-not-a-code-span",
     tree: NEUTRAL_README,
