@@ -1167,6 +1167,14 @@ export function configureAutoCapture(
               // be gone, and a receipt here would be the ENOENT noise
               // reports. The abort check inside captureSession is the signal.
               if (controller.signal.aborted) return;
+              // The console line is the primary trace and the receipt is the
+              // copy: when the evidence log is the broken channel, the receipt
+              // below cannot land and the underlying failure would vanish with
+              // it — the counter names only the receipt event, not its cause.
+              console.warn(
+                "[opencode-self-improvement] auto-capture (idle) hook failed (ignored):",
+                err,
+              );
               // Fail-closed for the SESSION, never silent in the store: the
               // same silence that hid the 2.2.5 shape break would make a
               // throwing capture indistinguishable from one that never ran.

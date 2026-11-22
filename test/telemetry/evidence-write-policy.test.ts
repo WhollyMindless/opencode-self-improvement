@@ -100,7 +100,10 @@ test("a failed async evidence write is counted and never thrown", async () => {
     const lost = droppedEvidenceWrites();
     expect(lost?.dropped).toBe(1);
     expect(lost?.lastEvent).toBe("capture_cost");
-    expect(String(lost?.lastError)).toContain("EACCES");
+    // The code a read-only file reports depends on the platform: EACCES on
+    // POSIX, EPERM on Windows. Both are the same fact here — the append was
+    // refused — so the counter is pinned and the code name is not.
+    expect(String(lost?.lastError)).toMatch(/EACCES|EPERM/);
   } finally {
     chmodSync(file, 0o600);
   }
@@ -186,6 +189,28 @@ test("the report names the loss and states that the log-derived lines under-coun
   }).join("\n");
   expect(long).toContain(`${"x".repeat(160)}`);
   expect(long).not.toContain(`${"x".repeat(161)}`);
+});
+
+test("a credential-shaped path in a dropped write is scrubbed before it is kept", async () => {
+  // The failure text an fs append carries is the path, so a token that ever
+  // appeared in a store path would otherwise be rendered by memory_status from
+  // process memory. Same scrub as every other mirrored error.
+  const token = "sk-AbCdEfGhIjKlMnOpQrSt";
+  process.env.OPENCODE_MEMORY_DIR = join(root, token);
+  try {
+    const file = await unwritableDayFile();
+    try {
+      await recordBestEffort("capture_cost", { session: "ses_a" });
+    } finally {
+      chmodSync(file, 0o600);
+    }
+    const lost = droppedEvidenceWrites();
+    expect(lost?.dropped).toBe(1);
+    expect(String(lost?.lastError)).not.toContain(token);
+    expect(String(lost?.lastError)).toContain("[redacted]");
+  } finally {
+    process.env.OPENCODE_MEMORY_DIR = join(root, "memory");
+  }
 });
 
 test("memory_status reports dropped evidence writes after a broken log", async () => {

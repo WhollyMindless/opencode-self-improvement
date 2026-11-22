@@ -332,6 +332,19 @@ export interface DroppedEvidenceWrites {
 
 const droppedWrites = new Map<string, DroppedEvidenceWrites>();
 
+// Reportable text for a rejection, without becoming the failure it reports.
+// `String` handles a Symbol (`"Symbol(...)"`); what it cannot survive is a
+// rejection whose own `toString` throws, and this runs inside the handler that
+// exists to swallow exactly that class of throw.
+function describeError(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  try {
+    return String(err);
+  } catch {
+    return `unprintable ${typeof err}`;
+  }
+}
+
 function noteDroppedWrite(event: EvidenceEvent, err: unknown): void {
   const key = evidenceDir();
   const prev = droppedWrites.get(key);
@@ -340,8 +353,10 @@ function noteDroppedWrite(event: EvidenceEvent, err: unknown): void {
     lastEvent: event,
     // NOT `(err as Error).message`: a messageless Error or a non-Error
     // rejection would make this field empty, and an empty field reads as
-    // "nothing was lost" to every surface that tests it for truth.
-    lastError: err instanceof Error && err.message ? err.message : String(err),
+    // "nothing was lost" to every surface that tests it for truth. Scrubbed at
+    // the same boundary as every other mirrored error: a path is what an fs
+    // failure carries, but a throw from line building carries field values.
+    lastError: redactSecrets(describeError(err)),
   });
   // A long-lived server sees many stores. Bound the map the way the ledger's
   // throttle does, and never evict the entry just written — an entry set twice
