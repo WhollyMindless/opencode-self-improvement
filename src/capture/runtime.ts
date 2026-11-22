@@ -24,7 +24,11 @@ import {
 import { quarantineCandidate } from "../store/quarantine/quarantine.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
 import { redactSecrets } from "../store/secrets.ts";
-import { record, recordCaptureLag, recordSync } from "../telemetry/record.ts";
+import {
+  recordBestEffort,
+  recordCaptureLagBestEffort,
+  recordSyncBestEffort,
+} from "../telemetry/record.ts";
 import { type AvailabilityIndex, availabilityIndex } from "./available.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
 import { claimVerdictFromContent } from "./checked.ts";
@@ -434,7 +438,7 @@ export function configureAutoCapture(
         // store refuses. Skip BEFORE the model call — no tokens spent on a
         // capture that cannot be stored — and leave the reason in evidence.
         if (!writeTarget(sid).ok) {
-          await record(
+          await recordBestEffort(
             "auto_capture_refused",
             { session: sid, trigger, ...(modelTag ? { model: modelTag } : {}) },
             true,
@@ -451,7 +455,7 @@ export function configureAutoCapture(
               "[opencode-self-improvement] autoCapture is on but captureModel is omitted and neither session.context nor the host default names a model; capture skipped (warned once).",
             );
           }
-          await record(
+          await recordBestEffort(
             "auto_capture_refused",
             { session: sid, trigger, reason: "no_model" },
             true,
@@ -518,7 +522,7 @@ export function configureAutoCapture(
           )
             verdict = { ok: true, why: "guidedStatement" };
           if (!verdict.ok) {
-            await record(
+            await recordBestEffort(
               "auto_capture_skipped",
               {
                 session: sid,
@@ -540,7 +544,7 @@ export function configureAutoCapture(
           // thin to mine" and "the host never emitted the event" produced
           // byte-identical stores. Record the skip with its size so the two
           // are distinguishable from the evidence file alone.
-          await record(
+          await recordBestEffort(
             "auto_capture_skipped",
             {
               session: sid,
@@ -639,27 +643,21 @@ export function configureAutoCapture(
         // and found nothing." The cost of that placement: a pass cut DURING the
         // context read or the known-rows read, before this line, still leaves no
         // trace, so that band is silent by design (see the evidence doc). The
-        // write is guarded like the disposal flush: an unwritable evidence log
-        // (read-only mount, foreign owner, ENOSPC) must never abort the pass
-        // before its model call — observability cannot be allowed to cause the
-        // loss it exists to detect.
+        // write is best-effort: an unwritable evidence log (read-only mount,
+        // foreign owner, ENOSPC) must never abort the pass before its model
+        // call — observability cannot be allowed to cause the loss it exists to
+        // detect.
         passesStarted++;
-        try {
-          recordSync(
-            "auto_capture_start",
-            {
-              trigger,
-              ...(modelTag ? { model: modelTag } : {}),
-            },
-            true,
-            sid,
-            captureGate.evidenceContext,
-          );
-        } catch {
-          // The receipt is best-effort. A failed write here must not stop the
-          // model call or tear down the subscription; the pass simply runs
-          // without leaving its start line.
-        }
+        recordSyncBestEffort(
+          "auto_capture_start",
+          {
+            trigger,
+            ...(modelTag ? { model: modelTag } : {}),
+          },
+          true,
+          sid,
+          captureGate.evidenceContext,
+        );
         const out = await generateApi.text({
           model,
           prompt: capturePrompt,
@@ -686,7 +684,7 @@ export function configureAutoCapture(
         // store left to write to. Its tokens therefore go unbilled here, which
         // undercounts by one call at teardown rather than throwing ENOENT out
         // of a receipt path that must never break a session.
-        await record(
+        await recordBestEffort(
           "capture_cost",
           {
             session: sid,
@@ -733,7 +731,7 @@ export function configureAutoCapture(
               c.original = undefined;
               withheld++;
             }
-            await record(
+            await recordBestEffort(
               "auto_capture_rules",
               {
                 session: sid,
@@ -752,7 +750,7 @@ export function configureAutoCapture(
             const quotes = findGuidedQuotes(ruleUserText);
             const checked = validateGuidedQuotes(candidates, ruleUserText);
             candidates = mergeGuidedCandidates(quotes, checked.kept);
-            await record(
+            await recordBestEffort(
               "auto_capture_rules",
               {
                 session: sid,
@@ -846,7 +844,7 @@ export function configureAutoCapture(
           return false;
         });
         if (lessonsKept || lessonsRefused)
-          await record(
+          await recordBestEffort(
             "auto_capture_lessons",
             {
               session: sid,
@@ -881,7 +879,7 @@ export function configureAutoCapture(
           const avail = availability().check(c.content);
           if (avail) {
             availVerdicts++;
-            await record(
+            await recordBestEffort(
               "auto_capture_restatable",
               {
                 session: sid,
@@ -937,7 +935,7 @@ export function configureAutoCapture(
               );
           const verdict = claim.verdict;
           if (verdict === "contradicts") {
-            await record(
+            await recordBestEffort(
               "auto_capture_contradiction",
               {
                 session: sid,
@@ -991,7 +989,7 @@ export function configureAutoCapture(
           } catch (err) {
             // A refused write must not disappear into the hook's fail-soft
             // wrapper. Preserve any earlier gate retirements in the receipt.
-            await record(
+            await recordBestEffort(
               durable.length ? "auto_capture_partial" : "auto_capture_refused",
               {
                 session: sid,
@@ -1012,7 +1010,7 @@ export function configureAutoCapture(
           // nothing and `collapsed` folds into an existing row whose tags are not
           // these, so only `promoted` can carry `restatable` into the store.
           if (avail && outcome.action === "promoted") restatements++;
-          await record(
+          await recordBestEffort(
             trigger === "compaction"
               ? `auto_capture_compaction_${outcome.action}`
               : `auto_capture_${outcome.action}`,
@@ -1071,7 +1069,7 @@ export function configureAutoCapture(
         // milliseconds.
         if (availableIndex) {
           const scan = availableIndex.scanned();
-          await record(
+          await recordBestEffort(
             "auto_capture_scan",
             {
               session: sid,
@@ -1094,7 +1092,7 @@ export function configureAutoCapture(
             captureGate.evidenceContext,
           );
         }
-        await recordCaptureLag(
+        await recordCaptureLagBestEffort(
           sid,
           lagMs,
           candidates.length ? "candidates" : "empty",
@@ -1129,27 +1127,36 @@ export function configureAutoCapture(
           for await (const raw of eventApi.subscribe({
             signal: controller.signal,
           })) {
-            if (!captureTriggerFor(raw)) continue;
-            // The turn-end event reached this subscription. Counted before
-            // the session-id and cooldown checks so a delivered-but-cooled event
-            // still proves the event arrived — only a zero here means no turn-end
-            // event reached this instance, the only case the disposal flush records.
-            turnEndSeen++;
-            const sid = captureSessionID(raw);
-            if (sid === undefined) continue;
-            setCurrent({ sessionID: sid });
-            const now = Date.now();
-            if (!captureCooldownPasses("idle", sid, now)) continue; // 5-min cooldown, shared across setups
+            // One event's failure stays that event's failure. The guard covers
+            // the whole body, including the receipt that reports a failure,
+            // because this loop is the only thing that hands capture every later
+            // turn: a throw that reaches it ends auto-capture for the life of
+            // the process, and the log that would say so is the thing that
+            // broke. Only the subscription ending may leave the loop.
+            // Named in the outer scope because the catch reports it: a failure
+            // before the id is read has no session to name.
+            let sid: string | undefined;
             // Freeze the operation's evidence context before its first await.
             // The catch below runs after the model call, where a
             // `session.moved` may already have re-pointed this session at
             // another repository; resolving it there would stamp the failure
             // receipt of repo A's capture as repo B's evidence.
             let opGate: GateContext | undefined;
-            // Created before the first await so cleanup can see this pass in the
-            // window before the model call, still applies in full.
-            const phase = newPhase();
             try {
+              if (!captureTriggerFor(raw)) continue;
+              // The turn-end event reached this subscription. Counted before
+              // the session-id and cooldown checks so a delivered-but-cooled event
+              // still proves the event arrived — only a zero here means no turn-end
+              // event reached this instance, the only case the disposal flush records.
+              turnEndSeen++;
+              sid = captureSessionID(raw);
+              if (sid === undefined) continue;
+              setCurrent({ sessionID: sid });
+              const now = Date.now();
+              if (!captureCooldownPasses("idle", sid, now)) continue; // 5-min cooldown, shared across setups
+              // Created before the first await so cleanup can see this pass in the
+              // window before the model call, still applies in full.
+              const phase = newPhase();
               opGate = bindCapture(sid);
               await track(
                 captureSession(sid, "", "idle", undefined, opGate, phase),
@@ -1163,10 +1170,10 @@ export function configureAutoCapture(
               // Fail-closed for the SESSION, never silent in the store: the
               // same silence that hid the 2.2.5 shape break would make a
               // throwing capture indistinguishable from one that never ran.
-              await record(
+              await recordBestEffort(
                 "auto_capture_refused",
                 {
-                  session: sid,
+                  session: sid ?? "?",
                   trigger: "idle",
                   reason: "capture_threw",
                   error: redactSecrets(
@@ -1197,26 +1204,23 @@ export function configureAutoCapture(
         // turn-end event reaches the subscription in every measured run, and an
         // idle instance restarted between turns produces it too — so it names the
         // state the original report inferred, never an accusation of where a
-        // dispatched event went. Guarded and existence-checked: a disposed
+        // dispatched event went. Best-effort and existence-checked: a disposed
         // instance must not resurrect a store its caller removed (the teardown
-        // contract), and a failed heartbeat must never turn cleanup into a throw.
+        // contract), and a failed heartbeat must never turn cleanup into a
+        // throw.
         if (turnEndSeen === 0 && passesStarted === 0) {
-          try {
-            if (existsSync(evidenceDir()))
-              await record(
-                "auto_capture_dispose",
-                {
-                  armed: true,
-                  turn_end_events: 0,
-                  passes: 0,
-                  reason: "no_turn_end_observed",
-                  subscribed: `[${CAPTURE_EVENT_TYPES.join(",")}]`,
-                },
-                false,
-              );
-          } catch {
-            // observability must not break teardown
-          }
+          if (existsSync(evidenceDir()))
+            await recordBestEffort(
+              "auto_capture_dispose",
+              {
+                armed: true,
+                turn_end_events: 0,
+                passes: 0,
+                reason: "no_turn_end_observed",
+                subscribed: `[${CAPTURE_EVENT_TYPES.join(",")}]`,
+              },
+              false,
+            );
         }
       };
 

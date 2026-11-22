@@ -13,6 +13,7 @@ import {
   type StoreCounts,
   emptyStats,
 } from "./payload.ts";
+import type { DroppedEvidenceWrites } from "../telemetry/record.ts";
 import { EVICT_MIN_RIDES } from "./store-summary.ts";
 
 function ago(iso: string): string {
@@ -216,6 +217,28 @@ export function captureLines(c: CaptureHealth): string[] {
 }
 
 /**
+ * The one report an unwritable evidence log can produce: a count kept in this
+ * process, never a line appended to the log that failed. Silence here means
+ * this process lost nothing — a store that lost writes in an earlier process
+ * reports nothing, because the counter lives and dies with the process that
+ * could still tell.
+ */
+export function evidenceWriteLines(
+  evidence?: DroppedEvidenceWrites | null,
+): string[] {
+  if (!evidence || evidence.dropped === 0) return [];
+  return [
+    `  evidence writes dropped: ${evidence.dropped} by this process (last ${
+      evidence.lastEvent
+    }: ${evidence.lastError.slice(0, 160)})`,
+    // The health lines above are read back out of the log that is losing
+    // writes, so they under-report what ran. Without this the reader weighs a
+    // missing line as evidence that the pass never happened.
+    "                 capture kept running; the auto-capture lines above read from that same log and under-count it",
+  ];
+}
+
+/**
  * Plain-text rendering shared by the memory_status tool (and any other chat
  * client). Sections match the terminal /memory panel one-for-one.
  */
@@ -225,6 +248,12 @@ export function renderMemoryReport(input: {
   blocked: BlockedRow[];
   quarantined?: { ts: string; patterns: string[] }[];
   capture?: CaptureHealth;
+  /**
+   * Evidence writes this process lost for this store. The only report an
+   * unwritable log can produce is one that never touches the log, so it arrives
+   * from process memory rather than from the lines above it.
+   */
+  evidence?: DroppedEvidenceWrites | null;
 }): string {
   const { status, store, blocked } = input;
   const out: string[] = ["MEMORY STATUS", ""];
@@ -347,11 +376,15 @@ export function renderMemoryReport(input: {
     );
   }
   if (sizing.length) out.push(`  ${sizing.join(" · ")}`);
-  if (input.capture) {
+  const captureSection = [
+    ...(input.capture ? captureLines(input.capture) : []),
+    ...evidenceWriteLines(input.evidence),
+  ];
+  if (captureSection.length) {
     out.push(
       "",
       "AUTO-CAPTURE — is it off, misconfigured, armed, or alive?",
-      ...captureLines(input.capture),
+      ...captureSection,
     );
   }
   out.push(
