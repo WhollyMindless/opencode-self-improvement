@@ -2,9 +2,9 @@
 // ci.yml triggers on pull_request and workflow_dispatch only, so a direct
 // push with SKIP_GATE=1 runs no CI at all.
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { removeStore } from "../helpers/remove-store.ts";
 
 const hookPath = join(import.meta.dir, "..", "..", ".githooks", "pre-push");
@@ -43,19 +43,32 @@ test("hook text states the true consequence of skipping the gate", () => {
 // The printed message is what a developer actually reads, so it is checked
 // positively too: a truthful header comment alone cannot satisfy these
 // assertions while the echo re-promises enforcement.
-test.skipIf(!Bun.which("sh"))(
+const shell = Bun.which("sh");
+test.skipIf(!shell && !Bun.which("git"))(
   "skip path exits 0, mentions SKIP_GATE, states the true consequence, promises nothing about CI",
   () => {
     const cwd = mkdtempSync(join(tmpdir(), "osi236-hook-"));
     try {
-      const proc = Bun.spawnSync(["sh", hookPath], {
-        cwd,
-        env: { SKIP_GATE: "1", PATH: process.env.PATH ?? "" },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
+      const env = { SKIP_GATE: "1", PATH: process.env.PATH ?? "" };
+      // Git for Windows can run a shell hook even when sh is absent from PATH.
+      if (!shell) {
+        const init = Bun.spawnSync(["git", "init", "--quiet"], { cwd, env });
+        expect(init.exitCode).toBe(0);
+      }
+      const command = shell
+        ? [shell, hookPath]
+        : [
+            "git",
+            "-c",
+            `core.hooksPath=${dirname(hookPath)}`,
+            "hook",
+            "run",
+            "pre-push",
+          ];
+      const proc = Bun.spawnSync(command, { cwd, env });
       expect(proc.exitCode).toBe(0);
-      const out = proc.stdout.toString();
+      // Git forwards hook output to stderr.
+      const out = (shell ? proc.stdout : proc.stderr).toString();
       expect(out).toContain("SKIP_GATE");
       expect(out).toMatch(/no CI/i);
       expect(out).toMatch(/pull request/i);
