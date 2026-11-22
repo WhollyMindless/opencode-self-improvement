@@ -1,6 +1,6 @@
 # ADR 0008 — Availability verdicts tag rows; they never refuse them
 
-Status: accepted (2026-11). Code: `src/capture/available.ts`.
+Status: superseded by [ADR 0009](0009-availability-refusals-under-the-hardened-matcher.md) (2026-11). Code: `src/capture/available.ts`.
 
 ## Decision
 

@@ -3,14 +3,15 @@ export const AUTO_CAPTURE_TAG = "auto-capture";
 
 /**
  * the working tree already states this fact, so the next session can read
- * it there. Captured from the availability check, which TAGS instead of
- * dropping: the original refusal rule rejected 30 of 1,166 real rows and 29
- * of those were wrong — so a wrong match costs a tag instead of a fact
- * (docs/adr/0008).
+ * it there. Legacy: capture wrote this tag when its availability check
+ * tagged restatements instead of refusing them; refusal is the policy now
+ * (docs/adr/0009), so nothing writes it and it survives only on rows stored
+ * while tagging shipped.
  *
- * Retrieval sorts these rows last within their score band: a restatement is the
- * first thing to give up budget when the block is full, and the last thing worth
- * a slot when it is not.
+ * Retrieval sorts these rows last within their score band: a restatement is
+ * the first thing to give up budget when the block is full, and the last
+ * thing worth a slot when it is not. The demotion stays for the legacy rows:
+ * a stored row is kept, and a wrong tag costs only a slot.
  */
 export const RESTATABLE_TAG = "restatable";
 

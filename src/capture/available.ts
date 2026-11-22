@@ -16,45 +16,36 @@
 //   2. Is this command already declared by the project's own gates? A row that
 //      says "run `make deploy`" is answered by the Makefile.
 //
-// Both produce a TAG, not a refusal. A refusal rule was measured here
-// first: it rejected 30 of 1,166 real captured rows and 29 of those were
-// wrong (the note "OpenCode V2 (v2.0.26) does NOT run LSP servers" was
-// refused because it contained the string `bun test` and
-// this project declares a `test` script). A check nobody can trust enough to
-// delete with, and nobody can make cheap enough to skip, must not decide
-// anything on its own. Partial-match and short-fragment traps are pinned by
-// tests; history: docs/adr/0008.
+// Both questions now REFUSE the candidate at capture time: the next session
+// reads the file named in the refusal line, so the row buys nothing. An
+// earlier refusal rule was retired for matching fragments — it refused rows
+// that were not restatements at all — and the matcher built in its place is
+// the predicate that refuses now:
 //
-// So the verdict is now evidence attached to a row that is stored anyway:
-//
-//   - it cannot drop a row, so a wrong match costs a tag instead of a fact;
-//   - every claim is checked, not sampled: one unchecked clause is enough to make
-//     the row new, and the unchecked part is where the new fact lives;
+//   - every claim is checked, not sampled: one unchecked clause is enough to
+//     make the row new, and the unchecked part is where the new fact lives;
 //   - polarity and numbers are VETOES, not evidence: they can only decline to
-//     tag, never create one. The number check is the house `numericTokens` set
-//     from `core/tokenize.ts`; see the two vetoes below for why the polarity
-//     check keeps its own cue list as well.
+//     refuse, never create a refusal. The number check is the house
+//     `numericTokens` set from `core/tokenize.ts`; see the two vetoes below
+//     for why the polarity check keeps its own cue list as well.
 //
-// The vetoes can only REMOVE a tag, never add one — which holds only because the
-// one place that compares two texts, `findClause`, compares them on the narrow
-// cue list. Widen that comparison and agreement gets easier, and an agreement is
-// what creates a tag; see VETO 1. Saltzer & Schroeder's fail-safe principle,
-// applied to a suppression filter: the default is keep, and a bug must surface as
-// a visible duplicate rather than as content that is gone.
+// The vetoes can only REMOVE a refusal, never add one — which holds only
+// because the one place that compares two texts, `findClause`, compares them
+// on the narrow cue list. Widen that comparison and agreement gets easier,
+// and an agreement is what refuses; see VETO 1. Saltzer & Schroeder's
+// fail-safe principle, applied to a suppression filter: the default is keep,
+// and a bug must surface as a visible duplicate rather than as content that
+// is gone.
 //
-// A wrong tag is not free either. The row survives, but `fitOrder` gives it up
-// first when the injection budget binds, so a false positive costs the row its
-// slot for the queries that needed it. That is the real price of a bad verdict,
-// and it is why the matcher is still held to the veto-only shape.
-//
-// Storing instead of deleting has a second consequence, and it is not a tag
-// effect. A stored row is a live GATE-3 contender, so a later write at >=0.9
-// overlap is now refused `superseded_overlap` where the delete policy would have
-// let it promote. Measured: an ordinary-tagged seed blocks the same write with
-// the same reason, so the tag changes nothing in the gate — the row being there
-// does. That is the gate working as designed on a genuine near-duplicate, with a
-// hint naming the row to `memory_update`, and it is the cost of no longer
-// destroying facts. P5 decides whether the check earns its keep at all.
+// The two error directions are not symmetric, and the shape follows that. A
+// wrong keep costs one redundant row — a second copy of something readable
+// in the tree. A wrong refusal costs a fact the next session cannot rebuild,
+// and the transport benchmark says the store's only measured benefit is
+// exactly those facts. So refusal demands the strictest evidence the check
+// can hold — every assertion restatable verbatim modulo formatting, same
+// polarity, no new figure — and abstains, keeping the candidate, on anything
+// less. Refusal is scoped to auto-capture: direct writes, updates, imports
+// and consolidation are not this filter's business. History: docs/adr/.
 //
 // Fail-open is the rule throughout. A missing git, an unreadable file, a repo
 // that is not a repo, or a budget that ran out is NOT evidence that a fact is
@@ -208,16 +199,16 @@ const NEGATION =
  *     disable" and "enable" do not read as the same claim.
  *
  * USE THIS ONLY WHERE THE ANSWER IS ABSOLUTE. `forbidsCommand` asks "does this
- * sentence forbid the command?" and a yes declines to tag, so widening it can
+ * sentence forbid the command?" and a yes declines to refuse, so widening it can
  * only ever decline — the fail-safe direction.
  *
  * The relative use, where one text's polarity is compared with another's, is
  * `cueNegated`, and the difference is not academic. Equality gets EASIER as both
  * predicates get broader, and in `findClause` an agreement is what CREATES the
- * tag. Measured on the round-3 case: tree `Do not assume the cleaner removes
+ * refusal. Measured on the round-3 case: tree `Do not assume the cleaner removes
  * unused rows.`, candidate `The cleaner removes unused rows.` — `polaritySigns`
  * reads the dual-role `removes` as negative in BOTH strings, the union agrees,
- * and the affirmative claim is tagged as restating the sentence that warns
+ * and the affirmative claim is refused as restating the sentence that warns
  * against it. The cue list alone sees `not` on one side and nothing on the other
  * and declines. That is the defect this veto exists for, arriving from the
  * opposite direction.
@@ -229,7 +220,7 @@ function negated(text: string): boolean {
 /**
  * Cue-list polarity, for the one place that COMPARES two texts. Narrow on
  * purpose: a broader predicate here agrees more often, and every extra agreement
- * is a tag.
+ * is a refusal.
  */
 function cueNegated(text: string): boolean {
   return NEGATION.test(text);
@@ -483,7 +474,7 @@ function claims(text: string): string[] {
  * The bare words are here because `polaritySigns` reads `never` as a modifier
  * that needs a verb, and "Never `npm run deploy`." has the verb inside a code
  * span. A closed list, answering one closed question, over a decision that can
- * now only decline to tag.
+ * now only decline to refuse.
  */
 function forbidsCommand(content: string, commands: string[]): boolean {
   for (const sentence of content.split(/[.;:\n]+/)) {
@@ -519,20 +510,20 @@ function sentenceSpan(
  * against, because the cue list carries neither `stop` nor `drop` — and neither
  * does `polaritySigns`, so widening it the way an earlier round tried does not
  * catch this either. Measured on 05482ba: both `Stop assuming X` and `Drop the
- * assumption that X` tagged `X` as restatable.
+ * assumption that X` matched `X` as restatable.
  *
  * The veto reads the words between the sentence start and the hit, not the whole
- * sentence, and that is what keeps it cheap in tags. `The parser drops stale
- * entries.` states its claim and keeps its tag, because `drops` there governs
+ * sentence, and that is what keeps it cheap in refusals. `The parser drops stale
+ * entries.` states its claim and keeps its refusal, because `drops` there governs
  * `stale entries`, not a following assertion; the ambiguous verbs are therefore
- * veto words only when a claim noun follows them. Every veto declines to tag,
+ * veto words only when a claim noun follows them. Every veto declines to refuse,
  * which is the direction this file fails safe in.
  */
 const WARNS_AGAINST = new RegExp(
   // One alternation, ONE shared tail. Written as three separate alternatives
   // each ending in `$`, only the last would be anchored and the first would
   // match any sentence that merely contains `stop` anywhere — measured, and it
-  // cost the tag from `The job stops at midnight and the cache supports TTL
+  // cost the refusal from `The job stops at midnight and the cache supports TTL
   // expiration.`, which states its claim plainly.
   "(?:" +
     // A deterrent verb needs no framing: what follows is being warned against.
@@ -596,13 +587,13 @@ function allRestatable(hay: string, clauses: string[]): boolean {
 }
 
 export interface AvailabilityIndex {
-  /** Null means "cannot tell", which stores the row with no tag. */
+  /** Null means "cannot tell, or cannot prove": the candidate is kept. */
   check(content: string): AvailabilityVerdict | null;
   /**
    * For evidence: what the tree scan actually read. `capped` means the byte
    * budget ran out before the tracked list did. It is telemetry only, never a
    * verdict input: both rules assert PRESENCE ("the tree states this"), so a
-   * truncated scan can only lower the tag rate, never raise a false tag.
+   * truncated scan can only lower the refusal rate, never raise a false refusal.
    */
   scanned(): {
     files: number;
@@ -685,7 +676,7 @@ export function availabilityIndex(
       //   - "Never run `npm run deploy` until finance confirms approval code
       //     BLUEBIRD" refused because the manifest declares `deploy`, although
       //     the restriction and the code appear nowhere.
-      // A tag requires EVERY assertion the candidate makes to be restatable.
+      // A refusal requires EVERY assertion the candidate makes to be restatable.
       const whole = norm(content);
       const needed = claims(whole);
       if (needed.length === 0) needed.push(whole);
@@ -721,7 +712,7 @@ export function availabilityIndex(
       //     refused with the undeclared AWS prerequisite erased from the row;
       //   - an EMPTY claim list counted as proof, so "Never `npm run deploy`."
       //     refused with its only claim — `never` — dropped as too short.
-      // A gate tag needs all three, each positively established:
+      // A gate refusal needs all three, each positively established:
       //   1. every command span the row states is declared. An undeclared one is
       //      a fact the tree does not hold, whatever the rest of the row says;
       //   2. what survives stripping them is nothing but FILLER — the bare
@@ -736,12 +727,11 @@ export function availabilityIndex(
         // no figure. So a sentence that forbids the command, or a number the
         // command does not carry, is a claim the declaration cannot answer.
         //
-        // These REMOVE a tag and never add one, and a removed tag costs the row
-        // nothing permanent: it is stored either way and a spare budget still
-        // shows it. That asymmetry is the whole point of the change — the round-3
-        // and round-4 arguments were really about a vocabulary that had to be
-        // perfect because a miss deleted a fact. Under a tag, a miss costs one
-        // injection slot.
+        // These REMOVE a refusal and never add one. A removed refusal costs one
+        // redundant row; a refusal that should have been removed costs a fact
+        // the store cannot rebuild. That asymmetry is the whole point of the
+        // veto-only shape: the vocabulary never has to be perfect, because a
+        // miss keeps the row instead of deleting it.
         if (forbidsCommand(content, spans)) return null;
         if (introducesNewNumber(content, spans.join(" "))) return null;
         const undeclared = spans.some((s) => gateHit([s], gates) === null);
