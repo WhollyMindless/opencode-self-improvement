@@ -147,6 +147,12 @@ export const EvidenceArgs = z.object({
 });
 
 export const MergeReviewArgs = z.object({
+  expected: z
+    .string()
+    .optional()
+    .describe(
+      "Copy this step's expected value from the printed consolidation command.",
+    ),
   consolidate: z
     .boolean()
     .optional()

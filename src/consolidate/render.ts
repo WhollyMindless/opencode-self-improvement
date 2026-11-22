@@ -1,6 +1,10 @@
 // render — split from src/consolidate.ts. Declaration bodies are unchanged.
 
-import { type ProposalReport } from "./propose.ts";
+import {
+  absorbAliases,
+  consolidationStepKey,
+  type ProposalReport,
+} from "./propose.ts";
 import { flattenMemoryText } from "../store/sanitize.ts";
 
 /** Human-readable proposal list. Ends with the exact command to resolve one. */
@@ -11,6 +15,12 @@ export function renderProposals(report: ProposalReport): string {
     return out.join("\n");
   }
   for (const p of report.plans) {
+    let projected = p.survivor;
+    const commands = p.losers.map((loser) => {
+      projected = absorbAliases(projected, loser);
+      const expected = consolidationStepKey(projected, loser);
+      return `  resolve: memory_merge_review(loser="${loser.ts}", survivor="${p.survivor.ts}", reason="consolidate ${p.id}", consolidate=true, expected="${expected}")`;
+    });
     out.push(
       `${p.id}  ${p.type}/${p.scope}  ${p.losers.length + 1} rows → 1`,
       `  keep   ${p.survivor.ts}`,
@@ -23,10 +33,7 @@ export function renderProposals(report: ProposalReport): string {
       ),
       `  reads  ${p.reads.length} logged · best member alone ${p.bestMemberBefore} · merged ${p.readsAfter}`,
       `  budget ${p.bytesBefore}c → ${p.bytesAfter}c for this cluster`,
-      ...p.losers.map(
-        (loser) =>
-          `  resolve: memory_merge_review(loser="${loser.ts}", survivor="${p.survivor.ts}", reason="consolidate ${p.id}", consolidate=true)`,
-      ),
+      ...commands,
       "",
     );
   }

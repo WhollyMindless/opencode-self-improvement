@@ -33,6 +33,21 @@ const B =
 const C =
   "finance reconciles the zebra brasserie ledger nightly and mails a digest before opening bell";
 
+function resolveCommands(report: string) {
+  return Array.from(
+    report.matchAll(
+      /resolve: memory_merge_review\(loser="([^"]+)", survivor="([^"]+)", reason="([^"]+)", consolidate=true(?:, expected="([^"]+)")?\)/g,
+    ),
+    ([, loser, survivor, reason, expected]) => ({
+      loser,
+      survivor,
+      reason,
+      consolidate: true,
+      expected,
+    }),
+  );
+}
+
 describe("memory_consolidate tool", () => {
   test("consolidating an open row refuses before either row changes", async () => {
     const plugin = await loadPlugin(root);
@@ -95,20 +110,11 @@ describe("memory_consolidate tool", () => {
         expect(report.content).toMatch(
           new RegExp(`reads  ${count} logged .*merged ${count}`),
         );
-        const commands = [
-          ...report.content.matchAll(
-            /resolve: memory_merge_review\(loser="([^"]+)", survivor="([^"]+)", reason="([^"]+)"(, consolidate=true)?\)/g,
-          ),
-        ];
+        const commands = resolveCommands(report.content);
         expect(commands).toHaveLength(count - 1);
-        for (const [, loser, survivor, reason, consolidate] of commands) {
+        for (const command of commands) {
           const result = await plugin.tools.memory_merge_review!.execute(
-            {
-              loser,
-              survivor,
-              reason,
-              ...(consolidate ? { consolidate: true } : {}),
-            },
+            command,
             ctx,
           );
           expect(result.content).toContain("Resolved merge:");
@@ -116,10 +122,79 @@ describe("memory_consolidate tool", () => {
         const active = (await loadAll()).filter((row) => !row.superseded_by);
         expect(active).toHaveLength(1);
         const canonical = active[0]!;
-        expect(canonical.ts).toBe(commands[0]![2]!);
+        expect(canonical.ts).toBe(commands[0]!.survivor);
         for (const { keyword } of rows) {
           expect(await recall(keyword)).toContain(canonical.content);
         }
+      } finally {
+        await plugin.cleanup();
+      }
+    },
+  );
+
+  test.each(["overlapping proposals", "reversed steps", "legacy command"])(
+    "%s cannot retire a row on an unverified keyword projection",
+    async (scenario) => {
+      const plugin = await loadPlugin(root);
+      const ctx = { sessionID: "ses_stale_proposal" };
+      const run = async (name: string, args: Record<string, unknown>) =>
+        (await plugin.tools[name]!.execute(args, ctx)).content;
+      const append = (content: string, kw: string[]) =>
+        appendMemory({
+          type: "learning",
+          scope: "build",
+          status: "settled",
+          content,
+          kw,
+        });
+      const recall = (query: string) => run("memory_recall", { query });
+      const files = async () =>
+        (await memoryFiles()).map((path) => readFileSync(path));
+      try {
+        const survivor = await append(A, [
+          "alabaster",
+          "basalt",
+          "cinnabar",
+          "dolomite",
+          "emerald",
+          "fluorite",
+          "galena",
+        ]);
+        const firstLoser = await append(B, ["hematite"]);
+        expect(await recall("hematite")).toContain(B);
+        await Bun.sleep(5);
+        expect(await recall("alabaster")).toContain(A);
+        const initial = await run("memory_consolidate", {});
+        expect(initial).toMatch(/reads  2 logged .*merged 2/);
+        const [first] = resolveCommands(initial);
+        expect(first).toMatchObject({ loser: firstLoser, survivor });
+        let command: Record<string, unknown> = first!;
+        if (scenario === "legacy command") {
+          command = { ...command, expected: undefined };
+        } else {
+          const secondLoser = await append(A + " locally", ["ilmenite"]);
+          const overlap = scenario === "overlapping proposals";
+          const report = await run("memory_consolidate", {
+            jaccard: overlap ? 0.89 : 0.55,
+          });
+          const commands = resolveCommands(report);
+          expect(commands).toHaveLength(overlap ? 1 : 2);
+          const last = commands.at(-1)!;
+          expect(last).toMatchObject({ loser: secondLoser, survivor });
+          if (overlap) {
+            expect(await run("memory_merge_review", last)).toContain(
+              "Resolved merge:",
+            );
+          } else {
+            command = last;
+          }
+        }
+        const before = await files();
+        expect(await run("memory_merge_review", command)).toContain(
+          "Run memory_consolidate again",
+        );
+        expect(await files()).toEqual(before);
+        expect(await recall("hematite")).toContain(B);
       } finally {
         await plugin.cleanup();
       }

@@ -9,6 +9,7 @@ import { stampRow } from "../store/files/snapshots.ts";
 import { formatLine } from "../core/logfmt/format.ts";
 import {
   absorbAliases,
+  consolidationStepKey,
   sameConsolidationScope,
 } from "../consolidate/propose.ts";
 import { clearSuperseded, markSuperseded } from "../store/files/supersede.ts";
@@ -36,6 +37,12 @@ export const register: ToolRegister = (editor, deps) => {
           return {
             content:
               "merge_review blocked: loser, survivor, and reason are all required (fail-closed).",
+          };
+        }
+        if (args.expected !== undefined && !args.consolidate) {
+          return {
+            content:
+              "Consolidation blocked: use the full command printed by memory_consolidate.",
           };
         }
         if (args.loser === args.survivor) {
@@ -150,7 +157,7 @@ export const register: ToolRegister = (editor, deps) => {
                 }
                 // Publish the aliases first. If retirement fails, the loser
                 // remains searchable and reapplying the union is idempotent.
-                consolidationStarted = true;
+                let stale = false;
                 const present = await stampRow(
                   survivorRow.file,
                   survivorRow.ts,
@@ -169,12 +176,25 @@ export const register: ToolRegister = (editor, deps) => {
                       throw new Error("survivor changed since the proposal");
                     }
                     const merged = absorbAliases(current, loserRow);
+                    if (
+                      consolidationStepKey(merged, loserRow) !== args.expected
+                    ) {
+                      stale = true;
+                      return null;
+                    }
+                    consolidationStarted = true;
                     const kw = merged.kw?.join(",");
                     const tags = merged.tags!.join(",");
                     if (fields.kw === kw && fields.tags === tags) return null;
                     return formatLine({ ...fields, kw, tags });
                   },
                 );
+                if (stale) {
+                  return {
+                    content:
+                      "Consolidation blocked: the command is missing its preview or would preserve different keywords. Run memory_consolidate again.",
+                  };
+                }
                 if (present === null)
                   throw new Error("survivor no longer exists");
               }
