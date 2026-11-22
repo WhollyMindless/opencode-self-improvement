@@ -559,6 +559,27 @@ describe("capture availability refusal", () => {
     expect(rows[0]?.tags ?? []).not.toContain(RESTATABLE_TAG);
   });
 
+  test("a guided candidate that restates the tree is refused too", async () => {
+    // The recall layer exempts guided rows from the budget demotion; that
+    // exemption does not extend upstream. A guided verbatim copy rides every
+    // later injection block at full rank — exactly the row class this
+    // refusal removes — so capture refuses it as well, and the refusal line
+    // marks it guided so the decision stays visible and replayable.
+    await capture(makeRepo("guided-restated"), [
+      {
+        type: "learning",
+        scope: "av-guided-copy",
+        content: README_TEXT,
+        guided: true,
+      },
+    ]);
+    const refused = refusalFor("av-guided-copy");
+    expect(refused.length).toBe(1);
+    expect(String(refused[0].guided)).toBe("true");
+    expect(String(refused[0].reason)).toBe("in_tracked_file");
+    expect((await rowsWith("av-guided-copy")).length).toBe(0);
+  });
+
   test("a dual-role verb does not mask a scope negation", async () => {
     // The union of the cue list with `polaritySigns` was applied to BOTH sides of
     // the polarity comparison in `findClause`, and that comparison CREATES
@@ -677,6 +698,7 @@ describe("capture availability refusal", () => {
       (l) => l.ev === "auto_capture_scan" && String(l.session) === "ses-scan",
     );
     expect(scan).toBeDefined();
+    expect(Number(scan?.candidates)).toBe(1);
     expect(Number(scan?.files)).toBe(2);
     expect(Number(scan?.bytes)).toBeGreaterThan(0);
     expect(String(scan?.tracked)).toBe("true");

@@ -1090,15 +1090,23 @@ export function configureAutoCapture(
         }
         // The scan is visible in the trail. A synchronous tree read must
         // never run every pass with no record that it happened: one line per
-        // pass that actually built the index, naming files, bytes and
-        // milliseconds.
-        if (availableIndex) {
-          const scan = availableIndex.scanned();
+        // pass that had candidates, naming how many it saw and what the index
+        // read — files, bytes, milliseconds. `candidates` is the denominator
+        // that separates a dead matcher from an honest one: `verdicts=0` at
+        // `candidates>0`, across passes, is matcher death, and an empty
+        // session — no candidates, no line — never produces it. When the
+        // index was never built (a pass abandoned before its first
+        // candidate), the read fields are zero and `tracked=false` says so.
+        if (availableIndex || candidates.length) {
+          const scan = availableIndex
+            ? availableIndex.scanned()
+            : { files: 0, bytes: 0, tracked: false, capped: false };
           await recordBestEffort(
             "auto_capture_scan",
             {
               session: sid,
               trigger,
+              candidates: candidates.length,
               files: scan.files,
               bytes: scan.bytes,
               ms: availableMs,

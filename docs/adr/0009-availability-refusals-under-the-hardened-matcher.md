@@ -12,9 +12,13 @@ project's own gates declare, is REFUSED at capture time and logged on the
 
 The refusal is scoped to the auto-capture path. `memory_remember`, updates,
 imports and consolidation write what their callers ask for; a user may store a
-restatement on purpose, capture may not. Nothing is deleted from an existing
-store, and the retrieval demotion of `restatable`-tagged rows stays for rows
-written while the tag policy shipped.
+restatement on purpose, capture may not. Capture refuses guided candidates on
+the same terms: the recall layer's exemption of guided rows from the budget
+demotion does not extend upstream, and a guided verbatim copy — refused, and
+logged with `guided=true` so the decision stays visible — never becomes a row
+that rides every injection block at full rank. Nothing is deleted from an
+existing store, and the retrieval demotion of `restatable`-tagged rows stays
+for rows written while the tag policy shipped.
 
 ## Why
 
