@@ -31,6 +31,7 @@ import {
   safeErrorMessage,
 } from "../telemetry/record.ts";
 import { type AvailabilityIndex, availabilityIndex } from "./available.ts";
+import { ledgerText, withholdUngroundedGuidance } from "./attest.ts";
 import { parseCandidates, parseModelRef } from "./candidates.ts";
 import { claimVerdictFromContent } from "./checked.ts";
 import {
@@ -784,6 +785,32 @@ export function configureAutoCapture(
               c.original = undefined;
           }
         }
+        // The hint channel is granted, not inherited. A quote found in a user
+        // turn establishes that the user typed the words; it cannot establish
+        // that the words are about THIS repository, because the task brief is a
+        // user turn and a brief carries instructions written for the harness as
+        // well as facts about the code. A row that always rides every later
+        // session has to carry something a later session can check — a value, or
+        // a name the session actually used — so the ledger decides here, the
+        // same way it decides what a failure lesson may be about.
+        const echoes = withholdUngroundedGuidance(
+          candidates,
+          ledgerText(session(sid).calls),
+        );
+        if (echoes)
+          await record(
+            "auto_capture_brief_echo",
+            {
+              session: sid,
+              trigger,
+              withheld: echoes,
+              candidates: candidates.length,
+              ...(modelTag ? { model: modelTag } : {}),
+            },
+            false,
+            sid,
+            captureGate.evidenceContext,
+          );
         // availability before authority. A candidate that restates a
         // tracked file, or names a command the project already declares, is
         // readable by the next session without a row — and capture costs about a
