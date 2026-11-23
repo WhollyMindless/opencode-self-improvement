@@ -152,6 +152,148 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "#397 review — matching PART of a candidate does not establish the WHOLE fact",
   },
+  // ── A figure reassembled across fragments: the tree states none of it ──────
+  // `claims()` splits on `.`, so a dotted figure arrives as separate integers
+  // and each can match its own sentence. The whole-token subset check is what
+  // makes "the tree states every figure" true again.
+  {
+    id: "reassembled-decimal",
+    tree: "# budget\n\nThe budget is 1 second per call. Retry after 5 seconds.\n",
+    candidate: "The budget is 1.5 seconds.",
+    expectTag: false,
+    source: "PR #493 review B1 — 1.5 reassembled from `1 second` + `5 seconds`",
+  },
+  {
+    id: "reassembled-version",
+    tree: "# release\n\nWe ship version 1 release per week. Workers rose to 4. The pool size is 3.\n",
+    candidate: "We ship version 1.4.3.",
+    expectTag: false,
+    source: "PR #493 review B1 — a version reassembled from 1, 4 and 3",
+  },
+  {
+    id: "reassembled-address",
+    tree: "# network\n\nThe gateway address is 10 ms per hop. We raised the pool to 20. Drain for 30 s, then 40 s.\n",
+    candidate: "The gateway address is 10.20.30.40.",
+    expectTag: false,
+    source:
+      "PR #493 review B1 — an address reassembled from four separate figures",
+  },
+  {
+    id: "figure-stated-whole-still-restatable",
+    tree: "# limits\n\nThe timeout is 5000 ms.\n",
+    candidate: "The timeout is 5000 ms.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "PR #493 review B1 — the subset check must not neuter a true restatement",
+  },
+  // ── Figures are vouched by the matched passage, not by the tree ────────────
+  // `The budget is 1, 5 seconds of margin.` chains across its comma, so the
+  // claims match a row saying `1.5 seconds`. The figure that makes that look
+  // stated may sit in another file, or in another sentence of the same one —
+  // which is why the scope is the region the match actually covered.
+  {
+    id: "figure-region-cross-file",
+    tree: "# budget\n\nThe budget is 1, 5 seconds of margin.\n",
+    files: { "docs.md": "# docs\n\nRequires Node 1.5 or newer.\n" },
+    candidate: "The budget is 1.5 seconds.",
+    expectTag: false,
+    source:
+      "PR #493 review B5 — the 1.5 that cleared the veto sits in a file outside the cited region",
+  },
+  {
+    id: "figure-region-same-file-distant",
+    tree: "# budget\n\nThe budget is 1, 5 seconds of margin.\nRequires Node 1.5 or newer.\n",
+    candidate: "The budget is 1.5 seconds.",
+    expectTag: false,
+    source:
+      "PR #493 review B5 — one file is not the scope either: the other sentence states nothing about this one",
+  },
+  {
+    id: "figure-region-dotted-restated",
+    tree: "# budget\n\nThe budget is 1.5 seconds.\n",
+    candidate: "The budget is 1.5 seconds.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "PR #493 review B5 counterpart — a dotted figure the region itself states stays a restatement",
+  },
+  // ── A figure is one token, in the claims and in the hit ───────────────────
+  // The splitter and the matcher used to disagree about the dot: `claims()` cut
+  // `1.5` in half and `findClause` admitted a hit whose neighbour was any non-word
+  // character, including the dot inside a number. Either half re-tokenizes as a
+  // whole figure the tree never states.
+  {
+    id: "figure-trunc-dotless-tail",
+    tree: "# cost\n\nThe cost is 11.5.\n",
+    candidate: "The cost is 11",
+    expectTag: false,
+    source:
+      "PR #493 review B6 — the row ends at the tree's figure dot, and `11` is what slicing leaves, not a figure the tree states",
+  },
+  {
+    id: "figure-trunc-version-tail",
+    tree: "# runtime\n\nRequires Python 3.12\n",
+    candidate: "Requires Python 3",
+    expectTag: false,
+    source:
+      "PR #493 review B6 — the version is the fact; a refusal citing `3.12` for a row that says `3` asserts a restatement the passage does not provide",
+  },
+  {
+    id: "figure-frag-after-dot",
+    tree: "# limits\n\nTimeout 30.5 seconds.\n",
+    candidate: "5 seconds.",
+    expectTag: false,
+    source:
+      "PR #493 review B6 — a claim starting after the dot inside a figure",
+  },
+  {
+    id: "figure-frag-ip-tail",
+    tree: NEUTRAL_README,
+    files: { "docs.md": "# net\n\nBind to 10.20.30.40 now.\n" },
+    candidate: "30.40 now.",
+    expectTag: false,
+    source:
+      "PR #493 review B6 — the address is one token, so its tail is not a figure the tree states",
+  },
+  {
+    id: "figure-region-one-occurrence",
+    tree: "# releases\n\nThe supported releases are 1, 5 for production. The minimum runtime is 1.5 for tooling.\n",
+    candidate:
+      "The supported releases are 1.5 for production. The minimum runtime is 1.5 for tooling.",
+    expectTag: false,
+    source:
+      "PR #493 review B6 — one occurrence of 1.5 vouched for both assertions; the production claim states a pairing the tree never makes",
+  },
+  {
+    id: "figure-atomic-version-restated",
+    tree: "# runtime\n\nRequires Python 3.12\n",
+    candidate: "Requires Python 3.12",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "PR #493 review B6 counterpart — the whole figure token still makes the row a restatement",
+  },
+  // ── A label from one line and a value from another: the pairing is new ─────
+  // Reported as a transport loss on review of the refusal PR. No digits, so the
+  // figure check cannot see it; only contiguity can.
+  {
+    id: "cross-line-label-value-pairing",
+    tree: "Staging export pool: cobalt-workers.\nProduction export pool: ask operations at rollout.\n",
+    candidate: "Production export pool: cobalt-workers.",
+    expectTag: false,
+    source:
+      "PR #493 review — the tree pairs cobalt-workers with Staging; the candidate's pairing came from the session",
+  },
+  {
+    id: "same-line-label-value-pairing",
+    tree: "# pools\n\nProduction export pool: cobalt-workers.\nStaging export pool: ask operations at rollout.\n",
+    candidate: "Production export pool: cobalt-workers.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "PR #493 review counterpart — the same two halves stated by one line are a restatement",
+  },
   // ── Declared gate: where it does and does not reach ───────────────────────
   // Review round 4 (WhollyMindless) found that every case below declared its
   // command in README prose, so the TEXT branch decided all of them and a
@@ -248,6 +390,215 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     expectTag: false,
     source:
       "#402 veto 2 — a changed figure is a different fact, not a rephrasing",
+  },
+  {
+    id: "gate-figure-self-cert-flag",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({ scripts: { test: "bun test" } }),
+    },
+    candidate: "Run `bun test --timeout 5000`.",
+    expectTag: false,
+    source:
+      "PR #493 review B1 — the candidate's own span carried the figure that cleared the veto; only the declaration may vouch for a number",
+  },
+  {
+    id: "gate-figure-self-cert-option",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { ship: "rsync -az dist box:/srv" },
+      }),
+    },
+    candidate: "`rsync -az dist box:/srv --bwlimit=100`.",
+    expectTag: false,
+    source:
+      "PR #493 review B1 — same class: the span declared its own figure; the declaration states none",
+  },
+  // ── A forwarded argument the declaration never mentions ───────────────────
+  // Reported on the PR: stripping the whole span from the row before checking
+  // the residual erased the argument with the command, so the row carrying a
+  // session-only target got the same verdict as the bare invocation.
+  {
+    id: "gate-forwarded-arg-undeclared",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish" },
+      }),
+    },
+    candidate: "Run `npm run deploy -- --target canary`.",
+    expectTag: false,
+    source:
+      "PR #493 review — the manifest declares the script, not the target forwarded to it",
+  },
+  {
+    id: "gate-forwarded-arg-declared",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --prod" },
+      }),
+    },
+    candidate: "Run `npm run deploy -- --prod`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "PR #493 review counterpart — an argument the declaration states leaves the plain invocation a provable restatement",
+  },
+  // ── A step-kind declaration vouches for its own step only ─────────────────
+  // Every recipe in a Makefile and every `run:` in a workflow shares one
+  // `where` while stating nothing about its siblings.
+  {
+    id: "gate-workflow-sibling-flag",
+    tree: NEUTRAL_README,
+    files: {
+      ".github/workflows/ci.yml":
+        "name: ci\non: push\njobs:\n  a:\n    steps:\n      - run: npm run build\n      - run: docker push app --prod\n",
+    },
+    candidate: "Run `npm run build --prod`.",
+    expectTag: false,
+    source:
+      "PR #493 review B2 — the build step never states --prod; the neighbouring push step cannot vouch for it",
+  },
+  {
+    id: "gate-workflow-same-step-flag",
+    tree: NEUTRAL_README,
+    files: {
+      ".github/workflows/ci.yml":
+        "name: ci\non: push\njobs:\n  a:\n    steps:\n      - run: npm run build --prod\n",
+    },
+    candidate: "Run `npm run build --prod`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "PR #493 review B2 counterpart — the same step declares the flag, so the invocation is a restatement",
+  },
+  {
+    id: "gate-makefile-sibling-word",
+    tree: NEUTRAL_README,
+    files: {
+      Makefile:
+        "ship:\n\trsync dist box:/srv\nbackup:\n\ttar czf backup.tgz dist\n",
+    },
+    candidate: "Run `rsync dist box:/srv tar`.",
+    expectTag: false,
+    source:
+      "PR #493 review B2 — `tar` belongs to the backup recipe, not to the one the row quotes",
+  },
+  // ── Operands must be a run the declaration states, not a word bag ─────────
+  {
+    id: "gate-swapped-option-values",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          deploy: "deploy-tool publish --target staging --fallback canary",
+        },
+      }),
+    },
+    candidate: "Run `npm run deploy -- --target canary --fallback staging`.",
+    expectTag: false,
+    source:
+      "PR #493 review B3 — every word is declared and the pairing is not; the manifest pairs each option with the opposite value",
+  },
+  {
+    id: "gate-contiguous-prefix-operands",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          deploy: "deploy-tool publish --target staging --fallback canary",
+        },
+      }),
+    },
+    candidate: "Run `npm run deploy -- --target staging`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "PR #493 review B3 counterpart — a run the declaration states verbatim is still a restatement",
+  },
+  {
+    id: "gate-reordered-flags",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --dry --verbose" },
+      }),
+    },
+    candidate: "Run `npm run deploy -- --verbose --dry`.",
+    expectTag: false,
+    source:
+      "PR #493 review B3 — semantically the same command, but order-irrelevance is not something the check can prove, so the row is kept",
+  },
+  // ── Each span vouches with its own declaration ────────────────────────────
+  // The pair is the test: the same build operand is kept alone, and must stay
+  // kept when a bare mention of another script is added in front of it.
+  {
+    id: "gate-multi-span-single-operand",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          build: "compiler",
+          deploy: "deploy-tool publish --target staging --fallback canary",
+        },
+      }),
+    },
+    candidate: "Run `npm run build -- --target staging`.",
+    expectTag: false,
+    source:
+      "PR #493 review B4 — the single-span half of the pair: the build script states no target",
+  },
+  {
+    id: "gate-multi-span-borrowed-labels",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          build: "compiler",
+          deploy: "deploy-tool publish --target staging --fallback canary",
+        },
+      }),
+    },
+    candidate: "Run `npm run deploy`. Run `npm run build -- --target staging`.",
+    expectTag: false,
+    source:
+      "PR #493 review B4 — the deploy mention must not lend its operands to the build span",
+  },
+  {
+    id: "gate-multi-span-borrowed-labels-reversed",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          build: "compiler",
+          deploy: "deploy-tool publish --target staging --fallback canary",
+        },
+      }),
+    },
+    candidate: "Run `npm run build -- --target staging`. Run `npm run deploy`.",
+    expectTag: false,
+    source:
+      "PR #493 review B4 — the same pair in the other order, so the rule is not an accident of which span matched first",
+  },
+  {
+    id: "gate-multi-span-both-declared",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          build: "compiler --fast",
+          deploy: "deploy-tool publish --target staging",
+        },
+      }),
+    },
+    candidate:
+      "Run `npm run deploy -- --target staging`. Run `npm run build -- --fast`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "PR #493 review B4 counterpart — each operand vouched by its own declaration is a row the tree states in full",
   },
   {
     id: "prose-command-not-a-code-span",
