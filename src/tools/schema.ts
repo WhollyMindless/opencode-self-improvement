@@ -151,7 +151,7 @@ export const MergeReviewArgs = z.object({
     .string()
     .optional()
     .describe(
-      "Copy this step's expected value from the printed consolidation command.",
+      "Required with consolidate=true. Copy this step's expected value from the printed consolidation command.",
     ),
   consolidate: z
     .boolean()

@@ -212,7 +212,7 @@ const EXPECTED_WIRE = {
       expected: {
         type: "string",
         description:
-          "Copy this step's expected value from the printed consolidation command.",
+          "Required with consolidate=true. Copy this step's expected value from the printed consolidation command.",
       },
       consolidate: {
         type: "boolean",
