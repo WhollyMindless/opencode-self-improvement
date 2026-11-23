@@ -621,6 +621,11 @@ describe("the value dimensions the sketch cannot see", () => {
       "3.19",
     ]);
     expect(numericTokens("no numbers in this claim")).toEqual([]);
+    expect(numericTokens("configuration ABC123 at 1,024 and 1.5.")).toEqual([
+      "1.5",
+      "1024",
+      "abc123",
+    ]);
     expect(numericTokens("30 days, then 30 days again")).toEqual(["30"]);
     // A grouping comma is inside the figure, a sentence dot is outside it:
     // both texts state one figure, canonically.

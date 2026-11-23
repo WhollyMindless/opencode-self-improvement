@@ -171,7 +171,8 @@ export function numericTokens(text: string): string[] {
   const lower = text.toLowerCase();
   const out = new Set<string>();
   for (let i = 0; i < lower.length; ) {
-    const ext = figureExtent(lower, i);
+    // A digit anchors the whole run, including any identifier prefix.
+    const ext = isDigit(lower.charCodeAt(i)) ? figureExtent(lower, i) : null;
     if (ext === null) {
       i++;
       continue;
