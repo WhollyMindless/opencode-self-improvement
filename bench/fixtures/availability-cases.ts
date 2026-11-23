@@ -32,6 +32,10 @@ export interface AvailabilityCase {
   /** Asserted when set. Tag-or-keep alone cannot say WHICH branch fired, and that
    * is the difference between a gate test and a prose test wearing its name. */
   expectReason?: "in_tracked_file" | "declared_gate";
+  /** Asserted when set. A refusal that rested on several declarations must name
+   * every one of them: citing the first file the scan happened to hit is not
+   * evidence, and an unauditable refusal is where a wrong one survives. */
+  expectWhere?: string;
   source: string;
 }
 
@@ -692,5 +696,156 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     expectTag: false,
     source:
       "#397 review — a short gate name does not tag prose that merely contains it",
+  },
+
+  // ── A declared command's own figure, settled per span ─────────────────────
+  // The disagreement class: the row quotes a declared command whose
+  // declaration carries a number. Each figure settles against the declaration
+  // its own span hits — never against one label chosen by which file the tree
+  // lists first — and the refusal names every declaration it rested on.
+  {
+    id: "gate-figure-declared-in-span",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --replicas 3" },
+      }),
+    },
+    candidate: "Run `npm run deploy --replicas 3`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    expectWhere: "package.json scripts.deploy",
+    source:
+      "#501 review A1 — the declaration's own command carries the figure the span carries",
+  },
+  {
+    id: "gate-figure-undeclared-in-span",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --replicas 3" },
+      }),
+    },
+    candidate: "Run `npm run deploy --replicas 5`.",
+    expectTag: false,
+    source:
+      "#501 review A1 counterpart — same shape, a figure the declaration does not carry",
+  },
+  {
+    id: "gate-figure-declared-across-spans",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          build: "compiler --jobs 8",
+          deploy: "deploy-tool publish --replicas 3",
+        },
+      }),
+    },
+    candidate:
+      "Run `npm run build --jobs 8`. Run `npm run deploy --replicas 3`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    expectWhere: "package.json scripts.build, package.json scripts.deploy",
+    source:
+      "#501 review A1 — each span settles against its own declaration, and the refusal cites both",
+  },
+  {
+    id: "gate-figure-declared-sequenced",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          build: "compiler --jobs 8",
+          deploy: "deploy-tool publish --replicas 3",
+        },
+      }),
+    },
+    candidate:
+      "Run `npm run build --jobs 8`, then `npm run deploy --replicas 3`.",
+    expectTag: false,
+    source:
+      "#501 review A1 counterpart — both figures settle per span, and the row still keeps: `then` is a residual claim no declaration vouches for",
+  },
+  {
+    id: "gate-figure-foreign-across-spans",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          deploy: "deploy-tool publish --replicas 3",
+          scale: "deploy-tool publish",
+        },
+      }),
+    },
+    candidate:
+      "Run `deploy-tool publish --replicas 3` and `npm run scale --replicas 3`.",
+    expectTag: false,
+    source:
+      "#501 review A1 counterpart — the first span's figure must not vouch for the second",
+  },
+  {
+    id: "gate-figure-prose-restated-in-tree",
+    tree: "Keep 3 replicas warm before rollout.\n",
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --replicas 3" },
+      }),
+    },
+    candidate: "Run `npm run deploy`; keep 3 replicas warm.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "#501 review A1 — a figure outside every command settles against the passage that restates it",
+  },
+  {
+    id: "gate-figure-prose-not-restated",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --replicas 3" },
+      }),
+    },
+    candidate: "Run `npm run deploy`; keep 3 replicas warm.",
+    expectTag: false,
+    source:
+      "#501 review A1 counterpart — the same figure with no passage stating it",
+  },
+  {
+    id: "gate-figure-two-declarations-cited",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          wide: "tool-x publish --replicas 3 --jobs 3",
+          narrow: "tool-y publish --replicas 3",
+        },
+      }),
+    },
+    candidate:
+      "Run `tool-x publish --replicas 3 --jobs 3` and `tool-y publish --replicas 3`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    expectWhere: "package.json scripts.wide, package.json scripts.narrow",
+    source:
+      "#501 review A2 — a refusal resting on two declarations must name both",
+  },
+  {
+    id: "gate-figure-one-declaration-cited",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          wide: "tool-x publish --replicas 3 --jobs 3",
+          narrow: "tool-y publish --replicas 3",
+        },
+      }),
+    },
+    candidate: "Run `tool-x publish --replicas 3 --jobs 3`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    expectWhere: "package.json scripts.wide",
+    source:
+      "#501 review A2 counterpart — one span rests on one declaration and cites one",
   },
 ];

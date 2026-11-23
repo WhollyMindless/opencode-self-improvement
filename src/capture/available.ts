@@ -234,31 +234,13 @@ function cueNegated(text: string): boolean {
 }
 
 /**
- * VETO 2: a figure the matched DECLARATION does not carry.
- *
- * `core/tokenize.ts` states the rule and `store/tombstones/tombstone.ts`
- * measures it on this repo's own data: a correction scores HIGHER than an honest
- * rewording, so overlap alone cannot separate "the same fact again" from "the
- * fact has changed". On the declared-command path the manifest states only that
- * a command exists, so any number the row asserts has to be in the DECLARED
- * command — `gate.label` — or the row is new. The comparison text is never the
- * candidate's own spans: a row whose command span carries a flag value
- * (`--timeout 5000`) would supply the figure that clears its own veto, and the
- * declaration, not the row, is what must vouch for the number.
- * `numericTokens` reads the figure grammar exported from `core/tokenize.ts`:
- * a grouped figure is one figure (`1,024` reads as `1024`), a sentence dot is
- * not part of one, and dotted versions and addresses stay whole, so no figure
- * can be assembled out of separate integers.
- */
-function introducesNewNumber(text: string, matched: string): boolean {
-  const known = new Set(numericTokens(matched));
-  for (const n of numericTokens(text)) if (!known.has(n)) return true;
-  return false;
-}
-
-/**
  * True when every figure `text` states appears in `known` as a whole token —
- * the veto-2 rule, now aimed at the matched region. `claims()` no longer splits
+ * the figure rule behind both figure checks, aimed at the matched region on the
+ * tracked path and at the vouching declarations on the gate path.
+ * `core/tokenize.ts` states the grammar and `store/tombstones/tombstone.ts`
+ * measures why a figure is checked at all: a correction scores HIGHER than an
+ * honest rewording, so overlap alone cannot separate "the same fact again" from
+ * "the fact has changed". `claims()` no longer splits
  * inside a figure and `findClause` admits no hit that cuts one, so a figure the
  * tree never states (`1.5`, `1.4.3`, `10.20.30.40`) cannot reassemble from
  * fragments of separate sentences; this check stays as the second net, because
@@ -358,13 +340,22 @@ interface Slice {
 /** Declared gates: a command the project already runs, and where it is declared. */
 interface Gate {
   label: string;
+  /** Citation only: the file and the kind of declaration a refusal names. */
   where: string;
   /**
-   * True for a step among siblings — a Makefile recipe, a workflow `run:` line.
-   * Those share one `where` across the whole file while stating nothing about
-   * each other, so the label is all the declaration it has.
+   * Declaration identity. Gates that state the SAME declaration share a group,
+   * and only a group member vouches for another: a script's name and its
+   * command share one, so `--prod` written in the command vouches for `--prod`
+   * in the row. A step among siblings — a Makefile recipe, a workflow `run:`
+   * line — gets a group no sibling joins, because those share a `where` across
+   * the whole file while stating nothing about each other. The group is part of
+   * the contract every declaration kind answers for: a kind whose `where`
+   * names a FILE must derive the group per declaration, because reusing the
+   * file-wide `where` as the group lets one step's operands vouch for another
+   * step's row — a refusal that loses a fact. A required field forces the
+   * question at the call site; an optional flag defaults past it.
    */
-  solo?: boolean;
+  group: string;
 }
 
 function readTracked(repoDir: string, file: string): string | null {
@@ -384,9 +375,9 @@ function skipPath(file: string): boolean {
 
 function parseGates(repoDir: string, files: string[]): Gate[] {
   const gates: Gate[] = [];
-  const add = (label: string, where: string, solo = false) => {
+  const add = (label: string, where: string, group: string) => {
     const n = norm(label);
-    if (n.length >= 2 && n.length <= 80) gates.push({ label: n, where, solo });
+    if (n.length >= 2 && n.length <= 80) gates.push({ label: n, where, group });
   };
   for (const file of files) {
     if (skipPath(file)) continue;
@@ -404,8 +395,9 @@ function parseGates(repoDir: string, files: string[]): Gate[] {
       try {
         const pkg = JSON.parse(text) as { scripts?: Record<string, string> };
         for (const [name, cmd] of Object.entries(pkg.scripts ?? {})) {
-          add(name, `${file} scripts.${name}`);
-          if (typeof cmd === "string") add(cmd, `${file} scripts.${name}`);
+          const where = `${file} scripts.${name}`;
+          add(name, where, where);
+          if (typeof cmd === "string") add(cmd, where, where);
         }
       } catch {
         // An unparseable manifest is not evidence of absence.
@@ -415,15 +407,19 @@ function parseGates(repoDir: string, files: string[]): Gate[] {
     if (base === "Makefile" || base === "makefile" || base === "justfile") {
       for (const line of text.split("\n")) {
         const target = /^([A-Za-z0-9_.%-]+)\s*:(?!=)/.exec(line);
-        if (target?.[1]) add(target[1], `${file} target ${target[1]}`);
+        if (target?.[1]) {
+          const where = `${file} target ${target[1]}`;
+          add(target[1], where, where);
+        }
         const recipe = /^\t+([^\s].*)$/.exec(line);
-        if (recipe?.[1]) add(recipe[1], `${file} recipe`, true);
+        if (recipe?.[1])
+          add(recipe[1], `${file} recipe`, `${file} recipe ${norm(recipe[1])}`);
       }
       continue;
     }
     for (const line of text.split("\n")) {
       const run = /^\s*-?\s*run:\s*["']?(.+?)["']?\s*$/.exec(line);
-      if (run?.[1]) add(run[1], `${file} run`, true);
+      if (run?.[1]) add(run[1], `${file} run`, `${file} run ${norm(run[1])}`);
     }
   }
   return gates;
@@ -455,20 +451,18 @@ function runners(span: string): string[] {
 }
 
 /**
- * The labels that vouch for a declaration: the matched one, plus those sharing
- * its `where` when that `where` names ONE command. A script declaration states
- * its name and its command together, so `--prod` written in the command vouches
- * for `--prod` in the row. A step-kind `where` names a FILE — every recipe in a
+ * The labels that vouch for a declaration: every gate in its GROUP. A script
+ * declaration states its name and its command together, so `--prod` written in
+ * the command vouches for `--prod` in the row. The union is keyed on the group,
+ * never on `where`: a step-kind `where` names a FILE — every recipe in a
  * Makefile, every `run:` in a workflow — and siblings state nothing about each
- * other, so there the matched label alone vouches.
+ * other, so each step's group holds only itself. Keying on `where` let a new
+ * declaration kind inherit a file-wide union by forgetting a flag, and a
+ * file-wide union vouches for a refusal with another step's operands.
  */
 function vouchLabels(gate: Gate, gates: Gate[]): string[] {
   const out: string[] = [];
-  for (const g of gates) {
-    if (g.where !== gate.where) continue;
-    if (gate.solo && g.label !== gate.label) continue;
-    out.push(g.label);
-  }
+  for (const g of gates) if (g.group === gate.group) out.push(g.label);
   return out;
 }
 
@@ -515,28 +509,21 @@ function contiguousIn(operand: string[], labels: string[]): boolean {
  * So the gate path asks the tree path's question — contiguity, not presence.
  * The operand must be a contiguous token run inside a vouching label; the empty
  * operand is the bare invocation, which the declaration states on its own.
+ * Each span asks its OWN declarations: one shared label set let a second,
+ * unrelated mention lend its operands to the first, and the candidate run and
+ * the labels it settles against must come from the SAME declaration —
+ * stripping one label and testing the remainder against another's command is
+ * the shared lookup in a new coat.
  * Anything the check cannot establish — the label not located, values swapped,
  * flags reordered, an operand broken by a word the declaration omits — keeps
  * the row. Reordering valueless flags keeps too: order-irrelevance is not a
  * thing a token comparison can prove, a wrong keep costs a row, and a wrong
  * refusal costs a fact.
  */
-function operandsDeclared(spans: string[], gate: Gate, gates: Gate[]): boolean {
-  for (const span of spans) {
-    const matched = gateHit([span], gates) ?? gate;
-    // Each span vouches with its OWN declaration. One shared label set let a
-    // second, unrelated mention lend its operands to the first: with `build:
-    // "compiler"` and `deploy: "deploy-tool publish --target staging …"`, the
-    // row `Run \`npm run deploy\`. Run \`npm run build -- --target staging\`.`
-    // checked the build operand against the deploy command, which happens to
-    // contain it, and the bare deploy mention hid the build information.
-    const candidates = operandCandidates(span, matched);
-    if (candidates.length === 0) return false;
-    const labels = vouchLabels(matched, gates);
-    if (!candidates.some((o) => o.length === 0 || contiguousIn(o, labels)))
-      return false;
-  }
-  return true;
+function operandSettled(span: string, gate: Gate, gates: Gate[]): boolean {
+  const candidates = operandCandidates(span, gate);
+  const labels = vouchLabels(gate, gates);
+  return candidates.some((o) => o.length === 0 || contiguousIn(o, labels));
 }
 
 // Matching is positional, never substring. A gate named `all` must not refuse a
@@ -544,22 +531,27 @@ function operandsDeclared(spans: string[], gate: Gate, gates: Gate[]): boolean {
 // "the test suite". So a single-word gate (a script name, a make target) only
 // matches the OPERAND position — the first token after the runner is stripped —
 // and a multi-word gate (a declared command) matches whole.
-function gateHit(spans: string[], gates: Gate[]): Gate | null {
-  for (const span of spans) {
-    for (const form of runners(span)) {
-      const first = form.split(" ")[0] ?? "";
-      for (const g of gates) {
-        if (form === g.label) return g;
-        if (!g.label.includes(" ") && first === g.label) return g;
-        if (
-          g.label.includes(" ") &&
-          (form.startsWith(`${g.label} `) || form.endsWith(` ${g.label}`))
-        )
-          return g;
-      }
+//
+// Every match is returned, not the first: which file `git ls-files` lists
+// first is not evidence, and a span declared in a CI step AND in a manifest
+// script rests on both. An empty result means the span states no declared
+// command.
+function gateHits(span: string, gates: Gate[]): Gate[] {
+  const out: Gate[] = [];
+  for (const form of runners(span)) {
+    const first = form.split(" ")[0] ?? "";
+    for (const g of gates) {
+      if (out.includes(g)) continue;
+      if (form === g.label) out.push(g);
+      else if (!g.label.includes(" ") && first === g.label) out.push(g);
+      else if (
+        g.label.includes(" ") &&
+        (form.startsWith(`${g.label} `) || form.endsWith(` ${g.label}`))
+      )
+        out.push(g);
     }
   }
-  return null;
+  return out;
 }
 
 /**
@@ -963,8 +955,8 @@ export function availabilityIndex(
       //   3. otherwise, every assertion left in it is one the tracked files
       //      state themselves.
       const spans = statedCommands(content);
-      const gate = gateHit(spans, gates);
-      if (gate) {
+      const hits = spans.map((s) => gateHits(s, gates));
+      if (hits.some((h) => h.length > 0)) {
         // VETOES. The manifest states that a command EXISTS. It does not
         // state that the command is safe, allowed, or finished, and it carries
         // no figure. So a sentence that forbids the command, or a number the
@@ -976,24 +968,70 @@ export function availabilityIndex(
         // veto-only shape: the vocabulary never has to be perfect, because a
         // miss keeps the row instead of deleting it.
         if (forbidsCommand(content, spans)) return null;
-        // The comparison text is the DECLARED command, never the candidate's
-        // spans: a span carrying `--timeout 5000` would vouch for its own
-        // figure, and the manifest states no such number.
-        if (introducesNewNumber(content, gate.label)) return null;
-        // The strip below removes the ENTIRE span, so what the span carries has
-        // to be settled here or it is erased before anything reads it.
-        if (!operandsDeclared(spans, gate, gates)) return null;
-        const undeclared = spans.some((s) => gateHit([s], gates) === null);
+        // VETOES 2 AND 3, per span and per declaration. A span settles
+        // against ONE declaration that carries BOTH dimensions: every figure
+        // the span states appears among the figures of that declaration's
+        // group, and its operand is a contiguous token run inside the same
+        // group. The two dimensions stay distinct checks — figures ask
+        // set membership, operands ask contiguity and pairing, and collapsing
+        // one into the other reopens the pairing hole the contiguity comment
+        // above records. What changed is the unit: never one label chosen by
+        // scan order, and never the union of two declarations that merely
+        // both match the span — a row citing one command is not answered by
+        // two commands' figures pooled together. A row that spells
+        // `npm run deploy --replicas 3` against
+        // `"deploy": "deploy-tool publish --replicas 3"` settles against the
+        // deploy declaration, whose command carries the figure, instead of
+        // the bare name, which carries none and kept the row for the wrong
+        // reason. The comparison text is still the DECLARED command, never
+        // the candidate's spans: a span carrying `--timeout 5000` would vouch
+        // for its own figure, and the declaration, not the row, is what must
+        // vouch for a number.
+        const settledBy: Gate[][] = spans.map(() => []);
+        for (let i = 0; i < spans.length; i++) {
+          for (const g of hits[i]) {
+            const known = new Set<string>();
+            for (const label of vouchLabels(g, gates))
+              for (const n of numericTokens(label)) known.add(n);
+            if (!figuresWithin(spans[i], known)) continue;
+            if (operandSettled(spans[i], g, gates)) settledBy[i].push(g);
+          }
+          // No declaration carries the span — undeclared, or operands or
+          // figures the declaration does not state. The strip below removes
+          // the ENTIRE span, so what the span carries has to be settled here
+          // or it is erased before anything reads it.
+          if (settledBy[i].length === 0) return null;
+        }
         let residual = content;
         for (const span of spans) residual = residual.split(span).join(" ");
         const rest = claims(norm(residual));
-        if (
-          !undeclared &&
-          (rest.length === 0 || restatedContiguously(haystack, rest) !== null)
-        ) {
+        const restRegion =
+          rest.length === 0 ? null : restatedContiguously(haystack, rest);
+        if (rest.length === 0 || restRegion !== null) {
+          // A figure outside every quoted command is prose, and prose settles
+          // against the passage this refusal cites for it — the same region
+          // the tracked path answers with. A figure no cited passage states is
+          // a claim the tree does not make, and where there is no region at
+          // all nothing vouched for the prose: both keep the row.
+          const outside = numericTokens(residual);
+          if (outside.length > 0) {
+            if (restRegion === null) return null;
+            const stated = new Set(
+              numericTokens(haystack.slice(restRegion.start, restRegion.end)),
+            );
+            if (!outside.every((n) => stated.has(n))) return null;
+          }
+          // The refusal rested on the declarations that settled each span,
+          // so it cites exactly those: naming one file for a row resting on
+          // two is not evidence, and naming a declaration that settled
+          // nothing sends the auditor to the wrong line.
+          const cited: string[] = [];
+          for (const s of settledBy)
+            for (const g of s)
+              if (!cited.includes(g.where)) cited.push(g.where);
           return {
             reason: "declared_gate",
-            where: gate.where,
+            where: cited.join(", "),
             matched: safeWhole.slice(0, 120),
           };
         }
