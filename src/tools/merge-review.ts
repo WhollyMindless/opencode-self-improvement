@@ -9,6 +9,7 @@ import { stampRow } from "../store/files/snapshots.ts";
 import { formatLine } from "../core/logfmt/format.ts";
 import {
   absorbAliases,
+  consolidationStepKey,
   sameConsolidationScope,
 } from "../consolidate/propose.ts";
 import { clearSuperseded, markSuperseded } from "../store/files/supersede.ts";
@@ -22,7 +23,7 @@ export const register: ToolRegister = (editor, deps) => {
     validated(MergeReviewArgs, {
       name: "memory_merge_review",
       description:
-        "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor, and clear any supersession the survivor itself carries so the canonical row stays recallable. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. A session may merge exactly the rows it may read: global rows are mergeable from anywhere, but a row belonging to another repository is refused in either seat. Refuses before writing when the reason or the survivor id is missing, either id names a missing or blocklisted row, the loser is already superseded or is the survivor itself, either seat names a foreign repository's row, or the survivor's supersession was written by a row other than this review's loser (a later update's marker is never erased). Later lock or I/O failures can leave partial changes; the reply names the completed retirement and failure.",
+        "Resolve an open merge/review gate non-destructively: mark the loser as superseded_by the survivor, and clear any supersession the survivor itself carries so the canonical row stays recallable. Both rows stay active data (the loser is recoverable via memory_undo); nothing is deleted. A session may merge exactly the rows it may read: global rows are mergeable from anywhere, but a row belonging to another repository is refused in either seat. Refuses before writing when the reason or the survivor id is missing, either id names a missing or blocklisted row, the loser is already superseded or is the survivor itself, either seat names a foreign repository's row, or the survivor's supersession was written by a row other than this review's loser (a later update's marker is never erased). A consolidation command also refuses before writing if its expected digest is missing or no longer matches the store. Later lock or I/O failures can leave partial changes; the reply names the completed retirement and failure.",
       options: direct,
       async execute(args, context): Promise<{ content: string }> {
         const { sid } = toolIds(context);
@@ -36,6 +37,12 @@ export const register: ToolRegister = (editor, deps) => {
           return {
             content:
               "merge_review blocked: loser, survivor, and reason are all required (fail-closed).",
+          };
+        }
+        if (args.expected !== undefined && !args.consolidate) {
+          return {
+            content:
+              "Consolidation blocked: use the full command printed by memory_consolidate.",
           };
         }
         if (args.loser === args.survivor) {
@@ -150,7 +157,7 @@ export const register: ToolRegister = (editor, deps) => {
                 }
                 // Publish the aliases first. If retirement fails, the loser
                 // remains searchable and reapplying the union is idempotent.
-                consolidationStarted = true;
+                let stale = false;
                 const present = await stampRow(
                   survivorRow.file,
                   survivorRow.ts,
@@ -169,12 +176,25 @@ export const register: ToolRegister = (editor, deps) => {
                       throw new Error("survivor changed since the proposal");
                     }
                     const merged = absorbAliases(current, loserRow);
+                    if (
+                      consolidationStepKey(merged, loserRow) !== args.expected
+                    ) {
+                      stale = true;
+                      return null;
+                    }
+                    consolidationStarted = true;
                     const kw = merged.kw?.join(",");
                     const tags = merged.tags!.join(",");
                     if (fields.kw === kw && fields.tags === tags) return null;
                     return formatLine({ ...fields, kw, tags });
                   },
                 );
+                if (stale) {
+                  return {
+                    content:
+                      "Consolidation blocked: this command no longer matches the preview or is missing its expected value. Run memory_consolidate again and review the new read estimate before applying it.",
+                  };
+                }
                 if (present === null)
                   throw new Error("survivor no longer exists");
               }

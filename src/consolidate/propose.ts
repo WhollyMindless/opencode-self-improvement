@@ -26,6 +26,7 @@
 //   3. PROPOSALS, not writes. Nothing here mutates the store. A human resolves a
 //      proposal through memory_merge_review (supersede-not-delete, recoverable).
 //   4. The most recently used member is never a loser (the rule, inherited).
+import { createHash } from "node:crypto";
 import {
   MAX_KEYWORDS,
   type Memory,
@@ -189,6 +190,20 @@ export function absorbAliases(survivor: Memory, loser: Memory): Memory {
     // The surviving prose keeps its own provenance.
     tags: [...new Set([...(survivor.tags ?? []), "consolidated"])],
   };
+}
+
+/** Bind one resolve command to the retrieval state that its step would publish. */
+export function consolidationStepKey(merged: Memory, loser: Memory): string {
+  const seats = [merged, loser].map((m) => [
+    m.ts,
+    m.repo ?? "global",
+    m.repoPath,
+    m.type,
+    m.scope,
+    m.content,
+    m.kw ?? [],
+  ]);
+  return createHash("sha256").update(JSON.stringify(seats)).digest("hex");
 }
 
 /**
