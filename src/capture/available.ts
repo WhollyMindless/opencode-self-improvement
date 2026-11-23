@@ -255,11 +255,12 @@ function introducesNewNumber(text: string, matched: string): boolean {
 
 /**
  * True when every figure `text` states appears in `known` as a whole token —
- * the veto-2 rule aimed at the whole tracked-file haystack instead of one
- * declaration. `claims()` splits on `.` as well as `,`, so a figure the tree
- * never states (`1.5`, `1.4.3`, `10.20.30.40`) can otherwise reassemble from
- * fragments of separate sentences (`1 second`, `5 seconds`) and ride the
- * refusal; a corrected figure is the transport class, the row the store
+ * the veto-2 rule, now aimed at the matched region. `claims()` no longer splits
+ * inside a figure and `findClause` admits no hit that cuts one, so a figure the
+ * tree never states (`1.5`, `1.4.3`, `10.20.30.40`) cannot reassemble from
+ * fragments of separate sentences; this check stays as the second net, because
+ * it costs nothing on the fail-open side and catches a figure in prose that no
+ * claim matched. A corrected figure is the transport class, the row the store
  * exists to keep. Fails safe in both directions of uncertainty: a candidate
  * with no figures has an empty set and stays restatable.
  */
@@ -568,10 +569,19 @@ function gateHit(spans: string[], gates: Gate[]): Gate | null {
  * the whole candidate was restatable. A short fragment is where a prohibition, a
  * window or a number lives; punctuation and "ship with" are what a fragment has
  * to be before it is ignored.
+ *
+ * A split never falls inside a figure. Splitting `1.5` at its dot produced two
+ * claims that each matched their own sentence and reassembled into a figure the
+ * tree never states, and the same fragments let a claim end mid-number in the
+ * tree. `tokens()` reads `.` as a word character, so the boundary waits for the
+ * figure run to end — including the sentence dot a figure ends on, which belongs
+ * to that token (`numericTokens("The cost is 11.")` is `["11."]`). A claim that
+ * therefore spans a sentence boundary is fail-open: a longer claim is harder to
+ * match, so the rule can only remove refusals.
  */
 function claims(text: string): string[] {
   const out: string[] = [];
-  for (const part of text.split(/[.;:,\n]/)) {
+  for (const part of splitClaims(text)) {
     const c = part.trim();
     if (!c) continue;
     const words = c.split(/[^a-z0-9']+/).filter(Boolean);
@@ -580,6 +590,21 @@ function claims(text: string): string[] {
     out.push(c);
   }
   return out;
+}
+
+/** The assertion boundaries, minus a `.` that sits inside a figure. */
+function splitClaims(text: string): string[] {
+  const parts: string[] = [];
+  let from = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c !== 46 && c !== 59 && c !== 58 && c !== 10) continue;
+    if (c === 46 && figureRun(text, i)) continue;
+    parts.push(text.slice(from, i));
+    from = i + 1;
+  }
+  parts.push(text.slice(from));
+  return parts;
 }
 
 /**
@@ -676,6 +701,55 @@ function warnsAgainst(prefix: string): boolean {
  * A reversed clause is not evidence of availability, and every uncertainty in
  * this file keeps the candidate.
  */
+function isTokenChar(code: number): boolean {
+  return (
+    (code >= 48 && code <= 57) || // 0-9
+    (code >= 97 && code <= 122) || // a-z, after norm()
+    code === 95 || // _
+    code === 46 // .
+  );
+}
+
+/**
+ * The extent of the token `tokens()` would read at `pos`, when that token
+ * states a digit. `tokens()` splits on `[^a-z0-9_.]+`, so a dot is a word
+ * character: `1.5`, `1.4.3` and `10.20.30.40` are single tokens, and so is the
+ * `11.` of a sentence that ends on one. Nothing else in this file may decide
+ * where a figure begins or ends, because the same definition is what the figure
+ * subset check compares with.
+ */
+function figureRun(
+  text: string,
+  pos: number,
+): { start: number; end: number } | null {
+  if (pos < 0 || pos >= text.length || !isTokenChar(text.charCodeAt(pos)))
+    return null;
+  let start = pos;
+  while (start > 0 && isTokenChar(text.charCodeAt(start - 1))) start--;
+  let end = pos;
+  while (end + 1 < text.length && isTokenChar(text.charCodeAt(end + 1))) end++;
+  if (!/[0-9]/.test(text.slice(start, end + 1))) return null;
+  return { start, end: end + 1 };
+}
+
+/**
+ * Does a hit cover every figure it touches, whole? A clause ending at the `3`
+ * of `3.12`, or starting at the `5` of `30.5`, cuts a figure in half, and the
+ * half re-tokenizes as a whole figure the tree never states: `3` is not in a
+ * README that says `Requires Python 3.12`, it is what slicing leaves behind.
+ * Word boundaries do not settle this — `.` is a word character to the tokenizer
+ * and a sentence boundary to the claim splitter, and the two disagree exactly
+ * inside a number. So a hit is admitted only when no figure run crosses either
+ * edge, which makes a half-figure unrepresentable rather than merely unvouched.
+ */
+function hitCoversFigures(hay: string, start: number, end: number): boolean {
+  for (const pos of [start - 1, end]) {
+    const run = figureRun(hay, pos);
+    if (run && (run.start < start || run.end > end)) return false;
+  }
+  return true;
+}
+
 function findClause(hay: string, clause: string, start = 0): number {
   const reversed = cueNegated(clause);
   for (let from = start; ; ) {
@@ -688,6 +762,7 @@ function findClause(hay: string, clause: string, start = 0): number {
     if (
       !/\w/.test(String.fromCharCode(before)) &&
       !/\w/.test(String.fromCharCode(after)) &&
+      hitCoversFigures(hay, i, i + clause.length) &&
       cueNegated(sentence.text) === reversed &&
       // A later occurrence may state the claim plainly, so a vetoed hit is
       // skipped rather than ending the search.
@@ -866,8 +941,10 @@ export function availabilityIndex(
       // A refusal here claims the tree states EVERY figure the candidate
       // states AND states the whole candidate as one contiguous assertion.
       // Neither follows from matching each claim somewhere: `claims()` splits
-      // on `.` and `:`, so `1.5 seconds` arrives as `1` and `5`, and a label
-      // from one line can be joined to a value from another.
+      // on `.` and `:` used to split `1.5 seconds` into `1` and `5`, and a label
+      // from one line could be joined to a value from another; the splitter now
+      // keeps a figure whole, so what remains to prove is that the tree states
+      // the claims as ONE contiguous assertion.
       //
       // The figures are checked against the MATCHED REGION, not the whole
       // tree. `The budget is 1, 5 seconds of margin.` chains across its comma

@@ -29,6 +29,17 @@ is not enough: `--target staging --fallback canary` declared against
 `--target canary --fallback staging` has every word present and the pairing
 wrong. One relation, both paths.
 
+Atomicity is the spine, not another guard. A figure is one token wherever the
+matcher reads it — `tokens()` treats `.` as a word character, so `1.5`, `1.4.3`
+and the `11.` of a sentence ending on one are single figures — therefore the
+claim splitter never cuts inside a figure and a match is admitted only when no
+figure run crosses either edge of it. Half-figures are what every earlier round
+kept meeting from a different angle: a claim ending at the `3` of `3.12` is cut,
+then re-tokenized by the region slice as a figure the tree never states. Judging
+the boundary makes that shape unrepresentable rather than merely unvouched. The
+subset, region and contiguity checks stay: they cost nothing on the fail-open
+side and catch what atomicity cannot reach.
+
 The refusal is scoped to the auto-capture path. `memory_remember`, updates,
 imports and consolidation write what their callers ask for; a user may store a
 restatement on purpose, capture may not. Capture refuses guided candidates on

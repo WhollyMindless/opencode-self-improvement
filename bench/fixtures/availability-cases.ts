@@ -218,6 +218,62 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "PR #493 review B5 counterpart — a dotted figure the region itself states stays a restatement",
   },
+  // ── A figure is one token, in the claims and in the hit ───────────────────
+  // The splitter and the matcher used to disagree about the dot: `claims()` cut
+  // `1.5` in half and `findClause` admitted a hit whose neighbour was any non-word
+  // character, including the dot inside a number. Either half re-tokenizes as a
+  // whole figure the tree never states.
+  {
+    id: "figure-trunc-dotless-tail",
+    tree: "# cost\n\nThe cost is 11.5.\n",
+    candidate: "The cost is 11",
+    expectTag: false,
+    source:
+      "PR #493 review B6 — the row ends at the tree's figure dot, and `11` is what slicing leaves, not a figure the tree states",
+  },
+  {
+    id: "figure-trunc-version-tail",
+    tree: "# runtime\n\nRequires Python 3.12\n",
+    candidate: "Requires Python 3",
+    expectTag: false,
+    source:
+      "PR #493 review B6 — the version is the fact; a refusal citing `3.12` for a row that says `3` asserts a restatement the passage does not provide",
+  },
+  {
+    id: "figure-frag-after-dot",
+    tree: "# limits\n\nTimeout 30.5 seconds.\n",
+    candidate: "5 seconds.",
+    expectTag: false,
+    source:
+      "PR #493 review B6 — a claim starting after the dot inside a figure",
+  },
+  {
+    id: "figure-frag-ip-tail",
+    tree: NEUTRAL_README,
+    files: { "docs.md": "# net\n\nBind to 10.20.30.40 now.\n" },
+    candidate: "30.40 now.",
+    expectTag: false,
+    source:
+      "PR #493 review B6 — the address is one token, so its tail is not a figure the tree states",
+  },
+  {
+    id: "figure-region-one-occurrence",
+    tree: "# releases\n\nThe supported releases are 1, 5 for production. The minimum runtime is 1.5 for tooling.\n",
+    candidate:
+      "The supported releases are 1.5 for production. The minimum runtime is 1.5 for tooling.",
+    expectTag: false,
+    source:
+      "PR #493 review B6 — one occurrence of 1.5 vouched for both assertions; the production claim states a pairing the tree never makes",
+  },
+  {
+    id: "figure-atomic-version-restated",
+    tree: "# runtime\n\nRequires Python 3.12\n",
+    candidate: "Requires Python 3.12",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "PR #493 review B6 counterpart — the whole figure token still makes the row a restatement",
+  },
   // ── A label from one line and a value from another: the pairing is new ─────
   // Reported as a transport loss on review of the refusal PR. No digits, so the
   // figure check cannot see it; only contiguity can.
