@@ -714,9 +714,10 @@ function gapIsPunctuation(text: string): boolean {
 }
 
 /**
- * True when the tree states `clauses` as ONE contiguous assertion: each in the
- * candidate's order, with nothing between one and the next but assertion
- * punctuation and whitespace.
+ * The region where the tree states `clauses` as ONE contiguous assertion, or
+ * null: each in the candidate's order, with nothing between one and the next
+ * but assertion punctuation and whitespace. The region is part of the answer:
+ * the figures a refusal vouches for are the ones the cited passage states.
  *
  * Matching every claim somewhere in the tree is not enough — two sentences can
  * conspire. With `Staging export pool: cobalt-workers.` and `Production export
@@ -731,10 +732,14 @@ function gapIsPunctuation(text: string): boolean {
  * uncertainty — including this check's own greediness — declines a refusal,
  * which is the direction this file fails safe in.
  */
-function restatedContiguously(hay: string, clauses: string[]): boolean {
-  if (hay === "") return false;
+function restatedContiguously(
+  hay: string,
+  clauses: string[],
+): { start: number; end: number } | null {
+  if (hay === "") return null;
   let prevEnd = -1;
   let cursor = 0;
+  let start = -1;
   for (const clause of clauses) {
     let hit = -1;
     for (let from = cursor; ; ) {
@@ -746,11 +751,12 @@ function restatedContiguously(hay: string, clauses: string[]): boolean {
       }
       from = i + 1;
     }
-    if (hit < 0) return false;
+    if (hit < 0) return null;
+    if (start < 0) start = hit;
     cursor = hit + 1;
     prevEnd = hit + clause.length;
   }
-  return true;
+  return { start, end: prevEnd };
 }
 
 export interface AvailabilityIndex {
@@ -832,11 +838,6 @@ export function availabilityIndex(
     return "?";
   };
 
-  // Every figure the tracked tree states, as whole tokens, computed once per
-  // pass: a refusal on the text path must not go out while the candidate
-  // carries a figure the tree never states as one.
-  const hayFigures = new Set(numericTokens(haystack));
-
   return {
     check(content: string): AvailabilityVerdict | null {
       // Matching PART of a candidate does not
@@ -852,15 +853,14 @@ export function availabilityIndex(
       const whole = norm(content);
       const needed = claims(whole);
       if (needed.length === 0) needed.push(whole);
-      const first = needed[0] ?? whole;
-      // Evidence mirror of `whole` and `first`, scrubbed WHILE THE TEXT STILL HAS
-      // ITS CASE. `norm()` lowercases, and the prefix scrubber in
+      // Evidence mirror of `whole` and of its first claim, scrubbed WHILE THE
+      // TEXT STILL HAS ITS CASE. `norm()` lowercases, and the prefix scrubber in
       // store/secrets.ts matches `AKIA[A-Z0-9]{16}` case-sensitively, so a span
       // normalised before scrubbing keeps a fully recoverable access key: the
       // logged `akia1234567890abcdef` uppercases straight back to the secret
       //. Redacting `avail.matched` later cannot recover what
       // normalisation already destroyed, so this is the only place it can be
-      // done. Verdict logic reads `needed`/`first`, never these.
+      // done. Verdict logic reads `needed`, never these.
       const safeWhole = norm(redactSecrets(content));
       const safeFirst = claims(safeWhole)[0] ?? safeWhole;
       // A refusal here claims the tree states EVERY figure the candidate
@@ -868,18 +868,24 @@ export function availabilityIndex(
       // Neither follows from matching each claim somewhere: `claims()` splits
       // on `.` and `:`, so `1.5 seconds` arrives as `1` and `5`, and a label
       // from one line can be joined to a value from another.
+      //
+      // The figures are checked against the MATCHED REGION, not the whole
+      // tree. `The budget is 1, 5 seconds of margin.` chains across its comma
+      // and matches a row saying `1.5 seconds`; a `Node 1.5` in another file —
+      // or another sentence of the same file, which is why the whole file is
+      // not the scope either — is not the passage being cited, and cannot
+      // vouch for the figure the refusal claims it states.
+      const region = haystack ? restatedContiguously(haystack, needed) : null;
       if (
-        haystack &&
-        figuresWithin(content, hayFigures) &&
-        restatedContiguously(haystack, needed)
+        region &&
+        figuresWithin(
+          content,
+          new Set(numericTokens(haystack.slice(region.start, region.end))),
+        )
       ) {
         return {
           reason: "in_tracked_file",
-          where:
-            relative(
-              repoDir,
-              join(repoDir, fileAt(findClause(haystack, first))),
-            ) || "?",
+          where: relative(repoDir, join(repoDir, fileAt(region.start))) || "?",
           matched: safeFirst.slice(0, 120),
         };
       }
@@ -930,7 +936,7 @@ export function availabilityIndex(
         const rest = claims(norm(residual));
         if (
           !undeclared &&
-          (rest.length === 0 || restatedContiguously(haystack, rest))
+          (rest.length === 0 || restatedContiguously(haystack, rest) !== null)
         ) {
           return {
             reason: "declared_gate",

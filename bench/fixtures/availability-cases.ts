@@ -187,6 +187,37 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "PR #493 review B1 — the subset check must not neuter a true restatement",
   },
+  // ── Figures are vouched by the matched passage, not by the tree ────────────
+  // `The budget is 1, 5 seconds of margin.` chains across its comma, so the
+  // claims match a row saying `1.5 seconds`. The figure that makes that look
+  // stated may sit in another file, or in another sentence of the same one —
+  // which is why the scope is the region the match actually covered.
+  {
+    id: "figure-region-cross-file",
+    tree: "# budget\n\nThe budget is 1, 5 seconds of margin.\n",
+    files: { "docs.md": "# docs\n\nRequires Node 1.5 or newer.\n" },
+    candidate: "The budget is 1.5 seconds.",
+    expectTag: false,
+    source:
+      "PR #493 review B5 — the 1.5 that cleared the veto sits in a file outside the cited region",
+  },
+  {
+    id: "figure-region-same-file-distant",
+    tree: "# budget\n\nThe budget is 1, 5 seconds of margin.\nRequires Node 1.5 or newer.\n",
+    candidate: "The budget is 1.5 seconds.",
+    expectTag: false,
+    source:
+      "PR #493 review B5 — one file is not the scope either: the other sentence states nothing about this one",
+  },
+  {
+    id: "figure-region-dotted-restated",
+    tree: "# budget\n\nThe budget is 1.5 seconds.\n",
+    candidate: "The budget is 1.5 seconds.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "PR #493 review B5 counterpart — a dotted figure the region itself states stays a restatement",
+  },
   // ── A label from one line and a value from another: the pairing is new ─────
   // Reported as a transport loss on review of the refusal PR. No digits, so the
   // figure check cannot see it; only contiguity can.

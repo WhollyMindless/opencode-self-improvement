@@ -9,9 +9,11 @@ A capture candidate whose every assertion the working tree states verbatim —
 modulo case, wrapping and markup — or whose only content is a command the
 project's own gates declare, is REFUSED at capture time and logged on the
 `auto_capture_restatable` evidence line, which names the file or the gate.
-The figure-subset invariant bounds both paths: a refusal claims the tree
-states EVERY figure the candidate states, as whole tokens (`1.5`, `1.4.3`,
-`10.20.30.40` are single figures), and on the gate path the figures are
+The figure-subset invariant bounds both paths: a refusal claims the passage it
+cites states EVERY figure the candidate states, as whole tokens (`1.5`,
+`1.4.3`, `10.20.30.40` are single figures) — on the text path that passage is
+the region the match covered, not the tree at large, since a figure in another
+sentence is another sentence's business — and on the gate path the figures are
 compared against the declared command, never against the candidate's own
 spans. Contiguity bounds the text path: the claims must be found in the
 candidate's order with nothing between one and the next but assertion
