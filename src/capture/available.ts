@@ -55,6 +55,7 @@ import { lstatSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
   POL_NEG,
+  figureExtent,
   numericTokens,
   polaritySigns,
   tokens,
@@ -244,8 +245,10 @@ function cueNegated(text: string): boolean {
  * candidate's own spans: a row whose command span carries a flag value
  * (`--timeout 5000`) would supply the figure that clears its own veto, and the
  * declaration, not the row, is what must vouch for the number.
- * `numericTokens` keeps dotted numbers whole, so versions and addresses are
- * single figures and cannot be assembled out of separate integers.
+ * `numericTokens` reads the figure grammar exported from `core/tokenize.ts`:
+ * a grouped figure is one figure (`1,024` reads as `1024`), a sentence dot is
+ * not part of one, and dotted versions and addresses stay whole, so no figure
+ * can be assembled out of separate integers.
  */
 function introducesNewNumber(text: string, matched: string): boolean {
   const known = new Set(numericTokens(matched));
@@ -573,9 +576,10 @@ function gateHit(spans: string[], gates: Gate[]): Gate | null {
  * A split never falls inside a figure. Splitting `1.5` at its dot produced two
  * claims that each matched their own sentence and reassembled into a figure the
  * tree never states, and the same fragments let a claim end mid-number in the
- * tree. `tokens()` reads `.` as a word character, so the boundary waits for the
- * figure run to end — including the sentence dot a figure ends on, which belongs
- * to that token (`numericTokens("The cost is 11.")` is `["11."]`). A claim that
+ * tree. The boundary waits for `figureExtent`'s figure run to end — including
+ * the sentence dot a figure ends on, which the splitter treats as run territory
+ * even though the figure's canonical value excludes it
+ * (`numericTokens("The cost is 11.")` is `["11"]`). A claim that
  * therefore spans a sentence boundary is fail-open: a longer claim is harder to
  * match, so the rule can only remove refusals.
  */
@@ -592,14 +596,14 @@ function claims(text: string): string[] {
   return out;
 }
 
-/** The assertion boundaries, minus a `.` that sits inside a figure. */
+/** The assertion boundaries, minus a `.` that sits inside a figure run. */
 function splitClaims(text: string): string[] {
   const parts: string[] = [];
   let from = 0;
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i);
     if (c !== 46 && c !== 59 && c !== 58 && c !== 10) continue;
-    if (c === 46 && figureRun(text, i)) continue;
+    if (c === 46 && figureExtent(text, i)) continue;
     parts.push(text.slice(from, i));
     from = i + 1;
   }
@@ -684,6 +688,27 @@ function warnsAgainst(prefix: string): boolean {
 }
 
 /**
+ * Does a hit cover every figure it touches, whole? A clause ending at the `3`
+ * of `3.12`, or starting at the `5` of `30.5`, cuts a figure in half, and the
+ * half re-tokenizes as a whole figure the tree never states: `3` is not in a
+ * README that says `Requires Python 3.12`, it is what slicing leaves behind.
+ * Word boundaries do not settle this — `.` is a word character to the tokenizer
+ * and a sentence boundary to the claim splitter, and the two disagree exactly
+ * inside a number. So a hit is admitted only when no figure run crosses either
+ * edge, which makes a half-figure unrepresentable rather than merely unvouched.
+ * The edges are `figureExtent`'s, from `core/tokenize.ts` — the same definition
+ * `numericTokens` compares with, so the boundary this veto admits and the set
+ * the refusal vouches cannot disagree.
+ */
+function hitCoversFigures(hay: string, start: number, end: number): boolean {
+  for (const pos of [start - 1, end]) {
+    const run = figureExtent(hay, pos);
+    if (run && (run.start < start || run.end > end)) return false;
+  }
+  return true;
+}
+
+/**
  * Where the tree states `clause` as its own words, in a sentence of the same
  * polarity. -1 means "not available".
  *
@@ -701,55 +726,6 @@ function warnsAgainst(prefix: string): boolean {
  * A reversed clause is not evidence of availability, and every uncertainty in
  * this file keeps the candidate.
  */
-function isTokenChar(code: number): boolean {
-  return (
-    (code >= 48 && code <= 57) || // 0-9
-    (code >= 97 && code <= 122) || // a-z, after norm()
-    code === 95 || // _
-    code === 46 // .
-  );
-}
-
-/**
- * The extent of the token `tokens()` would read at `pos`, when that token
- * states a digit. `tokens()` splits on `[^a-z0-9_.]+`, so a dot is a word
- * character: `1.5`, `1.4.3` and `10.20.30.40` are single tokens, and so is the
- * `11.` of a sentence that ends on one. Nothing else in this file may decide
- * where a figure begins or ends, because the same definition is what the figure
- * subset check compares with.
- */
-function figureRun(
-  text: string,
-  pos: number,
-): { start: number; end: number } | null {
-  if (pos < 0 || pos >= text.length || !isTokenChar(text.charCodeAt(pos)))
-    return null;
-  let start = pos;
-  while (start > 0 && isTokenChar(text.charCodeAt(start - 1))) start--;
-  let end = pos;
-  while (end + 1 < text.length && isTokenChar(text.charCodeAt(end + 1))) end++;
-  if (!/[0-9]/.test(text.slice(start, end + 1))) return null;
-  return { start, end: end + 1 };
-}
-
-/**
- * Does a hit cover every figure it touches, whole? A clause ending at the `3`
- * of `3.12`, or starting at the `5` of `30.5`, cuts a figure in half, and the
- * half re-tokenizes as a whole figure the tree never states: `3` is not in a
- * README that says `Requires Python 3.12`, it is what slicing leaves behind.
- * Word boundaries do not settle this — `.` is a word character to the tokenizer
- * and a sentence boundary to the claim splitter, and the two disagree exactly
- * inside a number. So a hit is admitted only when no figure run crosses either
- * edge, which makes a half-figure unrepresentable rather than merely unvouched.
- */
-function hitCoversFigures(hay: string, start: number, end: number): boolean {
-  for (const pos of [start - 1, end]) {
-    const run = figureRun(hay, pos);
-    if (run && (run.start < start || run.end > end)) return false;
-  }
-  return true;
-}
-
 function findClause(hay: string, clause: string, start = 0): number {
   const reversed = cueNegated(clause);
   for (let from = start; ; ) {
