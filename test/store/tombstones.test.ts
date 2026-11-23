@@ -622,6 +622,13 @@ describe("the value dimensions the sketch cannot see", () => {
     ]);
     expect(numericTokens("no numbers in this claim")).toEqual([]);
     expect(numericTokens("30 days, then 30 days again")).toEqual(["30"]);
+    // A grouping comma is inside the figure, a sentence dot is outside it:
+    // both texts state one figure, canonically.
+    expect(numericTokens("the limit is 1,024 rows.")).toEqual(["1024"]);
+    expect(numericTokens("the ratio is 1.5.")).toEqual(["1.5"]);
+    expect(numericTokens("the commit 9ae0998 was reverted")).toEqual([
+      "9ae0998",
+    ]);
   });
 
   test("a negator that is itself a polarity term composes instead of double-counting", () => {

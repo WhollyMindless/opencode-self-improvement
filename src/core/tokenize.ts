@@ -31,10 +31,100 @@ export const STOPWORDS: ReadonlySet<string> = new Set([
 ]);
 
 export function tokens(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9_.]+/)
-    .filter((t) => t.length > 0);
+  const lower = text.toLowerCase();
+  const out: string[] = [];
+  let start = -1;
+  for (let i = 0; i <= lower.length; i++) {
+    const word = i < lower.length && isWordChar(lower.charCodeAt(i));
+    if (word && start < 0) start = i;
+    else if (!word && start >= 0) {
+      out.push(lower.slice(start, i));
+      start = -1;
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// One figure grammar, stated once.
+//
+// A figure is a word run that carries a digit — `30`, `3.12`, `9ae0998`,
+// `1,024` — where `.` and `,` belong to the run only while the run keeps
+// reading as a number: a separator joins when a digit sits on each side
+// (`1,024`, `1.4.3`), and a `.` that merely ends a sentence is prose, not the
+// tail of the figure (`1.5.` states `1.5`). `tokens()` alone is not this: it
+// splits `1,024` at the comma and glues the sentence dot of `1.5.` onto the
+// figure, and a matcher that reads those two edges differently in two places
+// will refuse a truncation of `1` as a restatement of `1,024` while keeping a
+// verbatim restatement of `1.5`. Every decision about where a figure begins or
+// ends — the availability matcher's claim splitter, its hit-coverage veto and
+// the figure-subset check below — reads `figureExtent`, so the edges cannot
+// drift apart.
+// ---------------------------------------------------------------------------
+
+const CODE_COMMA = 44;
+const CODE_DOT = 46;
+const CODE_ZERO = 48;
+const CODE_NINE = 57;
+const CODE_UPPER_A = 65;
+const CODE_UPPER_Z = 90;
+const CODE_LOWER_A = 97;
+const CODE_LOWER_Z = 122;
+const CODE_UNDERSCORE = 95;
+
+function isDigit(code: number): boolean {
+  return code >= CODE_ZERO && code <= CODE_NINE;
+}
+
+/** A character `tokens()` keeps inside a token: a digit, a letter, `_` or `.`.
+ *  This char class IS the split rule — `tokens()` splits wherever it is false. */
+export function isWordChar(code: number): boolean {
+  return (
+    isDigit(code) ||
+    (code >= CODE_LOWER_A && code <= CODE_LOWER_Z) ||
+    (code >= CODE_UPPER_A && code <= CODE_UPPER_Z) ||
+    code === CODE_UNDERSCORE ||
+    code === CODE_DOT
+  );
+}
+
+/** Does the `,` at `i` join two digits, making `1,024` one figure? */
+function joinsDigits(text: string, i: number): boolean {
+  return (
+    text.charCodeAt(i) === CODE_COMMA &&
+    i > 0 &&
+    i + 1 < text.length &&
+    isDigit(text.charCodeAt(i - 1)) &&
+    isDigit(text.charCodeAt(i + 1))
+  );
+}
+
+function isRunChar(text: string, i: number): boolean {
+  return isWordChar(text.charCodeAt(i)) || joinsDigits(text, i);
+}
+
+/**
+ * The extent of the figure at `pos`, or null when `pos` is not part of one.
+ * A figure is the maximal run of word characters around `pos` — joined across
+ * a `,` between digits — that carries a digit, with the dots of a sentence
+ * ending trimmed: `1,024`, `1.4.3` and `9ae0998` are figures; the `.` that
+ * closes `The ratio is 1.5.` is not part of one, so the extent of the run at
+ * that dot is `1.5`, not `1.5.`.
+ */
+export function figureExtent(
+  text: string,
+  pos: number,
+): { start: number; end: number } | null {
+  if (pos < 0 || pos >= text.length || !isRunChar(text, pos)) return null;
+  let start = pos;
+  while (start > 0 && isRunChar(text, start - 1)) start--;
+  let end = pos + 1;
+  while (end < text.length && isRunChar(text, end)) end++;
+  while (end > start && text.charCodeAt(end - 1) === CODE_DOT) end--;
+  if (end === start) return null;
+  for (let i = start; i < end; i++)
+    if (isDigit(text.charCodeAt(i))) return { start, end };
+  return null;
 }
 
 // Case-preserving tokens, for reporting asserted values back to the user.
@@ -70,11 +160,26 @@ export function jaccard(a: string[], b: string[]): number {
 // number or its sign are not the same words.
 // ---------------------------------------------------------------------------
 
-/** Every token carrying a digit, deduped and sorted: the quantities, versions,
- *  ids and durations a statement asserts ("30", "3.19", "9ae0998"). A change
- *  here is a different fact, not a rephrasing. */
+/** Every figure a statement asserts, deduped, sorted and canonical: the
+ *  quantities, versions, ids and durations carried by `figureExtent` runs,
+ *  with grouping commas removed so `1,024` reads as `1024` and a sentence dot
+ *  excluded so `1.5.` reads as `1.5`. Two texts state the same figure exactly
+ *  when their canonical values match; a figure cannot be assembled out of
+ *  separate integers because only a run the text itself states is read. A
+ *  change here is a different fact, not a rephrasing. */
 export function numericTokens(text: string): string[] {
-  return [...new Set(tokens(text).filter((t) => /\d/.test(t)))].sort();
+  const lower = text.toLowerCase();
+  const out = new Set<string>();
+  for (let i = 0; i < lower.length; ) {
+    const ext = figureExtent(lower, i);
+    if (ext === null) {
+      i++;
+      continue;
+    }
+    out.add(lower.slice(ext.start, ext.end).replace(/,/g, ""));
+    i = Math.max(ext.end, i + 1);
+  }
+  return [...out].sort();
 }
 
 export const POL_POS = "pos";

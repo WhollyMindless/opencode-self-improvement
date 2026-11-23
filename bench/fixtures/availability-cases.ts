@@ -274,6 +274,66 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "PR #493 review B6 counterpart — the whole figure token still makes the row a restatement",
   },
+  // ── A grouped figure and a sentence dot: one grammar for both edges ────────
+  // `tokens()` split `1,024` at the comma and glued the sentence dot of `1.5.`
+  // onto the figure, so the hit boundary and the figure set disagreed about
+  // where the number ended: a truncation of `1` was refused as a restatement
+  // of `1,024`, and a verbatim restatement of `1.5` was kept. Both sides now
+  // read the figure grammar exported from `core/tokenize.ts`, and these rows
+  // pin the relation at the edges the `1.5`-family rows left unvisited.
+  {
+    id: "figure-comma-grouped-truncation",
+    tree: "# limits\n\nThe limit is 1,024 rows.\n",
+    candidate: "The limit is 1",
+    expectTag: false,
+    source:
+      "the grouped figure is one figure; `1` is what slicing at the comma leaves, not a number the tree states",
+  },
+  {
+    id: "figure-comma-grouped-restated",
+    tree: "# limits\n\nThe limit is 1,024 rows.\n",
+    candidate: "The limit is 1,024",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "counterpart — the whole grouped figure, written with its comma, is restated and the refusal stands",
+  },
+  {
+    id: "figure-comma-grouped-whole-sentence",
+    tree: "# limits\n\nThe limit is 1,024 rows\n",
+    candidate: "The limit is 1,024 rows",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "counterpart without the sentence dot — the relation was alive for the un-punctuated shape and must stay alive",
+  },
+  {
+    id: "figure-sentence-dot-restated",
+    tree: "# ratio\n\nThe ratio is 1.5.\n",
+    candidate: "The ratio is 1.5",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "the sentence dot is prose, not the tail of the figure; the tree states the row's figure and the row is a restatement",
+  },
+  {
+    id: "figure-sentence-dot-carried-restated",
+    tree: "# ratio\n\nThe ratio is 1.5.\n",
+    candidate: "The ratio is 1.5.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "counterpart — the row carrying the dot refused before and must keep refusing; the verdict may not depend on how the session punctuated its prose",
+  },
+  {
+    id: "figure-sentence-dot-cost-restated",
+    tree: "# cost\n\nThe cost is 11.5.\n",
+    candidate: "The cost is 11.5",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "second shape of the same class — the dot glued onto `11.5` made the tree's own figure unmatchable by a row that states it exactly",
+  },
   // ── A label from one line and a value from another: the pairing is new ─────
   // Reported as a transport loss on review of the refusal PR. No digits, so the
   // figure check cannot see it; only contiguity can.

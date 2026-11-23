@@ -10,8 +10,10 @@ modulo case, wrapping and markup — or whose only content is a command the
 project's own gates declare, is REFUSED at capture time and logged on the
 `auto_capture_restatable` evidence line, which names the file or the gate.
 The figure-subset invariant bounds both paths: a refusal claims the passage it
-cites states EVERY figure the candidate states, as whole tokens (`1.5`,
-`1.4.3`, `10.20.30.40` are single figures) — on the text path that passage is
+cites states EVERY figure the candidate states, as whole tokens compared by
+canonical value (`1.5`, `1.4.3`, `10.20.30.40` and `1,024` are single figures,
+and `1,024` and `1024` are the same figure once the grouping comma is
+dropped) — on the text path that passage is
 the region the match covered, not the tree at large, since a figure in another
 sentence is another sentence's business — and on the gate path the figures are
 compared against the declared command, never against the candidate's own
@@ -29,11 +31,13 @@ is not enough: `--target staging --fallback canary` declared against
 `--target canary --fallback staging` has every word present and the pairing
 wrong. One relation, both paths.
 
-Atomicity is the spine, not another guard. A figure is one token wherever the
-matcher reads it — `tokens()` treats `.` as a word character, so `1.5`, `1.4.3`
-and the `11.` of a sentence ending on one are single figures — therefore the
-claim splitter never cuts inside a figure and a match is admitted only when no
-figure run crosses either edge of it. Half-figures are what every earlier round
+Atomicity is the spine, not another guard. A figure is one definition wherever
+the matcher reads it: the figure grammar exported from `core/tokenize.ts` makes
+a digit-bearing word run, where `.` and `,` belong to it only between digits —
+`1.5`, `1.4.3` and `1,024` are single figures, and the `.` that ends a sentence
+on one is prose, so `1.5.` states the figure `1.5` — therefore the claim
+splitter never cuts inside a figure and a match is admitted only when no figure
+run crosses either edge of it. Half-figures are what every earlier round
 kept meeting from a different angle: a claim ending at the `3` of `3.12` is cut,
 then re-tokenized by the region slice as a figure the tree never states. Judging
 the boundary makes that shape unrepresentable rather than merely unvouched. The
