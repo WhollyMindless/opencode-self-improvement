@@ -101,15 +101,15 @@ export function isUserGuided(m: Memory): boolean {
 }
 
 /**
- * the working tree already states this fact. Such a row is STORED (it used
- * to be dropped at capture, which is the defect this serves for), but it is the
- * first thing a tight injection budget gives up: the next session can read it in
- * the file, so a slot spent on it is a slot not spent on something the files do
- * not hold.
+ * the working tree already states this fact. Capture refuses restatements
+ * now, so this tag marks rows stored while the availability check tagged
+ * instead of refusing; they are kept, and they are the first thing a tight
+ * injection budget gives up: the next session can read the fact in the file,
+ * so a slot spent on such a row is a slot not spent on something the files
+ * do not hold.
  *
- * The guided lane is exempt. A user-stated row outranks an inferred one in this
- * codebase everywhere, and capture tags guided rows too when their words are
- * verbatim in the tree.
+ * The guided lane is exempt. A user-stated row outranks an inferred one in
+ * this codebase everywhere.
  */
 export function isRestatable(m: Memory): boolean {
   return m.tags?.includes(RESTATABLE_TAG) === true;

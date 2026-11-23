@@ -13,4 +13,5 @@ opening the file.
 | 0005 | [Two-phase teardown for capture passes](0005-capture-teardown-phases.md)                  | accepted (2026-11) | —          | —             |
 | 0006 | [Capture prompt integrity: redaction order and faithful citation](0006-capture-prompt-integrity.md) | accepted (2026-11) | —      | —             |
 | 0007 | [Symptom-first opening for learning and blocker rows](0007-symptom-first-capture.md)      | accepted (2026-11) | —          | —             |
-| 0008 | [Availability verdicts tag rows; they never refuse them](0008-availability-tags-not-refusals.md) | accepted (2026-11) | —      | —             |
+| 0008 | [Availability verdicts tag rows; they never refuse them](0008-availability-tags-not-refusals.md) | superseded (2026-11) | —      | [0009](0009-availability-refusals-under-the-hardened-matcher.md) |
+| 0009 | [Availability verdicts refuse capture candidates, under the hardened matcher](0009-availability-refusals-under-the-hardened-matcher.md) | accepted (2026-11) | [0008](0008-availability-tags-not-refusals.md) | —             |
