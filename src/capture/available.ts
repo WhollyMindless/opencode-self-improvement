@@ -16,45 +16,36 @@
 //   2. Is this command already declared by the project's own gates? A row that
 //      says "run `make deploy`" is answered by the Makefile.
 //
-// Both produce a TAG, not a refusal. A refusal rule was measured here
-// first: it rejected 30 of 1,166 real captured rows and 29 of those were
-// wrong (the note "OpenCode V2 (v2.0.26) does NOT run LSP servers" was
-// refused because it contained the string `bun test` and
-// this project declares a `test` script). A check nobody can trust enough to
-// delete with, and nobody can make cheap enough to skip, must not decide
-// anything on its own. Partial-match and short-fragment traps are pinned by
-// tests; history: docs/adr/0008.
+// Both questions now REFUSE the candidate at capture time: the next session
+// reads the file named in the refusal line, so the row buys nothing. An
+// earlier refusal rule was retired for matching fragments — it refused rows
+// that were not restatements at all — and the matcher built in its place is
+// the predicate that refuses now:
 //
-// So the verdict is now evidence attached to a row that is stored anyway:
-//
-//   - it cannot drop a row, so a wrong match costs a tag instead of a fact;
-//   - every claim is checked, not sampled: one unchecked clause is enough to make
-//     the row new, and the unchecked part is where the new fact lives;
+//   - every claim is checked, not sampled: one unchecked clause is enough to
+//     make the row new, and the unchecked part is where the new fact lives;
 //   - polarity and numbers are VETOES, not evidence: they can only decline to
-//     tag, never create one. The number check is the house `numericTokens` set
-//     from `core/tokenize.ts`; see the two vetoes below for why the polarity
-//     check keeps its own cue list as well.
+//     refuse, never create a refusal. The number check is the house
+//     `numericTokens` set from `core/tokenize.ts`; see the two vetoes below
+//     for why the polarity check keeps its own cue list as well.
 //
-// The vetoes can only REMOVE a tag, never add one — which holds only because the
-// one place that compares two texts, `findClause`, compares them on the narrow
-// cue list. Widen that comparison and agreement gets easier, and an agreement is
-// what creates a tag; see VETO 1. Saltzer & Schroeder's fail-safe principle,
-// applied to a suppression filter: the default is keep, and a bug must surface as
-// a visible duplicate rather than as content that is gone.
+// The vetoes can only REMOVE a refusal, never add one — which holds only
+// because the one place that compares two texts, `findClause`, compares them
+// on the narrow cue list. Widen that comparison and agreement gets easier,
+// and an agreement is what refuses; see VETO 1. Saltzer & Schroeder's
+// fail-safe principle, applied to a suppression filter: the default is keep,
+// and a bug must surface as a visible duplicate rather than as content that
+// is gone.
 //
-// A wrong tag is not free either. The row survives, but `fitOrder` gives it up
-// first when the injection budget binds, so a false positive costs the row its
-// slot for the queries that needed it. That is the real price of a bad verdict,
-// and it is why the matcher is still held to the veto-only shape.
-//
-// Storing instead of deleting has a second consequence, and it is not a tag
-// effect. A stored row is a live GATE-3 contender, so a later write at >=0.9
-// overlap is now refused `superseded_overlap` where the delete policy would have
-// let it promote. Measured: an ordinary-tagged seed blocks the same write with
-// the same reason, so the tag changes nothing in the gate — the row being there
-// does. That is the gate working as designed on a genuine near-duplicate, with a
-// hint naming the row to `memory_update`, and it is the cost of no longer
-// destroying facts. P5 decides whether the check earns its keep at all.
+// The two error directions are not symmetric, and the shape follows that. A
+// wrong keep costs one redundant row — a second copy of something readable
+// in the tree. A wrong refusal costs a fact the next session cannot rebuild,
+// and the transport benchmark says the store's only measured benefit is
+// exactly those facts. So refusal demands the strictest evidence the check
+// can hold — every assertion restatable verbatim modulo formatting, same
+// polarity, no new figure — and abstains, keeping the candidate, on anything
+// less. Refusal is scoped to auto-capture: direct writes, updates, imports
+// and consolidation are not this filter's business. History: docs/adr/.
 //
 // Fail-open is the rule throughout. A missing git, an unreadable file, a repo
 // that is not a repo, or a budget that ran out is NOT evidence that a fact is
@@ -62,7 +53,12 @@
 // measured benefit capture has. Every uncertainty keeps the candidate.
 import { lstatSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { POL_NEG, numericTokens, polaritySigns } from "../core/tokenize.ts";
+import {
+  POL_NEG,
+  numericTokens,
+  polaritySigns,
+  tokens,
+} from "../core/tokenize.ts";
 import { redactSecrets } from "../store/secrets.ts";
 
 /** What made a candidate restatable, and where the next session can get it. */
@@ -208,19 +204,20 @@ const NEGATION =
  *     disable" and "enable" do not read as the same claim.
  *
  * USE THIS ONLY WHERE THE ANSWER IS ABSOLUTE. `forbidsCommand` asks "does this
- * sentence forbid the command?" and a yes declines to tag, so widening it can
+ * sentence forbid the command?" and a yes declines to refuse, so widening it can
  * only ever decline — the fail-safe direction.
  *
  * The relative use, where one text's polarity is compared with another's, is
  * `cueNegated`, and the difference is not academic. Equality gets EASIER as both
  * predicates get broader, and in `findClause` an agreement is what CREATES the
- * tag. Measured on the round-3 case: tree `Do not assume the cleaner removes
- * unused rows.`, candidate `The cleaner removes unused rows.` — `polaritySigns`
- * reads the dual-role `removes` as negative in BOTH strings, the union agrees,
- * and the affirmative claim is tagged as restating the sentence that warns
- * against it. The cue list alone sees `not` on one side and nothing on the other
- * and declines. That is the defect this veto exists for, arriving from the
- * opposite direction.
+ * refusal. The union predicate must never be that comparison: on the tree
+ * `Do not assume the cleaner removes unused rows.` against the candidate
+ * `The cleaner removes unused rows.`, `polaritySigns` reads the dual-role
+ * `removes` as negative in BOTH strings, the union agrees, and the affirmative
+ * claim is refused as restating the sentence that warns against it. The cue
+ * list alone sees `not` on one side and nothing on the other and declines;
+ * `test/capture/availability-case-bank.test.ts` pins that shape. That is the
+ * defect this veto exists for, arriving from the opposite direction.
  */
 function negated(text: string): boolean {
   return NEGATION.test(text) || polaritySigns(text).includes(POL_NEG);
@@ -229,26 +226,47 @@ function negated(text: string): boolean {
 /**
  * Cue-list polarity, for the one place that COMPARES two texts. Narrow on
  * purpose: a broader predicate here agrees more often, and every extra agreement
- * is a tag.
+ * is a refusal.
  */
 function cueNegated(text: string): boolean {
   return NEGATION.test(text);
 }
 
 /**
- * VETO 2: a figure the matched declaration does not carry.
+ * VETO 2: a figure the matched DECLARATION does not carry.
  *
  * `core/tokenize.ts` states the rule and `store/tombstones/tombstone.ts`
  * measures it on this repo's own data: a correction scores HIGHER than an honest
  * rewording, so overlap alone cannot separate "the same fact again" from "the
  * fact has changed". On the declared-command path the manifest states only that
- * a command exists, so any number the row asserts has to be in the command
- * itself or the row is new.
+ * a command exists, so any number the row asserts has to be in the DECLARED
+ * command — `gate.label` — or the row is new. The comparison text is never the
+ * candidate's own spans: a row whose command span carries a flag value
+ * (`--timeout 5000`) would supply the figure that clears its own veto, and the
+ * declaration, not the row, is what must vouch for the number.
+ * `numericTokens` keeps dotted numbers whole, so versions and addresses are
+ * single figures and cannot be assembled out of separate integers.
  */
 function introducesNewNumber(text: string, matched: string): boolean {
   const known = new Set(numericTokens(matched));
   for (const n of numericTokens(text)) if (!known.has(n)) return true;
   return false;
+}
+
+/**
+ * True when every figure `text` states appears in `known` as a whole token —
+ * the veto-2 rule, now aimed at the matched region. `claims()` no longer splits
+ * inside a figure and `findClause` admits no hit that cuts one, so a figure the
+ * tree never states (`1.5`, `1.4.3`, `10.20.30.40`) cannot reassemble from
+ * fragments of separate sentences; this check stays as the second net, because
+ * it costs nothing on the fail-open side and catches a figure in prose that no
+ * claim matched. A corrected figure is the transport class, the row the store
+ * exists to keep. Fails safe in both directions of uncertainty: a candidate
+ * with no figures has an empty set and stays restatable.
+ */
+function figuresWithin(text: string, known: Set<string>): boolean {
+  for (const n of numericTokens(text)) if (!known.has(n)) return false;
+  return true;
 }
 // The scan is bounded by bytes, not files: a monorepo's tracked list is huge and
 // the point is a cheap check, not an index. One capture pass already pays for a
@@ -338,6 +356,12 @@ interface Slice {
 interface Gate {
   label: string;
   where: string;
+  /**
+   * True for a step among siblings — a Makefile recipe, a workflow `run:` line.
+   * Those share one `where` across the whole file while stating nothing about
+   * each other, so the label is all the declaration it has.
+   */
+  solo?: boolean;
 }
 
 function readTracked(repoDir: string, file: string): string | null {
@@ -357,9 +381,9 @@ function skipPath(file: string): boolean {
 
 function parseGates(repoDir: string, files: string[]): Gate[] {
   const gates: Gate[] = [];
-  const add = (label: string, where: string) => {
+  const add = (label: string, where: string, solo = false) => {
     const n = norm(label);
-    if (n.length >= 2 && n.length <= 80) gates.push({ label: n, where });
+    if (n.length >= 2 && n.length <= 80) gates.push({ label: n, where, solo });
   };
   for (const file of files) {
     if (skipPath(file)) continue;
@@ -390,13 +414,13 @@ function parseGates(repoDir: string, files: string[]): Gate[] {
         const target = /^([A-Za-z0-9_.%-]+)\s*:(?!=)/.exec(line);
         if (target?.[1]) add(target[1], `${file} target ${target[1]}`);
         const recipe = /^\t+([^\s].*)$/.exec(line);
-        if (recipe?.[1]) add(recipe[1], `${file} recipe`);
+        if (recipe?.[1]) add(recipe[1], `${file} recipe`, true);
       }
       continue;
     }
     for (const line of text.split("\n")) {
       const run = /^\s*-?\s*run:\s*["']?(.+?)["']?\s*$/.exec(line);
-      if (run?.[1]) add(run[1], `${file} run`);
+      if (run?.[1]) add(run[1], `${file} run`, true);
     }
   }
   return gates;
@@ -425,6 +449,91 @@ function runners(span: string): string[] {
   );
   if (stripped && stripped !== forms[0]) forms.push(stripped);
   return forms;
+}
+
+/**
+ * The labels that vouch for a declaration: the matched one, plus those sharing
+ * its `where` when that `where` names ONE command. A script declaration states
+ * its name and its command together, so `--prod` written in the command vouches
+ * for `--prod` in the row. A step-kind `where` names a FILE — every recipe in a
+ * Makefile, every `run:` in a workflow — and siblings state nothing about each
+ * other, so there the matched label alone vouches.
+ */
+function vouchLabels(gate: Gate, gates: Gate[]): string[] {
+  const out: string[] = [];
+  for (const g of gates) {
+    if (g.where !== gate.where) continue;
+    if (gate.solo && g.label !== gate.label) continue;
+    out.push(g.label);
+  }
+  return out;
+}
+
+/**
+ * What a span states around the command it names: the tokens left after the
+ * runner vocabulary and the matched label, one candidate per span form in which
+ * that label appears. An empty candidate is the bare invocation.
+ */
+function operandCandidates(span: string, gate: Gate): string[][] {
+  const out: string[][] = [];
+  for (const form of runners(span)) {
+    const at = form.indexOf(gate.label);
+    if (at < 0) continue;
+    out.push(
+      tokens(`${form.slice(0, at)} ${form.slice(at + gate.label.length)}`),
+    );
+  }
+  return out;
+}
+
+/** Is `operand` a contiguous token run inside any vouching label? */
+function contiguousIn(operand: string[], labels: string[]): boolean {
+  for (const label of labels) {
+    const decl = tokens(label);
+    for (let i = 0; i + operand.length <= decl.length; i++) {
+      if (operand.every((w, j) => decl[i + j] === w)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * VETO 3: does every span add only a run the declaration states?
+ *
+ * Stripping the whole span before reading the residual hides what the span
+ * carried: with `deploy: "deploy-tool publish"` declared, `npm run deploy --
+ * --target canary` reduced to the same empty residual as the bare invocation,
+ * and the canary target — the session's only fact — was refused with the
+ * command it rode. Set membership of the span's words does not close that
+ * either: `--target staging --fallback canary` declared against `--target
+ * canary --fallback staging` has every word present and the pairing wrong, and
+ * a flag reorder or a stripped value reaches the same hole.
+ *
+ * So the gate path asks the tree path's question — contiguity, not presence.
+ * The operand must be a contiguous token run inside a vouching label; the empty
+ * operand is the bare invocation, which the declaration states on its own.
+ * Anything the check cannot establish — the label not located, values swapped,
+ * flags reordered, an operand broken by a word the declaration omits — keeps
+ * the row. Reordering valueless flags keeps too: order-irrelevance is not a
+ * thing a token comparison can prove, a wrong keep costs a row, and a wrong
+ * refusal costs a fact.
+ */
+function operandsDeclared(spans: string[], gate: Gate, gates: Gate[]): boolean {
+  for (const span of spans) {
+    const matched = gateHit([span], gates) ?? gate;
+    // Each span vouches with its OWN declaration. One shared label set let a
+    // second, unrelated mention lend its operands to the first: with `build:
+    // "compiler"` and `deploy: "deploy-tool publish --target staging …"`, the
+    // row `Run \`npm run deploy\`. Run \`npm run build -- --target staging\`.`
+    // checked the build operand against the deploy command, which happens to
+    // contain it, and the bare deploy mention hid the build information.
+    const candidates = operandCandidates(span, matched);
+    if (candidates.length === 0) return false;
+    const labels = vouchLabels(matched, gates);
+    if (!candidates.some((o) => o.length === 0 || contiguousIn(o, labels)))
+      return false;
+  }
+  return true;
 }
 
 // Matching is positional, never substring. A gate named `all` must not refuse a
@@ -460,10 +569,19 @@ function gateHit(spans: string[], gates: Gate[]): Gate | null {
  * the whole candidate was restatable. A short fragment is where a prohibition, a
  * window or a number lives; punctuation and "ship with" are what a fragment has
  * to be before it is ignored.
+ *
+ * A split never falls inside a figure. Splitting `1.5` at its dot produced two
+ * claims that each matched their own sentence and reassembled into a figure the
+ * tree never states, and the same fragments let a claim end mid-number in the
+ * tree. `tokens()` reads `.` as a word character, so the boundary waits for the
+ * figure run to end — including the sentence dot a figure ends on, which belongs
+ * to that token (`numericTokens("The cost is 11.")` is `["11."]`). A claim that
+ * therefore spans a sentence boundary is fail-open: a longer claim is harder to
+ * match, so the rule can only remove refusals.
  */
 function claims(text: string): string[] {
   const out: string[] = [];
-  for (const part of text.split(/[.;:,\n]/)) {
+  for (const part of splitClaims(text)) {
     const c = part.trim();
     if (!c) continue;
     const words = c.split(/[^a-z0-9']+/).filter(Boolean);
@@ -472,6 +590,21 @@ function claims(text: string): string[] {
     out.push(c);
   }
   return out;
+}
+
+/** The assertion boundaries, minus a `.` that sits inside a figure. */
+function splitClaims(text: string): string[] {
+  const parts: string[] = [];
+  let from = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c !== 46 && c !== 59 && c !== 58 && c !== 10) continue;
+    if (c === 46 && figureRun(text, i)) continue;
+    parts.push(text.slice(from, i));
+    from = i + 1;
+  }
+  parts.push(text.slice(from));
+  return parts;
 }
 
 /**
@@ -483,7 +616,7 @@ function claims(text: string): string[] {
  * The bare words are here because `polaritySigns` reads `never` as a modifier
  * that needs a verb, and "Never `npm run deploy`." has the verb inside a code
  * span. A closed list, answering one closed question, over a decision that can
- * now only decline to tag.
+ * now only decline to refuse.
  */
 function forbidsCommand(content: string, commands: string[]): boolean {
   for (const sentence of content.split(/[.;:\n]+/)) {
@@ -519,20 +652,20 @@ function sentenceSpan(
  * against, because the cue list carries neither `stop` nor `drop` — and neither
  * does `polaritySigns`, so widening it the way an earlier round tried does not
  * catch this either. Measured on 05482ba: both `Stop assuming X` and `Drop the
- * assumption that X` tagged `X` as restatable.
+ * assumption that X` matched `X` as restatable.
  *
  * The veto reads the words between the sentence start and the hit, not the whole
- * sentence, and that is what keeps it cheap in tags. `The parser drops stale
- * entries.` states its claim and keeps its tag, because `drops` there governs
+ * sentence, and that is what keeps it cheap in refusals. `The parser drops stale
+ * entries.` states its claim and keeps its refusal, because `drops` there governs
  * `stale entries`, not a following assertion; the ambiguous verbs are therefore
- * veto words only when a claim noun follows them. Every veto declines to tag,
+ * veto words only when a claim noun follows them. Every veto declines to refuse,
  * which is the direction this file fails safe in.
  */
 const WARNS_AGAINST = new RegExp(
   // One alternation, ONE shared tail. Written as three separate alternatives
   // each ending in `$`, only the last would be anchored and the first would
   // match any sentence that merely contains `stop` anywhere — measured, and it
-  // cost the tag from `The job stops at midnight and the cache supports TTL
+  // cost the refusal from `The job stops at midnight and the cache supports TTL
   // expiration.`, which states its claim plainly.
   "(?:" +
     // A deterrent verb needs no framing: what follows is being warned against.
@@ -568,9 +701,58 @@ function warnsAgainst(prefix: string): boolean {
  * A reversed clause is not evidence of availability, and every uncertainty in
  * this file keeps the candidate.
  */
-function findClause(hay: string, clause: string): number {
+function isTokenChar(code: number): boolean {
+  return (
+    (code >= 48 && code <= 57) || // 0-9
+    (code >= 97 && code <= 122) || // a-z, after norm()
+    code === 95 || // _
+    code === 46 // .
+  );
+}
+
+/**
+ * The extent of the token `tokens()` would read at `pos`, when that token
+ * states a digit. `tokens()` splits on `[^a-z0-9_.]+`, so a dot is a word
+ * character: `1.5`, `1.4.3` and `10.20.30.40` are single tokens, and so is the
+ * `11.` of a sentence that ends on one. Nothing else in this file may decide
+ * where a figure begins or ends, because the same definition is what the figure
+ * subset check compares with.
+ */
+function figureRun(
+  text: string,
+  pos: number,
+): { start: number; end: number } | null {
+  if (pos < 0 || pos >= text.length || !isTokenChar(text.charCodeAt(pos)))
+    return null;
+  let start = pos;
+  while (start > 0 && isTokenChar(text.charCodeAt(start - 1))) start--;
+  let end = pos;
+  while (end + 1 < text.length && isTokenChar(text.charCodeAt(end + 1))) end++;
+  if (!/[0-9]/.test(text.slice(start, end + 1))) return null;
+  return { start, end: end + 1 };
+}
+
+/**
+ * Does a hit cover every figure it touches, whole? A clause ending at the `3`
+ * of `3.12`, or starting at the `5` of `30.5`, cuts a figure in half, and the
+ * half re-tokenizes as a whole figure the tree never states: `3` is not in a
+ * README that says `Requires Python 3.12`, it is what slicing leaves behind.
+ * Word boundaries do not settle this — `.` is a word character to the tokenizer
+ * and a sentence boundary to the claim splitter, and the two disagree exactly
+ * inside a number. So a hit is admitted only when no figure run crosses either
+ * edge, which makes a half-figure unrepresentable rather than merely unvouched.
+ */
+function hitCoversFigures(hay: string, start: number, end: number): boolean {
+  for (const pos of [start - 1, end]) {
+    const run = figureRun(hay, pos);
+    if (run && (run.start < start || run.end > end)) return false;
+  }
+  return true;
+}
+
+function findClause(hay: string, clause: string, start = 0): number {
   const reversed = cueNegated(clause);
-  for (let from = 0; ; ) {
+  for (let from = start; ; ) {
     const i = hay.indexOf(clause, from);
     if (i < 0) return -1;
     const before = i > 0 ? hay.charCodeAt(i - 1) : 32;
@@ -580,6 +762,7 @@ function findClause(hay: string, clause: string): number {
     if (
       !/\w/.test(String.fromCharCode(before)) &&
       !/\w/.test(String.fromCharCode(after)) &&
+      hitCoversFigures(hay, i, i + clause.length) &&
       cueNegated(sentence.text) === reversed &&
       // A later occurrence may state the claim plainly, so a vetoed hit is
       // skipped rather than ending the search.
@@ -590,19 +773,75 @@ function findClause(hay: string, clause: string): number {
   }
 }
 
-/** True when every assertion in `clauses` is restatable from `hay`. */
-function allRestatable(hay: string, clauses: string[]): boolean {
-  return hay !== "" && clauses.every((c) => findClause(hay, c) >= 0);
+/**
+ * Is the text between two matched claims nothing but assertion punctuation and
+ * whitespace? The file joiner breaks contiguity on purpose: two claims from two
+ * files are not one statement.
+ */
+function gapIsPunctuation(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0) return false;
+    if (isBoundary(c) || c === 32 || c === 9) continue;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * The region where the tree states `clauses` as ONE contiguous assertion, or
+ * null: each in the candidate's order, with nothing between one and the next
+ * but assertion punctuation and whitespace. The region is part of the answer:
+ * the figures a refusal vouches for are the ones the cited passage states.
+ *
+ * Matching every claim somewhere in the tree is not enough — two sentences can
+ * conspire. With `Staging export pool: cobalt-workers.` and `Production export
+ * pool: ask operations at rollout.` tracked, both halves of the candidate
+ * `Production export pool: cobalt-workers.` exist, but the pairing is the
+ * candidate's and not the tree's, and the pairing is the fact the session
+ * brought. Reassembled figures fail the same way, one level down.
+ *
+ * Order is part of the claim: a later half found only BEFORE the earlier one is
+ * not the tree stating it. The search takes the earliest admissible hit and
+ * skips a hit the gap disqualifies instead of ending there, so every
+ * uncertainty — including this check's own greediness — declines a refusal,
+ * which is the direction this file fails safe in.
+ */
+function restatedContiguously(
+  hay: string,
+  clauses: string[],
+): { start: number; end: number } | null {
+  if (hay === "") return null;
+  let prevEnd = -1;
+  let cursor = 0;
+  let start = -1;
+  for (const clause of clauses) {
+    let hit = -1;
+    for (let from = cursor; ; ) {
+      const i = findClause(hay, clause, from);
+      if (i < 0) break;
+      if (prevEnd < 0 || gapIsPunctuation(hay.slice(prevEnd, i))) {
+        hit = i;
+        break;
+      }
+      from = i + 1;
+    }
+    if (hit < 0) return null;
+    if (start < 0) start = hit;
+    cursor = hit + 1;
+    prevEnd = hit + clause.length;
+  }
+  return { start, end: prevEnd };
 }
 
 export interface AvailabilityIndex {
-  /** Null means "cannot tell", which stores the row with no tag. */
+  /** Null means "cannot tell, or cannot prove": the candidate is kept. */
   check(content: string): AvailabilityVerdict | null;
   /**
    * For evidence: what the tree scan actually read. `capped` means the byte
    * budget ran out before the tracked list did. It is telemetry only, never a
    * verdict input: both rules assert PRESENCE ("the tree states this"), so a
-   * truncated scan can only lower the tag rate, never raise a false tag.
+   * truncated scan can only lower the refusal rate, never raise a false refusal.
    */
   scanned(): {
     files: number;
@@ -685,29 +924,45 @@ export function availabilityIndex(
       //   - "Never run `npm run deploy` until finance confirms approval code
       //     BLUEBIRD" refused because the manifest declares `deploy`, although
       //     the restriction and the code appear nowhere.
-      // A tag requires EVERY assertion the candidate makes to be restatable.
+      // A refusal requires EVERY assertion the candidate makes to be restatable.
       const whole = norm(content);
       const needed = claims(whole);
       if (needed.length === 0) needed.push(whole);
-      const first = needed[0] ?? whole;
-      // Evidence mirror of `whole` and `first`, scrubbed WHILE THE TEXT STILL HAS
-      // ITS CASE. `norm()` lowercases, and the prefix scrubber in
+      // Evidence mirror of `whole` and of its first claim, scrubbed WHILE THE
+      // TEXT STILL HAS ITS CASE. `norm()` lowercases, and the prefix scrubber in
       // store/secrets.ts matches `AKIA[A-Z0-9]{16}` case-sensitively, so a span
       // normalised before scrubbing keeps a fully recoverable access key: the
       // logged `akia1234567890abcdef` uppercases straight back to the secret
       //. Redacting `avail.matched` later cannot recover what
       // normalisation already destroyed, so this is the only place it can be
-      // done. Verdict logic reads `needed`/`first`, never these.
+      // done. Verdict logic reads `needed`, never these.
       const safeWhole = norm(redactSecrets(content));
       const safeFirst = claims(safeWhole)[0] ?? safeWhole;
-      if (haystack && allRestatable(haystack, needed)) {
+      // A refusal here claims the tree states EVERY figure the candidate
+      // states AND states the whole candidate as one contiguous assertion.
+      // Neither follows from matching each claim somewhere: `claims()` splits
+      // on `.` and `:` used to split `1.5 seconds` into `1` and `5`, and a label
+      // from one line could be joined to a value from another; the splitter now
+      // keeps a figure whole, so what remains to prove is that the tree states
+      // the claims as ONE contiguous assertion.
+      //
+      // The figures are checked against the MATCHED REGION, not the whole
+      // tree. `The budget is 1, 5 seconds of margin.` chains across its comma
+      // and matches a row saying `1.5 seconds`; a `Node 1.5` in another file —
+      // or another sentence of the same file, which is why the whole file is
+      // not the scope either — is not the passage being cited, and cannot
+      // vouch for the figure the refusal claims it states.
+      const region = haystack ? restatedContiguously(haystack, needed) : null;
+      if (
+        region &&
+        figuresWithin(
+          content,
+          new Set(numericTokens(haystack.slice(region.start, region.end))),
+        )
+      ) {
         return {
           reason: "in_tracked_file",
-          where:
-            relative(
-              repoDir,
-              join(repoDir, fileAt(findClause(haystack, first))),
-            ) || "?",
+          where: relative(repoDir, join(repoDir, fileAt(region.start))) || "?",
           matched: safeFirst.slice(0, 120),
         };
       }
@@ -721,9 +976,12 @@ export function availabilityIndex(
       //     refused with the undeclared AWS prerequisite erased from the row;
       //   - an EMPTY claim list counted as proof, so "Never `npm run deploy`."
       //     refused with its only claim — `never` — dropped as too short.
-      // A gate tag needs all three, each positively established:
-      //   1. every command span the row states is declared. An undeclared one is
-      //      a fact the tree does not hold, whatever the rest of the row says;
+      // A gate refusal needs all three, each positively established:
+      //   1. every command span the row states is declared AS A RUN — the
+      //      script exists, AND the operands it adds are a contiguous token
+      //      run in the declaration. An undeclared span, or operands the
+      //      declaration states only in another order or pairing, is a fact
+      //      the tree does not hold, whatever the rest of the row says;
       //   2. what survives stripping them is nothing but FILLER — the bare
       //      mention "ship with X", which is what the manifest does declare; or
       //   3. otherwise, every assertion left in it is one the tracked files
@@ -736,21 +994,26 @@ export function availabilityIndex(
         // no figure. So a sentence that forbids the command, or a number the
         // command does not carry, is a claim the declaration cannot answer.
         //
-        // These REMOVE a tag and never add one, and a removed tag costs the row
-        // nothing permanent: it is stored either way and a spare budget still
-        // shows it. That asymmetry is the whole point of the change — the round-3
-        // and round-4 arguments were really about a vocabulary that had to be
-        // perfect because a miss deleted a fact. Under a tag, a miss costs one
-        // injection slot.
+        // These REMOVE a refusal and never add one. A removed refusal costs one
+        // redundant row; a refusal that should have been removed costs a fact
+        // the store cannot rebuild. That asymmetry is the whole point of the
+        // veto-only shape: the vocabulary never has to be perfect, because a
+        // miss keeps the row instead of deleting it.
         if (forbidsCommand(content, spans)) return null;
-        if (introducesNewNumber(content, spans.join(" "))) return null;
+        // The comparison text is the DECLARED command, never the candidate's
+        // spans: a span carrying `--timeout 5000` would vouch for its own
+        // figure, and the manifest states no such number.
+        if (introducesNewNumber(content, gate.label)) return null;
+        // The strip below removes the ENTIRE span, so what the span carries has
+        // to be settled here or it is erased before anything reads it.
+        if (!operandsDeclared(spans, gate, gates)) return null;
         const undeclared = spans.some((s) => gateHit([s], gates) === null);
         let residual = content;
         for (const span of spans) residual = residual.split(span).join(" ");
         const rest = claims(norm(residual));
         if (
           !undeclared &&
-          (rest.length === 0 || allRestatable(haystack, rest))
+          (rest.length === 0 || restatedContiguously(haystack, rest) !== null)
         ) {
           return {
             reason: "declared_gate",

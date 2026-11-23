@@ -8,7 +8,6 @@ import { session, setCurrent } from "../core/state.ts";
 import {
   AUTO_CAPTURE_TAG,
   CODE_CHECKED_TAG,
-  RESTATABLE_TAG,
   USER_GUIDED_TAG,
 } from "../core/tags.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
@@ -852,13 +851,11 @@ export function configureAutoCapture(
         // recall loss here.
         let lessonsKept = 0;
         let lessonsRefused = 0;
-        // rows tagged `restatable` this pass. Counted, never dropped.
-        // Two numbers, because they are two different facts and one field that
-        // silently means "verdicts" reads as "rows". A
-        // verdict lands on candidates the write gate then refuses — a dup, a
-        // credential-shaped scope — and a refused row carries no tag, so the
-        // verdict count is an upper bound on the tagged count, never equal by
-        // construction.
+        // `availVerdicts` counts candidates the availability check matched;
+        // `restatements` counts candidates refused because of it. Two numbers
+        // because they answer different questions — one about the check, one
+        // about the store — and a future consequence that is not refusal must
+        // not silently reuse the count.
         let availVerdicts = 0;
         let restatements = 0;
         candidates = candidates.filter((c) => {
@@ -892,21 +889,27 @@ export function configureAutoCapture(
           // flag, not the signal: this loop only runs once the answer exists,
           // and cleanup stops abandoning such a pass.
           if (phase.abandoned) return;
-          // the availability verdict TAGS the row. It used to `continue`
-          // past the write. A lexical match was never strong enough to delete
-          // a fact — 29 of the 30 rows a pure-conflict refusal rejected were
-          // new facts, and a silently dropped candidate leaves no trace to
-          // recover from.
+          // A candidate the working tree already states, or whose only content
+          // is a command the project already declares, is REFUSED here — before
+          // the gate, before the store. The next session can read it from the
+          // file named in the refusal line, so the row buys nothing, and a
+          // capture pass costs about a third of a session's own generation.
           //
-          // The row now goes through the same write gate as every other row, and
-          // the tag is what retrieval acts on: `restatable` rows sort last, so a
-          // full injection block gives them up first and a spare one keeps them.
-          // A wrong verdict costs one row. A right one saves a slot. That is the
-          // first shape of this where BOTH error directions are survivable:
-          // an earlier one lost facts silently instead of expensively.
+          // The refusal is the hardened matcher's, not the original rule's: it
+          // fires only when EVERY assertion in the candidate is restatable
+          // verbatim modulo formatting, in a sentence of the same polarity,
+          // with no figure the tree does not carry. Every uncertainty — no
+          // git, an unreadable file, a byte cap, a dropped negation, one new
+          // number, one new clause — keeps the candidate. Fail-open is what
+          // protects the transport case: a fact the tree does not hold cannot
+          // match, so the store keeps everything only the store can carry. A
+          // wrong keep costs one redundant row; a wrong refusal costs a fact,
+          // and that is the direction the matcher's vetoes exist to make rare.
+          // History: docs/adr/.
           const avail = availability().check(c.content);
           if (avail) {
             availVerdicts++;
+            restatements++;
             await recordBestEffort(
               "auto_capture_restatable",
               {
@@ -921,13 +924,12 @@ export function configureAutoCapture(
                 // yields `matched` ending in the NUL. Flattened for the reason
                 // below.
                 matched: flattenMemoryText(avail.matched),
-                // The whole candidate, so the audit line alone can rebuild a row
-                // a later consolidation drops. It records the VERDICT, not proof
-                // of storage: this line is written before the gate, so a
-                // candidate the gate then refuses has one and no row. The row's
-                // fate is the adjacent `auto_capture_<action>` line, same pass,
-                // same type and scope; `restatements` on the scan line counts
-                // only rows that were really tagged.
+                // The whole candidate: the refusal is a judgement about the
+                // tree, so the audit line alone must be able to replay or
+                // rebuild it. This line IS the refusal record — a restatable
+                // candidate never reaches the gate, so there is no adjacent
+                // `auto_capture_<action>` line for it, and `restatements` on
+                // the scan line counts exactly these.
                 //
                 // Both free-text fields here are flattened, which nothing else on
                 // this path does: `candidates.ts` checks type and scope for control
@@ -948,6 +950,7 @@ export function configureAutoCapture(
               sid,
               captureGate.evidenceContext,
             );
+            continue;
           }
           // a numeric claim capture INFERRED (the user did not state
           // it) that names a constant the tree also names is checked before it
@@ -1001,8 +1004,6 @@ export function configureAutoCapture(
                 ...(original ? { original } : {}),
                 tags: [
                   AUTO_CAPTURE_TAG,
-                  // the tree states this too. Stored anyway, sorted last.
-                  ...(avail ? [RESTATABLE_TAG] : []),
                   // the ONE case that earns `[code-checked]` — an inferred
                   // numeric claim that agreed with the tree. Absent everywhere
                   // else, which is what makes `[unverified]` mean something
@@ -1034,10 +1035,6 @@ export function configureAutoCapture(
             );
             continue;
           }
-          // The tag exists only on a row the gate really wrote. `blocked` writes
-          // nothing and `collapsed` folds into an existing row whose tags are not
-          // these, so only `promoted` can carry `restatable` into the store.
-          if (avail && outcome.action === "promoted") restatements++;
           await recordBestEffort(
             trigger === "compaction"
               ? `auto_capture_compaction_${outcome.action}`
@@ -1093,24 +1090,33 @@ export function configureAutoCapture(
         }
         // The scan is visible in the trail. A synchronous tree read must
         // never run every pass with no record that it happened: one line per
-        // pass that actually built the index, naming files, bytes and
-        // milliseconds.
-        if (availableIndex) {
-          const scan = availableIndex.scanned();
+        // pass that had candidates, naming how many it saw and what the index
+        // read — files, bytes, milliseconds. `candidates` is the denominator
+        // that separates a dead matcher from an honest one: `verdicts=0` at
+        // `candidates>0`, across passes, is matcher death, and an empty
+        // session — no candidates, no line — never produces it. When the
+        // index was never built (a pass abandoned before its first
+        // candidate), the read fields are zero and `tracked=false` says so.
+        if (availableIndex || candidates.length) {
+          const scan = availableIndex
+            ? availableIndex.scanned()
+            : { files: 0, bytes: 0, tracked: false, capped: false };
           await recordBestEffort(
             "auto_capture_scan",
             {
               session: sid,
               trigger,
+              candidates: candidates.length,
               files: scan.files,
               bytes: scan.bytes,
               ms: availableMs,
               tracked: scan.tracked,
               capped: scan.capped,
-              // Two numbers on purpose: `verdicts` is how many candidates the
-              // check matched, `restatements` how many rows carry the tag. They
-              // differ exactly by the verdicts the write gate refused, and a
-              // reader who sees one number will assume it is the other.
+              // `verdicts` counts candidates the check matched, `restatements`
+              // candidates refused as restatements. Equal while refusal is the
+              // verdict's only consequence; kept apart because they count the
+              // check and the store's fate, and a future consequence that is
+              // not refusal must not silently reuse the count.
               verdicts: availVerdicts,
               restatements,
               ...(modelTag ? { model: modelTag } : {}),
