@@ -119,6 +119,16 @@ test("an empty or whitespace-only candidate is kept, not refused on a vacuous ma
   );
 });
 
+test("a refusal cites every claim it credited, not only the first", () => {
+  const index = available.availabilityIndex(
+    readmeRepo("evidence", "The pool size is 8: the timeout is 30 seconds.\n"),
+  );
+  const verdict = index.check("The pool size is 8: the timeout is 30 seconds.");
+  expect(verdict?.reason).toBe("in_tracked_file");
+  expect(String(verdict?.matched)).toContain("pool size");
+  expect(String(verdict?.matched)).toContain("timeout");
+});
+
 test("a multi-line verbatim restatement of a multi-line passage is refused", () => {
   const index = available.availabilityIndex(
     readmeRepo(

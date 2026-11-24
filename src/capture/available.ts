@@ -990,16 +990,19 @@ export function availabilityIndex(
       if (whole === "") return null;
       const needed = claims(whole);
       if (needed.length === 0) needed.push(whole);
-      // Evidence mirror of `whole` and of its first claim, scrubbed WHILE THE
+      // Evidence mirror of `whole` and of its claims, scrubbed WHILE THE
       // TEXT STILL HAS ITS CASE. `norm()` lowercases, and the prefix scrubber in
       // store/secrets.ts matches `AKIA[A-Z0-9]{16}` case-sensitively, so a span
       // normalised before scrubbing keeps a fully recoverable access key: the
       // logged `akia1234567890abcdef` uppercases straight back to the secret
       //. Redacting `avail.matched` later cannot recover what
       // normalisation already destroyed, so this is the only place it can be
-      // done. Verdict logic reads `needed`, never these.
+      // done. Verdict logic reads `needed`, never these. The refusal cites
+      // EVERY claim it credited, so the audit line can replay the decision
+      // without re-running the matcher.
       const safeWhole = normCandidate(redactSecrets(content));
-      const safeFirst = claims(safeWhole)[0] ?? safeWhole;
+      const safeClaims = claims(safeWhole);
+      if (safeClaims.length === 0) safeClaims.push(safeWhole);
       // A refusal here claims the tree states EVERY figure the candidate
       // states AND states the whole candidate as one contiguous assertion.
       // Neither follows from matching each claim somewhere: `claims()` splits
@@ -1026,7 +1029,7 @@ export function availabilityIndex(
         return {
           reason: "in_tracked_file",
           where: relative(repoDir, join(repoDir, fileAt(region.start))) || "?",
-          matched: safeFirst.slice(0, 120),
+          matched: safeClaims.join("; ").slice(0, 120),
         };
       }
       // Declared gate. A LENGTH test is never the question: a short
