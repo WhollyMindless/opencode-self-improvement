@@ -1069,6 +1069,20 @@ export function availabilityIndex(
       //      mention "ship with X", which is what the manifest does declare; or
       //   3. otherwise, every assertion left in it is one the tracked files
       //      state themselves.
+      // The refusal settles WORDS, never the row's PAIRING: nothing here asks
+      // which command the row pairs its restated prose with. Prose the tree
+      // states unscoped is a general rule, and pairing a general rule with a
+      // declared command states an application of what is already recorded,
+      // not a new claim — so a whole-sentence verbatim restatement settles
+      // against every command the tree declares, including one whose activity
+      // it does not describe. Verbatim restatement of the residual is the
+      // sufficient bar. Where the tree states the association INSIDE one of
+      // its own sentences, beside a different command, those command words
+      // are dropped material and the coverage test below declines: the row
+      // keeps. Where the tree states the association as a heading, `norm()`
+      // makes the heading a separate assertion, coverage passes, and the
+      // refusal stands against the tree's own scoping — a known, accepted
+      // limit of the bar.
       const spans = statedCommands(content);
       const hits = spans.map((s) => gateHits(s, gates));
       if (hits.some((h) => h.length > 0)) {

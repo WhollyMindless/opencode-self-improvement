@@ -1039,4 +1039,78 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "the prose-settle path of the gate branch, pinned verbatim — the residual the declarations do not answer must still settle against the passage that states it",
   },
+  // ── The pairing bar: the residual settles words, never which command the
+  // row pairs them with. A whole-sentence verbatim restatement settles
+  // against ANY declared command; a tree that states the association inside
+  // its own sentence keeps the row; the association stated as a heading is
+  // the accepted limit. `gate-prose-settle-verbatim` above is the
+  // right-command counterpart of the two refusals.
+  {
+    id: "gate-pairing-cross-command-refuse",
+    tree: "Keep 3 replicas warm before rollout.\n",
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          deploy: "kubectl rollout restart deployment/web",
+          rollback: "kubectl rollout undo deployment/web",
+        },
+      }),
+    },
+    candidate: "Run `npm run rollback`; keep 3 replicas warm before rollout.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "the sentence is restated verbatim and stated unscoped, so it settles against a declared command whose activity it does not describe — the pairing is not a claim this check adjudicates",
+  },
+  {
+    id: "gate-pairing-third-command-refuse",
+    tree: "Keep 3 replicas warm before rollout.\n",
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          deploy: "kubectl rollout restart deployment/web",
+          rollback: "kubectl rollout undo deployment/web",
+          scale: "kubectl scale deployment/web --replicas 5",
+        },
+      }),
+    },
+    candidate: "Run `npm run scale`; keep 3 replicas warm before rollout.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "the same refusal for a command the sentence says nothing about: the bar does not rank the tree's declarations, a third command settles like the rival",
+  },
+  {
+    id: "gate-pairing-association-in-sentence-keep",
+    tree: "Before `npm run deploy`, keep 3 replicas warm.\n",
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          deploy: "kubectl rollout restart deployment/web",
+          rollback: "kubectl rollout undo deployment/web",
+        },
+      }),
+    },
+    candidate: "Run `npm run rollback`; keep 3 replicas warm.",
+    expectTag: false,
+    source:
+      "the tree states the association inside its own sentence: the command words there are dropped material, coverage declines, and the pairing the row brings survives — the counterpart of the cross-command refusal above",
+  },
+  {
+    id: "gate-pairing-heading-scope-limit-refuse",
+    tree: "## Staging\n\nKeep 3 replicas warm before rollout.\n",
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          deploy: "kubectl rollout restart deployment/web",
+          rollback: "kubectl rollout undo deployment/web",
+        },
+      }),
+    },
+    candidate: "Run `npm run rollback`; keep 3 replicas warm before rollout.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "an association stated as a heading is a separate assertion to `norm()`, so coverage passes and the refusal contradicts the tree's own scoping — recorded as the accepted residue of the bar, not fixed; the heading word is a claim word on purpose, because a gate-vocabulary heading is FILLER and fusing it would change nothing this row could catch",
+  },
 ];
