@@ -1,8 +1,8 @@
 # Install variants and the version floor
 
-The README keeps the three-step path: add the entry, restart, run `/repo-init`.
-This file holds the other ways to install, how updates are resolved, and what to
-point at when you are working on the plugin itself.
+The README leads with `opencode plugin add`, then a restart, then an optional
+`/repo-init`. This file holds the other ways to install, how updates are
+resolved, and what to point at when you are working on the plugin itself.
 
 ## Plugin commands
 
