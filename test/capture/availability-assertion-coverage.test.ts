@@ -17,13 +17,10 @@
 // that does not export it is read as exporting none, and the pin then demands
 // exact sentence equality — which the old containment rule cannot meet, so
 // the pin fails on the defect instead of loading past it.
-import { afterAll, beforeAll, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { expect, test } from "bun:test";
 import { AVAILABILITY_CASES } from "../../bench/fixtures/availability-cases.ts";
 import * as available from "../../src/capture/available.ts";
+import { indexFor } from "./availability-repo.ts";
 
 const FILLER: Set<string> =
   (available as { FILLER?: Set<string> }).FILLER ?? new Set<string>();
@@ -63,29 +60,22 @@ function claimWords(text: string): string[] {
   return text.split(/[^a-z0-9']+/).filter((w) => w !== "" && !FILLER.has(w));
 }
 
-let root = "";
-beforeAll(() => {
-  root = mkdtempSync(join(tmpdir(), "osi-coverage-sweep-"));
-});
-afterAll(() => {
-  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
-});
-
-/** A README-only repo: the gate branch needs a declaration file, and the
- * sweep is about the tracked-file path alone. */
-function readmeRepo(name: string, tree: string): string {
-  const dir = join(root, name);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "README.md"), tree);
-  execFileSync("git", ["-C", dir, "init", "-q"], { stdio: "pipe" });
-  execFileSync("git", ["-C", dir, "add", "."], { stdio: "pipe" });
-  return dir;
-}
-
+// One repo per distinct tracked passage, shared with the case bank: the sweep
+// is a README-only path and the matcher is deterministic over the same bytes,
+// so a second repo for an identical passage costs two `git` spawns and proves
+// nothing the first did not.
+//
+// The timeout is for the spawns, not the matcher: the sweep builds one repo
+// per distinct passage and then sweeps every proper substring in memory, and a
+// Windows runner spends well over 200 ms per `git init` plus `git add`. The
+// default 20 s budget measured short there at 89 repos.
 test("no proper substring of a tracked sentence is refused unless it states that sentence", () => {
   const seen = { substrings: 0, refused: 0 };
+  const swept = new Set<string>();
   for (const c of AVAILABILITY_CASES) {
-    const index = available.availabilityIndex(readmeRepo(c.id, c.tree));
+    if (swept.has(c.tree)) continue;
+    swept.add(c.tree);
+    const index = indexFor(c.tree);
     const sentences = sentencesOf(normTree(c.tree));
     for (const sentence of sentences) {
       const words = sentence.split(" ").filter(Boolean);
@@ -115,12 +105,10 @@ test("no proper substring of a tracked sentence is refused unless it states that
   // allowed (the verbatim-minus-FILLER shapes), or it proves nothing.
   expect(seen.substrings).toBeGreaterThan(500);
   expect(seen.refused).toBeGreaterThan(0);
-});
+}, 120_000);
 
 test("an empty or whitespace-only candidate is kept, not refused on a vacuous match", () => {
-  const index = available.availabilityIndex(
-    readmeRepo("empty", "Rebuild the index weekly.\n"),
-  );
+  const index = indexFor("Rebuild the index weekly.\n");
   expect(index.check("")).toBeNull();
   expect(index.check("   ")).toBeNull();
   expect(index.check("\n \t\n")).toBeNull();
@@ -131,9 +119,7 @@ test("an empty or whitespace-only candidate is kept, not refused on a vacuous ma
 });
 
 test("a refusal cites every claim it credited, not only the first", () => {
-  const index = available.availabilityIndex(
-    readmeRepo("evidence", "The pool size is 8: the timeout is 30 seconds.\n"),
-  );
+  const index = indexFor("The pool size is 8: the timeout is 30 seconds.\n");
   const verdict = index.check("The pool size is 8: the timeout is 30 seconds.");
   expect(verdict?.reason).toBe("in_tracked_file");
   expect(String(verdict?.matched)).toContain("pool size");
@@ -141,11 +127,8 @@ test("a refusal cites every claim it credited, not only the first", () => {
 });
 
 test("a multi-line verbatim restatement of a multi-line passage is refused", () => {
-  const index = available.availabilityIndex(
-    readmeRepo(
-      "multiline",
-      "Staging export pool: cobalt.\nProduction export pool: ask operations.\n",
-    ),
+  const index = indexFor(
+    "Staging export pool: cobalt.\nProduction export pool: ask operations.\n",
   );
   expect(
     index.check("Staging export pool: cobalt. Production export pool: ask ops.")

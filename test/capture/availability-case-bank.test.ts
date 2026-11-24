@@ -6,53 +6,26 @@
 // type. This file is the same cases, asserted, in the suite CI does run — about one
 // second for all of them.
 //
-// One repo per case, because sharing one tree would let a candidate match a
-// DIFFERENT case's line and report a verdict for the wrong reason.
+// One repo per distinct tracked passage, keyed by the bytes it tracks. Sharing
+// one tree per CASE would let a candidate match a DIFFERENT case's line and
+// report a verdict for the wrong reason; sharing one directory between cases
+// whose tracked bytes are identical cannot, because the haystack is the same
+// haystack. The spawn count, not the matcher, is what these tests spend.
 //
 // The reason is asserted as well as the verdict. The reason assertion
 // found seven cases named for the declared-command branch sitting on README prose,
 // so the text branch answered them and a mutation replacing `gateHit(...)` with a
 // null gate left this file green. `expectReason` is what closes that, and the
 // branch-coverage test at the bottom is what stops the whole branch disappearing.
-import { afterAll, beforeAll, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { expect, test } from "bun:test";
 import {
   AVAILABILITY_CASES,
   type AvailabilityCase,
 } from "../../bench/fixtures/availability-cases.ts";
-import { availabilityIndex } from "../../src/capture/available.ts";
-
-let root = "";
-
-beforeAll(() => {
-  root = mkdtempSync(join(tmpdir(), "osi-case-bank-"));
-});
-afterAll(() => {
-  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
-});
-
-/** Every tracked file the case declares. A gate case is only a gate case if the
- * declaration is a file `parseGates` reads. */
-function repoFor(c: AvailabilityCase): string {
-  const dir = join(root, c.id);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "README.md"), c.tree);
-  for (const [path, content] of Object.entries(c.files ?? {})) {
-    mkdirSync(join(dir, path).slice(0, join(dir, path).lastIndexOf("/")), {
-      recursive: true,
-    });
-    writeFileSync(join(dir, path), content);
-  }
-  execFileSync("git", ["-C", dir, "init", "-q"], { stdio: "pipe" });
-  execFileSync("git", ["-C", dir, "add", "."], { stdio: "pipe" });
-  return dir;
-}
+import { indexFor } from "./availability-repo.ts";
 
 function verdictFor(c: AvailabilityCase) {
-  return availabilityIndex(repoFor(c)).check(c.candidate);
+  return indexFor(c.tree, c.files).check(c.candidate);
 }
 
 // One test per entry, so a failure names the case AND the case that found
@@ -97,6 +70,9 @@ test("the case bank can say both things", () => {
 // must actually reach BOTH branches. If `gateHit` is removed, or `parseGates`
 // stops reading the manifests, no case returns `declared_gate` and this fails —
 // where before it stayed green, because prose answered every gate case.
+// Spawns, not matcher work: run alone, without the per-case tests warming the
+// repo cache, this walks every case and builds a repo for each distinct set of
+// tracked bytes.
 test("the case bank reaches both branches of the check", () => {
   const reasons = AVAILABILITY_CASES.map((c) => verdictFor(c)?.reason).filter(
     (r): r is "in_tracked_file" | "declared_gate" => r !== undefined,
@@ -109,4 +85,4 @@ test("the case bank reaches both branches of the check", () => {
     reasons.filter((r) => r === "in_tracked_file").length,
     "no case produced an in_tracked_file verdict",
   ).toBeGreaterThanOrEqual(2);
-});
+}, 120_000);
