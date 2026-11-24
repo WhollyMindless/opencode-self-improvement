@@ -133,7 +133,12 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     id: "deterrent-verb-not-governing",
     tree: "# job\n\nThe job stops at midnight and the cache supports TTL expiration.\n",
     candidate: "The cache supports TTL expiration.",
-    expectTag: true,
+    // Re-pinned from refuse: a refusal now demands the whole tree assertion,
+    // and a conjoined half is not the whole of it. The matcher cannot tell a
+    // conjoined clause from a scoped one without the vocabulary this file
+    // refuses to grow, so the row is kept — the measured cost of the
+    // coverage rule, in one redundant row per conjoined sentence.
+    expectTag: false,
     source:
       "#403 self-review — the veto's own over-decline, caught by this case",
   },
@@ -297,8 +302,11 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     id: "figure-comma-grouped-restated",
     tree: "# limits\n\nThe limit is 1,024 rows.\n",
     candidate: "The limit is 1,024",
-    expectTag: true,
-    expectReason: "in_tracked_file",
+    // Re-pinned from refuse: the row drops the unit noun `rows`, and the
+    // coverage rule reads every tree word outside the match as material the
+    // row left out. Kept — a refusal may only vouch for what the row itself
+    // states, and this one states a figure with no unit.
+    expectTag: false,
     source:
       "counterpart — the whole grouped figure, written with its comma, is restated and the refusal stands",
   },
@@ -793,8 +801,11 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
       }),
     },
     candidate: "Run `npm run deploy`; keep 3 replicas warm.",
-    expectTag: true,
-    expectReason: "declared_gate",
+    // Re-pinned from refuse: the prose residual drops `before rollout`, a
+    // temporal operator, so the passage states more than the row and no
+    // longer answers for it. This is the shape the whole-assertion rule
+    // exists to keep.
+    expectTag: false,
     source:
       "#501 review A1 — a figure outside every command settles against the passage that restates it",
   },
@@ -847,5 +858,185 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     expectWhere: "package.json scripts.wide",
     source:
       "#501 review A2 counterpart — one span rests on one declaration and cites one",
+  },
+  // ── The dropped-operator family: a row that loses material scoping over
+  // the span it matched states a different rule, and containment used to
+  // refuse it as a restatement. Each escape is paired with the verbatim
+  // wording of its own tree as a same-shape control.
+  {
+    id: "reversal-across-two-sentences",
+    tree: "We never use port 11. Do not fall back.\n",
+    candidate: "Use port 11. Do not fall back.",
+    expectTag: false,
+    source:
+      "a prohibition reversed by a row that carries a cue from the other sentence",
+  },
+  {
+    id: "reversal-across-two-sentences-verbatim",
+    tree: "We never use port 11. Do not fall back.\n",
+    candidate: "We never use port 11. Do not fall back.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source: "counterpart — the same tree restated whole is restatable",
+  },
+  {
+    id: "cue-carrying-reversal",
+    tree: "Do not connect to the staging database on port 5432 without an ssh tunnel.\n",
+    candidate:
+      "Connect to the staging database on port 5432 without an ssh tunnel.",
+    expectTag: false,
+    source:
+      "the row keeps `without` and drops `not`: cue equality agrees, coverage does not",
+  },
+  {
+    id: "cue-carrying-reversal-verbatim",
+    tree: "Do not connect to the staging database on port 5432 without an ssh tunnel.\n",
+    candidate:
+      "Do not connect to the staging database on port 5432 without an ssh tunnel.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source: "counterpart — the prohibition restated whole is restatable",
+  },
+  {
+    id: "dropped-only-when-condition",
+    tree: "Route requests to the canary only when the flag x-canary is set.\n",
+    candidate: "Route requests to the canary.",
+    expectTag: false,
+    source: "the row drops the condition that scoped over the span it matched",
+  },
+  {
+    id: "dropped-only-when-condition-verbatim",
+    tree: "Route requests to the canary only when the flag x-canary is set.\n",
+    candidate:
+      "Route requests to the canary only when the flag x-canary is set.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source: "counterpart — the rule restated whole is restatable",
+  },
+  {
+    id: "dropped-if-antecedent",
+    tree: "If the flag x-canary is set, route requests to the canary.\n",
+    candidate: "Route requests to the canary.",
+    expectTag: false,
+    source:
+      "the antecedent scopes over the consequence across the comma, so the comma is not an edge for coverage",
+  },
+  {
+    id: "dropped-if-antecedent-verbatim",
+    tree: "If the flag x-canary is set, route requests to the canary.\n",
+    candidate: "If the flag x-canary is set, route requests to the canary.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source: "counterpart — the conditional restated whole is restatable",
+  },
+  {
+    id: "dropped-unless-condition",
+    tree: "Do not enable caching, route through the CDN unless the VPN is not up.\n",
+    candidate: "Do not enable caching, route through the CDN.",
+    expectTag: false,
+    source: "a conditional made unconditional inside a multi-clause row",
+  },
+  {
+    id: "dropped-unless-condition-verbatim",
+    tree: "Do not enable caching, route through the CDN unless the VPN is not up.\n",
+    candidate:
+      "Do not enable caching, route through the CDN unless the VPN is not up.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source: "counterpart — the instruction restated whole is restatable",
+  },
+  {
+    id: "dropped-frequency",
+    tree: "Rebuild the index weekly.\n",
+    candidate: "Rebuild the index.",
+    expectTag: false,
+    source:
+      "a frequency is an operator too: the unguarded row is a different rule",
+  },
+  {
+    id: "dropped-frequency-verbatim",
+    tree: "Rebuild the index weekly.\n",
+    candidate: "Rebuild the index weekly.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source: "counterpart — the schedule restated whole is restatable",
+  },
+  // ── Soft-wrapped prose: a line break inside a sentence is formatting, not
+  // an assertion edge. A wrap inside a bigram cue must not blind the polarity
+  // veto (the veto saw `instead of` only as a literal space), and a wrap must
+  // not end the assertion the coverage test walks — most README prose is
+  // written wrapped, and the dropped-operator class must not survive there.
+  {
+    id: "cue-wrapped-mid-sentence",
+    tree: "Route requests to the canary instead\nof the staging pool.\n",
+    candidate: "Route requests to the canary instead.",
+    expectTag: false,
+    source:
+      "the wrap sits inside the `instead of` cue: a veto that reads the raw line misses the cue, the equality agrees against the reversal, and the row is refused",
+  },
+  {
+    id: "cue-wrapped-mid-sentence-verbatim",
+    tree: "Route requests to the canary instead\nof the staging pool.\n",
+    candidate: "Route requests to the canary instead of the staging pool.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "counterpart — the wrapped sentence restated whole matches across the soft break and is restatable",
+  },
+  {
+    id: "dropped-condition-wrapped",
+    tree: "Route requests to the canary\nwhen the flag x-canary is set.\n",
+    candidate: "Route requests to the canary.",
+    expectTag: false,
+    source:
+      "the same dropped condition, written hard-wrapped: a soft break must not fake the end of the assertion",
+  },
+  {
+    id: "dropped-condition-wrapped-verbatim",
+    tree: "Route requests to the canary\nwhen the flag x-canary is set.\n",
+    candidate: "Route requests to the canary when the flag x-canary is set.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "counterpart — the wrapped conditional restated whole is restatable",
+  },
+  {
+    id: "dropped-condition-wrapped-prior-line",
+    tree: "Only when the flag is set,\nroute requests to the canary.\n",
+    candidate: "Route requests to the canary.",
+    expectTag: false,
+    source:
+      "the condition on the line BEFORE the command: the soft break must not end the assertion, and the comma must not cut the antecedent off its consequence",
+  },
+  {
+    id: "dropped-condition-wrapped-prior-line-verbatim",
+    tree: "Only when the flag is set,\nroute requests to the canary.\n",
+    candidate: "Only when the flag is set, route requests to the canary.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "counterpart — the prior-line conditional restated whole, in the tree's own order, is restatable",
+  },
+  {
+    id: "cue-hard-break-mid-cue",
+    tree: "Route requests to the canary instead\n\nof the staging pool.\n",
+    candidate: "Route requests to the canary instead.",
+    expectTag: false,
+    source:
+      "a blank line inside the `instead of` cue is a hard break, so coverage stops at the region and only the polarity veto — reading its span with newlines flattened — can keep the row",
+  },
+  {
+    id: "gate-prose-settle-verbatim",
+    tree: "Keep 3 replicas warm before rollout.\n",
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --replicas 3" },
+      }),
+    },
+    candidate: "Run `npm run deploy`; keep 3 replicas warm before rollout.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "the prose-settle path of the gate branch, pinned verbatim — the residual the declarations do not answer must still settle against the passage that states it",
   },
 ];

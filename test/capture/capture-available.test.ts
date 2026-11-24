@@ -153,7 +153,10 @@ describe("capture availability refusal", () => {
       {
         type: "learning",
         scope: "av-inv3",
-        content: "Reorder is inclusive: needsReorder returns true.",
+        // The tree's colon-split assertion stated WHOLE. The fragment
+        // "needsReorder returns true" without its "at or below" condition is
+        // a new claim, not a restatement, and is no longer refused.
+        content: "Reorder is inclusive.",
       },
     ]);
     for (const scope of ["av-inv1", "av-inv2", "av-inv3"]) {
