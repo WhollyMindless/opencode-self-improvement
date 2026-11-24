@@ -1,32 +1,25 @@
 # Opencode-Self-Improvement
 
-Durable memory for [opencode](https://opencode.ai): the decisions, commands and facts an agent should still know next week, plus a one-command per-repo setup.
+Durable memory for [OpenCode](https://opencode.ai). Your agent remembers decisions and facts across sessions. Everything stays in local files.
 
-Say "we use Bun, not npm — npm keeps breaking the lockfile" on Monday. A session you start on Tuesday already knows it, and why. A memory that turns out wrong is superseded, never deleted, and `memory_undo` rolls it back. Install with `opencode plugin add opencode-self-improvement`.
+Say "we use Bun, not npm — npm keeps breaking the lockfile" on Monday. Next Tuesday, the agent already knows. A wrong memory is superseded, not deleted, and `memory_undo` restores the old one. Start with `opencode plugin add opencode-self-improvement`.
 
 ![Ten-second demo: remember, recall, correct, undo](docs/assets/demo.gif)  
 *Scripted turns. Real plugin, real store, fake model. Regenerate with `vhs demo.tape`.*
 
-Every figure here carries a marker: **measured** (read off a live store), **bench** (a deterministic synthetic workload, reproducible with the command printed under the table), or **illustrative** (sample output showing shape, not a measurement). Unmarked numbers are unchecked.
-
 ## Quick start
 
-**1. Add the plugin** to `~/.config/opencode/opencode.jsonc` (global) or a project `opencode.jsonc`. [More install detail](docs/reference/install.md) covers the Bun floor, `@latest`, and checkout installs:
+**1. Install:** `opencode plugin add opencode-self-improvement`. Needs Bun 1.3.0 or newer. [Other routes](docs/reference/install.md) cover manual config entries, pinning, and checkout installs.
 
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugins": ["opencode-self-improvement"]
-}
-```
+**2. Restart OpenCode.** On the desktop app use `opencode service restart`: relaunching leaves the background service and its parsed config alive.
 
-**2. Restart opencode.** On the desktop app a later config edit needs `opencode service restart`: relaunching the app leaves the background service, and the options it already parsed, alive.
+**3. Optional: run `/repo-init`** in each repo. It stores that repo's test / build / lint / typecheck commands, so the next session does not rediscover them. Rerun `/repo-init force` after a refactor.
 
-**3. Run `/repo-init`** in each repo you work in. It stores that repo's test / build / lint / typecheck commands as memories, so the next session does not rediscover them. Rerun `/repo-init force` after a refactor. After that, memory is just conversation: ask the agent to remember something and it sticks.
+That's it. Ask the agent to remember something; relevant memories come back on their own.
 
 ## What you get
 
-Think of it as a lab notebook the agent keeps for your repo, plus a librarian who checks every entry before filing it.
+Memories are checked before they are stored, kept in local files, and returned only where they belong.
 
 - **Write gates — a CI check for facts.** A memory citing `parseHeader()` in a file you deleted is refused before it is stored, not after a future session trusts it. Near-duplicates collapse, and a contradiction with a retired memory is rejected. Every refusal lands in `memory_evidence` with its reason.
 - **Budgeted injection.** Relevant memories ride the prompt on their own, capped at `injectBudget` characters. The block is cache-stable: a write somewhere else in the store does not cost you a cache miss.
@@ -92,6 +85,8 @@ Nothing is deleted. `memory_update` supersedes the old row and `memory_forget` r
 Rows are stamped with your git origin (an id that survives re-clones and moves between machines) or, without an origin, a hash of the normalized directory path. Reads — injection, recall, the frontier block, compaction, `memory_forget` and decay — see the current repo plus global rows. Writes follow the stricter direction: a named session whose repository cannot be resolved has **no write target**, so `memory_remember`, `memory_update`, `memory_import` and auto-capture refuse it (evidence `write_refused`) rather than stamp your content into another workspace or publish it as an unstamped row. Preferences that should follow you everywhere go in with `memory_remember global: true`. Identity derivation and legacy hashes, evidence attribution when a session moves repositories mid-operation, and the viewer's separate admin seat: [docs/internals/repo-scoping.md](docs/internals/repo-scoping.md).
 
 ## What memory is worth, measured
+
+Every figure below carries a marker: **measured** (read off a live store), **bench** (a deterministic synthetic workload, reproducible with the command printed under the table), or **illustrative** (sample output showing shape, not a measurement). Unmarked numbers are unchecked.
 
 Two results. Only two are quoted, each with its `n` and the seat it ran on, because the direction of an early finding flipped when the metric was corrected — see [#385](https://github.com/abogartz/opencode-self-improvement/issues/385) and [#392](https://github.com/abogartz/opencode-self-improvement/issues/392).
 
