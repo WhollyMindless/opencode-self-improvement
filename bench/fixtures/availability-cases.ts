@@ -1001,6 +1001,23 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
       "counterpart — the wrapped conditional restated whole is restatable",
   },
   {
+    id: "dropped-condition-wrapped-prior-line",
+    tree: "Only when the flag is set,\nroute requests to the canary.\n",
+    candidate: "Route requests to the canary.",
+    expectTag: false,
+    source:
+      "the condition on the line BEFORE the command: the soft break must not end the assertion, and the comma must not cut the antecedent off its consequence",
+  },
+  {
+    id: "dropped-condition-wrapped-prior-line-verbatim",
+    tree: "Only when the flag is set,\nroute requests to the canary.\n",
+    candidate: "Only when the flag is set, route requests to the canary.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "counterpart — the prior-line conditional restated whole, in the tree's own order, is restatable",
+  },
+  {
     id: "gate-prose-settle-verbatim",
     tree: "Keep 3 replicas warm before rollout.\n",
     files: {
