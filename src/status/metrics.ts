@@ -168,9 +168,11 @@ export interface CaptureHealth {
   /** Promoted capture rows in the window. */
   rows: number;
   /**
-   * `auto_capture_scan` passes in the window and how many carried
-   * `capped=true`. Optional so a window with no scan evidence makes no
-   * truncation claim either way.
+   * `auto_capture_scan` passes in the window that read a corpus
+   * (`tracked=true`), and how many carried `capped=true`. A pass abandoned
+   * before its first check logs `tracked=false` and enters neither count.
+   * Optional so a window with no scan evidence makes no truncation claim
+   * either way.
    */
   passes?: number;
   cappedPasses?: number;
@@ -266,9 +268,10 @@ export function captureHealth(
     if (!ev.startsWith("auto_capture_")) continue;
     if (ts && ts < cutoff) continue;
     if (ev === "auto_capture_scan") {
-      // Corpus state must ride any count this parser reports: a capped scan's
-      // counts describe a truncated corpus, so the flag is kept with them.
-      passes++;
+      // Corpus state must ride any count this parser reports: only a pass
+      // that read a corpus (`tracked=true`) enters the counts, and a
+      // `capped=true` pass among them read a truncated one.
+      if (String(f.tracked) === "true") passes++;
       if (String(f.capped) === "true") cappedPasses++;
     }
     if (ev.endsWith("promoted")) rows++;

@@ -623,17 +623,17 @@ describe("captureHealth", () => {
 describe("auto-capture corpus caveat", () => {
   const now = new Date().toISOString();
   const heartbeat = formatLine({ ev: "plugin_load", ts: now, capture: "on" });
-  const scan = (capped: boolean, candidates: number) =>
+  const scan = (capped: boolean, candidates: number, tracked = true) =>
     formatLine({
       ev: "auto_capture_scan",
       ts: now,
       session: "s1",
       trigger: "idle",
       candidates,
-      files: 242,
-      bytes: 2111445,
-      ms: 97,
-      tracked: true,
+      files: tracked ? 242 : 0,
+      bytes: tracked ? 2111445 : 0,
+      ms: tracked ? 97 : 0,
+      tracked,
       capped,
       verdicts: 0,
       restatements: 0,
@@ -669,11 +669,11 @@ describe("auto-capture corpus caveat", () => {
       "\n",
     );
 
-  test("a capped scan pass appends the caveat; every scan pass counts in the denominator", () => {
-    const text = render([scan(true, 2), scan(false, 0)]);
+  test("a capped scan pass appends the caveat; every corpus-reading scan pass counts in the denominator", () => {
+    const text = render([scan(true, 2), scan(false, 2)]);
     expect(text).toContain("auto-capture: on");
     expect(text).toContain(
-      "— corpus truncated on 1/2 scan passes; restatements are a floor and rows an upper bound over a partial corpus",
+      "— corpus truncated on 1/2 scan passes; scan restatements are a floor and rows an upper bound over a partial corpus",
     );
   });
 
@@ -687,6 +687,23 @@ describe("auto-capture corpus caveat", () => {
     const text = render([]);
     expect(text).toContain("auto-capture: on");
     expect(text).not.toContain("corpus truncated");
+  });
+
+  test("a window of tracked=false passes renders no truncation claim", () => {
+    const text = render([scan(false, 3, false)]);
+    expect(text).toContain("auto-capture: on");
+    expect(text).not.toContain("corpus truncated");
+  });
+
+  test("a pass that read no corpus enters neither pass count", () => {
+    const h = captureHealth([
+      heartbeat,
+      scan(true, 2),
+      scan(false, 3, false),
+      ...activity,
+    ]);
+    expect(h.passes).toBe(1);
+    expect(h.cappedPasses).toBe(1);
   });
 });
 
