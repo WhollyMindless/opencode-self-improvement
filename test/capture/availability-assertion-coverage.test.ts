@@ -29,12 +29,23 @@ const FILLER: Set<string> =
   (available as { FILLER?: Set<string> }).FILLER ?? new Set<string>();
 
 /** Mirrors `norm()`: the haystack is the tree normalised, so the sweep's
- * sentences and substrings are built from the text the matcher actually sees. */
+ * sentences and substrings are built from the text the matcher actually sees.
+ * A newline survives only as a hard break — blank line, terminated line, or
+ * block marker — exactly as `norm()` decides; the wrapped-prose fixtures pin
+ * that model itself, so the mirror cannot quietly agree with a wrong one. */
 function normTree(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[*_`]/g, "")
-    .replace(/\s+/g, (m) => (m.includes("\n") ? "\n" : " "))
+  const lower = s.toLowerCase().replace(/[*_`]/g, "");
+  return lower
+    .replace(/\s+/g, (run, offset) => {
+      if (!run.includes("\n")) return " ";
+      if ((run.match(/\n/g) ?? []).length > 1) return "\n";
+      const prev = lower.charCodeAt(offset - 1);
+      if (prev === 46 || prev === 59 || prev === 58) return "\n";
+      const next = lower[offset + run.length];
+      if (next === "#" || next === "-" || next === ">" || next === "|")
+        return "\n";
+      return " ";
+    })
     .trim();
 }
 

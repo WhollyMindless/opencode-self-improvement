@@ -961,4 +961,43 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     expectReason: "in_tracked_file",
     source: "counterpart — the schedule restated whole is restatable",
   },
+  // ── Soft-wrapped prose: a line break inside a sentence is formatting, not
+  // an assertion edge. A wrap inside a bigram cue must not blind the polarity
+  // veto (the veto saw `instead of` only as a literal space), and a wrap must
+  // not end the assertion the coverage test walks — most README prose is
+  // written wrapped, and the dropped-operator class must not survive there.
+  {
+    id: "cue-wrapped-mid-sentence",
+    tree: "Route requests to the canary instead\nof the staging pool.\n",
+    candidate: "Route requests to the canary instead.",
+    expectTag: false,
+    source:
+      "the wrap sits inside the `instead of` cue: a veto that reads the raw line misses the cue, the equality agrees against the reversal, and the row is refused",
+  },
+  {
+    id: "cue-wrapped-mid-sentence-verbatim",
+    tree: "Route requests to the canary instead\nof the staging pool.\n",
+    candidate: "Route requests to the canary instead of the staging pool.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "counterpart — the wrapped sentence restated whole matches across the soft break and is restatable",
+  },
+  {
+    id: "dropped-condition-wrapped",
+    tree: "Route requests to the canary\nwhen the flag x-canary is set.\n",
+    candidate: "Route requests to the canary.",
+    expectTag: false,
+    source:
+      "the same dropped condition, written hard-wrapped: a soft break must not fake the end of the assertion",
+  },
+  {
+    id: "dropped-condition-wrapped-verbatim",
+    tree: "Route requests to the canary\nwhen the flag x-canary is set.\n",
+    candidate: "Route requests to the canary when the flag x-canary is set.",
+    expectTag: true,
+    expectReason: "in_tracked_file",
+    source:
+      "counterpart — the wrapped conditional restated whole is restatable",
+  },
 ];

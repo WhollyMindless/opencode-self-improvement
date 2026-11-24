@@ -305,27 +305,37 @@ const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "vendor"]);
 
 /**
  * Normalise for a "same words, different wrapping" comparison: case, markdown
- * emphasis and backticks, and runs of whitespace. Newlines survive the collapse
- * as one `\n` because a line is the only separator a markdown heading or list
- * item ever gets, and the coverage test needs to see it; the polarity walk
- * deliberately steps over it, so every polarity decision stays scoped exactly
- * as it was when `norm()` erased newlines. This is verbatim modulo formatting,
- * and the evidence line says so rather than claiming fuzzy matching.
+ * emphasis and backticks, and runs of whitespace. A whitespace run containing
+ * newlines becomes ONE `\n` — a hard break — only where a line break really
+ * ends an assertion: a blank line, a line that ends in `.` `;` `:`, or a next
+ * line that opens a markdown block (`#`, `-`, `>`, `|`). A bare soft newline
+ * inside a paragraph becomes a space, because README prose is hard-wrapped
+ * mid-sentence and a wrap is formatting: it must not blind the cue list to a
+ * bigram like `instead of` split across lines, and it must not end the
+ * assertion the coverage test walks. This is verbatim modulo formatting, and
+ * the evidence line says so rather than claiming fuzzy matching.
  */
 function norm(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[*_`]/g, "")
-    .replace(/\s+/g, (m) => (m.includes("\n") ? "\n" : " "))
+  const lower = s.toLowerCase().replace(/[*_`]/g, "");
+  return lower
+    .replace(/\s+/g, (run, offset) => {
+      if (!run.includes("\n")) return " ";
+      if ((run.match(/\n/g) ?? []).length > 1) return "\n";
+      const prev = lower.charCodeAt(offset - 1);
+      if (prev === 46 || prev === 59 || prev === 58) return "\n";
+      const next = lower[offset + run.length];
+      if (next === "#" || next === "-" || next === ">" || next === "|")
+        return "\n";
+      return " ";
+    })
     .trim();
 }
 
 /**
  * Candidate-side normalisation: a row's own line wrapping is formatting, so
- * its newlines collapse to spaces and its claims stay whole. The tree keeps
- * its newlines — they are the only edge a heading or list item gets — so a
- * candidate that would have to re-wrap ACROSS a tree line does not match,
- * which keeps the row: the safe direction.
+ * every newline — soft or hard — collapses to a space and its claims stay
+ * whole. A row that would have to match ACROSS a tree hard break therefore
+ * does not match, which keeps the row: the safe direction.
  */
 function normCandidate(s: string): string {
   return norm(s).replace(/\n/g, " ");
@@ -650,11 +660,12 @@ function forbidsCommand(content: string, commands: string[]): boolean {
 }
 
 /**
- * Polarity-scope edges: `isBoundary` minus the newline. The haystack now keeps
- * newlines for the coverage test, and the polarity walk must step over them:
- * a heading's negation has to keep casting its shadow over the line under it,
- * exactly as it did when `norm()` erased newlines. This walk can only decline,
- * and re-scoping it would ADD refusals — the direction this file never moves.
+ * Polarity-scope edges: `isBoundary` minus the newline. The haystack keeps
+ * hard-break newlines for the coverage walk, and the polarity walk steps over
+ * them so its span is the same text the pre-newline build compared — the
+ * caller flattens the newlines before applying the cue list. This walk can
+ * only decline, and re-scoping it would ADD refusals — the direction this
+ * file never moves.
  */
 function isSentenceEdge(code: number): boolean {
   return code !== 10 && isBoundary(code);
@@ -765,7 +776,13 @@ function findClause(hay: string, clause: string, start = 0): number {
       !/\w/.test(String.fromCharCode(before)) &&
       !/\w/.test(String.fromCharCode(after)) &&
       hitCoversFigures(hay, i, i + clause.length) &&
-      cueNegated(sentence.text) === reversed &&
+      // The predicate reads the walked span with newlines flattened to
+      // spaces: the span walks hard breaks exactly as the pre-newline build
+      // walked spaces, and `NEGATION`'s bigram cues (`instead of`,
+      // `rather than`) match a literal space only. Tested on the raw span, a
+      // cue split by a hard break reads as no cue, the equality agrees
+      // against it, and the veto that catches a reversal goes blind.
+      cueNegated(sentence.text.replace(/\n/g, " ")) === reversed &&
       // A later occurrence may state the claim plainly, so a vetoed hit is
       // skipped rather than ending the search.
       !warnsAgainst(hay.slice(sentence.at, i))
@@ -789,7 +806,7 @@ function isAssertionEdge(code: number): boolean {
     code === 46 || // .
     code === 59 || // ;
     code === 58 || // :
-    code === 10 || // newline
+    code === 10 || // a hard break: norm() leaves only hard breaks as \n
     code === 0 // the file joiner
   );
 }
