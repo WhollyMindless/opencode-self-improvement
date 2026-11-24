@@ -167,6 +167,13 @@ export interface CaptureHealth {
   state: CaptureHealthState;
   /** Promoted capture rows in the window. */
   rows: number;
+  /**
+   * `auto_capture_scan` passes in the window and how many carried
+   * `capped=true`. Optional so a window with no scan evidence makes no
+   * truncation claim either way.
+   */
+  passes?: number;
+  cappedPasses?: number;
   /** Blocked / refused / partial capture outcomes in the window. */
   blocked: number;
   /** Newest `auto_capture_*` line, or null when nothing fired. */
@@ -212,6 +219,8 @@ export function captureHealth(
   let newestHeartbeat = "";
   let rows = 0;
   let blocked = 0;
+  let passes = 0;
+  let cappedPasses = 0;
   let lastFired: string | null = null;
   let lastExecuted: string | null = null;
   let lastStarted: string | null = null;
@@ -256,6 +265,12 @@ export function captureHealth(
     }
     if (!ev.startsWith("auto_capture_")) continue;
     if (ts && ts < cutoff) continue;
+    if (ev === "auto_capture_scan") {
+      // Corpus state must ride any count this parser reports: a capped scan's
+      // counts describe a truncated corpus, so the flag is kept with them.
+      passes++;
+      if (String(f.capped) === "true") cappedPasses++;
+    }
     if (ev.endsWith("promoted")) rows++;
     else if (
       ev.endsWith("blocked") ||
@@ -269,6 +284,8 @@ export function captureHealth(
     state,
     rows,
     blocked,
+    passes,
+    cappedPasses,
     lastFired,
     lastExecuted,
     lastStarted,

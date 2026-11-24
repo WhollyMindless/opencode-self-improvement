@@ -35,6 +35,7 @@ import type { StatusPayload } from "../../src/status/payload.ts";
 import {
   attributionLines,
   cacheLines,
+  captureLines,
   contextLines,
   renderMemoryReport,
   windowLines,
@@ -614,6 +615,78 @@ describe("captureHealth", () => {
     expect(h.rows).toBe(1);
     expect(h.blocked).toBe(2);
     expect(h.lastFired).toBe(recent);
+  });
+});
+
+// Counts restated from a scan that hit the corpus cap describe a partial
+// corpus, so the status line must carry that fact beside the counts.
+describe("auto-capture corpus caveat", () => {
+  const now = new Date().toISOString();
+  const heartbeat = formatLine({ ev: "plugin_load", ts: now, capture: "on" });
+  const scan = (capped: boolean, candidates: number) =>
+    formatLine({
+      ev: "auto_capture_scan",
+      ts: now,
+      session: "s1",
+      trigger: "idle",
+      candidates,
+      files: 242,
+      bytes: 2111445,
+      ms: 97,
+      tracked: true,
+      capped,
+      verdicts: 0,
+      restatements: 0,
+    });
+  const activity = [
+    formatLine({
+      ev: "auto_capture_promoted",
+      ts: now,
+      session: "s1",
+      row: "t1",
+    }),
+    formatLine({
+      ev: "auto_capture_promoted",
+      ts: now,
+      session: "s1",
+      row: "t2",
+    }),
+    formatLine({
+      ev: "auto_capture_promoted",
+      ts: now,
+      session: "s1",
+      row: "t3",
+    }),
+    formatLine({
+      ev: "auto_capture_refused",
+      ts: now,
+      session: "s1",
+      reason: "gate",
+    }),
+  ];
+  const render = (scanLines: string[]) =>
+    captureLines(captureHealth([heartbeat, ...scanLines, ...activity])).join(
+      "\n",
+    );
+
+  test("a capped scan pass appends the caveat; every scan pass counts in the denominator", () => {
+    const text = render([scan(true, 2), scan(false, 0)]);
+    expect(text).toContain("auto-capture: on");
+    expect(text).toContain(
+      "— corpus truncated on 1/2 scan passes; restatements are a floor and rows an upper bound over a partial corpus",
+    );
+  });
+
+  test("an all-uncapped scan window renders no caveat", () => {
+    const text = render([scan(false, 2)]);
+    expect(text).toContain("auto-capture: on");
+    expect(text).not.toContain("corpus truncated");
+  });
+
+  test("a window with no scan line renders no caveat and claims no truncation", () => {
+    const text = render([]);
+    expect(text).toContain("auto-capture: on");
+    expect(text).not.toContain("corpus truncated");
   });
 });
 

@@ -206,7 +206,10 @@ export function captureLines(c: CaptureHealth): string[] {
       }
       const fired = c.lastFired ?? c.lastExecuted;
       return [
-        `  auto-capture: on, last fired ${fired ? ago(fired) : "now"}, ${c.rows} rows, ${c.blocked} refused`,
+        `  auto-capture: on, last fired ${fired ? ago(fired) : "now"}, ${c.rows} rows, ${c.blocked} refused` +
+          ((c.cappedPasses ?? 0) > 0
+            ? ` — corpus truncated on ${c.cappedPasses}/${c.passes} scan passes; restatements are a floor and rows an upper bound over a partial corpus`
+            : ""),
       ];
     }
     default:
