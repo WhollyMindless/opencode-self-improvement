@@ -2,13 +2,16 @@
 
 Durable memory for [opencode](https://opencode.ai): the decisions, commands and facts an agent should still know next week, plus a one-command per-repo setup.
 
-Say "we use Bun, not npm — npm keeps breaking the lockfile" on Monday. A session you start on Tuesday already knows it, and why. A memory that turns out wrong is superseded, never deleted, and `memory_undo` rolls it back.
+Say "we use Bun, not npm — npm keeps breaking the lockfile" on Monday. A session you start on Tuesday already knows it, and why. A memory that turns out wrong is superseded, never deleted, and `memory_undo` rolls it back. Install with `opencode plugin add opencode-self-improvement`.
 
-Every figure here carries a marker: **measured** (read off a live store), **bench** (a deterministic synthetic workload, reproducible with the command printed under the table), or **illustrative** (sample output showing shape, not a measurement). A number without a marker is a claim that has not been checked.
+![Ten-second demo: remember, recall, correct, undo](docs/assets/demo.gif)  
+*Scripted turns. Real plugin, real store, fake model. Regenerate with `vhs demo.tape`.*
+
+Every figure here carries a marker: **measured** (read off a live store), **bench** (a deterministic synthetic workload, reproducible with the command printed under the table), or **illustrative** (sample output showing shape, not a measurement). Unmarked numbers are unchecked.
 
 ## Quick start
 
-**1. Add the plugin** to `~/.config/opencode/opencode.jsonc` (global) or a project `opencode.jsonc`:
+**1. Add the plugin** to `~/.config/opencode/opencode.jsonc` (global) or a project `opencode.jsonc`. [More install detail](docs/reference/install.md) covers the Bun floor, `@latest`, and checkout installs:
 
 ```json
 {
@@ -19,11 +22,7 @@ Every figure here carries a marker: **measured** (read off a live store), **benc
 
 **2. Restart opencode.** On the desktop app a later config edit needs `opencode service restart`: relaunching the app leaves the background service, and the options it already parsed, alive.
 
-**3. Run `/repo-init`** in each repo you work in. It stores that repo's test / build / lint / typecheck commands as memories, so the next session does not rediscover them. Rerun `/repo-init force` after a refactor.
-
-After that, memory is just conversation: ask the agent to remember something and it sticks.
-
-Other install routes — `opencode plugin add`, the Bun version floor, how an unpinned entry resolves `@latest`, and pointing the entry at a checkout: [docs/reference/install.md](docs/reference/install.md).
+**3. Run `/repo-init`** in each repo you work in. It stores that repo's test / build / lint / typecheck commands as memories, so the next session does not rediscover them. Rerun `/repo-init force` after a refactor. After that, memory is just conversation: ask the agent to remember something and it sticks.
 
 ## What you get
 
