@@ -106,6 +106,19 @@ test("no proper substring of a tracked sentence is refused unless it states that
   expect(seen.refused).toBeGreaterThan(0);
 });
 
+test("an empty or whitespace-only candidate is kept, not refused on a vacuous match", () => {
+  const index = available.availabilityIndex(
+    readmeRepo("empty", "Rebuild the index weekly.\n"),
+  );
+  expect(index.check("")).toBeNull();
+  expect(index.check("   ")).toBeNull();
+  expect(index.check("\n \t\n")).toBeNull();
+  // Control: the same index still refuses the restatement it should.
+  expect(index.check("Rebuild the index weekly.")?.reason).toBe(
+    "in_tracked_file",
+  );
+});
+
 test("a multi-line verbatim restatement of a multi-line passage is refused", () => {
   const index = available.availabilityIndex(
     readmeRepo(

@@ -982,7 +982,12 @@ export function availabilityIndex(
       //     BLUEBIRD" refused because the manifest declares `deploy`, although
       //     the restriction and the code appear nowhere.
       // A refusal requires EVERY assertion the candidate makes to be restatable.
+      // A refusal demands a claim to restate. An empty candidate has none, and
+      // `indexOf("")` succeeds everywhere: without this guard the vacuous hit
+      // at the end of the haystack is read as evidence and the refusal cites
+      // no file and no span. A candidate with nothing to restate is kept.
       const whole = normCandidate(content);
+      if (whole === "") return null;
       const needed = claims(whole);
       if (needed.length === 0) needed.push(whole);
       // Evidence mirror of `whole` and of its first claim, scrubbed WHILE THE
