@@ -516,7 +516,12 @@ function operandCandidates(span: string, gate: Gate): string[][] {
   return out;
 }
 
-/** Is `operand` a contiguous token run inside any vouching label? */
+/**
+ * Is `operand` a contiguous token run inside any vouching label? The run is
+ * compared over bare words, not flag identity — `tokens()` splits on `-` — so
+ * a flag whose word appears as a value in the declaration matches it, and the
+ * case bank's `gate-entry-value-reused-as-flag` row records that consequence.
+ */
 function contiguousIn(operand: string[], labels: string[]): boolean {
   for (const label of labels) {
     const decl = tokens(label);
