@@ -1018,6 +1018,14 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
       "counterpart — the prior-line conditional restated whole, in the tree's own order, is restatable",
   },
   {
+    id: "cue-hard-break-mid-cue",
+    tree: "Route requests to the canary instead\n\nof the staging pool.\n",
+    candidate: "Route requests to the canary instead.",
+    expectTag: false,
+    source:
+      "a blank line inside the `instead of` cue is a hard break, so coverage stops at the region and only the polarity veto — reading its span with newlines flattened — can keep the row",
+  },
+  {
     id: "gate-prose-settle-verbatim",
     tree: "Keep 3 replicas warm before rollout.\n",
     files: {
