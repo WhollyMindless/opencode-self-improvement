@@ -86,7 +86,11 @@ export type AvailabilityVerdict = {
 // Temporal and conditional words (before, after, until, unless, when, if, only,
 // once) and every modal are deliberately absent: they state a condition, and a
 // manifest declares THAT a command exists, never when it may be run.
-const FILLER = new Set([
+//
+// Exported for the coverage sweep pin in `test/capture/`: the pin must decide
+// "dropped only FILLER" with the SAME whitelist the matcher uses, or a drift
+// between two copies loosens the pin in silence.
+export const FILLER = new Set([
   // function words
   "a",
   "an",
@@ -301,11 +305,30 @@ const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "vendor"]);
 
 /**
  * Normalise for a "same words, different wrapping" comparison: case, markdown
- * emphasis and backticks, and runs of whitespace. This is verbatim modulo
- * formatting, and the evidence line says so rather than claiming fuzzy matching.
+ * emphasis and backticks, and runs of whitespace. Newlines survive the collapse
+ * as one `\n` because a line is the only separator a markdown heading or list
+ * item ever gets, and the coverage test needs to see it; the polarity walk
+ * deliberately steps over it, so every polarity decision stays scoped exactly
+ * as it was when `norm()` erased newlines. This is verbatim modulo formatting,
+ * and the evidence line says so rather than claiming fuzzy matching.
  */
 function norm(s: string): string {
-  return s.toLowerCase().replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
+  return s
+    .toLowerCase()
+    .replace(/[*_`]/g, "")
+    .replace(/\s+/g, (m) => (m.includes("\n") ? "\n" : " "))
+    .trim();
+}
+
+/**
+ * Candidate-side normalisation: a row's own line wrapping is formatting, so
+ * its newlines collapse to spaces and its claims stay whole. The tree keeps
+ * its newlines — they are the only edge a heading or list item gets — so a
+ * candidate that would have to re-wrap ACROSS a tree line does not match,
+ * which keeps the row: the safe direction.
+ */
+function normCandidate(s: string): string {
+  return norm(s).replace(/\n/g, " ");
 }
 
 function extOf(name: string): string {
@@ -626,6 +649,17 @@ function forbidsCommand(content: string, commands: string[]): boolean {
   return false;
 }
 
+/**
+ * Polarity-scope edges: `isBoundary` minus the newline. The haystack now keeps
+ * newlines for the coverage test, and the polarity walk must step over them:
+ * a heading's negation has to keep casting its shadow over the line under it,
+ * exactly as it did when `norm()` erased newlines. This walk can only decline,
+ * and re-scoping it would ADD refusals — the direction this file never moves.
+ */
+function isSentenceEdge(code: number): boolean {
+  return code !== 10 && isBoundary(code);
+}
+
 /** The whole sentence around `start .. start+len`, with the offset it starts at. */
 function sentenceSpan(
   text: string,
@@ -633,9 +667,9 @@ function sentenceSpan(
   len: number,
 ): { text: string; at: number } {
   let a = start;
-  while (a > 0 && !isBoundary(text.charCodeAt(a - 1))) a--;
+  while (a > 0 && !isSentenceEdge(text.charCodeAt(a - 1))) a--;
   let b = start + len;
-  while (b < text.length && !isBoundary(text.charCodeAt(b))) b++;
+  while (b < text.length && !isSentenceEdge(text.charCodeAt(b))) b++;
   return { text: text.slice(a, b), at: a };
 }
 
@@ -739,6 +773,61 @@ function findClause(hay: string, clause: string, start = 0): number {
       return i;
     from = i + 1;
   }
+}
+
+/**
+ * Assertion edges for the coverage test: the boundaries `claims()` splits a
+ * candidate on, MINUS the comma. An `if` or an `unless` before a comma scopes
+ * over what follows it, so a row that keeps only the consequence has dropped
+ * the operator that decided it, and the comma must not hide that from the
+ * comparison. The polarity veto keeps the comma as an edge on purpose: it can
+ * only decline, and re-scoping it there would move every polarity decision
+ * in the file.
+ */
+function isAssertionEdge(code: number): boolean {
+  return (
+    code === 46 || // .
+    code === 59 || // ;
+    code === 58 || // :
+    code === 10 || // newline
+    code === 0 // the file joiner
+  );
+}
+
+/** Does any word here carry a claim — anything outside FILLER? */
+function statesClaim(text: string): boolean {
+  return text.split(/[^a-z0-9']+/).some((w) => w !== "" && !FILLER.has(w));
+}
+
+/**
+ * Does the matched region cover the WHOLE assertion the tree states, modulo
+ * FILLER? Containment is a substring relation and a row's claim is never
+ * longer than the tree's sentence, so containment alone licenses every row
+ * that DROPS material scoping over the span it matched: the condition of
+ * "route to the canary only when the flag is set", the frequency of "rebuild
+ * weekly", the `not` of a prohibition whose cue the row replaced with one of
+ * its own. A refusal on such a row destroys the rule the session brought.
+ * The sentence around a hit was already computed and reduced to one polarity
+ * bit; here the whole of it is compared instead: every tree word outside the
+ * region must be FILLER, or the row states something the tree does not and
+ * is kept. A region that ends on its own terminator stops the forward walk —
+ * the claim consumed its sentence's final `.`, so the tree's next sentence is
+ * a separate assertion, not dropped material.
+ */
+function coversAssertion(
+  hay: string,
+  region: { start: number; end: number },
+): boolean {
+  let a = region.start;
+  while (a > 0 && !isAssertionEdge(hay.charCodeAt(a - 1))) a--;
+  let b = region.end;
+  if (!isAssertionEdge(hay.charCodeAt(region.end - 1))) {
+    while (b < hay.length && !isAssertionEdge(hay.charCodeAt(b))) b++;
+  }
+  return (
+    !statesClaim(hay.slice(a, region.start)) &&
+    !statesClaim(hay.slice(region.end, b))
+  );
 }
 
 /**
@@ -893,7 +982,7 @@ export function availabilityIndex(
       //     BLUEBIRD" refused because the manifest declares `deploy`, although
       //     the restriction and the code appear nowhere.
       // A refusal requires EVERY assertion the candidate makes to be restatable.
-      const whole = norm(content);
+      const whole = normCandidate(content);
       const needed = claims(whole);
       if (needed.length === 0) needed.push(whole);
       // Evidence mirror of `whole` and of its first claim, scrubbed WHILE THE
@@ -904,7 +993,7 @@ export function availabilityIndex(
       //. Redacting `avail.matched` later cannot recover what
       // normalisation already destroyed, so this is the only place it can be
       // done. Verdict logic reads `needed`, never these.
-      const safeWhole = norm(redactSecrets(content));
+      const safeWhole = normCandidate(redactSecrets(content));
       const safeFirst = claims(safeWhole)[0] ?? safeWhole;
       // A refusal here claims the tree states EVERY figure the candidate
       // states AND states the whole candidate as one contiguous assertion.
@@ -923,6 +1012,7 @@ export function availabilityIndex(
       const region = haystack ? restatedContiguously(haystack, needed) : null;
       if (
         region &&
+        coversAssertion(haystack, region) &&
         figuresWithin(
           content,
           new Set(numericTokens(haystack.slice(region.start, region.end))),
@@ -1004,10 +1094,16 @@ export function availabilityIndex(
         }
         let residual = content;
         for (const span of spans) residual = residual.split(span).join(" ");
-        const rest = claims(norm(residual));
+        const rest = claims(normCandidate(residual));
         const restRegion =
           rest.length === 0 ? null : restatedContiguously(haystack, rest);
-        if (rest.length === 0 || restRegion !== null) {
+        // The prose the declarations do not answer settles against the tree on
+        // the same terms as the tracked path: the region must cover the whole
+        // assertion, so a residual that drops a scoping operator keeps the row.
+        if (
+          rest.length === 0 ||
+          (restRegion !== null && coversAssertion(haystack, restRegion))
+        ) {
           // A figure outside every quoted command is prose, and prose settles
           // against the passage this refusal cites for it — the same region
           // the tracked path answers with. A figure no cited passage states is
