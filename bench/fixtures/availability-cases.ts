@@ -1000,4 +1000,18 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "counterpart — the wrapped conditional restated whole is restatable",
   },
+  {
+    id: "gate-prose-settle-verbatim",
+    tree: "Keep 3 replicas warm before rollout.\n",
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --replicas 3" },
+      }),
+    },
+    candidate: "Run `npm run deploy`; keep 3 replicas warm before rollout.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "the prose-settle path of the gate branch, pinned verbatim — the residual the declarations do not answer must still settle against the passage that states it",
+  },
 ];
