@@ -71,6 +71,12 @@ for (const c of AVAILABILITY_CASES) {
         `${c.id}: expected the ${c.expectReason} branch specifically — got ${verdict?.reason ?? "none"}, so this case is testing the other half of the check while carrying this name`,
       ).toBe(c.expectReason);
     }
+    if (c.expectWhere) {
+      expect(
+        verdict?.where,
+        `${c.id}: expected the refusal to cite [${c.expectWhere}] — got [${verdict?.where ?? "none"}], so the evidence line does not name every declaration this verdict rested on`,
+      ).toBe(c.expectWhere);
+    }
   });
 }
 
