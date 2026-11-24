@@ -1113,4 +1113,65 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "an association stated as a heading is a separate assertion to `norm()`, so coverage passes and the refusal contradicts the tree's own scoping — recorded as the accepted residue of the bar, not fixed; the heading word is a claim word on purpose, because a gate-vocabulary heading is FILLER and fusing it would change nothing this row could catch",
   },
+
+  // ── The loose entry admits; only the settle refuses ───────────────────────
+  // A multi-word declaration admits a form that starts or ends with its label.
+  // The entry decides nothing on its own: every refusal must still settle on a
+  // contiguous operand run inside the same declaration. These rows pin the
+  // division of labour between the two, and one records a limit of the
+  // word-level comparison.
+  {
+    id: "gate-entry-admits-and-settles",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --target staging" },
+      }),
+    },
+    candidate: "Run `deploy-tool publish --target staging --target staging`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "the loose prefix/suffix entry is load-bearing: a tail the declaration states verbatim settles contiguously and refuses",
+  },
+  {
+    id: "gate-entry-admits-settle-refuses",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --target staging" },
+      }),
+    },
+    candidate: "Run `deploy-tool publish --target staging --force`.",
+    expectTag: false,
+    source:
+      "entry alone never refuses: an operand the declaration does not state keeps the row through the loose entry",
+  },
+  {
+    id: "gate-entry-single-word-never-loose",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --target staging" },
+      }),
+    },
+    candidate: "Run `git deploy`.",
+    expectTag: false,
+    source:
+      "reachability: a single-word label matches only the operand position, so a foreign command naming it never takes the loose multi-word branch",
+  },
+  {
+    id: "gate-entry-value-reused-as-flag",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --target staging" },
+      }),
+    },
+    candidate: "Run `deploy-tool publish --target staging --staging`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    source:
+      "accepted limit of word-level operand comparison: a flag whose word is a value in the declaration refuses — the comparison is over bare words, not flag identity",
+  },
 ];
