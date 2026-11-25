@@ -38,7 +38,11 @@ import { findStaleOpen } from "./portable/decay.ts";
 import { exportMemories } from "./portable/export.ts";
 import { importMemories } from "./portable/import.ts";
 import { listSnapshots, restoreSnapshot } from "./store/undo.ts";
-import { evidenceFileFor, record } from "./telemetry/record.ts";
+import {
+  evidenceFileFor,
+  record,
+  recordBestEffort,
+} from "./telemetry/record.ts";
 import { proposeConsolidations } from "./consolidate/propose.ts";
 import { renderProposals } from "./consolidate/render.ts";
 import { readReads } from "./telemetry/ledger.ts";
@@ -124,10 +128,9 @@ const impl = {
     const liveRoot = setupRoot ?? process.cwd();
     // mirror every swallowed guarded() failure into the evidence file.
     // Hook name + error class ONLY — never the message, which can carry
-    // conversation content. Fire-and-forget: evidence must not add a failure
-    // to a path that already failed softly.
+    // conversation content. A failed mirror counts as a dropped diagnostic.
     setGuardedFailureReporter((name, err) =>
-      record(
+      recordBestEffort(
         "hook_error",
         {
           hook: name,
@@ -137,7 +140,7 @@ const impl = {
               : typeof err,
         },
         false,
-      ).catch(() => {}),
+      ),
     );
     setRepoScope(setupRoot ? resolveRepo(setupRoot) : null);
     // THIS instance's own workspace. The module scope says who loaded last;

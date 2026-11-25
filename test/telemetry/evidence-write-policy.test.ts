@@ -27,6 +27,7 @@ import { resetState } from "../../src/core/state.ts";
 import { setRepoScope } from "../../src/identity/repokey.ts";
 import { resetCaptureCooldowns } from "../../src/index.ts";
 import { evidenceDir } from "../../src/core/config/paths.ts";
+import { guarded } from "../../src/core/hooks.ts";
 import { dateStr } from "../../src/core/time.ts";
 import {
   droppedEvidenceWrites,
@@ -144,6 +145,25 @@ test("the strict writer still throws and stays out of the counter", async () => 
     // own error, not a dropped diagnostic line.
     expect(droppedEvidenceWrites()).toBe(null);
   } finally {
+    chmodSync(file, 0o600);
+  }
+});
+
+test("a failed hook_error mirror increments the shared drop counter once", async () => {
+  plugin = await loadPlugin(root, { autoCapture: false });
+  const file = await unwritableDayFile();
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await recordBestEffort("capture_cost");
+    await guarded("fixture", async () => {
+      throw new Error("private hook failure");
+    });
+    const lost = droppedEvidenceWrites();
+    expect(lost).toMatchObject({ dropped: 2, lastEvent: "hook_error" });
+    expect(lost?.lastError).toMatch(/EACCES|EPERM/);
+    expect(lost?.lastError).not.toContain("private hook failure");
+  } finally {
+    warn.mockRestore();
     chmodSync(file, 0o600);
   }
 });
