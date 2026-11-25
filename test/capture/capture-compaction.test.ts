@@ -469,6 +469,7 @@ describe("cooldown shared across setup() registrations", () => {
   });
 
   test("an idle broadcast reaches every live subscription, and pays exactly ONE model call", async () => {
+    const sid = "ses-twin-idle";
     seed("pattern", "build", DUP_CONTENT);
     const a = await loadPlugin(liveRoot, {
       autoCapture: true,
@@ -478,7 +479,7 @@ describe("cooldown shared across setup() registrations", () => {
       autoCapture: true,
       captureModel: "fake/model",
     });
-    await ground(b, "ses-twin-idle");
+    await ground(b, sid);
     // Both replies are genuinely new: the harness bus queues both subscribers
     // independently, so which loop wins the shared cooldown is scheduling luck -
     // with a DUP twin on either side, a collapse could legitimately leave the
@@ -509,18 +510,18 @@ describe("cooldown shared across setup() registrations", () => {
     // the fire and the other skips.
     a.capture.events.push({
       type: "session.execution.succeeded",
-      data: { sessionID: "ses-twin-idle" },
+      data: { sessionID: sid },
     });
     b.capture.events.push({
       type: "session.execution.succeeded",
-      data: { sessionID: "ses-twin-idle" },
+      data: { sessionID: sid },
     });
-    // Completion signal: the evidence line is recorded after runWriteGate
-    // returns, i.e. once the append has hit disk. The naked sleep this replaces
-    // doubled as the whole append budget and lost it on a loaded Windows
-    // runner; the compaction twin above already waits on evidence.
+    // The arrival receipt can precede the model call. The promotion receipt
+    // for this session comes after the write gate has appended the row.
     await waitFor(() =>
-      evidence().some((l) => String(l.ev).startsWith("auto_capture_")),
+      evidence().some(
+        (l) => l.ev === "auto_capture_promoted" && l.session === sid,
+      ),
     );
     expect(
       a.capture.generate.calls.length + b.capture.generate.calls.length,
