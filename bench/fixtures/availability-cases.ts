@@ -539,8 +539,7 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
       "PR #493 review counterpart — an argument the declaration states leaves the plain invocation a provable restatement",
   },
   // ── A step-kind declaration vouches for its own step only ─────────────────
-  // Every recipe in a Makefile and every `run:` in a workflow shares one
-  // `where` while stating nothing about its siblings.
+  // A recipe or workflow run step states nothing about its siblings.
   {
     id: "gate-workflow-sibling-flag",
     tree: NEUTRAL_README,
@@ -563,13 +562,44 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     candidate: "Run `npm run build --prod`.",
     expectTag: true,
     expectReason: "declared_gate",
+    expectWhere: ".github/workflows/ci.yml:6 run",
     source:
       "PR #493 review B2 counterpart — the same step declares the flag, so the invocation is a restatement",
+  },
+  {
+    id: "gate-workflow-distinct-step-citations",
+    tree: NEUTRAL_README,
+    files: {
+      ".github/workflows/ci.yml":
+        "name: ci\non: push\njobs:\n  a:\n    steps:\n      - run: npm run build\n      - run: docker push app --prod\n",
+    },
+    candidate: "Run `npm run build` and `docker push app --prod`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    expectWhere:
+      ".github/workflows/ci.yml:6 run, .github/workflows/ci.yml:7 run",
+    source: "both settled workflow steps are cited at their own source lines",
+  },
+  {
+    id: "gate-makefile-distinct-recipe-citations",
+    tree: NEUTRAL_README,
+    files: {
+      ".gitattributes": "Makefile text eol=lf\n",
+      Makefile:
+        "ship:\n\tdeploy-tool publish --prod\n\tarchive-tool pack --fast\n",
+    },
+    candidate:
+      "Run `deploy-tool publish --prod` and `archive-tool pack --fast`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    expectWhere: "Makefile:2 recipe, Makefile:3 recipe",
+    source: "both settled recipe commands are cited at their own source lines",
   },
   {
     id: "gate-makefile-sibling-word",
     tree: NEUTRAL_README,
     files: {
+      ".gitattributes": "Makefile text eol=lf\n",
       Makefile:
         "ship:\n\trsync dist box:/srv\nbackup:\n\ttar czf backup.tgz dist\n",
     },
