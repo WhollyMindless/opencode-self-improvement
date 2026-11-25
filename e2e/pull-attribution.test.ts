@@ -112,6 +112,14 @@ const scenarios: Scenario[] = [
     delivered: [KEPT],
     credited: [],
   },
+  {
+    name: "a footer echo cannot identify the missing twin",
+    formatter: "footer-echo",
+    order: "after",
+    rows: [KEPT, SAME_TEXT],
+    delivered: [KEPT, KEPT],
+    credited: [],
+  },
 ];
 
 let fake: Fake;
@@ -236,6 +244,11 @@ test.each(scenarios)(
         } else if (formatter === "footer") {
           expect(trace.after).toBe(`${trace.before}\n${FOOTER}`);
           expect(wire).toContain(FOOTER);
+        } else if (formatter === "footer-echo") {
+          const lines = trace.before.split("\n");
+          lines.pop();
+          expect(trace.after).toBe([...lines, FOOTER, lines.at(-1)].join("\n"));
+          expect(wire).toBe(trace.after);
         } else {
           const clipped = trace.before.slice(0, -8);
           expect(trace.after).toBe(

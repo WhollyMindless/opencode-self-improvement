@@ -228,6 +228,22 @@ describe("Feature: credit what the request carries", () => {
     expect(losses).toEqual([]);
   });
 
+  test("a footer echo cannot prove a second indistinguishable row", () => {
+    const twin = { ...A, ts: B.ts };
+    const book = createPullReceipts();
+    book.hold(placed([A, twin]));
+    const text = `${delivered([A])}\n-- footer --\n${formatMemory(A)}`;
+    const { credits, losses } = book.settle(
+      "ses-a",
+      request("call-1", text),
+      T0 + 1,
+    );
+    expect(credits).toEqual([]);
+    expect(losses.map(({ rows, reason }) => [rows, reason])).toEqual([
+      [2, "trimmed"],
+    ]);
+  });
+
   test("Scenario: the row's text appears in the file but the block is gone — no credit", () => {
     const book = createPullReceipts();
     book.hold(placed([A]));
