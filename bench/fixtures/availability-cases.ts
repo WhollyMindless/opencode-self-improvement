@@ -1165,6 +1165,20 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     source:
       "entry alone never refuses: an operand the declaration does not state keeps the row through the loose entry",
   },
+  gateCommandCase(
+    "gate-package-exec-duplicate-keeps",
+    "deploy-tool publish --target staging",
+    "bunx deploy-tool publish --target staging --target staging",
+    false,
+    "#527: the direct-invocation duplicate allowance does not extend to a package executor",
+  ),
+  gateCommandCase(
+    "gate-bare-script-with-operands-keeps",
+    "deploy-tool publish --target staging",
+    "deploy --target staging",
+    false,
+    "#527: the script declaration does not establish a standalone command of the same name",
+  ),
   {
     id: "gate-entry-single-word-never-loose",
     tree: NEUTRAL_README,
