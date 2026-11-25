@@ -1161,12 +1161,14 @@ export function configureAutoCapture(
           for await (const raw of eventApi.subscribe({
             signal: controller.signal,
           })) {
+            // The iterator may still yield an event queued before abort.
+            if (controller.signal.aborted) break;
             // One event's failure stays that event's failure. The guard covers
             // the whole body, including the receipt that reports a failure,
             // because this loop is the only thing that hands capture every later
             // turn: a throw that reaches it ends auto-capture for the life of
             // the process, and the log that would say so is the thing that
-            // broke. Only the subscription ending may leave the loop.
+            // broke. Only abort or the subscription ending may leave the loop.
             // Named in the outer scope because the catch reports it: a failure
             // before the id is read has no session to name.
             let sid: string | undefined;
