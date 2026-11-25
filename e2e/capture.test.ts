@@ -43,10 +43,12 @@
 // #404: the availability check and the drain were never reached. `turnUntil-
 // CaptureStarts` retries so this file tests the contract it can test, asserts a pass
 // starts within four turns so a dead capture still fails, and prints the attempt
-// count so the rate stays visible rather than being re-run away. Because the plugin
-// writes `auto_capture_seen` for every delivered event, the printed rate also names
-// what the retry masked: an attempt whose arrival receipt landed with no pass is
-// arrived-lost, an attempt with no receipt never reached the plugin.
+// count so the rate stays visible rather than being re-run away. Because the
+// plugin writes `auto_capture_seen` for every delivered event, the printed
+// rate also names what the retry masked: an attempt whose arrival carried
+// `discard=none` and that neither a pass nor a skip accounted for is
+// arrived-lost. An attributed discard and a deliberate skip each settle their
+// arrival; an attempt with no receipt never reached the plugin.
 //
 // The byte-exact row assertion below is therefore unconditional, and it is the
 // control for that fix, not a guard: with the two-phase drain reverted it failed
@@ -78,6 +80,7 @@ import {
   startFake,
   turn,
 } from "./support/harness.ts";
+import { arrivedLostBetween } from "./support/arrived-lost.ts";
 
 let fake: Fake;
 const guests: Guest[] = [];
@@ -213,10 +216,14 @@ const withEv = (lines: string[], ev: string) =>
  * dead rather than merely unlucky.
  *
  * The retry hides how often a turn arrived and still produced nothing, so each
- * attempt is classified before the next one overwrites the picture: an attempt
- * that wrote `auto_capture_seen` but no `auto_capture_start` is counted as
- * arrived-lost, and the count rides back on the result so the printed rate
- * states it. Keeping the retry; exposing what it masked.
+ * attempt is classified before the next one overwrites the picture. An attempt
+ * counts as arrived-lost only when it adds a proceeding arrival — an
+ * `auto_capture_seen` with `discard=none` — that no `auto_capture_start` and
+ * no `auto_capture_skipped` accounts for; the rule is
+ * `arrivedLostBetween`, the same one the status parser applies. Attributed
+ * discards and deliberate skips are outcomes, not losses, and counting them
+ * would inflate the rate the print exists to state truthfully. The count rides
+ * back on the result. Keeping the retry; exposing what it masked.
  */
 async function turnUntilCaptureStarts(
   g: Guest,
@@ -225,8 +232,7 @@ async function turnUntilCaptureStarts(
   let ev: string[] = [];
   let arrivedLost = 0;
   for (let attempt = 1; attempt <= attempts; attempt++) {
-    const seenBefore = withEv(ev, "auto_capture_seen").length;
-    const startedBefore = withEv(ev, "auto_capture_start").length;
+    const before = ev;
     const run = await turn(fake, g, PROMPT);
     expect(run.exit).toBe(0);
     for (let i = 0; i < 40; i++) {
@@ -236,22 +242,18 @@ async function turnUntilCaptureStarts(
     }
     if (withEv(ev, "capture_cost").length > 0)
       return { ev, started: attempt, arrivedLost };
-    // A receipt landed and no pass line followed it: this attempt reached the
-    // plugin and was lost between arrival and start. Counting it is the whole
-    // point — the next attempt would otherwise erase the only evidence it
-    // happened.
-    if (
-      withEv(ev, "auto_capture_seen").length > seenBefore &&
-      withEv(ev, "auto_capture_start").length === startedBefore
-    )
-      arrivedLost++;
+    // Counting what the next attempt would otherwise erase: a proceeding
+    // arrival with neither a start nor a skip after it. The predicate is the
+    // shared rule, so an attributed discard or a deliberate skip never
+    // joins the count.
+    if (arrivedLostBetween(before, ev)) arrivedLost++;
   }
   return { ev, started: 0, arrivedLost };
 }
 
 /** The printed rate line: the attempt that worked and what the retry masked. */
 const startRate = (test: string, started: number, arrivedLost: number) =>
-  `[capture-start] ${test}: pass started on attempt ${started}, ${arrivedLost} arrived-lost (arrival receipt, no pass)`;
+  `[capture-start] ${test}: pass started on attempt ${started}, ${arrivedLost} arrived-lost (discard=none arrival, no pass, no skip)`;
 
 describe("auto-capture on the real host", () => {
   test("a real turn fires a real capture pass", async () => {
@@ -261,7 +263,7 @@ describe("auto-capture on the real host", () => {
     console.log(startRate("test 1", started, arrivedLost));
     expect(
       started,
-      `no capture pass started in 4 real turns — ${withEv(ev, "tool_result").length} tool results, ${withEv(ev, "auto_capture_seen").length} arrival receipts (${arrivedLost} with no pass) and ${withEv(ev, "capture_cost").length} capture triggers, so ${arrivedLost > 0 ? "the turn-end event reached the plugin and the pass never began" : "the turn-end event is not reaching the plugin at all"}`,
+      `no capture pass started in 4 real turns — ${withEv(ev, "tool_result").length} tool results, ${withEv(ev, "auto_capture_seen").length} arrival receipts (${arrivedLost} arrived-lost) and ${withEv(ev, "capture_cost").length} capture triggers, so ${arrivedLost > 0 ? "the turn-end event reached the plugin and the pass never began" : "the turn-end event is not reaching the plugin at all"}`,
     ).toBeGreaterThan(0);
     // Asserted before the pass's own fields, because a silent option failure looks
     // exactly like "capture ran and found nothing".
