@@ -29,6 +29,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setImmediate } from "node:timers/promises";
 import { type Fields, parseLine } from "../../src/core/logfmt/format.ts";
 import { resetState } from "../../src/core/state.ts";
 import { setRepoScope } from "../../src/identity/repokey.ts";
@@ -298,6 +299,29 @@ test("a pass that already holds its answer is drained, not abandoned", async () 
   // `auto_capture_compaction_promoted` here, not `auto_capture_promoted`.
   expect(ownEvidenceLog().some((l) => l.ev === "write_promoted")).toBe(true);
   expect(ownEvidenceLog().some((l) => l.ev === "capture_lag")).toBe(true);
+});
+
+test("a queued turn-end event is discarded when cleanup aborts before dispatch", async () => {
+  const loaded = await loadPlugin(root, {
+    autoCapture: true,
+    captureModel: "fake/model",
+  });
+  plugin = loaded;
+  await waitFor(() => loaded.capture.events.subscribeCalls === 2);
+
+  // The fake iterator yields queued events before honoring abort. Queue and
+  // abort in the same turn, before the subscription can consume the event.
+  loaded.capture.events.push({
+    type: "session.execution.succeeded",
+    data: { sessionID: "ses-queued-at-disposal" },
+  });
+  await loaded.cleanup();
+  await setImmediate();
+
+  expect(ownEvidenceLog().some((line) => line.ev === "auto_capture_seen")).toBe(
+    false,
+  );
+  expect(loaded.capture.context.calls).toEqual([]);
 });
 
 // The pre-model path : the first abort check sat after the model
