@@ -20,16 +20,23 @@
 //      removes the store right after cleanup sees nothing straggling.
 // Hermetic: temp OPENCODE_MEMORY_DIR / OPENCODE_COMMANDS_DIR.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type Fields, parseLine } from "../../src/core/logfmt/format.ts";
 import { resetState } from "../../src/core/state.ts";
 import { setRepoScope } from "../../src/identity/repokey.ts";
 import { resetCaptureCooldowns } from "../../src/index.ts";
 import { loadAll } from "../../src/store/files/load.ts";
 import { isActive } from "../../src/store/model/predicates.ts";
 import { type LoadedPlugin, loadPlugin } from "../harness.ts";
-import { readEvidenceLog, sleep } from "../helpers/logfmt.ts";
+import { sleep } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
@@ -138,11 +145,57 @@ function capturedRows() {
   );
 }
 
-/** Evidence appended at or after the disposal instant — the leak under test. */
-function evidenceSince(ms: number) {
-  return readEvidenceLog()
-    .filter((l) => Date.parse(String(l.ts)) >= ms)
-    .map((l) => String(l.ev));
+/**
+ * The day files this test's own store holds, oldest first. Pinned to `root`
+ * rather than to `OPENCODE_MEMORY_DIR`: that variable is process-global and a
+ * reader that follows it can be sent to another store, where it would measure
+ * nothing and still report clean. Every file in the directory rather than
+ * today's only, so a UTC midnight rollover mid-test cannot move the evidence
+ * out from under a read.
+ */
+function ownEvidenceFiles(): string[] {
+  const dir = join(root, "memory", "evidence");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((n) => n.endsWith(".logfmt"))
+    .sort()
+    .map((n) => join(dir, n));
+}
+
+/** Every evidence byte the test's own store holds, in append order. */
+function evidenceBytes(): Buffer {
+  return Buffer.concat(ownEvidenceFiles().map((f) => readFileSync(f)));
+}
+
+/**
+ * The bytes appended to the test's own store after `mark` was taken, as raw
+ * text: `ev=… ts=… sid=…` lines, unfiltered. Disposal is bounded by taking the
+ * mark when `cleanup()` resolves — from that instant the caller may remove the
+ * store — and asserting nothing was appended. A clock cannot bound this: `ts`
+ * is millisecond resolution, so a line the passing run wrote and a mark taken
+ * in the same millisecond are indistinguishable, while the bytes are. The
+ * return value is the text itself so a failure names the receipts it saw
+ * instead of only that there were some.
+ */
+function appendedSince(mark: Buffer): string {
+  const now = evidenceBytes();
+  if (!now.subarray(0, mark.length).equals(mark)) {
+    // The store changed BELOW the mark: truncation or a rewrite, the same
+    // breach of "nothing after disposal", and the whole file is the evidence.
+    return `evidence store changed before the mark:\n${now.toString("utf8")}`;
+  }
+  return now.subarray(mark.length).toString("utf8");
+}
+
+/**
+ * The same pinned store, parsed: for the assertions that a receipt DID land.
+ */
+function ownEvidenceLog(): Fields[] {
+  return ownEvidenceFiles()
+    .flatMap((f) => readFileSync(f, "utf8").split("\n"))
+    .filter(Boolean)
+    .map((l) => parseLine(l))
+    .filter((f): f is Fields => f !== null);
 }
 
 test("compaction pass disposed mid-model-call never reaches the write gate", async () => {
@@ -163,13 +216,13 @@ test("compaction pass disposed mid-model-call never reaches the write gate", asy
   });
   await waitFor(() => loaded.capture.generate.calls.length === 1);
 
-  const disposedAt = Date.now();
   await loaded.cleanup();
+  const mark = evidenceBytes(); // the disposal bound, in bytes
   park.release(); // the pass wakes AFTER disposal
   await sleep(100);
 
   expect(await capturedRows()).toEqual([]);
-  expect(evidenceSince(disposedAt)).toEqual([]);
+  expect(appendedSince(mark)).toBe("");
 });
 
 test("control: the same pass with no disposal does promote (so the check is what stops it)", async () => {
@@ -229,7 +282,7 @@ test("a pass that already holds its answer is drained, not abandoned", async () 
   // before the gate, so its presence puts the pass inside the drain window
   // rather than leaving the release-to-cleanup ordering to chance.
   await waitFor(() =>
-    readEvidenceLog().some((l) => String(l.ev) === "capture_cost"),
+    ownEvidenceLog().some((l) => String(l.ev) === "capture_cost"),
   );
 
   await loaded.cleanup();
@@ -243,8 +296,8 @@ test("a pass that already holds its answer is drained, not abandoned", async () 
   // The gate really ran, rather than a row appearing by some other route.
   // `write_promoted` is the gate's own line; the trigger-qualified receipt is
   // `auto_capture_compaction_promoted` here, not `auto_capture_promoted`.
-  expect(readEvidenceLog().some((l) => l.ev === "write_promoted")).toBe(true);
-  expect(readEvidenceLog().some((l) => l.ev === "capture_lag")).toBe(true);
+  expect(ownEvidenceLog().some((l) => l.ev === "write_promoted")).toBe(true);
+  expect(ownEvidenceLog().some((l) => l.ev === "capture_lag")).toBe(true);
 });
 
 // The pre-model path : the first abort check sat after the model
@@ -269,13 +322,13 @@ test("pass disposed during the context read neither receipts nor generates", asy
   });
   await waitFor(() => loaded.capture.context.calls.length === 1);
 
-  const disposedAt = Date.now();
   await loaded.cleanup();
+  const mark = evidenceBytes(); // the disposal bound, in bytes
   park.release(); // the context read resolves AFTER disposal
   await sleep(100);
 
   expect(loaded.capture.generate.calls.length).toBe(0);
-  expect(evidenceSince(disposedAt)).toEqual([]);
+  expect(appendedSince(mark)).toBe("");
 });
 
 // The same teardown, reached through the OTHER trigger. The idle path catches
@@ -301,12 +354,12 @@ test("compaction pass whose model call fails after disposal reports nothing", as
   });
   await waitFor(() => loaded.capture.generate.calls.length === 1);
 
-  const disposedAt = Date.now();
   await loaded.cleanup();
+  const mark = evidenceBytes(); // the disposal bound, in bytes
   park.release(); // the parked call REJECTS after cleanup returned
   await sleep(100);
 
-  expect(evidenceSince(disposedAt)).toEqual([]);
+  expect(appendedSince(mark)).toBe("");
 });
 
 // The receipt itself stays: a compaction failure with a live plugin is exactly
@@ -328,10 +381,10 @@ test("control: a compaction failure with no disposal still reports hook_error", 
   });
   await waitFor(() => loaded.capture.generate.calls.length === 1);
   await waitForAsync(async () =>
-    readEvidenceLog().some((l) => l.ev === "hook_error"),
+    ownEvidenceLog().some((l) => l.ev === "hook_error"),
   );
 
-  const errors = readEvidenceLog().filter((l) => l.ev === "hook_error");
+  const errors = ownEvidenceLog().filter((l) => l.ev === "hook_error");
   expect(errors.length).toBe(1);
   expect(String(errors[0]?.hook)).toContain("compaction");
 });
@@ -353,11 +406,11 @@ test("idle pass whose model call fails after disposal writes no failure receipt"
   });
   await waitFor(() => loaded.capture.generate.calls.length === 1);
 
-  const disposedAt = Date.now();
   await loaded.cleanup();
+  const mark = evidenceBytes(); // the disposal bound, in bytes
   park.release(); // the parked call throws AFTER disposal
   await sleep(100);
 
   // No auto_capture_refused, no capture_lag, nothing at all after cleanup.
-  expect(evidenceSince(disposedAt)).toEqual([]);
+  expect(appendedSince(mark)).toBe("");
 });
