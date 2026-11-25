@@ -45,6 +45,14 @@ export function tokens(text: string): string[] {
   return out;
 }
 
+/** Ordered, case-sensitive atoms of a simple literal command. Shell syntax
+ * outside this subset does not supply an argument vector. */
+export function literalCommandArgs(text: string): string[] | null {
+  const command = text.trim();
+  if (!command || /[^-A-Za-z0-9_.@:/+=, \t]/.test(command)) return null;
+  return command.split(/[ \t]+/);
+}
+
 // ---------------------------------------------------------------------------
 // One figure grammar, stated once.
 //
