@@ -1183,11 +1183,42 @@ export function configureAutoCapture(
               // still proves the event arrived — only a zero here means no turn-end
               // event reached this instance, the only case the disposal flush records.
               turnEndSeen++;
+              // The arrival receipt: one line per delivered event, written
+              // synchronously before any check below can skip it, so a
+              // delivered turn never leaves this loop without a trace.
+              // `discard` names the loop's own skip (`no_sid`, `cooldown`);
+              // `none` means the event proceeded, so a proceeding arrival
+              // with no `auto_capture_start` is a cut in the band between
+              // this receipt and that line — a named state, not a silence.
+              // Sync best-effort like the start receipt: the line must land
+              // before the host can cut the handler, and an unwritable log
+              // must not cost a pass its model call. The session rides as
+              // the context argument so the stamp resolves inside this
+              // synchronous stretch, not after an await.
               sid = captureSessionID(raw);
-              if (sid === undefined) continue;
+              if (sid === undefined) {
+                recordSyncBestEffort("auto_capture_seen", {
+                  discard: "no_sid",
+                });
+                continue;
+              }
               setCurrent({ sessionID: sid });
               const now = Date.now();
-              if (!captureCooldownPasses("idle", sid, now)) continue; // 5-min cooldown, shared across setups
+              if (!captureCooldownPasses("idle", sid, now)) {
+                recordSyncBestEffort(
+                  "auto_capture_seen",
+                  { discard: "cooldown" },
+                  true,
+                  sid,
+                );
+                continue; // 5-min cooldown, shared across setups
+              }
+              recordSyncBestEffort(
+                "auto_capture_seen",
+                { discard: "none" },
+                true,
+                sid,
+              );
               // Created before the first await so cleanup can see this pass in the
               // window before the model call, still applies in full.
               const phase = newPhase();
