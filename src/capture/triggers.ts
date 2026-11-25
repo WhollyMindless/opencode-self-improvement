@@ -2,7 +2,7 @@
 // tool results, never by a model decision. Nothing here injects into chat.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { record } from "../telemetry/record.ts";
+import { recordBestEffort } from "../telemetry/record.ts";
 import { evidenceDir } from "../core/config/paths.ts";
 import { parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
@@ -192,7 +192,7 @@ export async function afterTool(
   if (
     ["grep", "glob", "read", "edit", "write", "bash", "shell"].includes(tool)
   ) {
-    await record(
+    await recordBestEffort(
       "tool_result",
       {
         tool,
@@ -209,7 +209,7 @@ export async function afterTool(
   if (family) {
     rec.gateCheck = true;
     rec.cmd = family;
-    await record("gate_check", { cmd: family, status }, true, sid);
+    await recordBestEffort("gate_check", { cmd: family, status }, true, sid);
     // the same fact in the use ledger, where a ride recorded on this
     // turn can be joined to it. Evidence is the audit trail — pruned and
     // quarantined on its own schedule — so the join cannot live there.
@@ -235,7 +235,7 @@ export async function afterTool(
         ...pend.chain,
         call,
       ];
-      await record(
+      await recordBestEffort(
         "t4_learning",
         {
           type: "learning",
@@ -269,7 +269,7 @@ export async function afterTool(
     const prev = s.lastByTool.get(tool);
     if (prev && prev.status === "FAIL" && status === "PASS" && !prev.emitted) {
       prev.emitted = true;
-      await record(
+      await recordBestEffort(
         "t1_evidence",
         {
           from: "FAIL",
@@ -290,7 +290,7 @@ export async function afterTool(
 export async function onCompacting(input: AfterInput): Promise<void> {
   const sid = typeof input.sessionID === "string" ? input.sessionID : "?";
   const s = session(sid);
-  await record(
+  await recordBestEffort(
     "t2_compaction",
     {
       session: sid,
@@ -379,7 +379,7 @@ export async function finalizeSession(sid: string): Promise<void> {
     tap && start
       ? Math.max(0, Date.parse(tap.ts) - Date.parse(start))
       : undefined;
-  await record(
+  await recordBestEffort(
     "session_convergence",
     {
       session: sid,

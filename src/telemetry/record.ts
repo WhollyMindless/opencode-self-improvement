@@ -176,6 +176,7 @@ function buildEvidenceLine(
   });
 }
 
+/** Strict write for operations that require their audit line to land. */
 export async function record(
   ev: EvidenceEvent,
   fields: Record<string, unknown> = {},
@@ -194,7 +195,7 @@ export async function record(
 }
 
 /**
- * Synchronous counterpart to `record`. Use ONLY where a write must land before
+ * Strict synchronous counterpart to `record`. Use ONLY where a write must land before
  * the process can be cut — currently the capture-start receipt. It does not
  * yield, so the host's exit logic (also on the event loop) cannot preempt it,
  * and it leaves the model call's teardown window intact. Same line shape and
@@ -312,10 +313,9 @@ export async function recordWriteBlocked(
 // decision once instead of at each call site — a per-site `try` is a policy a
 // later receipt can forget.
 //
-// `record` and `recordSync` keep throwing for every other caller. A viewer edit
-// or a gate refusal that cannot write its audit line is a failed operation the
-// operator must see; a capture receipt that cannot write its line is a missing
-// footnote on an operation that succeeded.
+// `record` and `recordSync` keep throwing for callers that require an audit
+// line. A viewer edit or gate refusal that cannot write its audit line is a
+// failed operation the operator must see.
 //
 // The counter is the only channel that can report this failure — a line about an
 // unwritable log cannot land either — so it lives in process memory and
