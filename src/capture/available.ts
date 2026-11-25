@@ -261,7 +261,7 @@ function figuresWithin(text: string, known: Set<string>): boolean {
 // The scan is bounded by bytes, not files: a monorepo's tracked list is huge and
 // the point is a cheap check, not an index. One capture pass already pays for a
 // model call, which costs far more than this.
-const TOTAL_CAP = 2 * 1024 * 1024;
+export const DEFAULT_SCAN_BUDGET = 2 * 1024 * 1024;
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_LIST_FILES = 20_000;
 const LIST_TIMEOUT_MS = 2_000;
@@ -976,6 +976,7 @@ export interface AvailabilityIndex {
  */
 export function availabilityIndex(
   repoDir: string | undefined,
+  scanBudget = DEFAULT_SCAN_BUDGET,
 ): AvailabilityIndex {
   if (!repoDir) {
     return {
@@ -1011,7 +1012,7 @@ export function availabilityIndex(
   // budget is a work bound, not a disk measurement.
   let capped = false;
   for (const file of ranked) {
-    if (bytes >= TOTAL_CAP) {
+    if (bytes >= scanBudget) {
       capped = true;
       break;
     }

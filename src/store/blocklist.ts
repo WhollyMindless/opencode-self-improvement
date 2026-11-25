@@ -24,12 +24,12 @@ export interface BlockEntry {
   blocked_at: string;
 }
 
-export function blocklistFile(): string {
-  return join(memoryRoot(), BLOCKLIST_FILENAME);
+export function blocklistFile(root = memoryRoot()): string {
+  return join(root, BLOCKLIST_FILENAME);
 }
 
-export async function blockedEntries(): Promise<BlockEntry[]> {
-  const lines = await readLines(blocklistFile());
+export async function blockedEntries(root?: string): Promise<BlockEntry[]> {
+  const lines = await readLines(blocklistFile(root));
   const out: BlockEntry[] = [];
   for (const line of lines) {
     const f = parseLine(line);
@@ -43,8 +43,8 @@ export async function blockedEntries(): Promise<BlockEntry[]> {
   return out;
 }
 
-export async function blockedTs(): Promise<Set<string>> {
-  return new Set((await blockedEntries()).map((b) => b.ts));
+export async function blockedTs(root?: string): Promise<Set<string>> {
+  return new Set((await blockedEntries(root)).map((b) => b.ts));
 }
 
 export async function addBlock(ts: string, reason: string): Promise<string> {

@@ -45,6 +45,7 @@ export function toMemory(
   fields: Record<string, unknown>,
   file: string,
   index: number,
+  warnMalformed = true,
 ): Memory | null {
   const ts = fields.ts;
   const type = fields.type;
@@ -53,7 +54,7 @@ export function toMemory(
   if (typeof scope !== "string") return null;
   if (!ISO_TS_RE.test(ts) || Number.isNaN(Date.parse(ts))) {
     malformedRows++;
-    if (!malformedWarnedFiles.has(file)) {
+    if (warnMalformed && !malformedWarnedFiles.has(file)) {
       malformedWarnedFiles.add(file);
       console.warn(
         `[memory] malformed row skipped in ${file} (ts is not an ISO instant): ${JSON.stringify(ts.slice(0, 48))}`,
@@ -104,8 +105,7 @@ export function toMemory(
   };
 }
 
-export async function memoryFiles(): Promise<string[]> {
-  const root = memoryRoot();
+export async function memoryFiles(root = memoryRoot()): Promise<string[]> {
   // Bun.Glob.scan throws ENOENT on a missing root; a fresh store must read as
   // empty so the system-digest hook never throws (it runs on every request,
   // including the compaction model call).
@@ -202,14 +202,15 @@ export async function filesHoldingTs(
   return out;
 }
 
-export async function loadAll(): Promise<Memory[]> {
+export async function loadAll({ readOnly = false } = {}): Promise<Memory[]> {
   malformedRows = 0; // per-load telemetry: the most recent read wins
-  const blocked = await blockedTs();
+  const root = readOnly ? memoryRoot({ readOnly: true }) : undefined;
+  const blocked = await blockedTs(root);
   const out: Memory[] = [];
-  for (const file of await memoryFiles()) {
+  for (const file of await memoryFiles(root)) {
     const lines = await readLines(file);
     lines.forEach((line, index) => {
-      const m = toMemory(parseLine(line) ?? {}, file, index);
+      const m = toMemory(parseLine(line) ?? {}, file, index, !readOnly);
       if (m && !blocked.has(m.ts)) out.push(m);
     });
   }
