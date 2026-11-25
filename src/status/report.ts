@@ -228,20 +228,26 @@ export function captureLines(c: CaptureHealth): string[] {
 }
 
 /**
- * The one report an unwritable evidence log can produce: a count kept in this
- * process, never a line appended to the log that failed. Silence here means
- * this process lost nothing — a store that lost writes in an earlier process
- * reports nothing, because the counter lives and dies with the process that
- * could still tell.
+ * Render the live process counter or the copy saved in the status snapshot.
  */
 export function evidenceWriteLines(
   evidence?: DroppedEvidenceWrites | null,
+  source: "process" | "snapshot" = "process",
 ): string[] {
-  if (!evidence || evidence.dropped === 0) return [];
+  if (
+    !evidence ||
+    !Number.isSafeInteger(evidence.dropped) ||
+    evidence.dropped <= 0 ||
+    typeof evidence.lastEvent !== "string" ||
+    typeof evidence.lastError !== "string"
+  )
+    return [];
+  const scope =
+    source === "snapshot" ? "as of last status update" : "by this process";
+  const line = `  evidence writes dropped: ${evidence.dropped} ${scope} (last ${evidence.lastEvent}: ${evidence.lastError.slice(0, 160)})`;
+  if (source === "snapshot") return [line];
   return [
-    `  evidence writes dropped: ${evidence.dropped} by this process (last ${
-      evidence.lastEvent
-    }: ${evidence.lastError.slice(0, 160)})`,
+    line,
     // The health lines above are read back out of the log that is losing
     // writes, so they under-report what ran. Without this the reader weighs a
     // missing line as evidence that the pass never happened.

@@ -21,6 +21,7 @@ import {
   attributionLines,
   cacheLines,
   contextLines,
+  evidenceWriteLines,
   windowLines,
 } from "../status/report.ts";
 import {
@@ -277,6 +278,8 @@ function MemoryPanel(props: {
   }));
 
   const s = () => props.status;
+  const evidenceDrops = () =>
+    evidenceWriteLines(s()?.droppedEvidenceWrites, "snapshot");
   return (
     <box flexDirection="column" paddingLeft={1} paddingRight={1}>
       <text fg={context.theme.text.base}>
@@ -371,6 +374,13 @@ function MemoryPanel(props: {
               {"  " + b.ts.slice(11, 19) + "  " + b.reason + "  " + b.sid}
             </text>
           )}
+        </For>
+      </Show>
+
+      <Show when={evidenceDrops().length > 0}>
+        <Section t="AUTO-CAPTURE" />
+        <For each={evidenceDrops()}>
+          {(line) => <text fg={context.theme.text.base}>{line}</text>}
         </For>
       </Show>
 
