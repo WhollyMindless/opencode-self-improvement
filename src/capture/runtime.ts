@@ -1261,8 +1261,21 @@ export function configureAutoCapture(
               );
             }
           }
-        } catch {
-          // the subscription itself ended (abort or host error); nothing to do
+        } catch (err) {
+          // Teardown is not an anomaly: after cleanup aborted the signal, an
+          // iterator ending (returning or throwing) is the contract, not a
+          // failure worth a console line.
+          if (controller.signal.aborted) return;
+          // Without the abort this catch is a subscription that died
+          // mid-process: the iterator threw, or a future edit hoists a
+          // throwing statement above the inner try. Nothing resubscribes, so
+          // auto-capture is dead for the life of the process, and the receipt
+          // loop that could say so is dead with it. The console line is the
+          // one trace that survives a broken evidence log: a dead
+          // subscription names itself there.
+          console.warn(
+            `[opencode-self-improvement] auto-capture (idle) subscription failed (ignored): ${safeErrorMessage(err)}`,
+          );
         }
       })();
       captureCleanup = async () => {
