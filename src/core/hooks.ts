@@ -4,8 +4,10 @@
 // EVERY turn looked identical to a healthy one in every artifact, because the
 // only trace was a console.warn into the host log. setup() installs a failure
 // reporter that mirrors each swallowed error into the evidence file; the
-// reporter is optional so this module stays free of the evidence dependency
-// and a broken reporter can never change the swallow contract.
+// reporter is optional, and a broken reporter cannot change the swallow
+// contract.
+import { safeErrorMessage } from "../telemetry/record.ts";
+
 export type GuardedFailure = (
   name: string,
   err: unknown,
@@ -36,7 +38,7 @@ export async function guarded(
   } catch (err) {
     console.warn(
       `[opencode-self-improvement] ${name} hook failed (ignored):`,
-      err,
+      safeErrorMessage(err),
     );
     // The console line is the primary trace and stays either way; only the
     // store write is gated. A predicate that throws reports, so a broken
