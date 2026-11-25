@@ -36,7 +36,11 @@ import {
 import { createPullReceipts, type PullLoss } from "./inject/pull-receipts.ts";
 import { formatMemory } from "./inject/format.ts";
 import { peekTurn } from "./core/state.ts";
-import { captureEvidenceContext, record } from "./telemetry/record.ts";
+import {
+  captureEvidenceContext,
+  record,
+  safeErrorMessage,
+} from "./telemetry/record.ts";
 import { compactionAnchor } from "./inject/anchor.ts";
 
 /** Placement and observation clocks for a deferred pull receipt. */
@@ -404,8 +408,12 @@ export async function registerHooks(
             flushStatus(sessionID),
           );
         }
-      } catch {
-        // the subscription ended (abort or host error); nothing to do
+      } catch (err) {
+        // The host may reject a pending read as part of normal teardown.
+        if (measuredController.signal.aborted) return;
+        console.warn(
+          `[opencode-self-improvement] usage subscription failed (ignored): ${safeErrorMessage(err)}`,
+        );
       }
     })();
   }
