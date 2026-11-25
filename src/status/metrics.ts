@@ -195,6 +195,22 @@ export interface CaptureHealth {
    */
   lastStarted?: string | null;
   /**
+   * Newest `auto_capture_seen` arrival receipt in the window whose
+   * `discard=none`: an event reached the plugin, the dispatch loop skipped
+   * nothing, and a pass owed to it should have begun. Never feeds
+   * `lastFired` — seeing an event is not firing, and counting it would make
+   * an arrived-but-lost turn read as alive.
+   */
+  lastArrived?: string | null;
+  /**
+   * `lastArrived` is newer than every outcome that could account for it
+   * (`auto_capture_start` or `auto_capture_skipped`): the newest proceeding
+   * arrival produced no pass. Attributed discards (`discard=cooldown`,
+   * `discard=no_sid`) never set `lastArrived`, and a store with no arrival
+   * lines claims nothing — old evidence renders exactly as before.
+   */
+  arrivedWithoutStart?: boolean;
+  /**
    * Newest `auto_capture_dispose` flush: an armed instance was disposed with no
    * turn-end event observed and no pass started. Predictive — built for the state
    * the original report inferred, not one observed on a released host; an idle
@@ -227,6 +243,8 @@ export function captureHealth(
   let lastExecuted: string | null = null;
   let lastStarted: string | null = null;
   let lastMissed: string | null = null;
+  let lastArrived: string | null = null;
+  let lastSkipped = "";
   for (const line of lines) {
     const f = parseLine(line);
     if (!f) continue;
@@ -265,8 +283,29 @@ export function captureHealth(
         lastMissed = ts;
       continue;
     }
+    if (ev === "auto_capture_seen") {
+      // The arrival receipt, written at the dispatch head before any skip
+      // can drop the event. It must be handled HERE: the generic
+      // `auto_capture_` fall-through below advances `lastFired`, which would
+      // read an arrived-but-lost turn as "fired and alive" — the one
+      // misdiagnosis this line exists to prevent. Only `discard=none` owes a
+      // pass; `cooldown` and `no_sid` carry their own attribution.
+      if (
+        ts &&
+        ts >= cutoff &&
+        String(f.discard ?? "") === "none" &&
+        (!lastArrived || ts > lastArrived)
+      )
+        lastArrived = ts;
+      continue;
+    }
     if (!ev.startsWith("auto_capture_")) continue;
     if (ts && ts < cutoff) continue;
+    // A deliberate skip accounts for the arrival that preceded it, so its
+    // timestamp bounds `arrivedWithoutStart` below. Everything else this
+    // tail does (rows, blocked, passes, `lastFired`) is unchanged.
+    if (ev === "auto_capture_skipped" && ts && ts > lastSkipped)
+      lastSkipped = ts;
     if (ev === "auto_capture_scan") {
       // Corpus state must ride any count this parser reports: only a pass
       // that read a corpus (`tracked=true`) enters the counts, and a
@@ -283,6 +322,12 @@ export function captureHealth(
       blocked++;
     if (ts && (!lastFired || ts > lastFired)) lastFired = ts;
   }
+  // The newest outcome that could account for an arrival. A same-millisecond
+  // start or skip counts as accounted for: this comparison withholds a
+  // verdict when unsure, never invents one — the opposite bias of the
+  // `lastFired` misread this whole line exists to prevent.
+  const lastOutcome =
+    lastStarted && lastStarted > lastSkipped ? lastStarted : lastSkipped;
   return {
     state,
     rows,
@@ -293,5 +338,7 @@ export function captureHealth(
     lastExecuted,
     lastStarted,
     lastMissed,
+    lastArrived,
+    arrivedWithoutStart: lastArrived !== null && lastArrived > lastOutcome,
   };
 }

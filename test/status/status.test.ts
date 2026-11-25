@@ -618,6 +618,141 @@ describe("captureHealth", () => {
   });
 });
 
+// The arrival receipt `auto_capture_seen` names every delivered turn-end event
+// before the dispatch loop can skip it. It must never read as firing, and its
+// absence in an old store must change no existing verdict.
+describe("captureHealth arrival receipts", () => {
+  const now = new Date();
+  const nowMs = now.getTime();
+  const at = (min: number) => new Date(nowMs - min * 60_000).toISOString();
+  const heartbeat = formatLine({
+    ev: "plugin_load",
+    ts: at(120),
+    capture: "on",
+  });
+  const seen = (ts: string, discard: string) =>
+    formatLine({ ev: "auto_capture_seen", ts, sid: "ses_a", discard });
+  const start = (ts: string) =>
+    formatLine({
+      ev: "auto_capture_start",
+      ts,
+      sid: "ses_a",
+      trigger: "idle",
+    });
+  const skip = (ts: string) =>
+    formatLine({
+      ev: "auto_capture_skipped",
+      ts,
+      sid: "ses_a",
+      reason: "transcript_too_thin",
+    });
+  const dispose = (ts: string) =>
+    `ev=auto_capture_dispose ts=${ts} armed=true turn_end_events=0 passes=0 reason=no_turn_end_observed`;
+
+  test("an arrival receipt alone never advances lastFired and sets lastArrived", () => {
+    const ts = at(5);
+    const h = captureHealth([heartbeat, seen(ts, "none")], 30, nowMs);
+    expect(h.lastFired).toBeNull();
+    expect(h.lastExecuted).toBeNull();
+    expect(h.rows).toBe(0);
+    expect(h.blocked).toBe(0);
+    expect(h.lastArrived).toBe(ts);
+    expect(h.arrivedWithoutStart).toBe(true);
+    // Outside the trailing window the receipt claims nothing.
+    const h2 = captureHealth(
+      [heartbeat, seen(at(90 * 24 * 60), "none")],
+      30,
+      nowMs,
+    );
+    expect(h2.lastArrived).toBeNull();
+    expect(h2.arrivedWithoutStart).toBe(false);
+  });
+
+  test("attributed discards never owe a pass and never set lastArrived", () => {
+    const h = captureHealth(
+      [heartbeat, seen(at(6), "no_sid"), seen(at(5), "cooldown")],
+      30,
+      nowMs,
+    );
+    expect(h.lastFired).toBeNull();
+    expect(h.lastArrived).toBeNull();
+    expect(h.arrivedWithoutStart).toBe(false);
+  });
+
+  test("a start or a skip newer than the arrival accounts for it", () => {
+    expect(
+      captureHealth([heartbeat, seen(at(6), "none"), start(at(5))], 30, nowMs)
+        .arrivedWithoutStart,
+    ).toBe(false);
+    expect(
+      captureHealth([heartbeat, seen(at(6), "none"), skip(at(5))], 30, nowMs)
+        .arrivedWithoutStart,
+    ).toBe(false);
+    // The arrival is newer than either outcome: the owed pass never began.
+    expect(
+      captureHealth([heartbeat, start(at(9)), seen(at(6), "none")], 30, nowMs)
+        .arrivedWithoutStart,
+    ).toBe(true);
+  });
+
+  test("a trail of arrivals without a pass renders the arrived-never-started arm", () => {
+    expect(
+      captureLines(captureHealth([heartbeat, seen(at(5), "none")], 30, nowMs)),
+    ).toEqual([
+      "  auto-capture: ARMED BUT NEVER STARTED — a turn-end event reached the plugin and nothing skipped it; no pass began, so the turn was lost between arrival and start.",
+    ]);
+  });
+
+  test("a healthy skip after the arrival keeps the pre-receipt inert verdict", () => {
+    expect(
+      captureLines(
+        captureHealth([heartbeat, seen(at(6), "none"), skip(at(5))], 30, nowMs),
+      ),
+    ).toEqual([
+      "  auto-capture: ARMED BUT NEVER FIRED — capture is on, no auto_capture_* or capture_lag lines in the last 30d",
+    ]);
+  });
+
+  test("the new arm outranks the predictive dispose and yields to the cut", () => {
+    expect(
+      captureLines(
+        captureHealth(
+          [heartbeat, dispose(at(1)), seen(at(3), "none")],
+          30,
+          nowMs,
+        ),
+      )[0],
+    ).toContain("ARMED BUT NEVER STARTED");
+    expect(
+      captureLines(
+        captureHealth(
+          [heartbeat, dispose(at(1)), seen(at(3), "none"), start(at(2))],
+          30,
+          nowMs,
+        ),
+      )[0],
+    ).toContain("reached the model call");
+  });
+
+  test("a store with no seen lines renders the pre-receipt verdicts exactly", () => {
+    // Pinned word for word: an old evidence store must gain no verdict from
+    // the receipt's absence.
+    expect(captureLines(captureHealth([heartbeat], 30, nowMs))).toEqual([
+      "  auto-capture: ARMED BUT NEVER FIRED — capture is on, no auto_capture_* or capture_lag lines in the last 30d",
+    ]);
+    expect(
+      captureLines(captureHealth([heartbeat, dispose(at(1))], 30, nowMs)),
+    ).toEqual([
+      "  auto-capture: ARMED BUT NEVER FIRED — no turn-end event was observed before disposal; this state has not been seen on a released host (an idle restart also produces it).",
+    ]);
+    expect(
+      captureLines(captureHealth([heartbeat, start(at(2))], 30, nowMs)),
+    ).toEqual([
+      "  auto-capture: ARMED — a pass reached the model call but recorded no verdict; the turn-end event arrived and the pass did not complete.",
+    ]);
+  });
+});
+
 // Counts restated from a scan that hit the corpus cap describe a partial
 // corpus, so the status line must carry that fact beside the counts.
 describe("auto-capture corpus caveat", () => {
