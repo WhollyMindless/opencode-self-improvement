@@ -1028,7 +1028,8 @@ export function availabilityIndex(
 
   const fileAt = (offset: number): string => {
     for (const s of slices)
-      if (offset >= s.start && offset < s.end) return s.file;
+      if (offset >= s.start && offset < s.end)
+        return relative(repoDir, join(repoDir, s.file)) || "?";
     return "?";
   };
 
@@ -1090,7 +1091,7 @@ export function availabilityIndex(
       ) {
         return {
           reason: "in_tracked_file",
-          where: relative(repoDir, join(repoDir, fileAt(region.start))) || "?",
+          where: fileAt(region.start),
           matched: safeClaims.join("; ").slice(0, 120),
         };
       }
@@ -1197,14 +1198,16 @@ export function availabilityIndex(
             );
             if (!outside.every((n) => stated.has(n))) return null;
           }
-          // The refusal rested on the declarations that settled each span,
-          // so it cites exactly those: naming one file for a row resting on
-          // two is not evidence, and naming a declaration that settled
-          // nothing sends the auditor to the wrong line.
+          // Cite the declarations that settled each command span and the
+          // tracked passage that settled any remaining prose.
           const cited: string[] = [];
           for (const s of settledBy)
             for (const g of s)
               if (!cited.includes(g.where)) cited.push(g.where);
+          if (restRegion !== null) {
+            const file = fileAt(restRegion.start);
+            if (!cited.includes(file)) cited.push(file);
+          }
           return {
             reason: "declared_gate",
             where: cited.join(", "),

@@ -1049,6 +1049,7 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     id: "gate-prose-settle-verbatim",
     tree: "Keep 3 replicas warm before rollout.\n",
     files: {
+      "ACKNOWLEDGMENTS.md": "Thank you to the project contributors.\n",
       "package.json": JSON.stringify({
         scripts: { deploy: "deploy-tool publish --replicas 3" },
       }),
@@ -1056,8 +1057,23 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     candidate: "Run `npm run deploy`; keep 3 replicas warm before rollout.",
     expectTag: true,
     expectReason: "declared_gate",
+    expectWhere: "package.json scripts.deploy, README.md",
     source:
       "the prose-settle path of the gate branch, pinned verbatim — the residual the declarations do not answer must still settle against the passage that states it",
+  },
+  {
+    id: "gate-prose-citation-declaration-only",
+    tree: "Keep 3 replicas warm before rollout.\n",
+    files: {
+      "package.json": JSON.stringify({
+        scripts: { deploy: "deploy-tool publish --replicas 3" },
+      }),
+    },
+    candidate: "Run `npm run deploy`.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    expectWhere: "package.json scripts.deploy",
+    source: "a tracked passage contributes no evidence to a command-only row",
   },
   // ── The pairing bar: the residual settles words, never which command the
   // row pairs them with. A whole-sentence verbatim restatement settles
@@ -1079,6 +1095,7 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     candidate: "Run `npm run rollback`; keep 3 replicas warm before rollout.",
     expectTag: true,
     expectReason: "declared_gate",
+    expectWhere: "package.json scripts.rollback, README.md",
     source:
       "the sentence is restated verbatim and stated unscoped, so it settles against a declared command whose activity it does not describe — the pairing is not a claim this check adjudicates",
   },
