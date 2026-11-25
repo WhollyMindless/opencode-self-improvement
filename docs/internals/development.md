@@ -11,7 +11,7 @@ rule stay in the README.
 | `bun run typecheck` | inside the job named `lint` | yes, under that name |
 | `bun run lint` | `lint` | yes |
 | `bun run test` | `test`, re-run in `test-windows` | `test` yes; `test-windows` reports only |
-| `bun run test:e2e` | `smoke` | yes |
+| `bun run test:e2e` | `smoke`, `smoke-stable` | `smoke` only |
 
 `tsc --noEmit` has no check of its own in CI — it runs inside `lint`, so a green `lint` silently implies a green typecheck.
 
@@ -20,6 +20,12 @@ rule stay in the README.
 The test scripts run files across at most four worker processes with Bun's file isolation. To reproduce an order-dependent failure the way it would appear in one shared process, run `bun test ./test/` or `bun test ./e2e/ --timeout 240000` directly.
 
 ## What the smoke suite boots
+
+Both smoke jobs run the same suite and print the exact OpenCode CLI version.
+`smoke` checks the compatibility baseline, OpenCode 2.0.26. `smoke-stable` is
+informational and pins a stable OpenCode v2 release in the CI workflow. Update
+that pin by PR. Before retiring the baseline, document the new minimum
+supported host and announce how long the existing coverage will remain.
 
 `e2e/` boots the **real opencode CLI** against each candidate in a fully isolated instance (fresh config, fresh db, fresh memory store, empty `HOME`) driven by a scripted OpenAI-compatible fake model — no API keys. It covers loading from the source tree and from the packed npm artifact installed runtime-deps-only, plus BDD flows for remember, recall, exact and near duplicates, ungrounded claims, and forget. Needs `opencode` on `PATH` locally, or set `OPENCODE_BIN`. A `test-windows` leg also runs the suite on Windows; it reports without gating merges.
 
