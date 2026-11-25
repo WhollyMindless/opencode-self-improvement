@@ -695,6 +695,19 @@ describe("captureHealth arrival receipts", () => {
     ).toBe(true);
   });
 
+  test("a start or skip in the same millisecond withholds the loss verdict", () => {
+    const ts = at(5);
+    for (const outcome of [start(ts), skip(ts)]) {
+      const h = captureHealth(
+        [heartbeat, seen(ts, "none"), outcome],
+        30,
+        nowMs,
+      );
+      expect(h.lastArrived).toBe(ts);
+      expect(h.arrivedWithoutStart).toBe(false);
+    }
+  });
+
   test("a trail of arrivals without a pass renders the arrived-never-started arm", () => {
     expect(
       captureLines(captureHealth([heartbeat, seen(at(5), "none")], 30, nowMs)),
