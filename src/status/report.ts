@@ -186,15 +186,23 @@ export function captureLines(c: CaptureHealth): string[] {
         // precedence is fixed:
         //   1. a pass reached the model call but recorded no verdict (lastStarted)
         //      — an observed fact and a real loss, so it wins outright;
-        //   2. an armed instance disposed with no turn-end event observed
-        //      (lastMissed) — a predictive absence, weaker than an observed cut;
-        //   3. nothing ran at all.
+        //   2. a delivered event was skipped by nothing yet produced no pass
+        //      (arrivedWithoutStart) — the arrival receipt makes this an
+        //      observed loss too, cut between arrival and start;
+        //   3. an armed instance disposed with no turn-end event observed
+        //      (lastMissed) — a predictive absence, weaker than an observed
+        //      loss;
+        //   4. nothing ran at all.
         // A completion anywhere in the window (capture_cost/capture_lag, a
         // promoted row, a refusal) is reported as alive above; that masks a
         // same-window cut, a known limitation stated here, not a verdict.
         if (c.lastStarted)
           return [
             "  auto-capture: ARMED — a pass reached the model call but recorded no verdict; the turn-end event arrived and the pass did not complete.",
+          ];
+        if (c.arrivedWithoutStart)
+          return [
+            "  auto-capture: ARMED BUT NEVER STARTED — a turn-end event reached the plugin and nothing skipped it; no pass began, so the turn was lost between arrival and start.",
           ];
         if (c.lastMissed)
           return [

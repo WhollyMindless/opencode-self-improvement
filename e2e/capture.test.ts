@@ -43,7 +43,10 @@
 // #404: the availability check and the drain were never reached. `turnUntil-
 // CaptureStarts` retries so this file tests the contract it can test, asserts a pass
 // starts within four turns so a dead capture still fails, and prints the attempt
-// count so the rate stays visible rather than being re-run away.
+// count so the rate stays visible rather than being re-run away. Because the plugin
+// writes `auto_capture_seen` for every delivered event, the printed rate also names
+// what the retry masked: an attempt whose arrival receipt landed with no pass is
+// arrived-lost, an attempt with no receipt never reached the plugin.
 //
 // The byte-exact row assertion below is therefore unconditional, and it is the
 // control for that fix, not a guard: with the two-phase drain reverted it failed
@@ -208,13 +211,22 @@ const withEv = (lines: string[], ev: string) =>
  * survives teardown and writes byte for byte — while the start rate is printed on
  * every run and the `started` assertion below still fails outright if capture is
  * dead rather than merely unlucky.
+ *
+ * The retry hides how often a turn arrived and still produced nothing, so each
+ * attempt is classified before the next one overwrites the picture: an attempt
+ * that wrote `auto_capture_seen` but no `auto_capture_start` is counted as
+ * arrived-lost, and the count rides back on the result so the printed rate
+ * states it. Keeping the retry; exposing what it masked.
  */
 async function turnUntilCaptureStarts(
   g: Guest,
   attempts = 4,
-): Promise<{ ev: string[]; started: number }> {
+): Promise<{ ev: string[]; started: number; arrivedLost: number }> {
   let ev: string[] = [];
+  let arrivedLost = 0;
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    const seenBefore = withEv(ev, "auto_capture_seen").length;
+    const startedBefore = withEv(ev, "auto_capture_start").length;
     const run = await turn(fake, g, PROMPT);
     expect(run.exit).toBe(0);
     for (let i = 0; i < 40; i++) {
@@ -222,20 +234,34 @@ async function turnUntilCaptureStarts(
       if (withEv(ev, "capture_cost").length > 0) break;
       await Bun.sleep(100);
     }
-    if (withEv(ev, "capture_cost").length > 0) return { ev, started: attempt };
+    if (withEv(ev, "capture_cost").length > 0)
+      return { ev, started: attempt, arrivedLost };
+    // A receipt landed and no pass line followed it: this attempt reached the
+    // plugin and was lost between arrival and start. Counting it is the whole
+    // point — the next attempt would otherwise erase the only evidence it
+    // happened.
+    if (
+      withEv(ev, "auto_capture_seen").length > seenBefore &&
+      withEv(ev, "auto_capture_start").length === startedBefore
+    )
+      arrivedLost++;
   }
-  return { ev, started: 0 };
+  return { ev, started: 0, arrivedLost };
 }
+
+/** The printed rate line: the attempt that worked and what the retry masked. */
+const startRate = (test: string, started: number, arrivedLost: number) =>
+  `[capture-start] ${test}: pass started on attempt ${started}, ${arrivedLost} arrived-lost (arrival receipt, no pass)`;
 
 describe("auto-capture on the real host", () => {
   test("a real turn fires a real capture pass", async () => {
     const g = gitGuest({ autoCapture: true, captureModel: "fake/scripted" });
     scriptCaptureTurn(g);
-    const { ev, started } = await turnUntilCaptureStarts(g);
-    console.log(`[capture-start] test 1: pass started on attempt ${started}`);
+    const { ev, started, arrivedLost } = await turnUntilCaptureStarts(g);
+    console.log(startRate("test 1", started, arrivedLost));
     expect(
       started,
-      `no capture pass started in 4 real turns — ${withEv(ev, "tool_result").length} tool results and ${withEv(ev, "capture_cost").length} capture triggers, so the turn-end event is not reaching the plugin at all`,
+      `no capture pass started in 4 real turns — ${withEv(ev, "tool_result").length} tool results, ${withEv(ev, "auto_capture_seen").length} arrival receipts (${arrivedLost} with no pass) and ${withEv(ev, "capture_cost").length} capture triggers, so ${arrivedLost > 0 ? "the turn-end event reached the plugin and the pass never began" : "the turn-end event is not reaching the plugin at all"}`,
     ).toBeGreaterThan(0);
     // Asserted before the pass's own fields, because a silent option failure looks
     // exactly like "capture ran and found nothing".
@@ -254,8 +280,8 @@ describe("auto-capture on the real host", () => {
     // below runs only once a pass has actually started, which is what this test is
     // about. A pass that started and was then cut by teardown still fails here, and
     // test/capture/capture-dispose-drain.test.ts pins that half deterministically.
-    const { started } = await turnUntilCaptureStarts(g);
-    console.log(`[capture-start] test 2: pass started on attempt ${started}`);
+    const { started, arrivedLost } = await turnUntilCaptureStarts(g);
+    console.log(startRate("test 2", started, arrivedLost));
     expect(
       started,
       `no capture pass started in 4 real turns, so the teardown contract could not be observed at all`,
@@ -289,10 +315,8 @@ describe("auto-capture on the real host", () => {
     // model the session is already using.
     const g = gitGuest({});
     scriptCaptureTurn(g);
-    const { ev, started } = await turnUntilCaptureStarts(g);
-    console.log(
-      `[capture-start] default-options test: pass started on attempt ${started}`,
-    );
+    const { ev, started, arrivedLost } = await turnUntilCaptureStarts(g);
+    console.log(startRate("default-options test", started, arrivedLost));
     expect(withEv(ev, "plugin_load").at(-1)).toContain("capture=on");
     expect(
       started,

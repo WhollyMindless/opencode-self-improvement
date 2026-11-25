@@ -20,11 +20,15 @@
 //   deliberately skipped          -> auto_capture_skipped, no start line
 //   reached the model, no verdict -> auto_capture_start, no capture_cost
 //   disposed, no turn-end seen    -> auto_capture_dispose, no start line
+//   arrived, never started        -> auto_capture_seen discard=none, no start,
+//                                    no skip (pinned in capture-arrival-receipt)
 //
-// NOT covered — a pass cut BEFORE the receipt (during the context read or the
-// awaited known-rows read) writes no line at all, so that band stays silent like
-// the original failure. The receipt trades that band for not misreporting a
-// healthy skip as a cut; it is not full coverage.
+// NOT covered by the start receipt — a pass cut BEFORE it (during the context
+// read or the awaited known-rows read) writes no pass line, so the receipt
+// trades that band for not misreporting a healthy skip as a cut; it is not
+// full coverage. The band has a name from the other side: `auto_capture_seen`,
+// the arrival receipt at the dispatch head, makes the same stretch "arrived,
+// never started", pinned in `test/capture/capture-arrival-receipt.test.ts`.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
   chmodSync,
