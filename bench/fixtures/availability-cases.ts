@@ -55,6 +55,26 @@ const DEPLOY_MANIFEST: Record<string, string> = {
 const NEUTRAL_README =
   "# release\n\nNothing in this file describes deploying.\n";
 
+function gateCommandCase(
+  id: string,
+  declaration: string,
+  invocation: string,
+  expectTag: boolean,
+  source: string,
+): AvailabilityCase {
+  return {
+    id,
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({ scripts: { deploy: declaration } }),
+    },
+    candidate: `Run \`${invocation}\`.`,
+    expectTag,
+    expectReason: expectTag ? "declared_gate" : undefined,
+    source,
+  };
+}
+
 export const AVAILABILITY_CASES: AvailabilityCase[] = [
   // ── The transport case: the reason the check must not over-refuse ──────────
   {
@@ -1116,10 +1136,8 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
 
   // ── The loose entry admits; only the settle refuses ───────────────────────
   // A multi-word declaration admits a form that starts or ends with its label.
-  // The entry decides nothing on its own: every refusal must still settle on a
-  // contiguous operand run inside the same declaration. These rows pin the
-  // division of labour between the two, and one records a limit of the
-  // word-level comparison.
+  // The entry decides nothing on its own: every refusal must still settle on
+  // literal evidence from the same declaration. These rows pin that division.
   {
     id: "gate-entry-admits-and-settles",
     tree: NEUTRAL_README,
@@ -1132,7 +1150,7 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
     expectTag: true,
     expectReason: "declared_gate",
     source:
-      "the loose prefix/suffix entry is load-bearing: a tail the declaration states verbatim settles contiguously and refuses",
+      "the final flag-led group can repeat verbatim under the #516 compatibility rule",
   },
   {
     id: "gate-entry-admits-settle-refuses",
@@ -1169,9 +1187,145 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
       }),
     },
     candidate: "Run `deploy-tool publish --target staging --staging`.",
+    expectTag: false,
+    source:
+      "previously an accepted limit of word-level comparison: a flag whose word was a value already refused. #516 keeps this row because the flag has no literal witness",
+  },
+  gateCommandCase(
+    "gate-value-reused-as-flag-declared",
+    "deploy-tool publish --target staging --staging",
+    "deploy-tool publish --target staging --staging",
+    true,
+    "#516 control: the complete invocation explicitly declares --staging",
+  ),
+  ...(
+    [
+      [
+        "option-name-as-positional",
+        "deploy-tool publish --target staging",
+        "target",
+      ],
+      [
+        "option-value-as-positional",
+        "deploy-tool publish --target staging",
+        "staging",
+      ],
+      ["compound-option-first-part", "deploy-tool publish --dry-run", "--dry"],
+      ["compound-option-last-part", "deploy-tool publish --dry-run", "--run"],
+      ["host-as-flag", "rsync -az ./dist/ deploy@box:/srv", "--box"],
+      ["nonfinal-option-repeat", "deploy-tool publish --dry --force", "--dry"],
+      [
+        "stacked-compatibility",
+        "deploy-tool publish --target staging",
+        "--target staging --",
+      ],
+      [
+        "repeat-after-marker",
+        "deploy-tool publish -- --target staging",
+        "--target staging",
+      ],
+    ] as const
+  ).flatMap(([id, declaration, added]) => {
+    const invocation = `${declaration} ${added}`;
+    return [
+      gateCommandCase(
+        `gate-${id}`,
+        declaration,
+        invocation,
+        false,
+        "#516: the appended arguments need a complete literal witness",
+      ),
+      gateCommandCase(
+        `gate-${id}-declared`,
+        invocation,
+        invocation,
+        true,
+        "#516 control: the complete invocation appears in the declaration",
+      ),
+    ];
+  }),
+  gateCommandCase(
+    "gate-trailing-marker",
+    "deploy-tool publish --target staging",
+    "deploy-tool publish --target staging --",
+    true,
+    "#516 control: the complete declaration is followed by one terminal marker",
+  ),
+  ...(
+    [
+      [
+        "case-changed",
+        "deploy-tool publish --target Staging",
+        "deploy-tool publish --target staging",
+      ],
+      [
+        "underscore-removed",
+        "deploy-tool publish --target stage_name",
+        "deploy-tool publish --target stagename",
+      ],
+      [
+        "foreign-runner",
+        "deploy-tool publish --target staging",
+        "npm exec deploy-tool publish --target staging",
+      ],
+      [
+        "interior-marker",
+        "deploy-tool publish --target staging",
+        "deploy-tool publish -- --target staging",
+      ],
+      [
+        "forwarding-missing-value",
+        "deploy-tool publish --target staging",
+        "npm run deploy -- --target",
+      ],
+      [
+        "forwarding-late-option",
+        "deploy-tool publish --target staging --force",
+        "npm run deploy -- --force",
+      ],
+      [
+        "forwarding-equals-split",
+        "deploy-tool publish --target=staging",
+        "npm run deploy -- --target staging",
+      ],
+      [
+        "forwarding-extra-marker",
+        "deploy-tool publish --target staging",
+        "npm run deploy -- -- --target staging",
+      ],
+    ] as const
+  ).flatMap(([id, declaration, invocation]) => [
+    gateCommandCase(
+      `gate-${id}`,
+      declaration,
+      invocation,
+      false,
+      "#516: preserve spelling, argument boundaries, and the runner's position",
+    ),
+    gateCommandCase(
+      `gate-${id}-declared`,
+      invocation,
+      invocation,
+      true,
+      "#516 control: the complete invocation appears in the declaration",
+    ),
+  ]),
+  {
+    id: "gate-only-literal-witness-cited",
+    tree: NEUTRAL_README,
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          deployUpper: "deploy-tool publish --target Staging",
+          deployLower: "deploy-tool publish --target staging",
+        },
+      }),
+    },
+    candidate: "Run `deploy-tool publish --target staging`.",
     expectTag: true,
     expectReason: "declared_gate",
+    expectWhere: "package.json scripts.deployLower",
     source:
-      "accepted limit of word-level operand comparison: a flag whose word is a value in the declaration refuses — the comparison is over bare words, not flag identity",
+      "#516: the normalized collision cannot vouch alongside the literal match",
   },
 ];

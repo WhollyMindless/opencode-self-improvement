@@ -54,9 +54,10 @@
 import { lstatSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
-  POL_NEG,
   figureExtent,
+  literalCommandArgs,
   numericTokens,
+  POL_NEG,
   polaritySigns,
   tokens,
 } from "../core/tokenize.ts";
@@ -373,6 +374,8 @@ interface Slice {
 /** Declared gates: a command the project already runs, and where it is declared. */
 interface Gate {
   label: string;
+  args: string[] | null;
+  kind: "command" | "script" | "target";
   /** Citation only: the file and the kind of declaration a refusal names. */
   where: string;
   /**
@@ -408,9 +411,22 @@ function skipPath(file: string): boolean {
 
 function parseGates(repoDir: string, files: string[]): Gate[] {
   const gates: Gate[] = [];
-  const add = (label: string, where: string, group: string) => {
+  const add = (
+    label: string,
+    where: string,
+    group: string,
+    kind: Gate["kind"] = "command",
+    literal = true,
+  ) => {
     const n = norm(label);
-    if (n.length >= 2 && n.length <= 80) gates.push({ label: n, where, group });
+    if (n.length >= 2 && n.length <= 80)
+      gates.push({
+        label: n,
+        args: literal ? literalCommandArgs(label) : null,
+        kind,
+        where,
+        group,
+      });
   };
   for (const file of files) {
     if (skipPath(file)) continue;
@@ -429,7 +445,7 @@ function parseGates(repoDir: string, files: string[]): Gate[] {
         const pkg = JSON.parse(text) as { scripts?: Record<string, string> };
         for (const [name, cmd] of Object.entries(pkg.scripts ?? {})) {
           const where = `${file} scripts.${name}`;
-          add(name, where, where);
+          add(name, where, where, "script");
           if (typeof cmd === "string") add(cmd, where, where);
         }
       } catch {
@@ -442,7 +458,7 @@ function parseGates(repoDir: string, files: string[]): Gate[] {
         const target = /^([A-Za-z0-9_.%-]+)\s*:(?!=)/.exec(line);
         if (target?.[1]) {
           const where = `${file} target ${target[1]}`;
-          add(target[1], where, where);
+          add(target[1], where, where, "target");
         }
         const recipe = /^\t+([^\s].*)$/.exec(line);
         if (recipe?.[1])
@@ -451,8 +467,15 @@ function parseGates(repoDir: string, files: string[]): Gate[] {
       continue;
     }
     for (const line of text.split("\n")) {
-      const run = /^\s*-?\s*run:\s*["']?(.+?)["']?\s*$/.exec(line);
-      if (run?.[1]) add(run[1], `${file} run`, `${file} run ${norm(run[1])}`);
+      const run = /^\s*-?\s*run:\s*(["']?)(.+?)(["']?)\s*$/.exec(line);
+      if (run?.[2])
+        add(
+          run[2],
+          `${file} run`,
+          `${file} run ${norm(run[2])}`,
+          "command",
+          run[1] === run[3],
+        );
     }
   }
   return gates;
@@ -472,15 +495,15 @@ function statedCommands(content: string): string[] {
   return spans;
 }
 
+// The capture group identifies package script runners that can forward options.
+const RUNNER =
+  /^(?:(bun(?: run)?|npm run|pnpm run|yarn)|bunx|npm exec|pnpm exec|make|task)\s+/;
+
 /** Strip the runner so `bun run test` and the script named `test` are the same thing. */
 function runners(span: string): string[] {
-  const forms = [norm(span)];
-  const stripped = norm(span).replace(
-    /^(?:bun(?:x| run)?|npm (?:run|exec)|pnpm (?:run|exec)|yarn|make|task)\s+/,
-    "",
-  );
-  if (stripped && stripped !== forms[0]) forms.push(stripped);
-  return forms;
+  const form = norm(span);
+  const stripped = form.replace(RUNNER, "");
+  return stripped && stripped !== form ? [form, stripped] : [form];
 }
 
 /**
@@ -493,75 +516,92 @@ function runners(span: string): string[] {
  * declaration kind inherit a file-wide union by forgetting a flag, and a
  * file-wide union vouches for a refusal with another step's operands.
  */
-function vouchLabels(gate: Gate, gates: Gate[]): string[] {
-  const out: string[] = [];
-  for (const g of gates) if (g.group === gate.group) out.push(g.label);
-  return out;
+function vouchingGates(gate: Gate, gates: Gate[]): Gate[] {
+  return gates.filter((g) => g.group === gate.group);
 }
 
-/**
- * What a span states around the command it names: the tokens left after the
- * runner vocabulary and the matched label, one candidate per span form in which
- * that label appears. An empty candidate is the bare invocation.
- */
-function operandCandidates(span: string, gate: Gate): string[][] {
-  const out: string[][] = [];
-  for (const form of runners(span)) {
-    const at = form.indexOf(gate.label);
-    if (at < 0) continue;
-    out.push(
-      tokens(`${form.slice(0, at)} ${form.slice(at + gate.label.length)}`),
-    );
-  }
-  return out;
-}
-
-/**
- * Is `operand` a contiguous token run inside any vouching label? The run is
- * compared over bare words, not flag identity — `tokens()` splits on `-` — so
- * a flag whose word appears as a value in the declaration matches it, and the
- * case bank's `gate-entry-value-reused-as-flag` row records that consequence.
- */
-function contiguousIn(operand: string[], labels: string[]): boolean {
-  for (const label of labels) {
-    const decl = tokens(label);
-    for (let i = 0; i + operand.length <= decl.length; i++) {
-      if (operand.every((w, j) => decl[i + j] === w)) return true;
-    }
+/** Require the legacy operand run on the same form and label that supply
+ * literal evidence. Every new witness was already eligible. */
+function legacyCovers(form: string, hit: Gate, witness: Gate): boolean {
+  const at = form.indexOf(hit.label);
+  if (at < 0) return false;
+  const operand = tokens(
+    `${form.slice(0, at)} ${form.slice(at + hit.label.length)}`,
+  );
+  if (operand.length === 0) return true;
+  const declared = tokens(witness.label);
+  for (let i = 0; i + operand.length <= declared.length; i++) {
+    if (operand.every((word, j) => declared[i + j] === word)) return true;
   }
   return false;
 }
 
-/**
- * VETO 3: does every span add only a run the declaration states?
- *
- * Stripping the whole span before reading the residual hides what the span
- * carried: with `deploy: "deploy-tool publish"` declared, `npm run deploy --
- * --target canary` reduced to the same empty residual as the bare invocation,
- * and the canary target — the session's only fact — was refused with the
- * command it rode. Set membership of the span's words does not close that
- * either: `--target staging --fallback canary` declared against `--target
- * canary --fallback staging` has every word present and the pairing wrong, and
- * a flag reorder or a stripped value reaches the same hole.
- *
- * So the gate path asks the tree path's question — contiguity, not presence.
- * The operand must be a contiguous token run inside a vouching label; the empty
- * operand is the bare invocation, which the declaration states on its own.
- * Each span asks its OWN declarations: one shared label set let a second,
- * unrelated mention lend its operands to the first, and the candidate run and
- * the labels it settles against must come from the SAME declaration —
- * stripping one label and testing the remainder against another's command is
- * the shared lookup in a new coat.
- * Anything the check cannot establish — the label not located, values swapped,
- * flags reordered, an operand broken by a word the declaration omits — keeps
- * the row. Reordering valueless flags keeps too: order-irrelevance is not a
- * thing a token comparison can prove, a wrong keep costs a row, and a wrong
- * refusal costs a fact.
- */
-function operandSettled(span: string, gate: Gate, gates: Gate[]): boolean {
-  const candidates = operandCandidates(span, gate);
-  const labels = vouchLabels(gate, gates);
-  return candidates.some((o) => o.length === 0 || contiguousIn(o, labels));
+function hasPrefix(args: string[], prefix: string[]): boolean {
+  return prefix.every((arg, i) => args[i] === arg);
+}
+
+// Compatibility uses lexical boundaries. Binding values requires the
+// receiving command's option grammar.
+function flagShaped(arg: string): boolean {
+  return /^--?[A-Za-z]/.test(arg);
+}
+
+/** Exact arguments, with one allowance for an appended marker or an exact
+ * repeat of the final flag-led group. */
+function directMatch(args: string[], declared: string[]): boolean {
+  if (!hasPrefix(args, declared)) return false;
+  const tail = args.slice(declared.length);
+  if (tail.length === 0) return true;
+  if (declared.includes("--")) return false;
+  if (tail.length === 1 && tail[0] === "--") return true;
+  const lastFlag = declared.findLastIndex(flagShaped);
+  return (
+    lastFlag > 0 &&
+    tail.length === declared.length - lastFlag &&
+    hasPrefix(tail, declared.slice(lastFlag))
+  );
+}
+
+/** A wrapper tail must be a prefix of the script body's option tail and end
+ * at a lexical option boundary. A marker in the body ends that option tail. */
+function forwardedMatch(args: string[], body: string[]): boolean {
+  const firstFlag = body.findIndex((arg, i) => i > 0 && flagShaped(arg));
+  const marker = body.indexOf("--");
+  if (firstFlag < 0 || (marker >= 0 && marker < firstFlag)) return false;
+  const options = body.slice(firstFlag, marker < 0 ? body.length : marker);
+  const next = options[args.length];
+  return hasPrefix(options, args) && (next === undefined || flagShaped(next));
+}
+
+/** VETO 3: the command span needs a literal witness before it can be stripped. */
+function operandSettled(span: string, gate: Gate, group: Gate[]): boolean {
+  const args = literalCommandArgs(span);
+  if (!args || !gate.args) return false;
+  if (gate.kind !== "command" && gate.args.length !== 1) return false;
+  const [form, stripped] = runners(span);
+  if (directMatch(args, gate.args) && legacyCovers(form, gate, gate))
+    return true;
+
+  // A runner can name a declared alias. A command body needs its own
+  // executable in the same position.
+  const runner = RUNNER.exec(span);
+  if (!runner || !stripped || gate.kind === "command") return false;
+  const invocation = args.slice(runner[0].trim().split(" ").length);
+  if (invocation[0] !== gate.args[0]) return false;
+  const tail = invocation.slice(1);
+  if (tail.length === 0 || (tail.length === 1 && tail[0] === "--"))
+    return legacyCovers(stripped, gate, gate);
+  if (gate.kind !== "script" || !runner[1]) return false;
+
+  const forwarded = tail[0] === "--" ? tail.slice(1) : tail;
+  if (forwarded.includes("--")) return false;
+  return group.some(
+    (body) =>
+      body.kind === "command" &&
+      body.args !== null &&
+      forwardedMatch(forwarded, body.args) &&
+      legacyCovers(stripped, gate, body),
+  );
 }
 
 // Matching is positional, never substring. A gate named `all` must not refuse a
@@ -1066,10 +1106,9 @@ export function availabilityIndex(
       //     refused with its only claim — `never` — dropped as too short.
       // A gate refusal needs all three, each positively established:
       //   1. every command span the row states is declared AS A RUN — the
-      //      script exists, AND the operands it adds are a contiguous token
-      //      run in the declaration. An undeclared span, or operands the
-      //      declaration states only in another order or pairing, is a fact
-      //      the tree does not hold, whatever the rest of the row says;
+      //      literal arguments match a declaration in order, including the
+      //      narrow allowances in operandSettled. Undeclared arguments or a
+      //      different order or pairing keep the row;
       //   2. what survives stripping them is nothing but FILLER — the bare
       //      mention "ship with X", which is what the manifest does declare; or
       //   3. otherwise, every assertion left in it is one the tracked files
@@ -1105,14 +1144,10 @@ export function availabilityIndex(
         // VETOES 2 AND 3, per span and per declaration. A span settles
         // against ONE declaration that carries BOTH dimensions: every figure
         // the span states appears among the figures of that declaration's
-        // group, and its operand is a contiguous token run inside the same
-        // group. The two dimensions stay distinct checks — figures ask
-        // set membership, operands ask contiguity and pairing, and collapsing
-        // one into the other reopens the pairing hole the contiguity comment
-        // above records. What changed is the unit: never one label chosen by
-        // scan order, and never the union of two declarations that merely
-        // both match the span — a row citing one command is not answered by
-        // two commands' figures pooled together. A row that spells
+        // group, and the literal argument check has a witness in that same
+        // group. Figures ask set membership, while operands preserve spelling
+        // and order. Every match is considered on its own, with figures
+        // confined to its declaration group. A row that spells
         // `npm run deploy --replicas 3` against
         // `"deploy": "deploy-tool publish --replicas 3"` settles against the
         // deploy declaration, whose command carries the figure, instead of
@@ -1124,11 +1159,12 @@ export function availabilityIndex(
         const settledBy: Gate[][] = spans.map(() => []);
         for (let i = 0; i < spans.length; i++) {
           for (const g of hits[i]) {
+            const group = vouchingGates(g, gates);
             const known = new Set<string>();
-            for (const label of vouchLabels(g, gates))
-              for (const n of numericTokens(label)) known.add(n);
+            for (const witness of group)
+              for (const n of numericTokens(witness.label)) known.add(n);
             if (!figuresWithin(spans[i], known)) continue;
-            if (operandSettled(spans[i], g, gates)) settledBy[i].push(g);
+            if (operandSettled(spans[i], g, group)) settledBy[i].push(g);
           }
           // No declaration carries the span — undeclared, or operands or
           // figures the declaration does not state. The strip below removes
