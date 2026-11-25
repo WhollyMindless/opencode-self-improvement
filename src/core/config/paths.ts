@@ -6,12 +6,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { tightenDirectory } from "../permissions.ts";
 
-export function memoryRoot(): string {
+export function memoryRoot({ readOnly = false } = {}): string {
   const root =
     process.env.OPENCODE_MEMORY_DIR ||
     join(homedir(), ".config", "opencode", "memory");
-  // Protect old stores even on read-only use; do not create an absent store.
-  tightenDirectory(root);
+  // Only the benchmark replay should request readOnly. Runtime callers
+  // must keep permission tightening enabled, including ordinary reads.
+  if (!readOnly) tightenDirectory(root);
   return root;
 }
 
