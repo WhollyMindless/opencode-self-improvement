@@ -10,7 +10,8 @@ export function memoryRoot({ readOnly = false } = {}): string {
   const root =
     process.env.OPENCODE_MEMORY_DIR ||
     join(homedir(), ".config", "opencode", "memory");
-  // Ordinary reads protect old stores. Bench replays must leave modes alone.
+  // Only the benchmark replay should request readOnly. Runtime callers
+  // must keep permission tightening enabled, including ordinary reads.
   if (!readOnly) tightenDirectory(root);
   return root;
 }

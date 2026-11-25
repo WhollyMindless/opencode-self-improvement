@@ -88,22 +88,22 @@ test("store replay reports the corpus for both budgets without writing to its in
       return result.stdout.toString();
     };
     const shipped = run();
-    expect(shipped).toContain("row=2 reason=declared_gate");
-    expect(shipped).not.toContain("row=1 ");
+    expect(shipped).toContain("row_in_population=2 reason=declared_gate");
+    expect(shipped).not.toContain("row_in_population=1 ");
     expect(shipped).toContain(
-      `refused=1/3 rate=33.33% files=9 bytes=2160000 capped=true budget=${DEFAULT_SCAN_BUDGET} budget_units=decoded_characters in_tracked_file=0 declared_gate=1`,
+      `refused=1/3 rate=33.33% files=9 chars=2160000 capped=true budget=${DEFAULT_SCAN_BUDGET} budget_units=decoded_characters in_tracked_file=0 declared_gate=1`,
     );
 
     const raised = run("--scan-budget", "4000000");
     expect(raised).toContain(
       "population=loaded_unblocked_rows rows=3 includes_superseded=true",
     );
-    expect(raised).toContain("row=1 reason=in_tracked_file");
+    expect(raised).toContain("row_in_population=1 reason=in_tracked_file");
     expect(raised).toContain(`${statement.slice(0, 80)}…`);
     expect(raised).not.toContain(statement);
-    expect(raised).not.toContain("row=3 ");
+    expect(raised).not.toContain("row_in_population=3 ");
     expect(raised).toMatch(
-      /refused=2\/3 rate=66\.67% files=11 bytes=\d+ capped=false budget=4000000 budget_units=decoded_characters in_tracked_file=1 declared_gate=1/,
+      /refused=2\/3 rate=66\.67% files=11 chars=\d+ capped=false budget=4000000 budget_units=decoded_characters in_tracked_file=1 declared_gate=1/,
     );
     expect(run("--scan-budget", "4000000", "--full-content")).toContain(
       statement,

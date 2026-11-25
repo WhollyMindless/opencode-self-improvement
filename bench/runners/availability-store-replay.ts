@@ -74,11 +74,11 @@ async function replay(): Promise<void> {
         ? content
         : `${content.slice(0, EXCERPT_LENGTH)}…`;
     console.log(
-      `row=${i + 1} reason=${verdict.reason} ${JSON.stringify(excerpt)}`,
+      `row_in_population=${i + 1} reason=${verdict.reason} ${JSON.stringify(excerpt)}`,
     );
   }
 
-  const corpus = `files=${files} bytes=${bytes} capped=${capped} budget=${scanBudget} budget_units=decoded_characters`;
+  const corpus = `files=${files} chars=${bytes} capped=${capped} budget=${scanBudget} budget_units=decoded_characters`;
   const refused = refusals.in_tracked_file + refusals.declared_gate;
   const rate = rows.length
     ? `${((100 * refused) / rows.length).toFixed(2)}%`
