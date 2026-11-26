@@ -130,6 +130,46 @@ for (const c of CASES) {
   });
 }
 
+// The later-occurrence retry must stay a bounded function of the haystack,
+// even for a claim repeated N times: the residual's two clauses are tried
+// per occurrence, so an unfixed retry re-walks every remaining hit once per
+// anchor and the per-candidate cost grows quadratically. The two-occurrence
+// repro shape: the residual appears twice per section in the longer form, so
+// no occurrence covers it (fail-open, kept).
+test("the later-occurrence retry stays bounded on repeated-section trees", () => {
+  const tree = Array.from(
+    { length: 400 },
+    () =>
+      "Always keep 3 replicas warm before rollout and drain first.\n\n" +
+      "Always keep 3 replicas warm before rollout and drain first.\n",
+  ).join("\n");
+  const dir = join(root, "bounded-retry");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "README.md"), tree);
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({
+      scripts: {
+        deploy: "deploy-tool publish --prod",
+        rollback: "rsync -az ./dist/ deploy@box:/srv",
+      },
+    }),
+  );
+  git(dir, "init", "-q");
+  git(dir, "add", ".");
+  const index = availabilityIndex(dir);
+  const verdict = index.check(
+    "Run `npm run rollback`; keep 3 replicas warm before rollout; drain first.",
+  );
+  expect(verdict).toBeNull();
+  const walked = index.scanned().retryWalked;
+  expect(walked, "retryWalked telemetry must be defined").toBeDefined();
+  expect(
+    walked as number,
+    `retryWalked ${walked} bytes must stay within the haystack budget (tree ${tree.length} bytes), not N-multiplied`,
+  ).toBeLessThanOrEqual(3 * tree.length);
+});
+
 test("control: the same fact is refused when the scan can read it", () => {
   const dir = join(root, "control");
   mkdirSync(dir, { recursive: true });
