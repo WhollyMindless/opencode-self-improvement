@@ -16,6 +16,7 @@
 import { preparePrivateFile } from "../core/permissions.ts";
 import { readFile } from "node:fs/promises";
 import type { Attribution } from "../inject/attribution.ts";
+import type { DroppedEvidenceWrites } from "../telemetry/record.ts";
 import {
   captureLag,
   type CaptureCost,
@@ -149,6 +150,8 @@ export interface StatusPayload {
   /** optional for backward-compatible reads of pre-v2 files. */
   stats?: SessionStats;
   measured?: Measured | null;
+  /** Store-wide drops in the process that wrote this status snapshot. */
+  droppedEvidenceWrites?: DroppedEvidenceWrites;
   /** memory-vs-files attribution for the session; null/undefined = not computed. */
   attribution?: Attribution | null;
 }

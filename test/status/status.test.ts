@@ -37,6 +37,7 @@ import {
   cacheLines,
   captureLines,
   contextLines,
+  evidenceWriteLines,
   renderMemoryReport,
   windowLines,
 } from "../../src/status/report.ts";
@@ -51,6 +52,7 @@ import {
 import { addBlock } from "../../src/store/blocklist.ts";
 import { appendMemory } from "../../src/store/files/append.ts";
 import { hitsFile, recordOutcome } from "../../src/telemetry/ledger.ts";
+import { recordBestEffort } from "../../src/telemetry/record.ts";
 import { loadPlugin } from "../harness.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
@@ -107,9 +109,46 @@ describe("status files", () => {
     const got = await readStatus();
     expect(got?.blockChars).toBe(70);
     expect(got?.store.active).toBe(3);
+    expect(evidenceWriteLines(got?.droppedEvidenceWrites, "snapshot")).toEqual(
+      [],
+    );
     expect(statusFile()).toContain("status.json");
     expect(await readStatus("ses_x")).not.toBeNull();
     expect(sessionStatusFile("ses_x")).toContain("ses_x.json");
+  });
+
+  test("status files carry the redacted evidence loss snapshot", async () => {
+    const token = "sk-AbCdEfGhIjKlMnOpQrSt";
+    process.env.OPENCODE_MEMORY_DIR = join(root, token);
+    mkdirSync(memoryRoot(), { recursive: true });
+    writeFileSync(evidenceDir(), "blocked");
+
+    await recordBestEffort("capture_cost");
+    await writeStatus(payload());
+    await recordBestEffort("capture_lag");
+
+    for (const file of [statusFile(), sessionStatusFile("ses_x")]) {
+      const json = readFileSync(file, "utf8");
+      expect(json).not.toContain(token);
+      expect(JSON.parse(json).droppedEvidenceWrites).toEqual({
+        dropped: 1,
+        lastEvent: "capture_cost",
+        lastError: expect.stringContaining("[redacted]"),
+      });
+    }
+
+    const status = await readStatus("ses_x");
+    const lines = evidenceWriteLines(status?.droppedEvidenceWrites, "snapshot");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("1 as of last status update");
+    expect(lines[0]).toContain("capture_cost");
+    expect(lines[0]).toContain("[redacted]");
+
+    await writeStatus(payload());
+    expect((await readStatus("ses_x"))?.droppedEvidenceWrites).toMatchObject({
+      dropped: 2,
+      lastEvent: "capture_lag",
+    });
   });
 
   test("missing or corrupt file reads as null (never throws)", async () => {

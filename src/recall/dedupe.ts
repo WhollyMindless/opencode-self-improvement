@@ -30,6 +30,7 @@
 // Threshold guidance: 0.5-0.7 suppresses merely-related rows and forces the
 // window deep into the ranking; 0.8 suppresses near-identical copies only.
 // History and measurements: docs/adr/0002.
+import { cmpTs } from "../core/cmp-ts.ts";
 import type { Memory } from "../store/model/memory.ts";
 import { words } from "./score.ts";
 
@@ -307,7 +308,7 @@ export function dedupeWindowGrouped(
         break;
       }
       if (collapse < 0) collapse = pos;
-      if (ranked[k]!.ts >= ranked[i]!.ts) outranked = true;
+      if (cmpTs(ranked[k]!.ts, ranked[i]!.ts) >= 0) outranked = true;
       else beaten.push(pos);
     }
     if (
@@ -323,7 +324,8 @@ export function dedupeWindowGrouped(
       // beat: that would drop a row the candidate never outranked.
       // A winner takes the FIRST clashing slot, keeping its rank, and every
       // other slot it won is removed so the scan refills it.
-      const rides = !outranked && ranked[i]!.ts > ranked[kept[collapse]!]!.ts;
+      const rides =
+        !outranked && cmpTs(ranked[i]!.ts, ranked[kept[collapse]!]!.ts) > 0;
       if (rides) {
         kept[collapse] = i;
         for (const pos of beaten) {
@@ -331,7 +333,8 @@ export function dedupeWindowGrouped(
         }
       }
     } else if (addition >= 0) {
-      if (ranked[i]!.ts > ranked[kept[addition]!]!.ts) kept[addition] = i;
+      if (cmpTs(ranked[i]!.ts, ranked[kept[addition]!]!.ts) > 0)
+        kept[addition] = i;
     } else kept.push(i);
     // Removed after the branch: `collapse` and `beaten` are positions inside
     // `kept`, and splicing mid-scan would move them.

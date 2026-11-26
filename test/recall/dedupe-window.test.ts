@@ -249,6 +249,27 @@ const RUNBOOK_MONDAY = mem(
 );
 
 describe("dedupeWindowGrouped", () => {
+  test.each([true, false])(
+    "compares mixed-precision timestamps by instant (grouping=%s)",
+    (groupAdditions) => {
+      const legacy = { ...BUILD, ts: "2026-01-01T00:00:01Z" };
+      const sameInstant = { ...BUILD, ts: "2026-01-01T00:00:01.000Z" };
+      const newer = { ...BUILD, ts: "2026-01-01T00:00:01.500Z" };
+      const window = (first: Memory, second: Memory) =>
+        dedupeWindowGrouped(
+          [first, second, OTHER],
+          2,
+          DEFAULT_THRESHOLD,
+          groupAdditions,
+        ).rows;
+
+      expect(window(legacy, sameInstant)).toEqual([legacy, OTHER]);
+      expect(window(sameInstant, legacy)).toEqual([sameInstant, OTHER]);
+      expect(window(legacy, newer)).toEqual([newer, OTHER]);
+      expect(window(newer, legacy)).toEqual([newer, OTHER]);
+    },
+  );
+
   test("the two build commands are both kept and reported as a group", () => {
     // Pinned so a tokenizer change cannot turn this into a vacuous pass: the
     // pair must still reach the clash branch.

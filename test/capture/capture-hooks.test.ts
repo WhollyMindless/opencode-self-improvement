@@ -2,7 +2,7 @@
 // model is chosen (explicit, inherited, or invalid and therefore unregistered),
 // what plugin_load records on the heartbeat, and what a throwing hook leaves in
 // the evidence log.
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -419,9 +419,22 @@ describe("plugin_load heartbeat", () => {
 describe("hook_error evidence", () => {
   test("a guarded failure lands in the evidence file as hook_error, class only", async () => {
     const loaded = await loadCapturePlugin({});
-    await guarded("demo-hook", async () => {
-      throw new TypeError("boom: secret transcript fragment");
-    });
+    const prefix =
+      "[opencode-self-improvement] demo-hook hook failed (ignored):";
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await guarded("demo-hook", async () => {
+        throw new TypeError(
+          "secret transcript fragment sk-AbCdEfGhIjKlMnOpQrSt",
+        );
+      });
+      expect(warn.mock.calls.filter(([message]) => message === prefix)).toEqual(
+        [[prefix, "secret transcript fragment [redacted]"]],
+      );
+    } finally {
+      warn.mockRestore();
+      await loaded.cleanup();
+    }
     const line = evidence()
       .filter((e) => e.ev === "hook_error")
       .pop();
@@ -433,7 +446,6 @@ describe("hook_error evidence", () => {
         Object.values(l).some((v) => String(v).includes("secret transcript")),
       ),
     ).toBe(false);
-    await loaded.cleanup();
   });
 
   test("a non-Error throw still records, with typeof as the class", async () => {

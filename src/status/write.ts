@@ -20,6 +20,7 @@ import { dateStr } from "../core/time.ts";
 import { parseLine } from "../core/logfmt/format.ts";
 import { readLines } from "../core/logfmt/read.ts";
 import { resolveRepo } from "../identity/repokey.ts";
+import { droppedEvidenceWrites } from "../telemetry/record.ts";
 import {
   ADMIN_READER,
   evidenceVisibleTo,
@@ -79,9 +80,13 @@ async function pruneStatusDir(): Promise<void> {
 // per-session file (primary) AND the global latest file (fallback).
 export async function writeStatus(p: StatusPayload): Promise<void> {
   try {
-    await writeJson(statusFile(), p);
+    const snapshot = {
+      ...p,
+      droppedEvidenceWrites: droppedEvidenceWrites() ?? undefined,
+    };
+    await writeJson(statusFile(), snapshot);
     if (typeof p.sessionID === "string" && p.sessionID) {
-      await writeJson(sessionStatusFile(p.sessionID), p);
+      await writeJson(sessionStatusFile(p.sessionID), snapshot);
       await pruneStatusDir();
     }
   } catch {

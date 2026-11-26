@@ -95,12 +95,22 @@ function survivingRows(entry: HeldPull, text: string): Memory[] | undefined {
   const lines = text.split(/\r?\n/);
   const start = lines.indexOf(entry.header);
   if (start < 0) return undefined;
+  const required = new Map<string, number>();
+  for (const line of entry.lines)
+    required.set(line, (required.get(line) ?? 0) + 1);
   const visible = new Map<string, number>();
-  const inBlock = new Map<string, number>();
+  let inBlock: Map<string, number> | undefined = new Map();
   for (let i = start + 1; i < lines.length; i++) {
     const line = lines[i]!;
     if (line === entry.header) {
-      inBlock.clear();
+      inBlock = new Map();
+      continue;
+    }
+    if (!inBlock) continue;
+    // Only the run of placed rows directly after this header is evidence.
+    // A formatter's footer can echo a row after that run has ended.
+    if (!required.has(line)) {
+      inBlock = undefined;
       continue;
     }
     const count = (inBlock.get(line) ?? 0) + 1;
@@ -109,9 +119,6 @@ function survivingRows(entry: HeldPull, text: string): Memory[] | undefined {
     // Keep the highest count in one block; separate copies cannot prove twins.
     if (count > (visible.get(line) ?? 0)) visible.set(line, count);
   }
-  const required = new Map<string, number>();
-  for (const line of entry.lines)
-    required.set(line, (required.get(line) ?? 0) + 1);
   return entry.rows.filter((_, i) => {
     const line = entry.lines[i]!;
     return (visible.get(line) ?? 0) >= required.get(line)!;
