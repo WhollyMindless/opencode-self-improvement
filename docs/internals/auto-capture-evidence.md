@@ -44,6 +44,23 @@ What is established, from tests and fixtures (no live store involved):
     | sed -E -n 's/.* (session|sid)=([^ ]*).*/\2/p' | sort -u | wc -l
   ```
 
+## Re-measure turn-end waits on each OpenCode host pin
+
+Both smoke jobs run the teardown probe with their pinned host. Run it against a release candidate with `bun test ./e2e/host-teardown.test.ts` and set `OPENCODE_BIN` to that release's executable. Record the version, platform and counts below when a host pin changes.
+
+The test starts three isolated `opencode run` processes using the local scripted provider. The standalone probe plugin records arrival of `session.execution.succeeded`, a microtask, and completion of concurrent 0, 10, 50 and 200 ms timers. It reads the receipts after process exit. Timer fractions count completions among observed arrivals. The 0 ms rung uses a timer and is distinct from the microtask. These runs measure what survives this shutdown path on the tested machine. Timing can vary by trial, platform and load.
+
+| OpenCode | Platform | Run | Arrived | Microtask | 0 ms | 10 ms | 50 ms | 200 ms |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2.0.26 | Linux (WSL) | Probe alone | 3/3 | 3/3 | 3/3 | 3/3 | 0/3 | 0/3 |
+| 2.0.26 | Linux (WSL) | Full smoke | 3/3 | 3/3 | 3/3 | 3/3 | 1/3 | 0/3 |
+| 2.3.2 | Linux (WSL) | Probe alone | 3/3 | 3/3 | 3/3 | 3/3 | 1/3 | 0/3 |
+| 2.4.1 | Linux (WSL) | Probe alone | 3/3 | 3/3 | 3/3 | 3/3 | 0/3 | 0/3 |
+| 2.4.1 | Linux (WSL) | Full smoke | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 | 0/3 |
+| 2.4.2 | Windows | Probe alone | 3/3 | 3/3 | 3/3 | 1/3 | 0/3 | 0/3 |
+
+Earlier probes on 2.3.0 saw no 50 ms completions. Later runs did, including both current Linux pins during parallel smoke. The test highlights any 50 ms completion in the log and warns on a 200 ms completion, which none of these trials observed. Either signal calls for re-measuring with more trials before reconsidering the blind band before `auto_capture_start` or treating `auto_capture_dispose` as a diagnosis. A completed timer shows that the process remained alive long enough for that callback. It does not establish that the host awaited the handler. Smoke checks plugin startup, fake turn completion, and at least one observed event.
+
 ## What has not been established
 
 - A controlled quality or billed-cost figure for a live store. The receipts above prove execution and gate admission, not usefulness: they do not say how many rows a person would have written by hand, how many were noise, or what the provider charged. All 517 `capture_cost` lines carry `receipt=none`; `est_tokens` is derived from prompt size, not returned by the provider.
