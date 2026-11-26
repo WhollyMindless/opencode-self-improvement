@@ -50,11 +50,14 @@ export function createInjectionEpochs({
   forgetUsage,
   noteHits,
 }: InjectionEpochOptions) {
-  // Per-session frozen injection epochs: the whole memory section (digest +
-  // frontier + relevance) plus the store fingerprint it was rendered from.
+  // Per-session frozen injection epochs: the STATIC STABLE CORE (standing
+  // digest + frontier + convergence) plus the store fingerprint it was
+  // rendered from. The prompt-dependent relevance block rides the same
+  // delivery as the core — the turn tail — but it is NOT part of the byte
+  // key: a change to the selection set moves the tail, never the prefix.
   // Recomputed on the first prompt of a tracked session, when injectable rows
-  // change, when a new prompt re-scores the block, or after a
-  // compaction (see the prompt/context/compaction hooks).
+  // change, or when a new prompt re-scores the block (see the
+  // prompt/context/compaction hooks).
   // The RENDERED BYTES, not the fingerprint, decide whether the epoch moved
   // (issue): a write that changes nothing the model is shown must not
   // cost the next request a full re-prefill. And a pure addition the session
@@ -67,9 +70,18 @@ export function createInjectionEpochs({
       version: string;
       /** Frozen standing digest + frontier + convergence parts, in push order. */
       parts: string[];
-      /** The budgeted relevance block the surfaces report against injectBudget. */
+      /**
+       * The turn tail: the budgeted relevance block the surfaces report
+       * against injectBudget. Frozen until (prompt, store) move, then
+       * re-derived — it is never part of the byte key, so a change to it
+       * never busts the prefix.
+       */
       block: string;
-      /** Comparison key: every byte of the memory section, joined. */
+      /**
+       * Comparison key: the STABLE CORE only — the digest parts joined. The
+       * relevance block is deliberately excluded; joining it would re-bill
+       * the whole prefix on every selection-set change.
+       */
       prefix: string;
       /**
        * Rows THIS session had already authored when these bytes were rendered
@@ -94,8 +106,11 @@ export function createInjectionEpochs({
   // against it even when the change happened during a tool loop with no new
   // prompt. It is evicted together with the epoch and session ledgers.
   const latestPrompt = new Map<string, string>();
-  // Recomputes since server start: every one invalidated a prompt cache, so
-  // it is the honest cost number the surfaces show (status files / tools).
+  // Recomputes since server start: every epoch move records one, so the
+  // surfaces can show why the delivery moved. Only a store_changed move
+  // busts the cache (the stable core's bytes moved or the store moved the
+  // delivery); a prompt_reveal move re-renders the turn tail and touches
+  // nothing the provider has cached.
   let epochRecomputes = 0;
 
   // Per-session ledger, incremented at the injection decision below. Status
@@ -133,7 +148,10 @@ export function createInjectionEpochs({
       recomputes: epochRecomputes,
       block: ep.block,
       blockChars: ep.block.length,
-      sectionChars: ep.prefix.length,
+      // Every memory byte actually riding the system prompt: the stable core
+      // plus the turn tail (the relevance block).
+      sectionChars:
+        ep.parts.reduce((n, part) => n + part.length, 0) + ep.block.length,
       budget,
       store: summarizeStore(all, led, malformedCount()).counts,
       stats: statsFor(sid),
@@ -158,12 +176,16 @@ export function createInjectionEpochs({
       (m) => isInjectable(m) && isVisibleTo(m, reader),
     );
   };
-  // Render the COMPLETE memory section for one request: the standing digest,
-  // the open-thread frontier and the convergence line (all from systemDigest),
-  // followed by this epoch's relevance block. The parts are exactly what gets
-  // pushed onto `event.system`; their join is the byte key the epoch compares
-  // against, so "did the cache-critical prefix change?" is answered by the
-  // bytes the model would actually see and never by a proxy (issue).
+  // Render the complete memory section for one request: the standing digest
+  // (static line + frontier + convergence — prompt-independent by
+  // construction) and this epoch's relevance block (prompt-dependent by
+  // design). The parts are exactly what gets pushed onto `event.system` and
+  // join into the stable-core byte key the epoch compares against, so "did
+  // the cache-critical prefix change?" is answered by the bytes the model
+  // would actually see and never by a proxy (issue). The relevance block is
+  // deliberately NOT in the key: a change to the selection set moves the
+  // turn tail, never the prefix — joining it here would re-bill the whole
+  // prefix on every set change.
   const buildMemorySection = async (
     sid: string | undefined,
     mems: Memory[],
@@ -220,7 +242,11 @@ export function createInjectionEpochs({
       },
     );
     const { block, shown: rode } = sel;
-    const prefix = [...parts, block].join("\u0000");
+    // The comparison key is the STABLE CORE alone: the digest parts joined.
+    // The relevance block is deliberately excluded — it is the prompt-
+    // dependent tail, and joining it would re-bill the whole prefix on
+    // every selection-set change.
+    const prefix = parts.join("\u0000");
     // Ledger terms/identities belong to the stored rows, but coverage refs
     // must describe only the text the model actually received.
     // Stage telemetry (mystery 2): split the hint channel's journey into the
@@ -266,8 +292,14 @@ export function createInjectionEpochs({
     // elsewhere, a scope the reader never sees rendered identically — must
     // not cost this session a prompt cache. Adopt the new fingerprint and
     // prompt, keep riding the same bytes, emit nothing: an invalidation has
-    // to mean bytes actually moved.
-    if (cached && cached.prefix === built.prefix) {
+    // to mean bytes actually moved. The comparison is the whole delivery —
+    // the stable core AND the turn tail — because a stale tail is an
+    // undelivered row, not a cache save.
+    if (
+      cached &&
+      cached.prefix === built.prefix &&
+      cached.block === built.block
+    ) {
       epoch.set(sid, { ...cached, version, prompt });
       return;
     }
@@ -291,7 +323,7 @@ export function createInjectionEpochs({
           mems.filter((m) => !extra.some((e) => e.ts === m.ts)),
           cached.prompt,
         );
-        if (back.prefix === cached.prefix) {
+        if (back.prefix === cached.prefix && back.block === cached.block) {
           epoch.set(sid, { ...cached, version });
           return;
         }
@@ -350,13 +382,16 @@ export function createInjectionEpochs({
       evidenceContext,
     );
     epochRecomputes++;
-    // Ledger: any recompute of a live epoch that MOVED the bytes is an
-    // invalidation (the first epoch of a session busts nothing; a re-score
-    // that kept the bytes never reaches this line). The epoch request count
-    // restarts with the new block.
+    // Ledger: a recompute of a live epoch whose STABLE CORE moved is an
+    // invalidation — that is the one thing the provider caches, and the AC
+    // forbids anything else from busting it. A prompt_reveal recompute moved
+    // only the turn tail (the selection set changed): the prefix is intact
+    // and the tail is re-sent every turn as input price, not cache-read
+    // price. The first epoch of a session busts nothing either. The epoch
+    // request count restarts with the new block.
     const st = statsFor(sid);
     st.epochRequests = 0;
-    if (reason !== "first") {
+    if (reason === "store_changed") {
       st.invalidations++;
       st.lastInvalidation = { at, reason };
     }
@@ -373,11 +408,13 @@ export function createInjectionEpochs({
   ): Promise<void> => {
     const mems = await injectableRows(sid);
     if (typeof sid === "string") await refreshEpoch(sid, mems);
-    // Deliver the FROZEN memory section. Every byte pushed onto the system
-    // prompt comes from the epoch, so between busts the provider sees an
-    // identical prefix and serves the conversation from cache (issue).
-    // A session with no epoch yet (no prompt recorded, or evicted from the
-    // LRU) still gets the standing digest, built fresh and uncached.
+    // Deliver the FROZEN stable core (digest + frontier + convergence),
+    // then the turn tail (the relevance block). Every core byte pushed onto
+    // the system prompt comes from the epoch, so between store-caused busts
+    // the provider sees an identical prefix and serves the conversation
+    // from cache (issue). A session with no epoch yet (no prompt recorded,
+    // or evicted from the LRU) still gets the standing digest, built fresh
+    // and uncached.
     const ep = typeof sid === "string" ? epoch.get(sid) : undefined;
     if (ep) {
       for (const text of ep.parts) push(text);
