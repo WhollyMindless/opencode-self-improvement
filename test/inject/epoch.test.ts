@@ -36,8 +36,12 @@ import { runWriteGate, type WriteCandidate } from "../../src/gate/gate.ts";
 import { rememberSessionDir } from "../../src/identity/repokey.ts";
 import { capToBudget } from "../../src/inject/budget.ts";
 import { storeVersion } from "../../src/inject/version.ts";
+import { readStatus } from "../../src/status/write.ts";
 import { addBlock, removeBlock } from "../../src/store/blocklist.ts";
+import { loadAll } from "../../src/store/files/load.ts";
+import { snapshotFiles } from "../../src/store/files/snapshots.ts";
 import { markSuperseded } from "../../src/store/files/supersede.ts";
+import { editMemory } from "../../src/viewer/mutate.ts";
 import { loadPlugin } from "../harness.ts";
 import { readEvidenceLog as evidence } from "../helpers/logfmt.ts";
 import { removeStore } from "../helpers/remove-store.ts";
@@ -183,6 +187,31 @@ function epochRecomputes(sid: string): Fields[] {
   return evidence().filter(
     (l) => l.ev === "epoch_recompute" && String(l.session) === sid,
   );
+}
+
+async function updateDeployment(
+  loaded: Loaded,
+  sid: string,
+  target: string,
+  content: string,
+): Promise<string> {
+  const call = `update-${target}`;
+  await afterTool(
+    { tool: "grep", sessionID: sid, callID: call, args: { pattern: "deploy" } },
+    { output: "1 match" },
+  );
+  const update = await loaded.tools.memory_update.execute(
+    { type: "pattern", scope: "deploy", query: target, content },
+    { sessionID: sid, id: call },
+  );
+  expect(update.content).toStartWith("Updated pattern in deploy");
+  const rows = await loadAll();
+  const successor = rows.find((row) => row.content === content);
+  if (!successor) throw new Error("Expected a durable replacement");
+  expect(rows.find((row) => row.ts === target)?.superseded_by).toBe(
+    successor.ts,
+  );
+  return successor.ts;
 }
 
 describe("epoch freeze (cache-safe injection)", () => {
@@ -664,7 +693,104 @@ describe("epoch freeze (cache-safe injection)", () => {
     ]);
   });
 
-  test("correcting a row the session is riding still busts, even its own", async () => {
+  test("a same-session update preserves the riding bytes and fresh sessions see the correction", async () => {
+    const old = "The widget deployment uses the blue release lane for staging.";
+    const correction =
+      "The widget deployment uses the green release lane for staging.";
+    const latest =
+      "The widget deployment uses the silver release lane for staging.";
+    const prompt =
+      "Which release lane does the widget deployment use for staging?";
+    const originalTs = seed("pattern", "deploy", old);
+    const loaded = await loadPlugin(liveRoot);
+    const sid = "ses-update";
+    expect(await deliveredBlock(loaded, sid, prompt)).toContain(old);
+    const frozen = await deliveredSystem(loaded, sid);
+    const initialInvalidations = (await readStatus(sid))?.stats?.invalidations;
+    expect(initialInvalidations).toBe(0);
+
+    let target = originalTs;
+    for (const content of [correction, latest]) {
+      target = await updateDeployment(loaded, sid, target, content);
+      expect(await deliveredSystem(loaded, sid)).toBe(frozen);
+    }
+
+    expect(epochRecomputes(sid).map((e) => e.reason)).toEqual(["first"]);
+    expect((await readStatus(sid))?.stats?.invalidations).toBe(
+      initialInvalidations,
+    );
+    const fresh = await deliveredBlock(loaded, "ses-update-fresh", prompt);
+    expect(fresh).toContain(latest);
+    expect(fresh).not.toContain(old);
+    expect(fresh).not.toContain(correction);
+
+    // The predecessor is already superseded, so blocking it does not change
+    // the active store fingerprint. Its frozen text still must be withdrawn.
+    await addBlock(originalTs, "withdraw old content");
+    const afterBlock = await deliveredSystem(loaded, sid);
+    expect(afterBlock).toContain(latest);
+    expect(afterBlock).not.toContain(old);
+    expect(epochRecomputes(sid).map((e) => e.reason)).toEqual([
+      "first",
+      "store_changed",
+    ]);
+  });
+
+  test.each([
+    "foreign",
+    "opt-out",
+    "redacted successor",
+    "frontier",
+    "budget",
+    "non-riding predecessor",
+  ] as const)(
+    "%s correction still refreshes the next request",
+    async (mode) => {
+      const old =
+        mode === "non-riding predecessor"
+          ? "The local warehouse catalog labels are printed on cardstock."
+          : "The widget deployment uses the blue release lane for staging.";
+      const correction =
+        "The widget deployment uses the green release lane for staging." +
+        (mode === "budget"
+          ? " It also prints the preview on each build.".repeat(8)
+          : "");
+      const redacted =
+        "The widget deployment release lane for staging has been redacted.";
+      const prompt =
+        "Which release lane does the widget deployment use for staging?";
+      const sid = "ses-update-control";
+      if (mode === "budget") process.env.OPENCODE_MEMORY_INJECT_BUDGET = "180";
+      const originalTs = seed("pattern", "deploy", old, {
+        ...(mode === "opt-out" ? { tags: "no-cache-freeze" } : {}),
+        ...(mode === "frontier" ? { status: "open" } : {}),
+      });
+      const loaded = await loadPlugin(liveRoot);
+      const before = await deliveredBlock(loaded, sid, prompt);
+      if (mode === "non-riding predecessor") expect(before).not.toContain(old);
+      else expect(before).toContain(old);
+      const successor = await updateDeployment(
+        loaded,
+        mode === "foreign" ? "ses-other-writer" : sid,
+        originalTs,
+        correction,
+      );
+      if (mode === "redacted successor") rewriteContent(successor, redacted);
+      const after = await deliveredSystem(loaded, sid);
+      if (mode === "budget") expect(after).not.toContain(correction);
+      else
+        expect(after).toContain(
+          mode === "redacted successor" ? redacted : correction,
+        );
+      expect(after).not.toContain(old);
+      expect(epochRecomputes(sid).map((e) => e.reason)).toEqual([
+        "first",
+        "store_changed",
+      ]);
+    },
+  );
+
+  test("retiring a riding row without a verified replacement still busts", async () => {
     seed("pattern", "build", "Run the build with make all from the repo root.");
     const loaded = await loadPlugin(liveRoot);
     const sid = "ses-correct";
@@ -710,6 +836,84 @@ describe("epoch freeze (cache-safe injection)", () => {
       "store_changed",
     ]);
   });
+
+  test.each(["viewer edit", "import", "undo"] as const)(
+    "%s can replace a held correction on the next request",
+    async (mode) => {
+      const original =
+        "The widget deployment uses the blue release lane for staging.";
+      const corrected =
+        "The widget deployment uses the green release lane for staging.";
+      const external =
+        "Check the widget deployment release lane on the operator dashboard.";
+      const prompt =
+        "Which widget deployment release lane is used for staging?";
+      const sid = "ses-held-correction";
+      const id = seed(
+        "pattern",
+        "deploy",
+        mode === "undo" ? external : original,
+      );
+      let snapshot: string | undefined;
+      if (mode === "undo") {
+        [snapshot] = await snapshotFiles([
+          join(memoryRoot(), `${id.slice(0, 10)}.logfmt`),
+        ]);
+        rewriteContent(id, original);
+      }
+      const loaded = await loadPlugin(liveRoot);
+      expect(await deliveredBlock(loaded, sid, prompt)).toContain(original);
+      const before = await deliveredSystem(loaded, sid);
+      const successor = await updateDeployment(loaded, sid, id, corrected);
+      expect(await deliveredSystem(loaded, sid)).toBe(before);
+
+      switch (mode) {
+        case "viewer edit":
+          await editMemory({
+            ts: successor,
+            type: "pattern",
+            scope: "deploy",
+            content: external,
+            reason: "replace the deployment guidance",
+          });
+          break;
+        case "import": {
+          const file = join(memoryRoot(), "deployment.jsonl");
+          writeFileSync(
+            file,
+            JSON.stringify({
+              type: "pattern",
+              scope: "deploy",
+              content: external,
+            }) + "\n",
+          );
+          const result = await loaded.tools.memory_import.execute(
+            { file },
+            { sessionID: sid, id: "import-deployment" },
+          );
+          expect(result.content).toContain("1 promoted");
+          break;
+        }
+        case "undo": {
+          if (!snapshot) throw new Error("Missing rollback snapshot");
+          const result = await loaded.tools.memory_undo.execute(
+            { snapshot, force: true },
+            { sessionID: sid, id: "undo-deployment" },
+          );
+          expect(result.content).toStartWith("Restored ");
+          break;
+        }
+      }
+
+      const after = await deliveredSystem(loaded, sid);
+      expect(after).toContain(external);
+      expect(after).not.toContain(original);
+      expect(epochRecomputes(sid).map((e) => e.reason)).toEqual([
+        "first",
+        "store_changed",
+      ]);
+    },
+  );
 
   test("a hand-redaction of a row this session authored still busts", async () => {
     seed("pattern", "build", "Run the build with make all from the repo root.");

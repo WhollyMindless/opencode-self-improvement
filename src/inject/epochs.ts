@@ -42,6 +42,76 @@ interface InjectionEpochOptions {
   noteHits: (sid: string, rows: Memory[], query: string) => Promise<void>;
 }
 
+interface Correction {
+  previous: Memory;
+  next: Memory;
+}
+
+// Physical line position and retirement metadata can change without editing
+// the memory the update tool actually saw or wrote.
+function correctionContent({
+  file: _file,
+  index: _index,
+  superseded_by: _superseded,
+  reason: _reason,
+  ...row
+}: Memory): string {
+  return JSON.stringify(row);
+}
+
+function stillUsable(row: Memory): boolean {
+  return (
+    !row.tags?.includes("no-cache-freeze") &&
+    isInjectable({ ...row, superseded_by: undefined })
+  );
+}
+
+function restoreCorrections(
+  corrections: ReadonlyMap<string, Correction>,
+  riding: ReadonlySet<string>,
+  store: Memory[],
+  reader: ReturnType<typeof readerFromSid>,
+): { predecessors: Map<string, Memory>; tips: Map<string, string> } | null {
+  const byId = new Map<string, Memory | null>();
+  for (const row of store) byId.set(row.ts, byId.has(row.ts) ? null : row);
+  const predecessors = new Map<string, Memory>();
+  const tips = new Map<string, string>();
+  for (const anchor of riding) {
+    let edge = corrections.get(anchor);
+    if (!edge) continue;
+    const first = byId.get(anchor);
+    if (!first) return null;
+    predecessors.set(anchor, { ...first, superseded_by: undefined });
+    const visited = new Set([anchor]);
+    while (edge) {
+      const previous = byId.get(edge.previous.ts);
+      const next = byId.get(edge.next.ts);
+      if (
+        !previous ||
+        !next ||
+        previous.reason !== "update" ||
+        previous.superseded_by !== next.ts ||
+        visited.has(next.ts) ||
+        !isVisibleTo(previous, reader) ||
+        !isVisibleTo(next, reader) ||
+        !stillUsable(previous) ||
+        !stillUsable(next) ||
+        correctionContent(previous) !== correctionContent(edge.previous) ||
+        correctionContent(next) !== correctionContent(edge.next)
+      ) {
+        return null;
+      }
+      visited.add(next.ts);
+      edge = corrections.get(next.ts);
+      if (!edge) {
+        if (!isInjectable(next)) return null;
+        tips.set(next.ts, anchor);
+      }
+    }
+  }
+  return { predecessors, tips };
+}
+
 export function createInjectionEpochs({
   budget,
   frontierBudget: openBudget,
@@ -57,8 +127,8 @@ export function createInjectionEpochs({
   // compaction (see the prompt/context/compaction hooks).
   // The RENDERED BYTES, not the fingerprint, decide whether the epoch moved
   // (issue): a write that changes nothing the model is shown must not
-  // cost the next request a full re-prefill. And a pure addition the session
-  // wrote itself does not move them either — see refreshEpoch. The
+  // cost the next request a full re-prefill. The same holds for a session's
+  // own additions and qualifying updates — see refreshEpoch. The
   // shared LRU below may evict the whole session state; a later prompt starts
   // it fresh.
   const epoch = new Map<
@@ -78,6 +148,9 @@ export function createInjectionEpochs({
        * the session's own additions and the bytes keep riding.
        */
       ownRows: Set<string>;
+      ridingRows: Set<string>;
+      corrections: Map<string, Correction>;
+      holdsCorrection: boolean;
       /**
        * The prompt these bytes were scored against. The counterfactual below
        * has to re-score the SAME inputs, or a topic change between the freeze
@@ -152,11 +225,11 @@ export function createInjectionEpochs({
   // read: while loadAll awaits, another session's hooks may dispatch
   // and move the ambient current; filtering with THAT leaks the other
   // session's repo into this one's system prompt.
-  const injectableRows = async (sid?: string): Promise<Memory[]> => {
+  const loadInjectionRows = async (sid?: string) => {
     const reader = readerFromSid(sid);
-    return (await loadAll()).filter(
-      (m) => isInjectable(m) && isVisibleTo(m, reader),
-    );
+    const store = await loadAll();
+    const mems = store.filter((m) => isInjectable(m) && isVisibleTo(m, reader));
+    return { mems, store, reader };
   };
   // Render the COMPLETE memory section for one request: the standing digest,
   // the open-thread frontier and the convergence line (all from systemDigest),
@@ -243,13 +316,22 @@ export function createInjectionEpochs({
       conflict,
     };
   };
-  const refreshEpoch = async (sid: string, rows?: Memory[]): Promise<void> => {
+  const refreshEpoch = async (
+    sid: string,
+    rows?: Awaited<ReturnType<typeof loadInjectionRows>>,
+  ): Promise<void> => {
     if (!latestPrompt.has(sid)) return;
     const evidenceContext = captureEvidenceContext(sid);
-    const mems = rows ?? (await injectableRows(sid));
+    const { mems, store, reader } = rows ?? (await loadInjectionRows(sid));
     const version = await storeVersion(mems);
     const cached = epoch.get(sid);
     const prompt = latestPrompt.get(sid) ?? "";
+    const restored = cached?.corrections.size
+      ? restoreCorrections(cached.corrections, cached.ridingRows, store, reader)
+      : null;
+    // A held predecessor can be blocked or edited while already superseded.
+    // Those changes are invisible to the active-row fingerprint.
+    const revoked = cached?.holdsCorrection && !restored;
     // Cheap pre-check: no injectable row moved AND the frozen bytes were
     // already scored against THIS prompt. Skips re-scoring and the use-ledger
     // write on ordinary turns and on every tool-loop request within a turn.
@@ -259,7 +341,8 @@ export function createInjectionEpochs({
     // matches. Cache is still safe — the epoch only MOVES when the rendered
     // bytes actually change, and a prompt change that keeps the same rows
     // adopts silently below.
-    if (cached?.version === version && cached.prompt === prompt) return;
+    if (!revoked && cached?.version === version && cached.prompt === prompt)
+      return;
     const built = await buildMemorySection(sid, mems);
     // The store and/or the prompt moved. A change that alters nothing
     // RENDERED — a row that is not relevant to this prompt, supersession
@@ -268,7 +351,14 @@ export function createInjectionEpochs({
     // prompt, keep riding the same bytes, emit nothing: an invalidation has
     // to mean bytes actually moved.
     if (cached && cached.prefix === built.prefix) {
-      epoch.set(sid, { ...cached, version, prompt });
+      epoch.set(sid, {
+        ...cached,
+        version,
+        prompt,
+        ridingRows: new Set(built.rode.map((m) => m.ts)),
+        corrections: new Map(),
+        holdsCorrection: false,
+      });
       return;
     }
     // Riding bytes: a pure addition this session wrote itself is
@@ -276,19 +366,57 @@ export function createInjectionEpochs({
     // transcript. Re-render the section with every row authored SINCE these
     // bytes were frozen taken back out: if it comes back byte-identical, the
     // entire difference is attributable to the session's own additions and
-    // the frozen bytes keep riding. Everything else survives into that render
-    // and still busts — a riding row removed or rewritten (blocklist,
-    // hand-redaction, forget, supersession, decay), another session's row, a
-    // viewer edit, an import, a moved convergence line.
-    if (cached) {
+    // the frozen bytes keep riding. For a verified update, also restore the
+    // predecessor the model already saw. Other changes remain visible to the
+    // comparison and can still change the bytes.
+    if (cached && !revoked) {
       const mine = authoredFor(sid);
-      const extra = mems.filter(
-        (m) => mine.has(m.ts) && !cached.ownRows.has(m.ts),
+      const extra = new Set(
+        mems
+          .filter((m) => mine.has(m.ts) && !cached.ownRows.has(m.ts))
+          .map((m) => m.ts),
       );
-      if (extra.length) {
+      if (restored?.tips.size) {
+        const currentRiding = new Set(
+          built.rode.map((m) => restored.tips.get(m.ts) ?? m.ts),
+        );
+        // Frontier and convergence are part of the same prefix. Also check
+        // that the replacement did not evict a riding row from the budget.
+        if (
+          built.parts.length === cached.parts.length &&
+          built.parts.every((part, i) => part === cached.parts[i]) &&
+          [...cached.ridingRows].every((id) => currentRiding.has(id))
+        ) {
+          const remaining = new Set(
+            mems.filter(
+              (m) =>
+                !restored.tips.has(m.ts) &&
+                (!extra.has(m.ts) || m.tags?.includes("import")),
+            ),
+          );
+          // Restore at the original store position so tie-breaking sees the
+          // same order it would have seen without the update.
+          const counterfactual: Memory[] = [];
+          for (const row of store) {
+            const predecessor = restored.predecessors.get(row.ts);
+            if (predecessor) counterfactual.push(predecessor);
+            else if (remaining.has(row)) counterfactual.push(row);
+          }
+          const back = await buildMemorySection(sid, counterfactual, prompt);
+          if (back.prefix === cached.prefix) {
+            epoch.set(sid, {
+              ...cached,
+              version,
+              prompt,
+              holdsCorrection: true,
+            });
+            return;
+          }
+        }
+      } else if (extra.size) {
         const back = await buildMemorySection(
           sid,
-          mems.filter((m) => !extra.some((e) => e.ts === m.ts)),
+          mems.filter((m) => !extra.has(m.ts)),
           cached.prompt,
         );
         if (back.prefix === cached.prefix) {
@@ -306,7 +434,7 @@ export function createInjectionEpochs({
     // Which input moved decides the reason: the store outranks the prompt, so
     // a turn that did both is accounted as the (cache-critical) store change.
     const reason: "first" | "store_changed" | "prompt_reveal" = cached
-      ? cached.version !== version
+      ? revoked || cached.version !== version
         ? "store_changed"
         : "prompt_reveal"
       : "first";
@@ -318,6 +446,9 @@ export function createInjectionEpochs({
       ownRows: new Set(
         mems.filter((m) => authoredFor(sid).has(m.ts)).map((m) => m.ts),
       ),
+      ridingRows: new Set(built.rode.map((m) => m.ts)),
+      corrections: new Map(),
+      holdsCorrection: false,
       prompt,
       at,
       reason,
@@ -371,8 +502,8 @@ export function createInjectionEpochs({
     sid: string | undefined,
     push: (text: string) => void,
   ): Promise<void> => {
-    const mems = await injectableRows(sid);
-    if (typeof sid === "string") await refreshEpoch(sid, mems);
+    const rows = await loadInjectionRows(sid);
+    if (typeof sid === "string") await refreshEpoch(sid, rows);
     // Deliver the FROZEN memory section. Every byte pushed onto the system
     // prompt comes from the epoch, so between busts the provider sees an
     // identical prefix and serves the conversation from cache (issue).
@@ -386,7 +517,7 @@ export function createInjectionEpochs({
       await systemDigest(
         { sessionID: sid },
         { system: parts },
-        { rows: mems, frontierBudget: openBudget },
+        { rows: rows.mems, frontierBudget: openBudget },
       );
       for (const text of parts) push(text);
     }
@@ -431,6 +562,18 @@ export function createInjectionEpochs({
       latestPrompt.delete(sid);
     },
     refresh: refreshEpoch,
+    noteCorrection(sid: string, previous: Memory, next: Memory): void {
+      const cached = epoch.get(sid);
+      if (
+        cached &&
+        (cached.ridingRows.has(previous.ts) ||
+          [...cached.corrections.values()].some(
+            (edge) => edge.next.ts === previous.ts,
+          ))
+      ) {
+        cached.corrections.set(previous.ts, { previous, next });
+      }
+    },
     buildPayload,
     flushStatus,
   };
