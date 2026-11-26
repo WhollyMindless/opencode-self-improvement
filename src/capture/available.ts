@@ -931,10 +931,14 @@ function restatedContiguously(
   hay: string,
   clauses: string[],
   regionCovers: (region: { start: number; end: number }) => boolean,
-  retryWalk?: { walked: number; budget: number },
+  retryWalk?: { walked: number; budget: number; steps: number },
 ): { start: number; end: number } | null {
   if (hay === "") return null;
-  const retry = retryWalk ?? { walked: 0, budget: 2 * Math.max(hay.length, 1) };
+  const retry = retryWalk ?? {
+    walked: 0,
+    budget: 2 * Math.max(hay.length, 1),
+    steps: 0,
+  };
   const charge = (from: number, to: number): boolean => {
     retry.walked += to - from;
     return retry.walked <= retry.budget;
@@ -947,7 +951,7 @@ function restatedContiguously(
     const first = findClause(hay, clauses[0], from);
     if (first < 0) return null;
     if (!charge(from, first)) return null;
-    const region = assembleFrom(hay, clauses, first, charge);
+    const region = assembleFrom(hay, clauses, first, charge, retry);
     if (retry.walked > retry.budget) return null;
     if (region !== null && regionCovers(region)) return region;
     from = first + 1;
@@ -962,6 +966,7 @@ function assembleFrom(
   clauses: string[],
   anchor: number,
   charge: (from: number, to: number) => boolean,
+  retry: { walked: number; budget: number; steps: number },
 ): { start: number; end: number } | null {
   let prevEnd = anchor + clauses[0].length;
   let cursor = anchor + 1;
@@ -969,6 +974,7 @@ function assembleFrom(
     const clause = clauses[i];
     let hit = -1;
     for (let from = cursor; ; ) {
+      retry.steps++;
       const j = findClause(hay, clause, from);
       if (j < 0) {
         // No hit in the tail — the scan covered the remaining bytes.
@@ -1011,6 +1017,12 @@ export interface AvailabilityIndex {
      * call — how much of the haystack the later-occurrence retry re-scanned.
      * Telemetry only, never a verdict input. */
     retryWalked: number;
+    /** The number of inner-loop iterations the retry ran in the last check()
+     * call. This is the direct read on "the retry is bounded": each iteration
+     * re-scans the tail from a new cursor, so an unbounded retry shows up as a
+     * step count that grows with the number of repeated sections, not with the
+     * haystack. Telemetry only, never a verdict input. */
+    retrySteps: number;
   };
 }
 
@@ -1025,6 +1037,7 @@ export function availabilityIndex(
   // The last check() call's retry walk, recorded per index. The index is
   // per capture pass, so this is pass-scoped telemetry mirroring scanned().
   let lastRetryWalked = 0;
+  let lastRetrySteps = 0;
   if (!repoDir) {
     return {
       check: () => null,
@@ -1034,6 +1047,7 @@ export function availabilityIndex(
         tracked: false,
         capped: false,
         retryWalked: 0,
+        retrySteps: 0,
       }),
     };
   }
@@ -1047,6 +1061,7 @@ export function availabilityIndex(
         tracked: false,
         capped: false,
         retryWalked: 0,
+        retrySteps: 0,
       }),
     };
   }
@@ -1110,9 +1125,11 @@ export function availabilityIndex(
       // at the end of the haystack is read as evidence and the refusal cites
       // no file and no span. A candidate with nothing to restate is kept.
       lastRetryWalked = 0;
+      lastRetrySteps = 0;
       const retryBudget = {
         walked: 0,
         budget: 2 * Math.max(haystack.length, 1),
+        steps: 0,
       };
       const whole = normCandidate(content);
       if (whole === "") return null;
@@ -1154,6 +1171,7 @@ export function availabilityIndex(
           )
         : null;
       lastRetryWalked = retryBudget.walked;
+      lastRetrySteps = retryBudget.steps;
       if (
         region &&
         figuresWithin(
@@ -1258,6 +1276,7 @@ export function availabilityIndex(
                 retryBudget,
               );
         lastRetryWalked = retryBudget.walked;
+        lastRetrySteps = retryBudget.steps;
         // The prose the declarations do not answer settles against the tree on
         // the same terms as the tracked path: the region must cover the whole
         // assertion, so a residual that drops a scoping operator keeps the row.
@@ -1300,6 +1319,7 @@ export function availabilityIndex(
       tracked: true,
       capped,
       retryWalked: lastRetryWalked,
+      retrySteps: lastRetrySteps,
     }),
   };
 }
