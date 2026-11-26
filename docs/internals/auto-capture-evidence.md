@@ -54,12 +54,12 @@ The test starts three isolated `opencode run` processes using the local scripted
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | 2.0.26 | Linux (WSL) | Probe alone | 3/3 | 3/3 | 3/3 | 3/3 | 0/3 | 0/3 |
 | 2.0.26 | Linux (WSL) | Full smoke | 3/3 | 3/3 | 3/3 | 3/3 | 1/3 | 0/3 |
+| 2.3.2 | Linux (WSL) | Probe alone | 3/3 | 3/3 | 3/3 | 3/3 | 1/3 | 0/3 |
 | 2.4.1 | Linux (WSL) | Probe alone | 3/3 | 3/3 | 3/3 | 3/3 | 0/3 | 0/3 |
 | 2.4.1 | Linux (WSL) | Full smoke | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 | 0/3 |
-| 2.3.2 | Linux (WSL) | Probe alone | 3/3 | 3/3 | 3/3 | 3/3 | 1/3 | 0/3 |
 | 2.4.2 | Windows | Probe alone | 3/3 | 3/3 | 3/3 | 1/3 | 0/3 | 0/3 |
 
-The test emits a warning if any 50 ms timer survives. The full smoke suite runs up to four test files in parallel, so compare these results with the run conditions in mind. Use that signal to re-measure with more trials before reconsidering the blind band before `auto_capture_start` or treating `auto_capture_dispose` as a diagnosis. Timer completion is observational, so a different result remains a valid smoke run. The smoke still checks plugin startup, fake turn completion, and at least one observed event.
+Earlier probes on 2.3.0 saw no 50 ms completions. Later runs did, including both current Linux pins during parallel smoke. The test highlights any 50 ms completion in the log and warns on a 200 ms completion, which none of these trials observed. Either signal calls for re-measuring with more trials before reconsidering the blind band before `auto_capture_start` or treating `auto_capture_dispose` as a diagnosis. A completed timer shows that the process remained alive long enough for that callback. It does not establish that the host awaited the handler. Smoke checks plugin startup, fake turn completion, and at least one observed event.
 
 ## What has not been established
 

@@ -61,11 +61,16 @@ test("reports which turn-end handler waits survive OpenCode shutdown", async () 
       expect(arrived, "no turn-end events reached the probe").toBeGreaterThan(
         0,
       );
-      // This is an observation. A host improvement should call attention to
-      // the assumptions it changes without making the smoke test fail.
-      if (count("timer:50") > 0) {
+      // Short timers can finish opportunistically during shutdown.
+      const revisit =
+        "Re-measure before revisiting the pre-receipt blind band and auto_capture_dispose diagnosis.";
+      if (count("timer:200") > 0) {
         console.warn(
-          `[teardown-probe] ${host} completed the 50 ms rung. Recheck the pre-receipt blind band and auto_capture_dispose diagnosis before changing capture teardown.`,
+          `[teardown-probe] ${host} completed the 200 ms rung. ${revisit}`,
+        );
+      } else if (count("timer:50") > 0) {
+        console.log(
+          `[teardown-probe] ${host} observed a 50 ms completion. ${revisit}`,
         );
       }
     } finally {
