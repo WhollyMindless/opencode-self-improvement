@@ -925,28 +925,50 @@ function gapIsPunctuation(text: string): boolean {
 function restatedContiguously(
   hay: string,
   clauses: string[],
+  regionCovers: (region: { start: number; end: number }) => boolean,
 ): { start: number; end: number } | null {
   if (hay === "") return null;
-  let prevEnd = -1;
-  let cursor = 0;
-  let start = -1;
-  for (const clause of clauses) {
+  // The first clause's earliest hit is not an adjudication: the region it
+  // roots in may surround the claim with material that fails coverage,
+  // while a later occurrence states it plainly. Retrying forward means the
+  // outer cursor only advances and the total walk telescopes instead of
+  // re-scanning the haystack once per occurrence.
+  for (let from = 0; ; ) {
+    const first = findClause(hay, clauses[0], from);
+    if (first < 0) return null;
+    const region = assembleFrom(hay, clauses, first);
+    if (region !== null && regionCovers(region)) return region;
+    from = first + 1;
+  }
+}
+
+/** Assemble a region of `clauses` from an already-valid first hit. Returns
+ * null when any later clause finds no valid hit or the gap is not
+ * punctuation — the caller retries from the next first-clause occurrence. */
+function assembleFrom(
+  hay: string,
+  clauses: string[],
+  anchor: number,
+): { start: number; end: number } | null {
+  let prevEnd = anchor + clauses[0].length;
+  let cursor = anchor + 1;
+  for (let i = 1; i < clauses.length; i++) {
+    const clause = clauses[i];
     let hit = -1;
     for (let from = cursor; ; ) {
-      const i = findClause(hay, clause, from);
-      if (i < 0) break;
-      if (prevEnd < 0 || gapIsPunctuation(hay.slice(prevEnd, i))) {
-        hit = i;
+      const j = findClause(hay, clause, from);
+      if (j < 0) break;
+      if (gapIsPunctuation(hay.slice(prevEnd, j))) {
+        hit = j;
         break;
       }
-      from = i + 1;
+      from = j + 1;
     }
     if (hit < 0) return null;
-    if (start < 0) start = hit;
     cursor = hit + 1;
     prevEnd = hit + clause.length;
   }
-  return { start, end: prevEnd };
+  return { start: anchor, end: prevEnd };
 }
 
 export interface AvailabilityIndex {
@@ -1077,10 +1099,13 @@ export function availabilityIndex(
       // or another sentence of the same file, which is why the whole file is
       // not the scope either — is not the passage being cited, and cannot
       // vouch for the figure the refusal claims it states.
-      const region = haystack ? restatedContiguously(haystack, needed) : null;
+      const region = haystack
+        ? restatedContiguously(haystack, needed, (r) =>
+            coversAssertion(haystack, r),
+          )
+        : null;
       if (
         region &&
-        coversAssertion(haystack, region) &&
         figuresWithin(
           content,
           new Set(numericTokens(haystack.slice(region.start, region.end))),
@@ -1174,14 +1199,15 @@ export function availabilityIndex(
         for (const span of spans) residual = residual.split(span).join(" ");
         const rest = claims(normCandidate(residual));
         const restRegion =
-          rest.length === 0 ? null : restatedContiguously(haystack, rest);
+          rest.length === 0
+            ? null
+            : restatedContiguously(haystack, rest, (r) =>
+                coversAssertion(haystack, r),
+              );
         // The prose the declarations do not answer settles against the tree on
         // the same terms as the tracked path: the region must cover the whole
         // assertion, so a residual that drops a scoping operator keeps the row.
-        if (
-          rest.length === 0 ||
-          (restRegion !== null && coversAssertion(haystack, restRegion))
-        ) {
+        if (rest.length === 0 || restRegion !== null) {
           // A figure outside every quoted command is prose, and prose settles
           // against the passage this refusal cites for it — the same region
           // the tracked path answers with. A figure no cited passage states is
