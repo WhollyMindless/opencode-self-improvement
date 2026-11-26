@@ -376,20 +376,14 @@ interface Gate {
   label: string;
   args: string[] | null;
   kind: "command" | "script" | "target";
-  /** Citation only: the file and the kind of declaration a refusal names. */
+  /** Citation only: the source location and declaration a refusal names. */
   where: string;
   /**
    * Declaration identity. Gates that state the SAME declaration share a group,
    * and only a group member vouches for another: a script's name and its
    * command share one, so `--prod` written in the command vouches for `--prod`
-   * in the row. A step among siblings — a Makefile recipe, a workflow `run:`
-   * line — gets a group no sibling joins, because those share a `where` across
-   * the whole file while stating nothing about each other. The group is part of
-   * the contract every declaration kind answers for: a kind whose `where`
-   * names a FILE must derive the group per declaration, because reusing the
-   * file-wide `where` as the group lets one step's operands vouch for another
-   * step's row — a refusal that loses a fact. A required field forces the
-   * question at the call site; an optional flag defaults past it.
+   * in the row. Recipe and workflow step groups key on file, declaration kind,
+   * and normalized command text. The cited line is for evidence only.
    */
   group: string;
 }
@@ -453,8 +447,9 @@ function parseGates(repoDir: string, files: string[]): Gate[] {
       }
       continue;
     }
+    const lines = text.split("\n");
     if (base === "Makefile" || base === "makefile" || base === "justfile") {
-      for (const line of text.split("\n")) {
+      for (const [i, line] of lines.entries()) {
         const target = /^([A-Za-z0-9_.%-]+)\s*:(?!=)/.exec(line);
         if (target?.[1]) {
           const where = `${file} target ${target[1]}`;
@@ -462,16 +457,20 @@ function parseGates(repoDir: string, files: string[]): Gate[] {
         }
         const recipe = /^\t+([^\s].*)$/.exec(line);
         if (recipe?.[1])
-          add(recipe[1], `${file} recipe`, `${file} recipe ${norm(recipe[1])}`);
+          add(
+            recipe[1],
+            `${file}:${i + 1} recipe`,
+            `${file} recipe ${norm(recipe[1])}`,
+          );
       }
       continue;
     }
-    for (const line of text.split("\n")) {
+    for (const [i, line] of lines.entries()) {
       const run = /^\s*-?\s*run:\s*(["']?)(.+?)(["']?)\s*$/.exec(line);
       if (run?.[2])
         add(
           run[2],
-          `${file} run`,
+          `${file}:${i + 1} run`,
           `${file} run ${norm(run[2])}`,
           "command",
           run[1] === run[3],
@@ -509,12 +508,9 @@ function runners(span: string): string[] {
 /**
  * The labels that vouch for a declaration: every gate in its GROUP. A script
  * declaration states its name and its command together, so `--prod` written in
- * the command vouches for `--prod` in the row. The union is keyed on the group,
- * never on `where`: a step-kind `where` names a FILE — every recipe in a
- * Makefile, every `run:` in a workflow — and siblings state nothing about each
- * other, so each step's group holds only itself. Keying on `where` let a new
- * declaration kind inherit a file-wide union by forgetting a flag, and a
- * file-wide union vouches for a refusal with another step's operands.
+ * the command vouches for `--prod` in the row. Grouping is independent of
+ * `where`. A file-wide group would let one recipe or step borrow operands
+ * from another command in the same file.
  */
 function vouchingGates(gate: Gate, gates: Gate[]): Gate[] {
   return gates.filter((g) => g.group === gate.group);
