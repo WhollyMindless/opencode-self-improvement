@@ -130,6 +130,78 @@ for (const c of CASES) {
   });
 }
 
+// The later-occurrence retry must stay a bounded function of the haystack,
+// even for a claim repeated N times. Two shapes pin it:
+//  - repeated-section (escape shape): every section states the clause twice
+//    in the longer form, so the gap before the next occurrence always
+//    contains non-punctuation material and the anchor must bail instead of
+//    re-walking every remaining hit — inner steps stay linear per section.
+//  - no-next-hit (budget shape): clause 2 occurs exactly once at the end, so
+//    the budget is the only enforcement — the retry must bail after a
+//    constant number of inner steps instead of the O(N^2) tail re-walk.
+// Both fail on the pre-delta head (the telemetry does not exist) and would
+// grow quadratically on an unfixed retry, so a bound here is a real contract.
+function buildIndex(tree: string, id: string) {
+  const dir = join(root, id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "README.md"), tree);
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({
+      scripts: {
+        deploy: "deploy-tool publish --prod",
+        rollback: "rsync -az ./dist/ deploy@box:/srv",
+      },
+    }),
+  );
+  git(dir, "init", "-q");
+  git(dir, "add", ".");
+  return availabilityIndex(dir);
+}
+
+const REPEATED_TREE = Array.from(
+  { length: 40 },
+  () =>
+    "Always keep 3 replicas warm before rollout and drain first.\n\n" +
+    "Always keep 3 replicas warm before rollout and drain first.\n",
+).join("\n");
+
+test("the later-occurrence retry stays bounded on repeated-section trees", () => {
+  const index = buildIndex(REPEATED_TREE, "bounded-retry-repeated");
+  const verdict = index.check(
+    "Run `npm run rollback`; keep 3 replicas warm before rollout; drain first.",
+  );
+  expect(verdict).toBeNull();
+  const steps = index.scanned().retrySteps;
+  expect(steps, "retrySteps telemetry must be defined").toBeDefined();
+  expect(
+    steps as number,
+    `retrySteps ${steps} — the retry re-walked the tail once per anchor on the escape shape (linear ~80, quadratic would be far higher)`,
+  ).toBeLessThanOrEqual(120);
+});
+
+test("the retry bails once the budget is gone on the no-next-hit shape", () => {
+  const tree = [
+    ...Array.from(
+      { length: 400 },
+      () => "Always keep 3 replicas warm before rollout. Drain later.\n",
+    ),
+    "Always keep 3 replicas warm before rollout. Drain first.\n",
+  ].join("\n");
+  const index = buildIndex(tree, "bounded-retry-no-hit");
+  const verdict = index.check(
+    "Run `npm run rollback`; keep 3 replicas warm before rollout; drain first.",
+  );
+  expect(verdict).toBeNull();
+  const s = index.scanned();
+  expect(s.retrySteps, "retrySteps telemetry must be defined").toBeDefined();
+  expect(s.retryWalked, "retryWalked telemetry must be defined").toBeDefined();
+  expect(
+    s.retrySteps as number,
+    `retrySteps ${s.retrySteps} — the budget must bail after a constant number of inner steps (quadratic would be thousands)`,
+  ).toBeLessThanOrEqual(8);
+});
+
 test("control: the same fact is refused when the scan can read it", () => {
   const dir = join(root, "control");
   mkdirSync(dir, { recursive: true });

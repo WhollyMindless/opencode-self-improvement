@@ -1371,6 +1371,43 @@ export const AVAILABILITY_CASES: AvailabilityCase[] = [
       "#516 control: the complete invocation appears in the declaration",
     ),
   ]),
+  // ── The two-occurrence shape: the earliest hit may fail coverage while a
+  // later occurrence states the same sentence plainly. Both keep-fail-open
+  // shapes and the refuse-on-later-occurrence shape are pinned.
+  {
+    id: "two-occurrence-later-covers",
+    tree: "Always keep 3 replicas warm before rollout and drain first.\n\nKeep 3 replicas warm before rollout.\n",
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          deploy: "deploy-tool publish --prod",
+          rollback: "rsync -az ./dist/ deploy@box:/srv",
+        },
+      }),
+    },
+    candidate: "Run `npm run rollback`; keep 3 replicas warm before rollout.",
+    expectTag: true,
+    expectReason: "declared_gate",
+    expectWhere: "package.json scripts.rollback, README.md",
+    source:
+      "#514: the second occurrence covers the residual, so the row is refused",
+  },
+  {
+    id: "two-occurrence-both-fail-too",
+    tree: "Always keep 3 replicas warm before rollout and drain first.\n\nKeep 3 replicas warm before rollout and drain first.\n",
+    files: {
+      "package.json": JSON.stringify({
+        scripts: {
+          deploy: "deploy-tool publish --prod",
+          rollback: "rsync -az ./dist/ deploy@box:/srv",
+        },
+      }),
+    },
+    candidate: "Run `npm run rollback`; keep 3 replicas warm before rollout.",
+    expectTag: false,
+    source:
+      "#514 control: neither occurrence covers the residual, so the row is kept",
+  },
   {
     id: "gate-only-literal-witness-cited",
     tree: NEUTRAL_README,

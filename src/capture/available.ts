@@ -922,31 +922,81 @@ function gapIsPunctuation(text: string): boolean {
  * uncertainty — including this check's own greediness — declines a refusal,
  * which is the direction this file fails safe in.
  */
+/** The retry is bounded by the haystack: the total bytes walked across every
+ * anchor is a multiple of the haystack length, never an N-repeated-claim
+ * multiplier. When the budget runs out the search returns null — fail-open —
+ * which is the safe direction: a kept row is a duplicate, a wrong refusal is
+ * a lost fact. The bound is per check() call (both call sites share it). */
 function restatedContiguously(
   hay: string,
   clauses: string[],
+  regionCovers: (region: { start: number; end: number }) => boolean,
+  retryWalk?: { walked: number; budget: number; steps: number },
 ): { start: number; end: number } | null {
   if (hay === "") return null;
-  let prevEnd = -1;
-  let cursor = 0;
-  let start = -1;
-  for (const clause of clauses) {
+  const retry = retryWalk ?? {
+    walked: 0,
+    budget: 2 * Math.max(hay.length, 1),
+    steps: 0,
+  };
+  const charge = (from: number, to: number): boolean => {
+    retry.walked += to - from;
+    return retry.walked <= retry.budget;
+  };
+  // The first clause's earliest hit is not an adjudication: the region it
+  // roots in may surround the claim with material that fails coverage,
+  // while a later occurrence states it plainly. The outer cursor only
+  // advances, so the clause-1 scan work telescopes over the retry loop.
+  for (let from = 0; ; ) {
+    const first = findClause(hay, clauses[0], from);
+    if (first < 0) return null;
+    if (!charge(from, first)) return null;
+    const region = assembleFrom(hay, clauses, first, charge, retry);
+    if (retry.walked > retry.budget) return null;
+    if (region !== null && regionCovers(region)) return region;
+    from = first + 1;
+  }
+}
+
+/** Assemble a region of `clauses` from an already-valid first hit. Returns
+ * null when any later clause finds no valid hit or the gap is not
+ * punctuation — the caller retries from the next first-clause occurrence. */
+function assembleFrom(
+  hay: string,
+  clauses: string[],
+  anchor: number,
+  charge: (from: number, to: number) => boolean,
+  retry: { walked: number; budget: number; steps: number },
+): { start: number; end: number } | null {
+  let prevEnd = anchor + clauses[0].length;
+  let cursor = anchor + 1;
+  for (let i = 1; i < clauses.length; i++) {
+    const clause = clauses[i];
     let hit = -1;
     for (let from = cursor; ; ) {
-      const i = findClause(hay, clause, from);
-      if (i < 0) break;
-      if (prevEnd < 0 || gapIsPunctuation(hay.slice(prevEnd, i))) {
-        hit = i;
+      retry.steps++;
+      const j = findClause(hay, clause, from);
+      if (j < 0) {
+        // No hit in the tail — the scan covered the remaining bytes.
+        charge(cursor, hay.length);
         break;
       }
-      from = i + 1;
+      if (!charge(from, j)) return null;
+      if (gapIsPunctuation(hay.slice(prevEnd, j))) {
+        hit = j;
+        break;
+      }
+      // A gap that contains a non-punctuation character is not punctuation
+      // for any later hit either — the later gap extends the same non-punct
+      // prefix — so no later hit can assemble this region. Bail the anchor
+      // instead of re-walking every remaining hit.
+      return null;
     }
     if (hit < 0) return null;
-    if (start < 0) start = hit;
     cursor = hit + 1;
     prevEnd = hit + clause.length;
   }
-  return { start, end: prevEnd };
+  return { start: anchor, end: prevEnd };
 }
 
 export interface AvailabilityIndex {
@@ -963,6 +1013,16 @@ export interface AvailabilityIndex {
     bytes: number;
     tracked: boolean;
     capped: boolean;
+    /** The total bytes the restated-clause retry walked in the last check()
+     * call — how much of the haystack the later-occurrence retry re-scanned.
+     * Telemetry only, never a verdict input. */
+    retryWalked: number;
+    /** The number of inner-loop iterations the retry ran in the last check()
+     * call. This is the direct read on "the retry is bounded": each iteration
+     * re-scans the tail from a new cursor, so an unbounded retry shows up as a
+     * step count that grows with the number of repeated sections, not with the
+     * haystack. Telemetry only, never a verdict input. */
+    retrySteps: number;
   };
 }
 
@@ -974,17 +1034,35 @@ export function availabilityIndex(
   repoDir: string | undefined,
   scanBudget = DEFAULT_SCAN_BUDGET,
 ): AvailabilityIndex {
+  // The last check() call's retry walk, recorded per index. The index is
+  // per capture pass, so this is pass-scoped telemetry mirroring scanned().
+  let lastRetryWalked = 0;
+  let lastRetrySteps = 0;
   if (!repoDir) {
     return {
       check: () => null,
-      scanned: () => ({ files: 0, bytes: 0, tracked: false, capped: false }),
+      scanned: () => ({
+        files: 0,
+        bytes: 0,
+        tracked: false,
+        capped: false,
+        retryWalked: 0,
+        retrySteps: 0,
+      }),
     };
   }
   const files = listed(repoDir);
   if (files === null) {
     return {
       check: () => null,
-      scanned: () => ({ files: 0, bytes: 0, tracked: false, capped: false }),
+      scanned: () => ({
+        files: 0,
+        bytes: 0,
+        tracked: false,
+        capped: false,
+        retryWalked: 0,
+        retrySteps: 0,
+      }),
     };
   }
   const gates = parseGates(repoDir, files);
@@ -1046,6 +1124,13 @@ export function availabilityIndex(
       // `indexOf("")` succeeds everywhere: without this guard the vacuous hit
       // at the end of the haystack is read as evidence and the refusal cites
       // no file and no span. A candidate with nothing to restate is kept.
+      lastRetryWalked = 0;
+      lastRetrySteps = 0;
+      const retryBudget = {
+        walked: 0,
+        budget: 2 * Math.max(haystack.length, 1),
+        steps: 0,
+      };
       const whole = normCandidate(content);
       if (whole === "") return null;
       const needed = claims(whole);
@@ -1077,10 +1162,18 @@ export function availabilityIndex(
       // or another sentence of the same file, which is why the whole file is
       // not the scope either — is not the passage being cited, and cannot
       // vouch for the figure the refusal claims it states.
-      const region = haystack ? restatedContiguously(haystack, needed) : null;
+      const region = haystack
+        ? restatedContiguously(
+            haystack,
+            needed,
+            (r) => coversAssertion(haystack, r),
+            retryBudget,
+          )
+        : null;
+      lastRetryWalked = retryBudget.walked;
+      lastRetrySteps = retryBudget.steps;
       if (
         region &&
-        coversAssertion(haystack, region) &&
         figuresWithin(
           content,
           new Set(numericTokens(haystack.slice(region.start, region.end))),
@@ -1174,14 +1267,20 @@ export function availabilityIndex(
         for (const span of spans) residual = residual.split(span).join(" ");
         const rest = claims(normCandidate(residual));
         const restRegion =
-          rest.length === 0 ? null : restatedContiguously(haystack, rest);
+          rest.length === 0
+            ? null
+            : restatedContiguously(
+                haystack,
+                rest,
+                (r) => coversAssertion(haystack, r),
+                retryBudget,
+              );
+        lastRetryWalked = retryBudget.walked;
+        lastRetrySteps = retryBudget.steps;
         // The prose the declarations do not answer settles against the tree on
         // the same terms as the tracked path: the region must cover the whole
         // assertion, so a residual that drops a scoping operator keeps the row.
-        if (
-          rest.length === 0 ||
-          (restRegion !== null && coversAssertion(haystack, restRegion))
-        ) {
+        if (rest.length === 0 || restRegion !== null) {
           // A figure outside every quoted command is prose, and prose settles
           // against the passage this refusal cites for it — the same region
           // the tracked path answers with. A figure no cited passage states is
@@ -1214,6 +1313,13 @@ export function availabilityIndex(
       }
       return null;
     },
-    scanned: () => ({ files: loaded, bytes, tracked: true, capped }),
+    scanned: () => ({
+      files: loaded,
+      bytes,
+      tracked: true,
+      capped,
+      retryWalked: lastRetryWalked,
+      retrySteps: lastRetrySteps,
+    }),
   };
 }
