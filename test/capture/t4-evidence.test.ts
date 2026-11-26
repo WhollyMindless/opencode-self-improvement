@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   afterTool,
   callsFor,
+  onCompacting,
   writeEvidence,
 } from "../../src/capture/triggers.ts";
 import { evidenceDir } from "../../src/core/config/paths.ts";
@@ -12,6 +13,7 @@ import { parseLine } from "../../src/core/logfmt/format.ts";
 import { readLines } from "../../src/core/logfmt/read.ts";
 import { resetState, session, setCurrent } from "../../src/core/state.ts";
 import { dateStr } from "../../src/core/time.ts";
+import { droppedEvidenceWrites } from "../../src/telemetry/record.ts";
 import { removeStore } from "../helpers/remove-store.ts";
 
 let root: string;
@@ -86,4 +88,30 @@ test("new failure replaces pending family and no edit falls back to PASS", async
   expect(row.fields.evidence_chain).toBe("[new,unrelated,pass]");
   expect(row.fields.evidence_chain_count).toBe("3");
   expect(row.fields.fix_ref).toBe("pass");
+});
+
+test("an unwritable evidence log leaves gate recovery bookkeeping intact", async () => {
+  mkdirSync(join(evidenceDir(), `${dateStr()}.logfmt`), { recursive: true });
+
+  await call("fail", "bash", "vitest", 1);
+  expect(session("t4").pendingGate?.call).toBe("fail");
+  await call("fix", "edit");
+  await call("pass", "bash", "vitest");
+
+  expect(session("t4").pendingGate).toBeNull();
+  expect(writeEvidence("t4")).toEqual({
+    evidenceCalls: ["fail", "fix", "pass"],
+    evidenceCallsCount: 3,
+  });
+  expect(droppedEvidenceWrites()).toMatchObject({
+    dropped: 6,
+    lastEvent: "t4_learning",
+  });
+
+  await onCompacting({ sessionID: "t4" });
+  expect(session("t4").finalized).toBe(true);
+  expect(droppedEvidenceWrites()).toMatchObject({
+    dropped: 8,
+    lastEvent: "session_convergence",
+  });
 });

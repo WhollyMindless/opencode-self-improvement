@@ -32,5 +32,28 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["src/capture/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["**/telemetry/record", "**/telemetry/record.ts"],
+                    "importNamePattern": "record|recordSync|recordCaptureLag|recordWriteBlocked|\\*",
+                    "message": "Use the best-effort evidence writers in capture."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
