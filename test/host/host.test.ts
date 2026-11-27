@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   captureSessionID,
-  foldUsage,
-  forgetUsage,
   sessionIdentityEvent,
   sessionUsageEvent,
-} from "../../src/identity/host-events.ts";
+} from "../../src/adapters/opencode/observations.ts";
+import { foldUsage, forgetUsage } from "../../src/status/usage.ts";
 import {
   toolIdentity,
   sessionDirectoryFromMessages,
