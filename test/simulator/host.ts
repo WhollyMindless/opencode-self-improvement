@@ -23,6 +23,7 @@ type QueuedTurn = {
   done: ReturnType<typeof Promise.withResolvers<void>>;
 };
 export interface HostOptions extends MemorySetupOptions {
+  harness?: string;
   capabilities?: Partial<
     Record<"events" | "transcript" | "generation", boolean>
   >;
@@ -86,6 +87,7 @@ export class TestHost {
     );
     this.disposal = new ControlledCall(trace, name, "disposal", () => {});
     this.host = {
+      harness: config.harness ?? "simulator",
       tools: {
         directories: { fromSession: async (sid) => this.directories.get(sid) },
         registerTools: async (register) => {

@@ -23,9 +23,9 @@ apply; sharing a store does not mean injecting every memory into every request.
 - Branch: `test/554-harness-contracts`.
 - Remote backup: https://github.com/WhollyMindless/opencode-self-improvement/tree/test/554-harness-contracts
 - The local branch tracks `fork/test/554-harness-contracts`.
-- Previous code checkpoint: `1929f2c58f356270a04ec46a3938a414ad0e36d0`
-  (contextual pulls and configurable oh-my-pi entry point), published and verified.
-  The current slice adds compaction anchors and shared compaction phases; its final
+- Previous code checkpoint: `c68afe21471d522ffe4980d331515a53c3010ce5`
+  (compaction anchors and shared compaction phases), published and verified.
+  The current slice adds combined and per-harness activity statistics; its final
   commit is the branch tip accompanying these notes.
 - Last incorporated upstream main: `7b7d88e0` (README improvements, #556), merged
   in `fe00b8cf`. The README conflict was resolved by keeping the new upstream
@@ -282,17 +282,54 @@ through snapcompact, handoff, or provider-native compaction paths. Some host pat
 bypass hook context. These are host-specific gaps, not reasons to put host APIs in
 the shared engine.
 
+## Combined and per-harness statistics
+
+The user requested global and per-harness statistics, explicitly agreeing that
+old records with no harness field count as OpenCode. New adapters supply a stable
+`MemoryHost.harness`; evidence, retrieval/outcome ledgers, and status payloads
+carry it. New operations with no valid source are explicitly `unknown`. An
+async-local binding at shared runtime entry points keeps overlapping work and
+delayed capture completion attributed to the originating harness. Deferred pull
+receipts retain their captured source. Memory ownership remains project/global;
+no migration or per-harness store partition was introduced.
+
+`memory_status` / OpenCode's `/memory-report` now show shared inventory plus
+combined and per-harness activity: credited inject/pull/recall events, blocked
+writes, reported session tokens, capture calls/estimates/rows, and capture lag
+percentiles. Capture configuration is read within each harness, so an oh-my-pi
+`off` heartbeat does not override OpenCode's state. The terminal panel retains its
+existing session view.
+
+Usage snapshots are persisted and reconstructed from retained evidence. The latest
+observation wins per harness/session; duplicate or reordered writes are not summed.
+Usage folding, retrieval throttles, and capture session counts distinguish harnesses
+even when raw session IDs collide. This does not solve all process-global session
+state: adapters still namespace transient IDs. Statistics cover retained data in
+a trailing thirty-day window, with throttled retrieval credits and no lifetime
+claim. A session total can include earlier work; per-message sources cover only
+runtime-observed messages and can become partial after a restart without history
+replay. Unreported usage is not zero. Capture estimates remain separate from
+reported tokens; no currency cost is claimed. Oh-my-pi model-usage mapping is
+still the next parity slice.
+
+Six new test scenarios cover shared memory with separate/combined statistics,
+source identity during delayed captures, legacy OpenCode attribution, same-ID
+sessions, duplicate/reordered snapshots, malformed/expired receipts, and missing
+usage. Existing telemetry privacy checks now allow the source label while still
+rejecting memory/tool-output content. Real SDK tests read the shared breakdown
+from both OpenCode and oh-my-pi across separate processes.
+
 ## Current validation
 
 The last code validation used Windows, Bun 1.4.4, and OpenCode 2.4.2:
 
 - oh-my-pi adapter contracts: thirty-three passed (eleven lifecycle/tools, eleven
   delivery/configuration, eight capture, and three compaction scenarios), included
-  in the full unit run. Four new compaction simulator scenarios also passed.
+  in the full unit run. Six new statistics scenarios passed (40 assertions).
 - Pinned SDK compatibility typecheck passed; the full optional integration suite:
-  seventeen passed, 231 parent-test assertions plus assertions inside the SDK children.
-  This includes five new compaction scenarios, delivery, and installed CLI configuration.
-- Full unit suite, including simulator/shared initialization: 1,932 passed,
+  seventeen passed, 236 parent-test assertions plus assertions inside the SDK children.
+  This includes shared statistics, compaction, delivery, and installed CLI configuration.
+- Full unit suite, including simulator/shared initialization: 1,938 passed,
   34 skipped, no failures.
 - Comment policy, typecheck, lint, and formatting passed.
 - Real-host E2E: 57 passed, three failed. The full gate is therefore still red.
@@ -305,8 +342,10 @@ The capture trace does not establish whether OpenCode awaited plugin cleanup.
 The earlier targeted OpenCode 2.0.26 checks passed for loading, shared stores, and
 compaction (seven checks). That version was not rerun for the oh-my-pi checkpoints.
 Local logs, which are temporary and are not part of the remote backup, are
+`%TEMP%\osi-554-harness-stats-gate.log` and
+`%TEMP%\osi-554-harness-stats-integration.log` for this slice. The compaction logs are
 `%TEMP%\osi-554-omp-compaction-gate.log` and
-`%TEMP%\osi-554-omp-compaction-integration.log` for this slice. The delivery logs are
+`%TEMP%\osi-554-omp-compaction-integration.log`. The delivery logs are
 `%TEMP%\osi-554-omp-delivery-gate.log` and
 `%TEMP%\osi-554-omp-delivery-integration.log`. The installation logs are
 `%TEMP%\osi-554-omp-install-gate.log` and
@@ -341,7 +380,9 @@ installation, scheduling, or actual process-exit behavior.
 1. Fetch upstream main and merge any new changes into this branch before the next
    implementation slice. Keep the work incremental and publish each useful checkpoint.
    The next parity slice should map ordinary model-usage events into the shared
-   usage/evidence interface. Native configuration UI and command/UI equivalents
+   usage/evidence interface and verify its contribution to both the combined and
+   per-harness totals. The generic interface and reporting are now in place.
+   Native configuration UI and command/UI equivalents
    also remain; compaction method coverage needs expansion beyond LLM summaries.
    Keep capture opt-in while settling its shutdown and provider-accounting limits.
 2. Add actual SDK branch/tree navigation and shutdown-deadline fault scenarios

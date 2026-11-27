@@ -23,10 +23,23 @@ import { peekTurn } from "../core/state.ts";
 import { resolveRepo, setRepoScope } from "../identity/repokey.ts";
 import { bunFloorWarning } from "../core/runtime.ts";
 import { recordStartup } from "./startup.ts";
+import { attributedHost } from "./harness.ts";
+import { harnessName, withHarness } from "../telemetry/harness.ts";
 
 let bunFloorChecked = false;
 
-export async function setupMemory(
+export function setupMemory(
+  host: MemoryHost,
+  config: MemorySetupOptions = {},
+): Promise<MemoryRuntime> {
+  const harness = harnessName(host.harness);
+  return withHarness(harness, async () => {
+    const runtime = await setupAttributedMemory(attributedHost(host), config);
+    return { dispose: () => withHarness(harness, () => runtime.dispose()) };
+  });
+}
+
+async function setupAttributedMemory(
   host: MemoryHost,
   { directory: setupRoot, options = {} }: MemorySetupOptions = {},
 ): Promise<MemoryRuntime> {

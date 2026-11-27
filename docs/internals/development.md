@@ -67,6 +67,42 @@ Startup diagnostics derive capture availability from the supplied methods. Adapt
 
 Store ownership remains project/global, independent of the adapter. Existing store paths and `OPENCODE_MEMORY_DIR` remain unchanged for compatibility, so hosts configured to use the same root share the same rows. Store configuration is still process-wide; independently configured roots require separate processes. OpenCode session IDs retain their existing values; other adapters sharing one process must make transient session IDs distinct without adding harness ownership to durable rows. The shared engine still requires Bun, so a host using a different runtime needs an explicit in-process or worker strategy.
 
+### Harness attribution and statistics
+
+`MemoryHost.harness` supplies a stable telemetry identifier (`opencode`,
+`oh-my-pi`, or another lowercase adapter name). `src/runtime/harness.ts` binds
+setup, tool execution, lifecycle callbacks, and disposal through async-local
+context. Delayed work retains its originating harness; explicit evidence contexts
+capture it alongside session/project identity. It is never read from user tool
+arguments or inferred from a session prefix. Omitted or invalid identifiers produce
+new records marked `unknown`.
+
+Evidence and retrieval ledgers now carry `harness`. Readers attribute historical
+records with no field to OpenCode without rewriting them. Status payloads also
+carry the identifier. Memory rows, project/global visibility, and store paths
+are unchanged. Usage folding and retrieval throttles distinguish harness/session
+pairs; this does not remove the existing requirement for distinct transient
+session IDs elsewhere in the engine.
+
+Normalized usage events persist folded `session_usage` snapshots with an
+observation timestamp. The report chooses the latest observation per
+harness/session, so duplicate or reordered appends do not add the same totals
+again. These are reported totals, not billing or memory-only cost: a cumulative
+snapshot can include earlier work, while a per-message source only covers the
+runtime's observed messages. Retained snapshots survive disposal; reopening a
+session without replaying its history can replace the snapshot with partial usage.
+Unreported sessions are excluded. Capture estimates stay separate.
+
+`src/status/harness-stats.ts` supplies the combined and per-harness thirty-day
+breakdown in `memory_status` / `/memory-report`; the terminal panel is unchanged.
+Capture configuration is selected within each harness. Aggregates expose counts
+without session IDs, repository names, prompts, or memory text. Retrieval counts
+are throttled credits, and retained data is a floor rather than a complete history.
+Unit and simulator scenarios cover legacy records, duplicate receipts, missing
+usage, raw session-ID collisions, delayed captures, and shared memory ownership.
+The real SDK shared-store scenario checks reports from both adapters after
+separate process runs.
+
 ## Exploratory oh-my-pi adapter
 
 `src/adapters/oh-my-pi/extension.ts` is an experimental extension for

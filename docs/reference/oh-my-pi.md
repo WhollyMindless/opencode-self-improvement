@@ -152,6 +152,16 @@ context, prompt, and preserved data. A full replacement summary also bypasses th
 anchor hook. The integration tests cover normal summarization, cancellation and
 retry, empty stores, a replacement summary, and a later hook replacing our result.
 
+## Statistics across harnesses
+
+Ask the agent to call `memory_status` for combined activity and separate harness
+totals from the shared store. OpenCode's `/memory-report` reads the same records.
+Retrieval credits and capture activity carry `oh-my-pi` attribution; the memory
+inventory remains shared. Historical records without attribution count as
+OpenCode. Model-usage events are not yet forwarded by this adapter, so missing
+session token totals appear as **not reported**. See
+[report coverage and retention limits](surfaces.md#combined-and-per-harness-activity).
+
 ## Current limits
 
 - The packaged entry point supplies tools and context. It does not supply

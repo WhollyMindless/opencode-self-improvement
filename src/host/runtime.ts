@@ -4,6 +4,8 @@ import type { MemoryCaptureHost } from "./capture.ts";
 
 /** The ports needed to assemble the shared memory engine in one host instance. */
 export interface MemoryHost {
+  /** Stable adapter identifier for telemetry; never a memory ownership boundary. */
+  harness?: string;
   tools: MemoryToolHost;
   lifecycle: MemoryLifecycleHost;
   capture: MemoryCaptureHost;

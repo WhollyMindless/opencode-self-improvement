@@ -15,6 +15,7 @@ import {
 } from "./payload.ts";
 import type { DroppedEvidenceWrites } from "../telemetry/record.ts";
 import { EVICT_MIN_RIDES } from "./store-summary.ts";
+import { harnessActivityLines, type HarnessActivity } from "./harness-stats.ts";
 
 function ago(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -257,9 +258,11 @@ export function evidenceWriteLines(
 
 /**
  * Plain-text rendering shared by the memory_status tool (and any other chat
- * client). Sections match the terminal /memory panel one-for-one.
+ * client). Adds cross-harness activity to the terminal panel's session sections.
  */
 export function renderMemoryReport(input: {
+  harnessActivity?: HarnessActivity;
+  captureHarness?: string;
   status: StatusPayload | null;
   store: StoreCounts;
   blocked: BlockedRow[];
@@ -401,12 +404,17 @@ export function renderMemoryReport(input: {
     out.push(
       "",
       "AUTO-CAPTURE — is it off, misconfigured, armed, or alive?",
+      ...(input.captureHarness
+        ? [`  configuration and activity for ${input.captureHarness}`]
+        : []),
       ...captureSection,
     );
   }
+  if (input.harnessActivity)
+    out.push("", ...harnessActivityLines(input.harnessActivity));
   out.push(
     "",
-    "Terminal (CLI/TUI) users: /memory opens this as a live panel; the footer shows a one-line badge.",
+    "Terminal (CLI/TUI) users: /memory opens the session panel; /memory-report includes the harness activity breakdown.",
   );
   return out.join("\n");
 }

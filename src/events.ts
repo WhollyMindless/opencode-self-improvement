@@ -35,6 +35,7 @@ import { peekTurn } from "./core/state.ts";
 import {
   captureEvidenceContext,
   record,
+  recordBestEffort,
   safeErrorMessage,
 } from "./telemetry/record.ts";
 import { compactionAnchor } from "./inject/anchor.ts";
@@ -337,7 +338,22 @@ export async function registerHooks(
     usage: async (usage) => {
       const { sessionID } = usage;
       sessions.touch(sessionID);
-      measuredTurns.set(sessionID, foldUsage(usage, new Date().toISOString()));
+      const measured = foldUsage(usage, new Date().toISOString());
+      measuredTurns.set(sessionID, measured);
+      await recordBestEffort(
+        "session_usage",
+        {
+          session: sessionID,
+          observed: performance.timeOrigin + performance.now(),
+          input: measured.input,
+          read: measured.read,
+          write: measured.write,
+          output: measured.output,
+          reasoning: measured.reasoning,
+        },
+        false,
+        sessionID,
+      );
       await guarded("status flush (measured)", () => flushStatus(sessionID));
     },
     error: (err) => {

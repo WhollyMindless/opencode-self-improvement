@@ -192,7 +192,14 @@ async function seed(writer: Guest) {
 test("OpenCode and real oh-my-pi share project/global memory with project isolation and relevance selection", async () => {
   const { writer, peer, outsider } = sharedGuests();
   await seed(writer);
-  const shared = await omp(peer, [call("memory_recall", { query: QUERY })]);
+  const shared = await omp(peer, [
+    call("memory_recall", { query: QUERY }),
+    call("memory_status", {}),
+  ]);
+  const ompStats = outputs(shared.messages, "memory_status")[0];
+  expect(ompStats).toInclude("HARNESS ACTIVITY");
+  expect(ompStats).toInclude("opencode: credited retrievals");
+  expect(ompStats).toInclude("oh-my-pi: credited retrievals");
   expect(shared.system).toInclude(PROJECT);
   expect(shared.system).toInclude(GLOBAL);
   expect(outputs(shared.messages, "memory_recall")[0]).toInclude(PROJECT);
@@ -227,7 +234,11 @@ test("OpenCode and real oh-my-pi share project/global memory with project isolat
   ]);
   const readBack = await opencode(writer, [
     call("memory_recall", { query: "indigo migration copper artifacts" }),
+    call("memory_status", {}),
   ]);
+  const ocStats = readBack.outputs("memory_status")[0];
+  expect(ocStats).toInclude("opencode: credited retrievals");
+  expect(ocStats).toInclude("oh-my-pi: credited retrievals");
   expect(readBack.outputs("memory_recall")[0]).toInclude(reverse);
 }, 240_000);
 

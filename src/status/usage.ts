@@ -1,5 +1,6 @@
 import type { Measured } from "./payload.ts";
 import type { SessionUsage } from "../host/observations.ts";
+import { currentHarness } from "../telemetry/harness.ts";
 
 // Streaming receipts replace one message; cumulative receipts replace the session.
 const messageReceipts = new Map<string, Map<string, Measured>>();
@@ -15,10 +16,11 @@ export function foldUsage(usage: SessionUsage, at: string): Measured {
     reasoning: usage.reasoning,
   };
   if (usage.cumulative || usage.messageID === undefined) return receipt;
-  let msgs = messageReceipts.get(usage.sessionID);
+  const key = `${currentHarness()}\0${usage.sessionID}`;
+  let msgs = messageReceipts.get(key);
   if (!msgs) {
     msgs = new Map();
-    messageReceipts.set(usage.sessionID, msgs);
+    messageReceipts.set(key, msgs);
   }
   msgs.set(usage.messageID, receipt);
   const total = {
@@ -42,5 +44,5 @@ export function foldUsage(usage: SessionUsage, at: string): Measured {
 
 /** Drop a session's per-message ledger when its status entry is evicted. */
 export function forgetUsage(sessionID: string): void {
-  messageReceipts.delete(sessionID);
+  messageReceipts.delete(`${currentHarness()}\0${sessionID}`);
 }

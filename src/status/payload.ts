@@ -130,6 +130,8 @@ export interface Measured {
 }
 
 export interface StatusPayload {
+  /** Adapter that produced this snapshot; absent legacy snapshots are OpenCode. */
+  harness?: string;
   /** ISO instant of the epoch recompute that produced this snapshot. */
   at: string;
   sessionID: string;

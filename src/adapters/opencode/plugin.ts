@@ -13,6 +13,7 @@ const plugin: Plugin = {
     const ctx = raw as unknown as PluginCtx;
     const runtime = await setupMemory(
       {
+        harness: "opencode",
         tools: createOpenCodeHost(ctx),
         lifecycle: createOpenCodeLifecycle(ctx),
         // Hook registration may attach APIs, so inspect capture afterward.

@@ -75,6 +75,7 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
     try {
       runtime = await setupMemory(
         {
+          harness: "oh-my-pi",
           tools: {
             directories: {},
             async registerTools(register) {
