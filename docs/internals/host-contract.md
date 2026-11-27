@@ -5,6 +5,11 @@ OpenCode implements it in `src/adapters/opencode/`; the programmable host in
 `test/simulator/` implements the same interfaces without a vendor SDK. This is
 not a published adapter SDK or a claim of support for another harness.
 
+`createOpenCodeMemoryHost` constructs a complete `MemoryHost`. The OpenCode
+plugin entry point only passes that host and its configuration to `setupMemory`
+and returns shared disposal. There is no separate OpenCode engine setup path;
+other adapters and the simulator use the same runtime and ports.
+
 ## Required semantics
 
 - **Tools:** register the fourteen definitions once, preserve their JSON schemas,
@@ -129,6 +134,9 @@ It cannot observe a real provider or prove caching or forced-exit durability.
 `test/host/tool-contract.ts` runs shared write/visibility/correction/deletion
 scenarios through both the OpenCode tool adapter and a normalized host. Adapter
 tests pin recorded payload decoding, capture, usage and lifecycle behavior.
+`test/runtime/opencode-conformance.test.ts` starts the complete OpenCode and
+simulator hosts through `setupMemory`, checks write gates and disposal, and
+exercises memory recall and relevance injection between them in both directions.
 `e2e/coverage.test.ts` and `e2e/characterization.test.ts` retain real OpenCode
 coverage of the fourteen tools. Existing E2E assertions are unchanged; the added
 shared-store scenarios run independent OpenCode processes.
