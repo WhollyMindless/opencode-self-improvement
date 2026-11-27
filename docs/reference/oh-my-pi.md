@@ -158,8 +158,19 @@ Ask the agent to call `memory_status` for combined activity and separate harness
 totals from the shared store. OpenCode's `/memory-report` reads the same records.
 Retrieval credits and capture activity carry `oh-my-pi` attribution; the memory
 inventory remains shared. Historical records without attribution count as
-OpenCode. Model-usage events are not yet forwarded by this adapter, so missing
-session token totals appear as **not reported**. See
+OpenCode. The adapter snapshots usage from finalized assistant records at session
+load, agent completion, session transitions, and cooperative shutdown. Streaming
+updates are not added as separate receipts; repeated snapshots and a process
+restart retain one accounting identity. Input, cache reads/writes, and output
+come from the host records. When every receipt reports a reasoning count, it is
+separated from output. Otherwise output includes reasoning and the split remains
+unknown. No valid receipts means **not reported**.
+
+These are retained session-history totals, not billing. They include retained
+off-branch messages; a new fork can inherit earlier messages, so totals across
+forks can overlap. Pruning or replacing history can reduce a session snapshot.
+Auxiliary `model_usage` records, subagent tool totals, and separate memory-capture
+calls are excluded. Capture estimates are reported separately. See
 [report coverage and retention limits](surfaces.md#combined-and-per-harness-activity).
 
 ## Current limits

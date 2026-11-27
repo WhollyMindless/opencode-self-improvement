@@ -8,7 +8,7 @@ export interface UsageTotals {
   read: number;
   write: number;
   output: number;
-  reasoning: number;
+  reasoning: number | null;
 }
 const TOKEN_FIELDS = ["input", "read", "write", "output", "reasoning"] as const;
 type Entry = {
@@ -65,13 +65,23 @@ function summarize(
         ? Number(f[key])
         : NaN,
     );
-    if (!values.every((n) => Number.isFinite(n) && n >= 0)) continue;
+    if (
+      !values.every(
+        (n, i) =>
+          (TOKEN_FIELDS[i] === "reasoning" && f.reasoning === undefined) ||
+          (Number.isFinite(n) && n >= 0),
+      )
+    )
+      continue;
     const observed = f.observed === undefined ? entry.time : Number(f.observed);
     if (!Number.isFinite(observed) || observed < 0) continue;
     const key = `${entry.harness}\0${f.session}`;
     if ((latest.get(key)?.observed ?? -1) > observed) continue;
     const tokens = Object.fromEntries(
-      TOKEN_FIELDS.map((key, i) => [key, values[i]!]),
+      TOKEN_FIELDS.map((key, i) => [
+        key,
+        key === "reasoning" && f.reasoning === undefined ? null : values[i]!,
+      ]),
     ) as Omit<UsageTotals, "sessions">;
     latest.set(key, { observed, tokens });
   }
@@ -87,7 +97,14 @@ function summarize(
     : null;
   if (usage)
     for (const { tokens } of latest.values())
-      for (const key of TOKEN_FIELDS) usage[key] += tokens[key];
+      for (const key of TOKEN_FIELDS) {
+        if (key === "reasoning")
+          usage.reasoning =
+            usage.reasoning === null || tokens.reasoning === null
+              ? null
+              : usage.reasoning + tokens.reasoning;
+        else usage[key] += tokens[key];
+      }
   const lines = evidence.map((e) => e.line);
   return {
     harness,
@@ -152,7 +169,7 @@ export function harnessActivityLines(activity: HarnessActivity): string[] {
     const u = group.usage;
     lines.push(
       u
-        ? `    reported session tokens: input ${u.input} / cache-read ${u.read} / cache-write ${u.write} / output ${u.output} / reasoning ${u.reasoning} (${u.sessions} session totals)`
+        ? `    reported session tokens: input ${u.input} / cache-read ${u.read} / cache-write ${u.write} / output ${u.output} / reasoning ${u.reasoning ?? "not reported for every session"} (${u.sessions} session totals)`
         : "    reported session tokens: not reported",
     );
     lines.push(
@@ -169,6 +186,7 @@ export function harnessActivityLines(activity: HarnessActivity): string[] {
   }
   lines.push(
     "  Retrieval credits are throttled; retained counts are floors, not lifetime totals. Session totals may include work before this window; unreported sessions are excluded.",
+    "  Output includes reasoning where the host supplies no separate split; mixed totals cannot establish the answer/reasoning split.",
     "  Legacy records without a harness are OpenCode. New unattributed activity is unknown. Memory inventory and ownership remain shared.",
   );
   return lines;

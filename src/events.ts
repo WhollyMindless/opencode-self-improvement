@@ -343,7 +343,7 @@ export async function registerHooks(
       await recordBestEffort(
         "session_usage",
         {
-          session: sessionID,
+          session: usage.accountingID ?? sessionID,
           observed: performance.timeOrigin + performance.now(),
           input: measured.input,
           read: measured.read,

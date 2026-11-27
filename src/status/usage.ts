@@ -29,16 +29,21 @@ export function foldUsage(usage: SessionUsage, at: string): Measured {
     read: 0,
     write: 0,
     output: 0,
-    reasoning: 0,
+    reasoning: 0 as number | undefined,
   };
+  let split = true;
+  let reportedReasoning = 0;
   for (const r of msgs.values()) {
     total.input += r.input ?? 0;
     total.read += r.read ?? 0;
     total.write += r.write ?? 0;
     total.output += r.output ?? 0;
-    total.reasoning += r.reasoning ?? 0;
+    if (r.reasoning === undefined) split = false;
+    else reportedReasoning += r.reasoning;
     if (r.at > total.at) total.at = r.at;
   }
+  total.reasoning = split ? reportedReasoning : undefined;
+  if (!split) total.output += reportedReasoning;
   return total;
 }
 

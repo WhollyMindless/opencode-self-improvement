@@ -120,7 +120,9 @@ export function windowLines(p: StatusPayload): string[] {
   const gen = m ? (m.output ?? 0) + (m.reasoning ?? 0) : 0;
   if (gen > 0) {
     out.push(
-      `  what it produced  ${fmtCount(gen)} completion tok — ${fmtCount(m?.output ?? 0)} answer + ${fmtCount(m?.reasoning ?? 0)} reasoning (provider-reported, session-wide)`,
+      m?.reasoning === undefined
+        ? `  what it produced  ${fmtCount(gen)} completion tok — reasoning split not reported (host-reported, session-wide)`
+        : `  what it produced  ${fmtCount(gen)} completion tok — ${fmtCount(m?.output ?? 0)} answer + ${fmtCount(m?.reasoning ?? 0)} reasoning (provider-reported, session-wide)`,
     );
   }
   const moved = p.stats?.invalidations ?? 0;

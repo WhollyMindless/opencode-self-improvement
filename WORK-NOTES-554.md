@@ -23,9 +23,9 @@ apply; sharing a store does not mean injecting every memory into every request.
 - Branch: `test/554-harness-contracts`.
 - Remote backup: https://github.com/WhollyMindless/opencode-self-improvement/tree/test/554-harness-contracts
 - The local branch tracks `fork/test/554-harness-contracts`.
-- Previous code checkpoint: `c68afe21471d522ffe4980d331515a53c3010ce5`
-  (compaction anchors and shared compaction phases), published and verified.
-  The current slice adds combined and per-harness activity statistics; its final
+- Previous code checkpoint: `f6e5b428ac801e635ef2ccfa50c91addab379811`
+  (combined and per-harness activity statistics), published and verified.
+  The current slice connects oh-my-pi assistant usage to those statistics; its final
   commit is the branch tip accompanying these notes.
 - Last incorporated upstream main: `7b7d88e0` (README improvements, #556), merged
   in `fe00b8cf`. The README conflict was resolved by keeping the new upstream
@@ -309,8 +309,8 @@ a trailing thirty-day window, with throttled retrieval credits and no lifetime
 claim. A session total can include earlier work; per-message sources cover only
 runtime-observed messages and can become partial after a restart without history
 replay. Unreported usage is not zero. Capture estimates remain separate from
-reported tokens; no currency cost is claimed. Oh-my-pi model-usage mapping is
-still the next parity slice.
+reported tokens; no currency cost is claimed. The following slice adds oh-my-pi
+assistant-usage mapping.
 
 Six new test scenarios cover shared memory with separate/combined statistics,
 source identity during delayed captures, legacy OpenCode attribution, same-ID
@@ -319,17 +319,51 @@ usage. Existing telemetry privacy checks now allow the source label while still
 rejecting memory/tool-output content. Real SDK tests read the shared breakdown
 from both OpenCode and oh-my-pi across separate processes.
 
+## Oh-my-pi assistant usage
+
+The adapter now snapshots finalized assistant usage through the public readonly
+`sessionManager.getEntries()` at load, agent completion, session transitions, and
+cooperative shutdown. Repeated completion notifications replace cumulative
+receipts; streaming deltas are not independently counted. Valid usage survives
+error/cancellation status. Missing or malformed receipts are excluded.
+
+`SessionUsage.accountingID` separates stable usage identity from the transient
+session ID that isolates grounding after reload/tree changes. Restarting a native
+session in another process reconstructs its retained total under the same key.
+Adapters without this field keep the previous behavior. Native output includes
+reasoning; when every receipt provides `reasoningTokens`, it is separated. Without
+a complete split, output stays combined and reasoning stays unknown. Generic
+per-message folding also preserves known reasoning tokens when another message
+has no split. Mixed-harness reports do not invent a missing reasoning total.
+
+The real-SDK BDD failed before implementation, then passed two streamed turns,
+cancelled preparation, disposal, and a second process reopening the saved session.
+Four adapter scenarios and two additional simulator scenarios cover duplicate
+events, reload/transcript generations, invalid and missing usage, aborted/failed
+messages, late notifications, mixed harness totals, and partial reasoning splits.
+The capture disposal regression suite caught and prevented delaying cancellation
+behind the final usage write. Its existing immediate-abort assertion is unchanged.
+
+These are retained assistant-history snapshots, not billing totals: off-branch
+messages count, separate forks can inherit overlapping history, and pruning can
+lower a snapshot. Auxiliary model records, subagent tool totals, and separate
+capture model calls are excluded. Forced-exit durability and hosted-provider
+coverage remain unproved. The adapter adds no model call or SDK dependency.
+Upstream main was fetched and remains incorporated at `7b7d88e0`.
+
 ## Current validation
 
 The last code validation used Windows, Bun 1.4.4, and OpenCode 2.4.2:
 
-- oh-my-pi adapter contracts: thirty-three passed (eleven lifecycle/tools, eleven
-  delivery/configuration, eight capture, and three compaction scenarios), included
-  in the full unit run. Six new statistics scenarios passed (40 assertions).
+- oh-my-pi adapter contracts: thirty-seven passed (eleven lifecycle/tools, eleven
+  delivery/configuration, eight capture, three compaction, and four usage scenarios),
+  included in the full unit run. Two additional simulator scenarios cover stable
+  accounting and incomplete reasoning splits.
 - Pinned SDK compatibility typecheck passed; the full optional integration suite:
-  seventeen passed, 236 parent-test assertions plus assertions inside the SDK children.
-  This includes shared statistics, compaction, delivery, and installed CLI configuration.
-- Full unit suite, including simulator/shared initialization: 1,938 passed,
+  eighteen passed, 240 parent-test assertions plus assertions inside the SDK children.
+  This includes usage across process restart, shared statistics, compaction,
+  delivery, and installed CLI configuration.
+- Full unit suite, including simulator/shared initialization: 1,944 passed,
   34 skipped, no failures.
 - Comment policy, typecheck, lint, and formatting passed.
 - Real-host E2E: 57 passed, three failed. The full gate is therefore still red.
@@ -342,8 +376,10 @@ The capture trace does not establish whether OpenCode awaited plugin cleanup.
 The earlier targeted OpenCode 2.0.26 checks passed for loading, shared stores, and
 compaction (seven checks). That version was not rerun for the oh-my-pi checkpoints.
 Local logs, which are temporary and are not part of the remote backup, are
+`%TEMP%\osi-554-omp-usage-gate.log` and
+`%TEMP%\osi-554-omp-usage-integration.log` for this slice. The preceding statistics logs are
 `%TEMP%\osi-554-harness-stats-gate.log` and
-`%TEMP%\osi-554-harness-stats-integration.log` for this slice. The compaction logs are
+`%TEMP%\osi-554-harness-stats-integration.log`. The compaction logs are
 `%TEMP%\osi-554-omp-compaction-gate.log` and
 `%TEMP%\osi-554-omp-compaction-integration.log`. The delivery logs are
 `%TEMP%\osi-554-omp-delivery-gate.log` and
@@ -379,9 +415,9 @@ installation, scheduling, or actual process-exit behavior.
 
 1. Fetch upstream main and merge any new changes into this branch before the next
    implementation slice. Keep the work incremental and publish each useful checkpoint.
-   The next parity slice should map ordinary model-usage events into the shared
-   usage/evidence interface and verify its contribution to both the combined and
-   per-harness totals. The generic interface and reporting are now in place.
+   Assistant usage now reaches both combined and per-harness totals. The next
+   reliability slice should investigate capture persistence at real-host shutdown,
+   preserving the failing assertion and opt-in oh-my-pi capture policy.
    Native configuration UI and command/UI equivalents
    also remain; compaction method coverage needs expansion beyond LLM summaries.
    Keep capture opt-in while settling its shutdown and provider-accounting limits.

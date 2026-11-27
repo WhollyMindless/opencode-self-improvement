@@ -16,14 +16,17 @@ export async function openSession(
     extensionPath?: string;
     extensions?: ExtensionFactory[];
     persistent?: boolean;
+    sessionFile?: string;
   } = {},
 ) {
   const opened = await createAgentSession({
     cwd,
     agentDir,
-    sessionManager: options.persistent
-      ? SessionManager.create(cwd, join(agentDir, "sessions"))
-      : SessionManager.inMemory(cwd),
+    sessionManager: options.sessionFile
+      ? await SessionManager.open(options.sessionFile)
+      : options.persistent
+        ? SessionManager.create(cwd, join(agentDir, "sessions"))
+        : SessionManager.inMemory(cwd),
     settings: Settings.isolated({
       "models.offline": true,
       "compaction.keepRecentTokens": 0,

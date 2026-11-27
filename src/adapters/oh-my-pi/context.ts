@@ -1,7 +1,10 @@
 // Structural subset of oh-my-pi 19.2.1. Keep its SDK out of OpenCode installs.
 export interface OmpContext {
   cwd: string;
-  sessionManager: { getSessionId(): string };
+  sessionManager: {
+    getSessionId(): string;
+    getEntries?(): readonly unknown[];
+  };
 }
 
 export type OmpContent =

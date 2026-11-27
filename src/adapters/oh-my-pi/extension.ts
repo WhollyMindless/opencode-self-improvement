@@ -12,6 +12,7 @@ import type {
 } from "./context.ts";
 import { createOhMyPiCapture, type OmpCaptureBinding } from "./capture.ts";
 import { appendPull, observedToolResults, textContent } from "./delivery.ts";
+import { sessionUsage } from "./usage.ts";
 
 export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
   config: {
@@ -66,7 +67,20 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
       });
     }
 
-    pi.on("session_shutdown", async () => {
+    async function reportUsage(sessionID: string, ctx: C): Promise<void> {
+      const usage = sessionUsage(ctx, sessionID);
+      if (usage) await handlers!.usage(usage);
+    }
+
+    pi.on("session_shutdown", async (_event, ctx) => {
+      // Capture the history and identity before shutdown can replace host state.
+      if (!closed && handlers) {
+        try {
+          track(reportUsage(identity(ctx), ctx));
+        } catch {
+          // A host may have already discarded identity; cleanup must still run.
+        }
+      }
       closed = true;
       await initialized.promise;
       await runtime?.dispose();
@@ -108,14 +122,19 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
           lifecycle: {
             async register(shared) {
               handlers = shared;
-              on("session_start", async () => {});
-              if (config.capture && config.options?.autoCapture !== false) {
-                on("agent_end", async (event, sessionID, ctx) => {
-                  if (event.willContinue || event.awaitingAsyncWork) return;
-                  const binding = config.capture!(ctx);
-                  if (binding) await capture.publish(sessionID, binding);
-                });
-              }
+              on("session_start", async (_event, sessionID, ctx) => {
+                await reportUsage(sessionID, ctx);
+              });
+              on("agent_end", async (event, sessionID, ctx) => {
+                const binding =
+                  !event.willContinue &&
+                  !event.awaitingAsyncWork &&
+                  config.options?.autoCapture !== false
+                    ? config.capture?.(ctx)
+                    : undefined;
+                await reportUsage(sessionID, ctx);
+                if (binding) await capture.publish(sessionID, binding);
+              });
               for (const name of [
                 "session_switch",
                 "session_clear",
@@ -127,7 +146,7 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
                   // Transcript replacement can retain the host ID. Old grounding
                   // and frozen context must not become evidence in the new view.
                   generation++;
-                  identity(ctx);
+                  await track(reportUsage(identity(ctx), ctx));
                 });
               }
               on("before_agent_start", async (event, sessionID) => {

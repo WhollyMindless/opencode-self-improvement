@@ -92,6 +92,11 @@ snapshot can include earlier work, while a per-message source only covers the
 runtime's observed messages. Retained snapshots survive disposal; reopening a
 session without replaying its history can replace the snapshot with partial usage.
 Unreported sessions are excluded. Capture estimates stay separate.
+`SessionUsage.accountingID` optionally identifies a persisted host session when
+the runtime's grounding identity changes after reload; it only affects usage
+snapshot grouping. Omission preserves the existing session-ID behavior. A missing
+`reasoning` means output is combined completion usage; the shared fold and report
+retain that unknown split without losing already reported reasoning tokens.
 
 `src/status/harness-stats.ts` supplies the combined and per-harness thirty-day
 breakdown in `memory_status` / `/memory-report`; the terminal panel is unchanged.
@@ -176,13 +181,33 @@ untouched. A mismatched event/context session ID cannot supply an anchor. The
 `session_compact` notification completes bookkeeping and invalidates the epoch,
 including paths where another extension provided the entire summary. The native
 19.2.1 runner keeps the last returned compaction-hook result; it does not merge
-context, prompt, or preserved data across extensions. Compaction capture and model
-usage accounting remain unwired.
+context, prompt, or preserved data across extensions. Compaction capture remains
+unwired.
 Context accounting observes placement at
 `before_agent_start`; later host retries, aborts, or transformations can discard
 that prepared request. The SDK's bounded shutdown behavior does not guarantee
 completion of arbitrarily slow storage operations. These limits need real-host
 tests before expanding the supported surface.
+
+The adapter's `usage.ts` reads the public readonly `sessionManager.getEntries()`
+at `session_start`, `agent_end`, completed session transitions, and shutdown.
+Only finalized assistant-message usage is counted. There is no streaming-delta
+listener and no transcript text in telemetry. Valid usage on error/aborted
+messages is retained; malformed counts and missing history do not fabricate use.
+The sum is a cumulative normalized receipt with the native session ID as its
+stable accounting identity. The random/generation-qualified runtime ID still
+isolates grounding. Shutdown starts capture cancellation without awaiting usage
+I/O; admitted telemetry joins the existing pending-work drain.
+
+The native output bucket includes reasoning. `reasoningTokens`, when available
+on every retained receipt, is subtracted into the separate normalized field;
+otherwise output stays combined and the split is unknown. Full retained history
+includes off-branch messages, and different fork sessions can contain inherited
+receipts. History replacement can lower totals. These snapshots are not a spend
+ledger. Auxiliary model calls, `task` tool totals, and separate capture calls are
+excluded. Reopening in a fresh process reconstructs the same session total rather
+than counting a new session. The SDK test proves normal streaming, cancelled
+preparation, and process restart; it does not prove forced-exit durability.
 
 The ordinary unit suite runs `test/host/oh-my-pi*.test.ts` without an installed
 harness. The separate optional integration package pins the real SDK and its

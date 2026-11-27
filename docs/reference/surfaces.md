@@ -38,8 +38,9 @@ harnesses, ask the agent to call `memory_status`.
   completed capture calls, estimated capture tokens, captured rows, and capture
   lag percentiles. Each harness has its own latest capture configuration.
 - Reported session tokens, keeping input, cache-read, cache-write, output, and
-  reasoning separate. Missing usage is **not reported**, not zero. The oh-my-pi
-  adapter does not yet forward model-usage events.
+  reasoning separate when the host supplies that split. Missing usage is
+  **not reported**, not zero. Without a reasoning split, output includes reasoning;
+  a mixed aggregate cannot establish a complete answer/reasoning split.
 
 The breakdown covers retained telemetry in the trailing thirty days. Retrieval
 credits are throttled, and rotated or dropped records can reduce counts. These
