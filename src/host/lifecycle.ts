@@ -37,6 +37,11 @@ export interface PromptEvent {
 
 export interface CompactionEvent {
   sessionID?: string;
+  /**
+   * Omit for a host's single combined hook. Split hosts prepare the anchor/capture
+   * before summarization, then complete bookkeeping/epoch invalidation on success.
+   */
+  phase?: "prepare" | "complete";
   appendSystem?: (text: string) => void;
   transcript: CaptureTranscript | undefined;
 }

@@ -21,6 +21,7 @@ export interface OmpEvents {
   session_branch: unknown;
   session_shutdown: unknown;
   session_compact: unknown;
+  "session.compacting": { sessionId: string; messages: readonly unknown[] };
   context: { messages: readonly unknown[] };
   before_agent_start: {
     reason: "prompt" | "revive";
@@ -44,7 +45,9 @@ export type OmpEventResult<K extends keyof OmpEvents> =
       ? { systemPrompt: string[] }
       : K extends "tool_result"
         ? { content: OmpContent[] }
-        : never);
+        : K extends "session.compacting"
+          ? { context: string[] }
+          : never);
 
 export interface OmpTool<C extends OmpContext = OmpContext> {
   name: string;

@@ -7,7 +7,8 @@ the published npm release; install from this work branch or a package built from
 
 The normal installation registers fourteen memory tools, injects relevant
 memories before an agent turn, and appends relevant memories to successful
-`read`, `grep`, and `glob` results. **Automatic capture is disabled.** Ask the agent
+`read`, `grep`, and `glob` results. It also supplies durable-memory anchors to the
+host's compaction summarizer. **Automatic capture is disabled.** Ask the agent
 to use `memory_remember` when you want a durable memory. Writes still pass the
 shared write gates; facts about project behavior may require reading the relevant
 code first.
@@ -127,10 +128,34 @@ omp plugin uninstall opencode-self-improvement
 Restart the host after changing registration. Uninstalling removes the plugin
 registration, not the shared memory store. OpenCode can still read those memories.
 
+## Memory during compaction
+
+Before oh-my-pi summarizes a conversation, the adapter supplies the shared engine's
+durable-memory anchor: eligible project/global memories, up to twelve rows and
+2,500 characters, with complete lines. This adds context to the host's normal
+summarization requests, without a separate memory model call or a replacement
+summary. It asks the summarizer to retain the facts; it cannot guarantee what a
+model will write.
+
+Delivery is verified for ordinary LLM summarization. Snapcompact, handoff, and
+provider-native compaction paths are outside this integration proof; some host
+paths bypass the hook's context.
+
+Preparation supplies the anchor. The completion notification performs bookkeeping
+and refreshes the memory context for the next turn. Cancelling after preparation
+does not finalize the compaction or invalidate the frozen context; a retry remains
+usable. Automatic capture during compaction is still disabled.
+
+In oh-my-pi 19.2.1, compaction-hook results are **not merged**: the last returned
+result wins. Multiple extensions customizing compaction can replace each other's
+context, prompt, and preserved data. A full replacement summary also bypasses the
+anchor hook. The integration tests cover normal summarization, cancellation and
+retry, empty stores, a replacement summary, and a later hook replacing our result.
+
 ## Current limits
 
 - The packaged entry point supplies tools and context. It does not supply
-  automatic capture, compaction anchors, or OpenCode UI
+  automatic capture or OpenCode UI
   surfaces and commands.
 - Pull usage is recorded when the adapter's `context` hook observes complete
   memory rows in the matching tool result. Earlier tool-result transformations
@@ -145,6 +170,7 @@ registration, not the shared memory store. OpenCode can still read those memorie
 - CLI installation, discovery, configuration, restart, recall/injection, project isolation,
   uninstall, and OpenCode interoperability are tested with a local scripted model.
   SDK tests check outgoing contextual pulls, clipped results, and disabled pulls.
+  They also inspect compaction requests for scoped anchors and caller instructions.
   Interactive UI behavior and hosted-provider behavior are not established by
   those tests.
 

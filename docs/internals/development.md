@@ -45,6 +45,14 @@ The full local gate also reproduced two Windows `EBUSY` failures in the viewer E
 
 `src/host/lifecycle.ts` defines normalized prompts, tool results, outgoing request observations, compaction, identity, and usage events. The shared handlers in `src/events.ts` select memory and account for delivery. The OpenCode lifecycle adapter registers hooks, decodes envelopes, and supplies callbacks that insert text into the host's system context and tool results. Receipt matching consumes independent normalized tool-result copies, so repeated or clipped copies cannot combine to prove a row. Receipt settlement remains synchronous and precedes system injection. Observations describe the request visible at the hook; later request transformations remain opaque.
 
+Compaction accepts an optional `phase`. A host with separate notifications sends
+`prepare` to supply the anchor and any enabled pre-compaction capture, then
+`complete` after success to finalize session bookkeeping and invalidate the
+injection epoch. Completion never appends context or starts another capture.
+Omitting the phase retains the combined contract used by OpenCode. An abandoned
+preparation does not finalize or invalidate the session; preparation-time capture,
+when enabled by a host, remains an independent pre-compaction operation.
+
 A missing system-context callback skips injection and request accounting. Cleanup stops new callbacks synchronously, aborts the observation subscription, and attempts every registered hook disposer once; setup failure also releases hooks already registered. Already-started handlers finish against their captured delivery surfaces rather than silently dropping text while recording it as delivered. Capture keeps its separate bounded teardown policy. Tests cover normalized handlers without OpenCode envelopes, plus adapter ordering, concurrent receipt settlement, missing capabilities, registration rollback, and late callbacks after disposal.
 
 `src/host/capture.ts` defines optional transcript access, model generation, default-model lookup, and a stream of normalized turn-end events. `src/adapters/opencode/capture.ts` owns OpenCode event names and API calls; `transcript.ts` in the same adapter decodes both recorded and legacy message shapes. Compaction uses that decoder too, taking a snapshot before asynchronous shared handlers run. Missing required capabilities disable capture with a warning. Configuration, model precedence, cooldowns, signal/delta policy, prompt redaction, write gates, and bounded teardown remain in the shared capture runtime.
@@ -126,8 +134,14 @@ that differs is refused. Runtime-registered provider implementations, host cost
 budgets, usage accounting, and packaged SDK sharing are not established by this
 proof. Root dependencies and the OpenCode generation call envelope stay unchanged.
 
-Compaction capture, model usage accounting, and compaction anchor
-delivery remain unwired. Compaction only invalidates the shared injection epoch.
+The adapter maps `session.compacting` to the shared preparation phase and returns
+the anchor as `{ context }`, leaving messages and the default summary prompt
+untouched. A mismatched event/context session ID cannot supply an anchor. The
+`session_compact` notification completes bookkeeping and invalidates the epoch,
+including paths where another extension provided the entire summary. The native
+19.2.1 runner keeps the last returned compaction-hook result; it does not merge
+context, prompt, or preserved data across extensions. Compaction capture and model
+usage accounting remain unwired.
 Context accounting observes placement at
 `before_agent_start`; later host retries, aborts, or transformations can discard
 that prepared request. The SDK's bounded shutdown behavior does not guarantee
@@ -186,6 +200,18 @@ receipt ledger agrees with those outgoing requests. Adapter contracts separately
 cover mixed text/images, session and call identity, transcript replacement, and
 duplicate observations without requiring a host installation.
 
+`compaction.test.ts` inspects the real summarizer requests for project/global
+anchors, excluded foreign-project rows, and preserved caller instructions. The
+same fixture uses three native summary requests with or without an anchor. Further
+scenarios supply a full replacement summary, let a later hook replace our result,
+and cancel after preparation before retrying successfully. The cancellation probe
+wraps public registration and uses the host's `abortCompaction`; it observes no
+provider request, no completed-compaction bookkeeping, and an unchanged transcript
+for the cancelled attempt. These tests verify summarizer input, not a real model's
+ability to retain every fact in its generated summary. Snapcompact, handoff, and
+provider-native compaction paths remain outside the proof; delivering a hook result
+alone does not establish that those paths consume its context.
+
 The capture scenarios initialize extensions with the SDK's print/RPC runtime
 initializer, use its actual terminal events and reconstructed branch transcript,
 and verify the outgoing completion request. A captured project row is recalled
@@ -211,6 +237,12 @@ The main controls are:
 - `generation`, `transcriptReads`, `registration`, and `disposal` each accept `pause(label)`, `reply(value)`, or `fail(error)`. Pause the next call, await its `entered` checkpoint, then `resolve(value)` or `reject(error)`. Separate calls can be released in either order.
 - `turnEnd(sessionID)` queues a capture event. Its promise settles when the capture consumer resumes after processing that event, or when shutdown drops the queued event. Queue repeated events or call lifecycle methods in the desired order to reproduce a specific interleaving.
 - `emit`, `move`, `request`, `context`, and `toolResult` drive normalized lifecycle inputs. Context and tool-result controls can omit delivery surfaces or clip text after placement. Feed returned tool results into a later context's `observedResults` to test real receipt accounting.
+- `emit("compact", { sessionID, phase, transcript, appendSystem })` drives the same
+  compaction operation as the adapters. Omit `phase` for the combined OpenCode
+  contract, or send `prepare` and `complete` separately. The callback can collect,
+  clip, or reject the anchor; omit completion to model an abandoned preparation.
+  Simulator scenarios cover scope, callback failure, frozen-context refresh, and
+  one bookkeeping rollup per completed pair without installing a real harness.
 - `capabilities` can omit events, transcript access, or generation. Capture is opt-in in this test host (`options: { autoCapture: true }`); its default model response is an empty candidate list. No model request leaves the process.
 - `dispose()` models shutdown. Scenario cleanup also cancels held calls and drains tracked work, including setup parked at registration, before the temporary store is removed.
 

@@ -309,10 +309,15 @@ export async function registerHooks(
         // repository; SYNC provisional bind only — a host lookup from this
         // hook would violate the zero-token promise (see capture).
         if (typeof sid === "string") bindSessionProvisional(sid, instanceDir);
-        await onCompacting({ sessionID: event?.sessionID });
-        if (typeof event?.sessionID === "string") {
-          sessions.invalidate(event.sessionID);
+        if (event.phase !== "prepare") {
+          await onCompacting({ sessionID: event?.sessionID });
+          if (typeof event?.sessionID === "string") {
+            sessions.invalidate(event.sessionID);
+          }
         }
+        // A split host already supplied context before summarization. Completion
+        // must neither deliver an anchor too late nor start a second capture.
+        if (event.phase === "complete") return;
         const anchor = await compactionAnchor(12, sid);
         if (anchor) event.appendSystem?.(anchor);
         // Fire-and-forget: a capture model call must never delay the compaction

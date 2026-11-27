@@ -23,11 +23,13 @@ apply; sharing a store does not mean injecting every memory into every request.
 - Branch: `test/554-harness-contracts`.
 - Remote backup: https://github.com/WhollyMindless/opencode-self-improvement/tree/test/554-harness-contracts
 - The local branch tracks `fork/test/554-harness-contracts`.
-- Previous code checkpoint: `01af7806ae86d00dd00d0465808e4581d14c19dc`
-  (packaged oh-my-pi tools/context installation), published and verified. The current slice
-  adds contextual pulls and verifies configurable installed entry points; its final
+- Previous code checkpoint: `1929f2c58f356270a04ec46a3938a414ad0e36d0`
+  (contextual pulls and configurable oh-my-pi entry point), published and verified.
+  The current slice adds compaction anchors and shared compaction phases; its final
   commit is the branch tip accompanying these notes.
-- Last incorporated upstream main: `966bb7e` (merge of the host teardown probe, #551).
+- Last incorporated upstream main: `7b7d88e0` (README improvements, #556), merged
+  in `fe00b8cf`. The README conflict was resolved by keeping the new upstream
+  introduction/quick start and the experimental adapter notice.
 - No implementation PR has been opened.
 
 The contribution offer is https://github.com/abogartz/opencode-self-improvement/issues/554.
@@ -111,10 +113,10 @@ selection in the outgoing system request, foreign-project mutation rejection,
 corrections and deletion across subsequent host sessions. The model is scripted
 locally; no paid model or user credentials are involved.
 
-That first proof used a source-path extension, not an advertised npm adapter release. Capture,
-contextual pulls, usage receipts, compaction anchors, interactive UI,
-concurrent cross-host writes, and relocated checkouts are not yet
-proven. Read the precise limits and reproduction commands in
+That first proof used a source-path extension, not an advertised npm adapter release.
+The following sections describe later capture, delivery, packaging, and compaction
+work. Interactive UI, concurrent cross-host writes, and relocated checkouts remain
+outside the proof. Read the precise limits and reproduction commands in
 `docs/internals/development.md`.
 
 ## Lifecycle hardening
@@ -242,18 +244,55 @@ implementation. The fake provider's outgoing request and the receipt ledger agre
 after a later tool-result formatter. Settings and receipts are still startup/context
 observations, not live configuration or proof of model consumption.
 
-Upstream main was fetched again and was already incorporated (`966bb7e`).
+Upstream main was fetched again before that slice and was already incorporated (`966bb7e`).
+
+## Compaction anchors through the shared test interface
+
+The programmable `TestHost.emit("compact", ...)` already used the same normalized
+operation as the adapters, including `transcript` and `appendSystem`. It needed no
+new SDK-specific operation. The shared event now accepts an optional `phase`:
+`prepare` supplies the memory anchor and any enabled capture; `complete` finalizes
+bookkeeping and invalidates the injection epoch. Omitting the phase retains the
+combined OpenCode behavior. This avoids a double rollup and avoids invalidating
+frozen context for an abandoned preparation.
+
+The oh-my-pi adapter maps its public `session.compacting` hook to preparation and
+returns `{ context }`. It leaves the messages and summary prompt alone. The public
+`session_compact` event completes bookkeeping, including when another extension
+supplies the whole summary. Compaction capture remains forced off. All selection,
+project/global scope, whole-line limits, and the 2,500-character cap remain shared
+policy. The adapter neither replaces the summarizer nor adds a memory model call.
+
+Four simulator scenarios cover scoped anchors, an abandoned preparation, a rejected
+delivery callback, and the legacy combined operation. Three adapter contracts cover
+context-only output, no delivery for empty/mismatched/closed sessions, and completion
+without preparation. The new scenarios failed before implementation. Five real-SDK
+scenarios inspect the summarizer request: project/global anchors with foreign rows
+excluded, an empty store, a full replacement summary, a later hook replacing ours,
+and cancellation after preparation followed by a successful retry. Cancelled
+preparation sends no request, leaves the transcript intact, and performs no
+completion bookkeeping. The normal fixture uses three native summary requests
+with or without an anchor.
+
+Limits are explicit: 19.2.1 keeps the last returned compaction-hook result rather
+than merging results, so extensions can replace one another's context, prompt,
+and preserved data. A full summary replacement bypasses preparation. Tests prove
+ordinary LLM summarization input; they do not prove real-model retention or delivery
+through snapcompact, handoff, or provider-native compaction paths. Some host paths
+bypass hook context. These are host-specific gaps, not reasons to put host APIs in
+the shared engine.
 
 ## Current validation
 
 The last code validation used Windows, Bun 1.4.4, and OpenCode 2.4.2:
 
-- oh-my-pi adapter contracts: thirty passed (eleven lifecycle/tools, eleven
-  delivery/configuration, and eight capture scenarios), included in the full unit run.
+- oh-my-pi adapter contracts: thirty-three passed (eleven lifecycle/tools, eleven
+  delivery/configuration, eight capture, and three compaction scenarios), included
+  in the full unit run. Four new compaction simulator scenarios also passed.
 - Pinned SDK compatibility typecheck passed; the full optional integration suite:
-  twelve passed, 216 parent-test assertions plus assertions inside the SDK children.
-  This includes four delivery scenarios and the expanded installed CLI configuration test.
-- Full unit suite, including simulator/shared initialization: 1,925 passed,
+  seventeen passed, 231 parent-test assertions plus assertions inside the SDK children.
+  This includes five new compaction scenarios, delivery, and installed CLI configuration.
+- Full unit suite, including simulator/shared initialization: 1,932 passed,
   34 skipped, no failures.
 - Comment policy, typecheck, lint, and formatting passed.
 - Real-host E2E: 57 passed, three failed. The full gate is therefore still red.
@@ -266,8 +305,10 @@ The capture trace does not establish whether OpenCode awaited plugin cleanup.
 The earlier targeted OpenCode 2.0.26 checks passed for loading, shared stores, and
 compaction (seven checks). That version was not rerun for the oh-my-pi checkpoints.
 Local logs, which are temporary and are not part of the remote backup, are
+`%TEMP%\osi-554-omp-compaction-gate.log` and
+`%TEMP%\osi-554-omp-compaction-integration.log` for this slice. The delivery logs are
 `%TEMP%\osi-554-omp-delivery-gate.log` and
-`%TEMP%\osi-554-omp-delivery-integration.log` for this slice. The installation logs are
+`%TEMP%\osi-554-omp-delivery-integration.log`. The installation logs are
 `%TEMP%\osi-554-omp-install-gate.log` and
 `%TEMP%\osi-554-omp-install-integration.log`. The preceding capture
 logs are `%TEMP%\osi-554-omp-capture-gate.log` and
@@ -299,8 +340,9 @@ installation, scheduling, or actual process-exit behavior.
 
 1. Fetch upstream main and merge any new changes into this branch before the next
    implementation slice. Keep the work incremental and publish each useful checkpoint.
-   The next parity slice should map pre-compaction memory anchors to the host's
-   summarizer input; current compaction only invalidates the injection epoch.
+   The next parity slice should map ordinary model-usage events into the shared
+   usage/evidence interface. Native configuration UI and command/UI equivalents
+   also remain; compaction method coverage needs expansion beyond LLM summaries.
    Keep capture opt-in while settling its shutdown and provider-accounting limits.
 2. Add actual SDK branch/tree navigation and shutdown-deadline fault scenarios
    when expanding the supported lifecycle surface. Current checks cover their

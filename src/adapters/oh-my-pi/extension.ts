@@ -175,8 +175,24 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
                 });
                 if (content) return { content };
               });
+              on("session.compacting", async (event, sessionID, ctx) => {
+                if (event.sessionId !== ctx.sessionManager.getSessionId())
+                  return;
+                const context: string[] = [];
+                await shared.compact({
+                  sessionID,
+                  phase: "prepare",
+                  transcript: undefined,
+                  appendSystem: (text) => context.push(text),
+                });
+                if (context.length) return { context };
+              });
               on("session_compact", async (_event, sessionID) => {
-                await shared.compact({ sessionID, transcript: undefined });
+                await shared.compact({
+                  sessionID,
+                  phase: "complete",
+                  transcript: undefined,
+                });
               });
               return {
                 async dispose() {
