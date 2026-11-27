@@ -14,7 +14,8 @@ store and project identity. Relevance selection and write gates still apply.
 - Backup: https://github.com/WhollyMindless/opencode-self-improvement/tree/test/554-harness-contracts
 - Upstream draft: https://github.com/abogartz/opencode-self-improvement/pull/560
 - Contribution offer: https://github.com/abogartz/opencode-self-improvement/issues/554
-- Main incorporated through 48bdf6f7 (0.37.2), merge commit 286abb4a.
+- Main incorporated through 2c4d6b3a (0.37.3), including the keyword-origin
+  clarification in ambiguous recall results.
 - Foundation PR #561 is now integrated through 8f7da817. Its OpenCode host factory,
   capability contract, simulator, and cross-host runtime tests are shared by this
   branch. Both PRs still target main; the displayed diff will include foundation
@@ -82,6 +83,13 @@ The provider process watchdog is now 90 seconds, consistent with other SDK
 fixtures, and logs its phase on failure. This does not change the production
 20-second generation timeout or shutdown limits. Hosted CI must confirm both
 changes; the known OpenCode standalone shutdown issue is separate.
+
+The fixed tree passes all 32 oh-my-pi integration tests (299 assertions) under
+the short-path temporary directory with pinned OpenCode 2.0.26. Its full local
+gate passes 1,959 unit tests (34 skips) and has 61 E2E passes plus the existing
+standalone-shutdown failure. Afterward main 0.37.3 merged cleanly; typecheck,
+comment policy and lint pass. The final unit suite after that merge has 1,965
+passes, 34 skips and no failures.
 
 Foundation integration validation: 1,958 unit tests pass with 34 skips; 57 focused
 adapter/runtime/simulator tests pass. All 32 real oh-my-pi integration tests pass.
