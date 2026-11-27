@@ -178,6 +178,18 @@ export async function setupMemory(
   let capture: ReturnType<typeof configureAutoCapture> | undefined;
   let cleanup: Promise<void> | undefined;
   const runtime: MemoryRuntime = {
+    get capabilities() {
+      const offered = host.capture;
+      return {
+        ...host.capabilities,
+        capture: {
+          turnEnd: typeof offered.turnEndEvents === "function",
+          transcript: typeof offered.readTranscript === "function",
+          generation: typeof offered.generateText === "function",
+          defaultModel: typeof offered.defaultModel === "function",
+        },
+      };
+    },
     dispose() {
       if (cleanup) return cleanup;
       // Start both synchronously, even if one disposer throws. Wait for both

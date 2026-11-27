@@ -5,6 +5,7 @@ import { createOpenCodeLifecycle } from "./lifecycle.ts";
 import { createOpenCodeCapture } from "./capture.ts";
 import { ensureInitCommand, ensureMemoryReportCommand } from "./commands.ts";
 import { setupMemory } from "../../runtime/setup.ts";
+import { openCodeCapabilities } from "./capabilities.ts";
 
 // Type-only SDK import: published installs have runtime dependencies only.
 const plugin: Plugin = {
@@ -13,6 +14,9 @@ const plugin: Plugin = {
     const ctx = raw as unknown as PluginCtx;
     const runtime = await setupMemory(
       {
+        get capabilities() {
+          return openCodeCapabilities(ctx);
+        },
         tools: createOpenCodeHost(ctx),
         lifecycle: createOpenCodeLifecycle(ctx),
         // Hook registration may attach APIs, so inspect capture afterward.
