@@ -41,9 +41,10 @@ export class TestHost {
   readonly directories = new Map<string, string>();
   readonly requests: RequestCopy[] = [];
   readonly generation: ControlledCall<
-    { model: SessionModelRef; prompt: string },
+    { sessionID: string; model: SessionModelRef; prompt: string },
     string
   >;
+  readonly generationSignals: AbortSignal[] = [];
   readonly transcriptReads: ControlledCall<
     string,
     CaptureTranscript | undefined
@@ -123,7 +124,12 @@ export class TestHost {
         generateText:
           config.capabilities?.generation === false
             ? undefined
-            : (input) => this.generation.call(input),
+            : ({ signal, ...input }) => {
+                // Signals are live, not structured-cloneable request data.
+                // Keep responses controllable after abort to test late answers.
+                this.generationSignals.push(signal);
+                return this.generation.call(input);
+              },
         defaultModel: () => ({ providerID: "simulator", id: "scripted" }),
       },
     };

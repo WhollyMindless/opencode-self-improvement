@@ -32,8 +32,10 @@ export interface MemoryCaptureHost {
   ) => Promise<CaptureTranscript | undefined>;
   /** Resolves with the answer; no post-answer work belongs in the adapter. */
   generateText?: (input: {
+    sessionID: string;
     model: SessionModelRef;
     prompt: string;
+    signal: AbortSignal;
   }) => Promise<string>;
-  defaultModel?: () => SessionModelRef | null;
+  defaultModel?: (sessionID?: string) => SessionModelRef | null;
 }

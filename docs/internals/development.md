@@ -87,15 +87,39 @@ drains admitted work. The host owns
 registration removal; a failed factory leaves any partially registered callbacks
 inert. Cancellation after a write begins does not roll back a durable write.
 
-Automatic capture, transcript/generation access, contextual pulls, usage receipts,
-and compaction anchor delivery are intentionally unwired. Compaction only
-invalidates the shared injection epoch. Context accounting observes placement at
+The default entry point keeps automatic capture disabled. An opt-in factory,
+`createOhMyPiMemory({ capture })`, accepts a synchronous per-turn binding of the
+current transcript, selected model reference, and isolated completion function.
+`integration/oh-my-pi/capture-extension.ts` supplies that binding using the pinned
+SDK's `buildSessionContext`, credential resolver, and `completeSimple`. It remains
+an executable investigation wrapper in the optional SDK package, not an npm export.
+Only terminal `agent_end` events qualify; loops that will continue or await async
+work do not. Snapshot text and model identity are retained across session changes.
+The queue coalesces pending notifications for the same session and admits up to
+64 queued sessions. Excess notifications are dropped. Invalid or disabled capture
+configuration cannot leave a host callback waiting for a nonexistent subscription.
+
+The decoder preserves message slots while excluding thinking, tool results, custom
+messages, and agent-attributed user messages. The model receives only the shared
+engine's sanitized capture prompt, with empty conversation history and tools.
+Do not replace this with `runEphemeralTurn`: that API inherits live conversation
+state and would bypass the capture boundary. Model errors, aborts, and tool-call
+responses cannot write. Shutdown cancels outstanding model requests and abandons
+unanswered captures; an already admitted write follows the shared bounded drain.
+The current wrapper binds the selected session model; an explicit `captureModel`
+that differs is refused. Runtime-registered provider implementations, host cost
+budgets, usage accounting, and packaged SDK sharing are not established by this
+proof. Root dependencies and the OpenCode generation call envelope stay unchanged.
+
+Compaction capture, contextual pulls, usage receipts, and compaction anchor
+delivery remain unwired. Compaction only invalidates the shared injection epoch.
+Context accounting observes placement at
 `before_agent_start`; later host retries, aborts, or transformations can discard
 that prepared request. The SDK's bounded shutdown behavior does not guarantee
 completion of arbitrarily slow storage operations. These limits need real-host
 tests before expanding the supported surface.
 
-The ordinary unit suite runs `test/host/oh-my-pi.test.ts` without an installed
+The ordinary unit suite runs `test/host/oh-my-pi*.test.ts` without an installed
 harness. The separate optional integration package pins the real SDK and its
 dependency lockfile:
 
@@ -127,6 +151,18 @@ and tree notifications are covered by adapter unit contracts; their actual SDK
 navigation paths still need coverage. These checks do not establish forced-exit
 durability beyond the host's shutdown deadline or confirm delivery after a later
 provider failure.
+
+The capture scenarios initialize extensions with the SDK's print/RPC runtime
+initializer, use its actual terminal events and reconstructed branch transcript,
+and verify the outgoing completion request. A captured project row is recalled
+through OpenCode and hidden from another project. A tool-call capture answer is
+rejected. The SDK does not join terminal extension notifications before
+`prompt()`/`waitForIdle()` returns. The capture fixture therefore wraps public
+handler registration with an explicit completion handshake to keep the session
+open; it does not prove capture survives immediate CLI exit. The source factory
+is exercised through this probe, while the tools/context entry point retains the
+source-path loader tests. Capture during actual branch/tree navigation, compaction,
+and immediate headless teardown needs further real-host coverage before release.
 
 ## Programmable test host
 

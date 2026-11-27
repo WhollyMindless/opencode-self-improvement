@@ -23,8 +23,9 @@ apply; sharing a store does not mean injecting every memory into every request.
 - Branch: `test/554-harness-contracts`.
 - Remote backup: https://github.com/WhollyMindless/opencode-self-improvement/tree/test/554-harness-contracts
 - The local branch tracks `fork/test/554-harness-contracts`.
-- Previous code checkpoint: `b4e48944864470d4be141273bd9a2a37b5cea822`
-  (first oh-my-pi adapter and real shared-store proof), published and verified.
+- Previous code checkpoint: `e68fefa8166b2962bd33e8eec776ed394cd3717e`
+  (oh-my-pi lifecycle hardening), published and verified. The current slice adds
+  opt-in capture; its final commit is the branch tip accompanying these notes.
 - Last incorporated upstream main: `966bb7e` (merge of the host teardown probe, #551).
 - No implementation PR has been opened.
 
@@ -137,16 +138,64 @@ memory, and aborting preparation sends no model request or stale memory in the
 next unrelated turn. An admitted write survives cancellation, and adapter shutdown
 finishes after the write. This does not establish forced-exit durability beyond
 the SDK's two-second shutdown handler budget. Branch/tree API navigation is still
-covered only at the adapter notification boundary. Capture remains disabled.
+covered only at the adapter notification boundary. Capture was disabled at that
+checkpoint; the default entry point still leaves it disabled.
+
+## Opt-in capture investigation
+
+The adapter now exposes `createOhMyPiMemory({ capture, options })`. Its synchronous
+binding takes a snapshot of the current transcript, model reference, and completion
+function before any asynchronous capture work. The adapter queues terminal turns,
+skips continuing/async-work loops, and preserves the original project's identity
+through session switches. Shutdown closes admission, releases waiting callbacks,
+and forwards cancellation to generation. Invalid capture-model configuration was
+found to leave callbacks waiting without a consumer; the new subscription check
+and regression test prevent that hang. Coalescing retains the first pending
+snapshot for each session; the queue is capped at 64 and drops excess notifications.
+
+The optional SDK package contains `capture-extension.ts`, an executable wrapper
+using `buildSessionContext` and `completeSimple` with the selected model and host
+credential resolver. It sends only the core's redacted capture prompt, no live
+conversation history or tools. We deliberately avoided `runEphemeralTurn`, which
+inherits the raw session. The decoder filters reasoning, tools, custom messages,
+and agent-attributed user messages while preserving cursor slots. The normalized
+capture interface now carries session identity and an abort signal; OpenCode's
+adapter still forwards only its original model/prompt envelope.
+
+Two real SDK scenarios demonstrate a captured row being recalled through OpenCode
+in the same project (and hidden elsewhere), and refusal of a tool-call model
+response. Outgoing request assertions check redaction, absence of tool output and
+history, model selection, and empty tool definitions. Eight new SDK-free contracts
+exercise filtering, interleaved snapshots, cooldowns, project switches, failure
+recovery, missing grounding/bindings, thin transcripts, invalid settings, and late
+responses during shutdown.
+
+Two SDK discoveries matter for interpreting this proof. `createAgentSession`
+alone leaves extension context actions uninitialized; the fixture now calls the
+public `initializeExtensions` helper used by print/RPC modes. Also, terminal
+extension notification is fire-and-forget from the SDK's run-end path: neither
+`prompt()` nor `waitForIdle()` joins it. Immediate disposal can cancel capture
+before generation. The capture fixture uses a public-registration handshake to
+represent a continuing session, not evidence of reliable capture at CLI exit.
+Successful capture is verified through the imported source factory; default
+tools/context tests still exercise source-path loading. This does not resolve the
+separate existing OpenCode capture-teardown failure.
+
+Capture remains opt-in through the wrapper/factory. Compaction capture is forced
+off, and a different explicit `captureModel` is refused rather than silently using
+another model. Production packaging, shared SDK instance/provider registration,
+host usage/cost accounting, cancellation outside shutdown, actual branch/tree
+capture transitions, and headless teardown remain investigation work.
 
 ## Current validation
 
 The last code validation used Windows, Bun 1.4.4, and OpenCode 2.4.2:
 
-- oh-my-pi adapter contracts: eleven passed, 62 assertions.
+- oh-my-pi adapter contracts: nineteen passed (eleven lifecycle/tools and eight
+  capture scenarios), included in the full unit run.
 - Pinned SDK compatibility typecheck passed; the full optional integration suite:
-  five passed, 119 parent-test assertions plus assertions inside the SDK children.
-- Full unit suite, including simulator/shared initialization: 1,906 passed,
+  seven passed, 153 parent-test assertions plus assertions inside the SDK children.
+- Full unit suite, including simulator/shared initialization: 1,914 passed,
   34 skipped, no failures.
 - Comment policy, typecheck, lint, and formatting passed.
 - Real-host E2E: 57 passed, three failed. The full gate is therefore still red.
@@ -159,8 +208,10 @@ The capture trace does not establish whether OpenCode awaited plugin cleanup.
 The earlier targeted OpenCode 2.0.26 checks passed for loading, shared stores, and
 compaction (seven checks). That version was not rerun for the oh-my-pi checkpoints.
 Local logs, which are temporary and are not part of the remote backup, are
-`%TEMP%\osi-554-omp-lifecycle-gate.log` and
-`%TEMP%\osi-554-omp-lifecycle-integration.log` for this slice. The earlier
+`%TEMP%\osi-554-omp-capture-gate.log` and
+`%TEMP%\osi-554-omp-capture-integration.log` for this slice. The previous lifecycle
+logs are `%TEMP%\osi-554-omp-lifecycle-gate.log` and
+`%TEMP%\osi-554-omp-lifecycle-integration.log`. The earlier
 adapter logs remain `%TEMP%\osi-554-omp-gate.log` and
 `%TEMP%\osi-554-omp-integration.log`; the simulator checkpoint logs remain
 `%TEMP%\osi-554-simulator-gate.log` and `%TEMP%\osi-554-simulator-final.log`.
@@ -189,9 +240,11 @@ installation, scheduling, or actual process-exit behavior.
 2. Add actual SDK branch/tree navigation and shutdown-deadline fault scenarios
    when expanding the supported lifecycle surface. Current checks cover their
    notifications and cooperative shutdown, not every host transition or process kill.
-3. Add transcript/generation access and automatic capture only after their identity,
-   cursor, cancellation, and teardown contracts are clear. Keep optional features
-   disabled until their real-host tests pass.
+3. Resolve the remaining capture lifecycle limits: prove behavior during actual
+   branch/tree navigation and immediate teardown, and decide how host cancellation,
+   usage/cost accounting, and pre-compaction capture should map. The isolated
+   continuing-session capture proof exists; keep it opt-in until these limits and
+   packaging are addressed.
 4. Decide packaging and installation after the source-path experiment is stable.
    An npm export is not present yet. Preserve the OpenCode installation surface.
 5. Design and test a Bun worker boundary for Node-based Pi/dsh, or prove a supported

@@ -162,6 +162,8 @@ test("scenario failures include an ordered trace and release paused calls", asyn
   ).rejects.toThrow(
     /intentional assertion[\s\S]*generation.paused[\s\S]*dispose/,
   );
+  expect(h!.generation.calls[0]!.sessionID).toBe("writer");
+  expect(h!.generationSignals[0]!.aborted).toBe(true);
   expect(h?.closed).toBe(true);
 });
 

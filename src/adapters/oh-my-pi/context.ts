@@ -5,6 +5,11 @@ export interface OmpContext {
 }
 
 export interface OmpEvents {
+  agent_end: {
+    messages: readonly unknown[];
+    willContinue?: boolean;
+    awaitingAsyncWork?: boolean;
+  };
   session_start: unknown;
   session_switch: unknown;
   session_clear: unknown;
@@ -28,7 +33,7 @@ export interface OmpEvents {
   };
 }
 
-export interface OmpTool {
+export interface OmpTool<C extends OmpContext = OmpContext> {
   name: string;
   label: string;
   description: string;
@@ -39,17 +44,17 @@ export interface OmpTool {
     args: unknown,
     signal: AbortSignal | undefined,
     onUpdate: unknown,
-    ctx: OmpContext,
+    ctx: C,
   ): Promise<{ content: { type: "text"; text: string }[]; details: unknown }>;
 }
 
-export interface OmpAPI {
-  registerTool(tool: OmpTool): void;
+export interface OmpAPI<C extends OmpContext = OmpContext> {
+  registerTool(tool: OmpTool<C>): void;
   on<K extends keyof OmpEvents>(
     event: K,
     handler: (
       event: OmpEvents[K],
-      ctx: OmpContext,
+      ctx: C,
     ) => Promise<void | { systemPrompt: string[] }>,
   ): void;
 }

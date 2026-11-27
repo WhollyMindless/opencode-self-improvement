@@ -367,7 +367,7 @@ export function configureAutoCapture(
         // line below can carry model= (cost attributable to a named model —
         // the real answer to the cost-surprise concern that justified the
         // required captureModel). Resolution itself is token-free.
-        const model = modelRef ?? sessionModel(sid) ?? host.defaultModel?.();
+        const model = modelRef ?? sessionModel(sid) ?? host.defaultModel?.(sid);
         const modelTag = model ? `${model.providerID}/${model.id}` : undefined;
         // an instance with no workspace cannot say which repository the
         // mined rows belong to, and rows with no owner are exactly what the
@@ -595,8 +595,10 @@ export function configureAutoCapture(
           captureGate.evidenceContext,
         );
         const text = await generateText({
+          sessionID: sid,
           model,
           prompt: capturePrompt,
+          signal: controller.signal,
         });
         // The phase boundary. From here the answer exists, so cleanup stops
         // abandoning this pass and drains it instead. Set before the next

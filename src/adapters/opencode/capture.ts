@@ -61,7 +61,10 @@ export function createOpenCodeCapture(ctx: PluginCtx): MemoryCaptureHost {
       : undefined,
     generateText: generateApi?.text
       ? async (input) => {
-          const out = await generateApi.text(input);
+          const out = await generateApi.text({
+            model: input.model,
+            prompt: input.prompt,
+          });
           return typeof out === "string" ? out : (out?.text ?? "");
         }
       : undefined,

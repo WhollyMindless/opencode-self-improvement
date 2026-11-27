@@ -96,19 +96,35 @@ async function opencode(g: Guest, steps: unknown[], prompt = QUERY) {
   return result;
 }
 
-async function omp(g: Guest, steps: unknown[], prompt = QUERY) {
+async function omp(
+  g: Guest,
+  steps: unknown[],
+  prompt = QUERY,
+  captureReply?: unknown,
+) {
   const agentDir = join(g.root, "omp");
   mkdirSync(agentDir, { recursive: true });
-  fake.setSteps({ "SHARE::turn": [...steps, { content: "SHARE-DONE" }] });
+  fake.setSteps({
+    "SHARE::turn": [
+      ...steps,
+      { content: "SHARE-DONE" },
+      ...(captureReply === undefined ? [] : [captureReply]),
+    ],
+  });
   await fake.reset();
   const child = Bun.spawn(
     [
       process.execPath,
-      join(import.meta.dir, "runner.ts"),
+      join(
+        import.meta.dir,
+        captureReply === undefined ? "runner.ts" : "capture-runner.ts",
+      ),
       g.projDir,
       agentDir,
       `http://127.0.0.1:${fake.port}/v1`,
-      join(REPO, "src/adapters/oh-my-pi/extension.ts"),
+      captureReply === undefined
+        ? join(REPO, "src/adapters/oh-my-pi/extension.ts")
+        : join(import.meta.dir, "capture-extension.ts"),
       `SHARE::turn ${prompt}`,
     ],
     {
@@ -131,14 +147,14 @@ async function omp(g: Guest, steps: unknown[], prompt = QUERY) {
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),
     ]);
-    if (exit !== 0)
+    if (exit !== 0 || stderr.includes("extension runtime error"))
       throw new Error(`oh-my-pi exited ${exit}\n${stdout}\n${stderr}`);
     const messages = await Bun.file(join(agentDir, "messages.json")).json();
     expect(JSON.stringify(messages)).toInclude("SHARE-DONE");
     const results = messages.filter((m: any) => m.role === "toolResult");
     expect(results).toHaveLength(steps.length);
     expect(results.every((m: any) => !m.isError)).toBe(true);
-    return { messages, system: await initialSystem() };
+    return { messages, system: await initialSystem(), stderr };
   } finally {
     clearTimeout(timer);
     child.kill();
@@ -305,4 +321,73 @@ test("corrections and deletions cross real harnesses while retaining project/glo
     for (const row of [PROJECT, PROJECT_UPDATED, GLOBAL, GLOBAL_UPDATED])
       expect(after.system).not.toInclude(row);
   }
+}, 240_000);
+
+test("real oh-my-pi captures through an isolated sanitized completion and OpenCode recalls the project row", async () => {
+  const { writer, peer, outsider } = sharedGuests();
+  const fact = "The nightly archive job keeps fourteen days of tarballs.";
+  const secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890";
+  const privateTool = "PRIVATE-TOOL-CONTENT";
+  await Bun.write(join(peer.projDir, "archive.txt"), `${fact}\n${privateTool}`);
+  const completed = await omp(
+    peer,
+    [call("read", { path: join(peer.projDir, "archive.txt") })],
+    `We finished the archive change. Remember that the nightly archive job keeps fourteen days of tarballs. The batch importer respects the staging rate limit per key, which matters while wiring the importer tooling. Temporary token ${secret}`,
+    {
+      content: JSON.stringify([
+        { type: "context", scope: "batch", content: fact, status: "settled" },
+      ]),
+    },
+  );
+  const captures = (await fake.requests()).filter((r) =>
+    JSON.stringify(r.messages?.[0]).includes(
+      "You mine one coding-agent session transcript",
+    ),
+  );
+  expect(captures, completed.stderr).toHaveLength(1);
+  const request = captures[0];
+  expect(request.model).toBe("scripted");
+  expect(request.tools ?? []).toHaveLength(0);
+  expect(
+    request.messages.every((m: any) =>
+      ["system", "developer"].includes(m.role),
+    ),
+  ).toBe(true);
+  expect(JSON.stringify(request)).not.toInclude(secret);
+  expect(JSON.stringify(request)).not.toInclude(privateTool);
+  expect(JSON.stringify(request)).toInclude(
+    "nightly archive job keeps fourteen days",
+  );
+  const recalled = await opencode(writer, [
+    call("memory_recall", { query: "nightly archive tarballs" }),
+  ]);
+  expect(recalled.outputs("memory_recall")[0]).toInclude(fact);
+  const foreign = await omp(outsider, [
+    call("memory_recall", { query: "nightly archive tarballs" }),
+  ]);
+  expect(JSON.stringify(foreign.messages)).not.toInclude(fact);
+}, 240_000);
+
+test("a tool-call capture response from the real SDK cannot create memory", async () => {
+  const { writer, peer } = sharedGuests();
+  await Bun.write(join(peer.projDir, "observations.txt"), PROJECT);
+  await omp(
+    peer,
+    [call("read", { path: join(peer.projDir, "observations.txt") })],
+    `Remember this verified project procedure: ${PROJECT} The deployment manifest controls which cobalt queue artifacts reach the release pipeline.`,
+    call("memory_remember", {
+      type: "learning",
+      scope: "azurite",
+      content: PROJECT,
+      status: "settled",
+    }),
+  );
+  const captures = (await fake.served()).filter((r) =>
+    r.served.includes("#capture"),
+  );
+  expect(captures).toHaveLength(1);
+  const recalled = await opencode(writer, [
+    call("memory_recall", { query: QUERY }),
+  ]);
+  expect(recalled.outputs("memory_recall")).toEqual(["No memories found"]);
 }, 240_000);

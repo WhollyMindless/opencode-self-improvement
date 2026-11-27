@@ -6,8 +6,9 @@ import {
   Settings,
   type ExtensionFactory,
 } from "@oh-my-pi/pi-coding-agent";
+import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-init";
 
-export function openSession(
+export async function openSession(
   cwd: string,
   agentDir: string,
   baseUrl: string,
@@ -17,7 +18,7 @@ export function openSession(
     persistent?: boolean;
   } = {},
 ) {
-  return createAgentSession({
+  const opened = await createAgentSession({
     cwd,
     agentDir,
     sessionManager: options.persistent
@@ -61,4 +62,17 @@ export function openSession(
     systemPrompt:
       "You are an AI agent. Use the requested tools. This is an isolated memory integration test.",
   });
+  try {
+    // SDK embeddings must initialize the same context actions as print/RPC.
+    await initializeExtensions(opened.session, {
+      reportSendError: (_action, error) =>
+        console.error("extension runtime error", error),
+      reportRuntimeError: (error) =>
+        console.error("extension runtime error", error),
+    });
+    return opened;
+  } catch (error) {
+    await opened.session.dispose();
+    throw error;
+  }
 }

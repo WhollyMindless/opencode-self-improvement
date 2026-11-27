@@ -51,7 +51,12 @@ test("capture capabilities are explicit and host calls retain their receivers", 
   expect(await host.readTranscript!("s")).toEqual([
     { role: "user", text: "visible" },
   ]);
-  const input = { model: { providerID: "p", id: "m" }, prompt: "mine" };
+  const input = {
+    sessionID: "s",
+    model: { providerID: "p", id: "m" },
+    prompt: "mine",
+    signal: new AbortController().signal,
+  };
   expect(await host.generateText!(input)).toBe("answer");
   expect(host.defaultModel!()).toEqual(input.model);
   ctx.generate!.text = async () => "plain";
