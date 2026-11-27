@@ -91,6 +91,14 @@ test("a packed plugin installs into a fresh oh-my-pi home and shares memory afte
     env,
   );
   const installed = join(consumer, "node_modules/opencode-self-improvement");
+  expect(
+    await Bun.file(
+      join(consumer, "node_modules/@oh-my-pi/pi-ai/package.json"),
+    ).exists(),
+  ).toBe(false);
+  expect(await Bun.file(join(installed, "README.oh-my-pi.md")).exists()).toBe(
+    true,
+  );
   expect(realpathSync(installed)).not.toBe(realpathSync(REPO));
   const packed = await Bun.file(join(installed, "package.json")).json();
   expect(packed.omp).toEqual(manifest.omp);
@@ -141,8 +149,15 @@ test("a packed plugin installs into a fresh oh-my-pi home and shares memory afte
     steps: unknown[],
     cwd = g.projDir,
     extra: string[] = [],
+    captureReply?: string,
   ) => {
-    fake.setSteps({ "INSTALL::turn": [...steps, { content: "INSTALL-DONE" }] });
+    fake.setSteps({
+      "INSTALL::turn": [
+        ...steps,
+        { content: "INSTALL-DONE" },
+        ...(captureReply ? [{ content: captureReply }] : []),
+      ],
+    });
     await fake.reset();
     const result = await run(
       [
@@ -163,7 +178,7 @@ test("a packed plugin installs into a fresh oh-my-pi home and shares memory afte
         "--mode",
         "json",
         "--print",
-        "INSTALL::turn azurite deployment stale manifest cobalt queue",
+        `INSTALL::turn azurite deployment stale manifest cobalt queue${captureReply ? `. Remember the verified procedure: ${FACT}` : ""}`,
       ],
       cwd,
       env,
@@ -180,14 +195,12 @@ test("a packed plugin installs into a fresh oh-my-pi home and shares memory afte
     expect(
       initial.tools.filter((t: any) => MEMORY_TOOLS.includes(t.function.name)),
     ).toHaveLength(MEMORY_TOOLS.length);
-    expect(
-      requests.some((r) =>
-        JSON.stringify(r.messages?.[0]).includes(
-          "You mine one coding-agent session transcript",
-        ),
+    const captures = requests.filter((r) =>
+      JSON.stringify(r.messages?.[0]).includes(
+        "You mine one coding-agent session transcript",
       ),
-    ).toBe(false);
-    return { ...result, initial, requests };
+    );
+    return { ...result, initial, requests, captures };
   };
   await Bun.write(join(g.projDir, "observations.txt"), FACT);
   const first = await cliTurn([
@@ -220,6 +233,7 @@ test("a packed plugin installs into a fresh oh-my-pi home and shares memory afte
     configuredExtension,
     `import { createOhMyPiMemory } from "opencode-self-improvement/oh-my-pi";
 export default createOhMyPiMemory({ options: {
+  autoCapture: false,
   injectBudget: 1, frontierBudget: 1, pullTools: [], contradictionSurface: false,
 } });\n`,
   );
@@ -239,6 +253,7 @@ export default createOhMyPiMemory({ options: {
   expect(JSON.stringify(configured.initial.messages[0])).not.toInclude(FACT);
   expect(JSON.stringify(configured.requests)).not.toInclude(PULL_HEADER);
   expect(configured.stdout).toInclude(FACT);
+  expect(configured.captures).toHaveLength(0);
   await run(
     [process.execPath, CLI, "plugin", "enable", "opencode-self-improvement"],
     g.projDir,
@@ -252,6 +267,22 @@ export default createOhMyPiMemory({ options: {
   );
   expect(foreign.stdout).not.toInclude(FACT);
   expect(JSON.stringify(foreign.initial.messages[0])).not.toInclude(FACT);
+  await Bun.write(join(other, "observations.txt"), FACT);
+  const captured = await cliTurn(
+    [call("read", { path: join(other, "observations.txt") })],
+    other,
+    [],
+    JSON.stringify([
+      { type: "learning", scope: "azurite", content: FACT, status: "settled" },
+    ]),
+  );
+  expect(captured.captures, captured.stderr).toHaveLength(1);
+  expect(captured.captures[0].tools ?? []).toHaveLength(0);
+  const capturedRecall = await cliTurn(
+    [call("memory_recall", { query: "azurite deployment cobalt queue" })],
+    other,
+  );
+  expect(capturedRecall.stdout).toInclude(FACT);
   await run(
     [process.execPath, CLI, "plugin", "uninstall", "opencode-self-improvement"],
     g.projDir,

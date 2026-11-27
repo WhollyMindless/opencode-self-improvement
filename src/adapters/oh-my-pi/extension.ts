@@ -13,6 +13,7 @@ import type {
 import { createOhMyPiCapture, type OmpCaptureBinding } from "./capture.ts";
 import { appendPull, observedToolResults, textContent } from "./delivery.ts";
 import { sessionUsage } from "./usage.ts";
+import { bindCompletion } from "./completion.ts";
 
 export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
   config: {
@@ -83,6 +84,8 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
       }
       closed = true;
       await initialized.promise;
+      // Leave room for the shared write drain within the host's two-second cap.
+      if (!config.capture) await capture.settle(500);
       await runtime?.dispose();
     });
 
@@ -130,10 +133,19 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
                   !event.willContinue &&
                   !event.awaitingAsyncWork &&
                   config.options?.autoCapture !== false
-                    ? config.capture?.(ctx)
+                    ? config.capture
+                      ? config.capture(ctx)
+                      : bindCompletion(
+                          ctx,
+                          event.messages,
+                          config.options?.captureModel,
+                        )
                     : undefined;
+                const captured = binding
+                  ? capture.publish(sessionID, binding)
+                  : undefined;
                 await reportUsage(sessionID, ctx);
-                if (binding) await capture.publish(sessionID, binding);
+                await captured;
               });
               for (const name of [
                 "session_switch",
@@ -223,11 +235,11 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
               };
             },
           },
-          capture: config.capture ? capture.host : { subscribedEvents: [] },
+          capture: capture.host,
         },
         {
           options: {
-            autoCapture: !!config.capture,
+            autoCapture: true,
             ...config.options,
             captureOnCompact: false,
           },
@@ -246,5 +258,5 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
   };
 }
 
-/** Tools/context entry point; capture requires an explicitly bound completion. */
+/** Normal host entry point, including capture through the host's model SDK. */
 export default createOhMyPiMemory();

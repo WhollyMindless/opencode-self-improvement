@@ -1,6 +1,16 @@
 // Structural subset of oh-my-pi 19.2.1. Keep its SDK out of OpenCode installs.
+import type { Model, SimpleStreamOptions } from "@oh-my-pi/pi-ai";
+
 export interface OmpContext {
   cwd: string;
+  model?: Model;
+  modelRegistry?: {
+    resolver(
+      model: Model,
+      sessionID?: string,
+    ): NonNullable<SimpleStreamOptions["apiKey"]>;
+    find(provider: string, id: string): Model | undefined;
+  };
   sessionManager: {
     getSessionId(): string;
     getEntries?(): readonly unknown[];

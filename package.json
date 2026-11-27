@@ -9,7 +9,7 @@
     "./oh-my-pi": "./src/adapters/oh-my-pi/extension.ts"
   },
   "omp": {
-    "description": "Experimental shared memory tools and context; automatic capture disabled.",
+    "description": "Experimental shared memory, context, and automatic turn-end capture.",
     "extensions": ["./src/adapters/oh-my-pi/extension.ts"]
   },
   "module": "index.ts",
@@ -43,10 +43,13 @@
     "vendor",
     "docs",
     "README.md",
+    "README.oh-my-pi.md",
     "LICENSE"
   ],
   "devDependencies": {
     "@biomejs/biome": "2.6.2",
+    "@oh-my-pi/pi-ai": "19.2.1",
+    "@oh-my-pi/pi-catalog": "19.2.1",
     "@opencode/plugin": "2.0.32",
     "@opentui/core": "0.6.6",
     "@opentui/solid": "0.6.6",

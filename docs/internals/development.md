@@ -12,6 +12,7 @@ rule stay in the README.
 | `bun run lint` | `lint` | yes |
 | `bun run test` | `test`, re-run in `test-windows` | `test` yes; `test-windows` reports only |
 | `bun run test:e2e` | `smoke`, `smoke-stable` | `smoke` only |
+| `bun run test:oh-my-pi` | `oh-my-pi` | separate adapter job |
 
 `tsc --noEmit` has no check of its own in CI — it runs inside `lint`, so a green `lint` silently implies a green typecheck.
 
@@ -180,12 +181,13 @@ drains admitted work. The host owns
 registration removal; a failed factory leaves any partially registered callbacks
 inert. Cancellation after a write begins does not roll back a durable write.
 
-The default entry point keeps automatic capture disabled. An opt-in factory,
-`createOhMyPiMemory({ capture })`, accepts a synchronous per-turn binding of the
-current transcript, selected model reference, and isolated completion function.
-`integration/oh-my-pi/capture-extension.ts` supplies that binding using the pinned
-SDK's `buildSessionContext`, credential resolver, and `completeSimple`. It remains
-an executable investigation wrapper in the optional SDK package, not an npm export.
+The default entry point enables automatic turn-end capture. `completion.ts` binds
+the terminal event's active transcript, a deep copy of the selected model, and the
+host credential resolver with its original session identity before awaiting other
+work. An explicit `captureModel` resolves through the host registry without silent
+fallback. The extension loader supplies the running host's `completeSimple` SDK;
+the model packages are development dependencies only. The factory still accepts
+an explicit `capture` binding for embeddings and controlled tests.
 Only terminal `agent_end` events qualify; loops that will continue or await async
 work do not. Snapshot text and model identity are retained across session changes.
 The queue coalesces pending notifications for the same session and admits up to
@@ -196,13 +198,16 @@ The decoder preserves message slots while excluding thinking, tool results, cust
 messages, and agent-attributed user messages. The model receives only the shared
 engine's sanitized capture prompt, with empty conversation history and tools.
 Do not replace this with `runEphemeralTurn`: that API inherits live conversation
-state and would bypass the capture boundary. Model errors, aborts, and tool-call
-responses cannot write. Shutdown cancels outstanding model requests and abandons
-unanswered captures; an already admitted write follows the shared bounded drain.
-The current wrapper binds the selected session model; an explicit `captureModel`
-that differs is refused. Runtime-registered provider implementations, host cost
-budgets, usage accounting, and packaged SDK sharing are not established by this
-proof. Root dependencies and the OpenCode generation call envelope stay unchanged.
+state and would bypass the capture boundary. Model errors, aborts, truncated
+answers, and tool-call responses cannot write. Built-in generation uses a
+20-second abort deadline, below the host's generic handler timeout. Shutdown
+closes callback admission and gives built-in captures up to 500 ms to settle,
+then cancels unanswered generation and invokes the shared bounded write drain.
+This leaves room within the host's two-second shutdown handler budget. Explicit
+custom capture bindings retain immediate cancellation at disposal. Slow storage
+or a forced process kill can still exceed those guarantees. Runtime-registered
+provider implementations, host cost budgets, and capture spend accounting remain
+outside the integration proof. OpenCode's generation envelope is unchanged.
 
 The adapter maps `session.compacting` to the shared preparation phase and returns
 the anchor as `{ context }`, leaving messages and the default summary prompt
@@ -225,8 +230,8 @@ listener and no transcript text in telemetry. Valid usage on error/aborted
 messages is retained; malformed counts and missing history do not fabricate use.
 The sum is a cumulative normalized receipt with the native session ID as its
 stable accounting identity. The random/generation-qualified runtime ID still
-isolates grounding. Shutdown starts capture cancellation without awaiting usage
-I/O; admitted telemetry joins the existing pending-work drain.
+isolates grounding. Shutdown starts usage recording without awaiting its I/O;
+admitted telemetry joins the existing pending-work drain.
 
 The native output bucket includes reasoning. `reasoningTokens`, when available
 on every retained receipt, is subtracted into the separate normalized field;
@@ -256,7 +261,8 @@ visibility, relevance-selected system context, corrections, deletion, and reject
 foreign-project mutations. They cover fresh sessions with matching local project
 identity; interactive UI behavior, concurrent host writes,
 relocated checkouts, and live replacement of a frozen injection block remain outside
-this proof. The optional suite is separate from the OpenCode gate and ordinary tests.
+this proof. The SDK suite is separate from the OpenCode gate and ordinary tests;
+the `oh-my-pi` CI job installs its pinned dependencies and runs it on pull requests.
 
 `lifecycle.test.ts` drives actual SDK new-session, resume, clear, compaction, abort,
 and dispose operations in isolated children. A probe wraps the adapter's public
@@ -277,11 +283,12 @@ published oh-my-pi CLI's `plugin install` command. CLI processes discover the
 manifest without a source-path override. A successful write survives process exit,
 is recalled and injected on restart, stays hidden from another project, and remains
 readable through OpenCode after uninstalling the oh-my-pi registration. The test
-also checks that all fourteen tools appear exactly once and that the packaged
-default never makes a capture request. A configured entry point imported from the
-installed package changes context budgets and disables pulls while leaving
+also checks that all fourteen tools appear exactly once, the packaged default
+captures a grounded memory that survives immediate CLI exit, and a fresh process
+recalls it. A configured entry point imported from the installed package disables
+capture, changes context budgets, and disables pulls while leaving
 explicit recall available. All host configuration and stores are
-temporary; the packaged capture investigation wrapper is intentionally absent.
+temporary; no investigation wrapper is required or packaged.
 
 `delivery.test.ts` drives real SDK reads against a project memory and inspects
 the next request at the scripted provider. Its scenarios keep or clip the pulled
@@ -303,16 +310,17 @@ provider-native compaction paths remain outside the proof; delivering a hook res
 alone does not establish that those paths consume its context.
 
 The capture scenarios initialize extensions with the SDK's print/RPC runtime
-initializer, use its actual terminal events and reconstructed branch transcript,
+initializer, use its actual terminal events and active transcript,
 and verify the outgoing completion request. A captured project row is recalled
 through OpenCode and hidden from another project. A tool-call capture answer is
 rejected. The SDK does not join terminal extension notifications before
 `prompt()`/`waitForIdle()` returns. The capture fixture therefore wraps public
 handler registration with an explicit completion handshake to keep the session
-open; it does not prove capture survives immediate CLI exit. The source factory
-is exercised through this probe, while the tools/context entry point retains the
-source-path loader tests. Capture during actual branch/tree navigation, compaction,
-and immediate headless teardown needs further real-host coverage before release.
+open. The separate packed CLI scenario covers immediate exit without that
+handshake. `capture-shutdown.test.ts` holds a real provider response while SDK
+disposal begins: a quick answer persists, while an unanswered request is cancelled
+within the shutdown budget and cannot write after disposal. Capture during actual
+branch/tree navigation and compaction still needs broader real-host coverage.
 
 ## Programmable test host
 

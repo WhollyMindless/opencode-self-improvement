@@ -83,6 +83,21 @@ export function createOhMyPiCapture() {
   return {
     host,
     close,
+    async settle(timeoutMs: number): Promise<void> {
+      const pending = [...(active ? [active] : []), ...queue];
+      if (!pending.length) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          Promise.all(pending.map((item) => item.done.promise)),
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, timeoutMs);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
     publish(sessionID: string, binding: OmpCaptureBinding): Promise<void> {
       // Invalid capture configuration may never subscribe. Host callbacks must
       // still finish, including events arriving during partial initialization.

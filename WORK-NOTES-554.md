@@ -23,11 +23,10 @@ apply; sharing a store does not mean injecting every memory into every request.
 - Branch: `test/554-harness-contracts`.
 - Remote backup: https://github.com/WhollyMindless/opencode-self-improvement/tree/test/554-harness-contracts
 - The local branch tracks `fork/test/554-harness-contracts`.
-- Previous code checkpoint: `fcbe55a3f5923b4c14a02470af29c7534c9944c3`
-  (persisted oh-my-pi assistant usage), published and verified.
-  The current slice fixes Windows viewer cleanup and distinguishes cooperative
-  plugin shutdown from OpenCode's forced standalone-server termination; its final
-  commit is the branch tip accompanying these notes.
+- Previous code checkpoint: `6a00403b5d19be50d2f557749a47b41abfbc4da8`, published
+  in draft PR #560 with all five CI checks passing. The current slice enables
+  built-in oh-my-pi turn-end capture and adds `README.oh-my-pi.md` with installation
+  instructions and an explicit agent-install prompt.
 - Last incorporated upstream main: `7b7d88e0` (README improvements, #556), merged
   in `fe00b8cf`. The README conflict was resolved by keeping the new upstream
   introduction/quick start and the experimental adapter notice.
@@ -356,19 +355,64 @@ capture model calls are excluded. Forced-exit durability and hosted-provider
 coverage remain unproved. The adapter adds no model call or SDK dependency.
 Upstream main was fetched and remains incorporated at `7b7d88e0`.
 
+## Built-in automatic capture (current)
+
+The packaged entry point now enables turn-end capture without a custom wrapper.
+`completion.ts` snapshots the terminal event's active transcript, model routing,
+and credential resolver bound to the original session. `captureModel` selects an
+available model through the host registry; no override inherits the session model.
+The running host's loader resolves its model SDK, so normal package installations
+do not install another model SDK. Root development dependencies pin pi-ai and
+pi-catalog 19.2.1 for types and contract tests.
+
+Only the sanitized capture prompt reaches the isolated completion: no tools,
+reasoning blocks, raw tool results, or live host conversation history. Invalid,
+truncated, aborted, and tool-call responses cannot create memories. The normal
+shared gates, cooldowns, project ownership, and capture telemetry still apply.
+
+Built-in requests have a 20-second abort deadline. Cooperative shutdown closes
+admission, gives pending capture up to 500 ms to settle, then cancels unanswered
+generation and drains admitted writes. The earlier two-second grace exceeded the
+host's two-second total shutdown budget; the new real-SDK stalled-provider test
+reproduced that failure before the grace was shortened. Slow immediate-exit
+captures can be lost; forced termination is still outside the guarantee. Explicit
+custom capture bindings retain the existing immediate-cancellation behavior.
+
+The packed CLI test now proves automatic capture and recall in a new process,
+with no completion handshake or custom wrapper. It also proves explicit
+`autoCapture: false` prevents calls. SDK capture tests now use the built-in binding;
+they verify redaction, project visibility, rejection of tool-call responses,
+quick-answer persistence during shutdown, and cancellation of a held response
+without late writes. Model/credential/transcript snapshots and explicit model
+selection have unit contracts. Actual branch/tree navigation during capture and
+hosted-provider coverage remain follow-ups; compaction capture remains disabled.
+
+`README.oh-my-pi.md` is linked from the main README and included in the tarball.
+It documents checkout/PR installation, store sharing, verification, configuration,
+removal, and a copyable task for an agent to perform an authorized installation.
+The agent must report the required host restart; installing does not load the
+extension into an already running session. Older investigation sections above
+describe earlier checkpoints, including their then-disabled capture default.
+The new `oh-my-pi` CI job installs the pinned SDK dependencies and runs this suite
+with OpenCode 2.0.26 for cross-harness checks on every PR update.
+
 ## Current validation
 
 The last code validation used Windows, Bun 1.4.4, and OpenCode 2.4.2:
 
-- oh-my-pi adapter contracts: thirty-seven passed (eleven lifecycle/tools, eleven
-  delivery/configuration, eight capture, three compaction, and four usage scenarios),
+- oh-my-pi adapter contracts: forty passed (eleven lifecycle/tools, eleven
+  delivery/configuration, eight capture, three completion binding, three compaction,
+  and four usage scenarios),
   included in the full unit run. Two additional simulator scenarios cover stable
   accounting and incomplete reasoning splits.
 - Pinned SDK compatibility typecheck passed; the full optional integration suite:
-  eighteen passed, 240 parent-test assertions plus assertions inside the SDK children.
+  twenty passed, 256 parent-test assertions plus assertions inside the SDK children.
+  The packed installation scenario was rechecked after the README/package additions:
+  one passed with 63 assertions, including presence of the README in the tarball
+  and absence of an installed pi-ai dependency in the consumer.
   This includes usage across process restart, shared statistics, compaction,
   delivery, and installed CLI configuration.
-- Full unit suite, including simulator/shared initialization: 1,944 passed,
+- Full unit suite, including simulator/shared initialization: 1,947 passed,
   34 skipped, no failures.
 - Comment policy, typecheck, lint, and formatting passed.
 - Real-host E2E: 61 passed, one failed. The full gate is therefore still red.
@@ -399,7 +443,11 @@ plugin fix.
 
 The earlier targeted OpenCode 2.0.26 checks passed for loading, shared stores, and
 compaction (seven checks). That version was not rerun for the oh-my-pi checkpoints.
-Local logs, which are temporary and are not part of the remote backup, are
+Current logs are `%TEMP%\osi-554-autocapture-gate.log`,
+`%TEMP%\osi-554-autocapture-integration.log`, and
+`%TEMP%\osi-554-autocapture-readme-install.log`. The gate still has the one known
+OpenCode Windows standalone failure; oh-my-pi shutdown checks pass.
+Earlier logs, which are temporary and are not part of the remote backup, are
 `%TEMP%\osi-554-shutdown-gate.log` and
 `%TEMP%\osi-554-cooperative-baseline.log` cover the current slice. The preceding
 `%TEMP%\osi-554-omp-usage-gate.log` and
@@ -448,15 +496,16 @@ installation, scheduling, or actual process-exit behavior.
    explicit. Agree on the landing scope before marking a draft ready to merge.
    Native configuration UI and command/UI equivalents
    also remain; compaction method coverage needs expansion beyond LLM summaries.
-   Keep capture opt-in while settling its shutdown and provider-accounting limits.
+   Built-in turn-end capture is now enabled; keep compaction capture off while
+   settling additional lifecycle and provider-accounting limits.
 2. Add actual SDK branch/tree navigation and shutdown-deadline fault scenarios
    when expanding the supported lifecycle surface. Current checks cover their
    notifications and cooperative shutdown, not every host transition or process kill.
 3. Resolve the remaining capture lifecycle limits: prove behavior during actual
    branch/tree navigation and immediate teardown, and decide how host cancellation,
    usage/cost accounting, and pre-compaction capture should map. The isolated
-   continuing-session capture proof exists; keep it opt-in until these limits and
-   packaging are addressed.
+   continuing-session, packaged CLI, and bounded shutdown proofs now exist.
+   Preserve their limits when extending lifecycle coverage.
 4. Try the documented tools/context installation interactively and collect real
    provider feedback. Packaging and CLI restart/recall are verified; decide release
    naming/versioning with the maintainer before any registry publication. Capture

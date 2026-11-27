@@ -22,9 +22,9 @@ Restart OpenCode. For the desktop app, run `opencode service restart`.
 
 To seed your repo's build, test, lint, and typecheck commands, run `/repo-init` in OpenCode. Use `/repo-init force` after a refactor. [See manual, pinned, and checkout installs](docs/reference/install.md).
 
-An [experimental oh-my-pi adapter](docs/reference/oh-my-pi.md) is available on this
+An [experimental oh-my-pi adapter](README.oh-my-pi.md) is available on this
 work branch. It shares the memory store and provides tools, prompt context, and
-contextual tool pulls, with automatic capture disabled; the OpenCode features
+contextual tool pulls, and automatic turn-end capture; the OpenCode features
 described below do not all apply to it.
 
 ![Ten-second demo: remember, recall, correct, undo](docs/assets/demo.gif)

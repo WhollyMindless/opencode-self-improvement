@@ -8,8 +8,10 @@ the published npm release; install from this work branch or a package built from
 The normal installation registers fourteen memory tools, injects relevant
 memories before an agent turn, and appends relevant memories to successful
 `read`, `grep`, and `glob` results. It also supplies durable-memory anchors to the
-host's compaction summarizer. **Automatic capture is disabled.** Ask the agent
-to use `memory_remember` when you want a durable memory. Writes still pass the
+host's compaction summarizer. **Automatic turn-end capture is enabled.** It uses
+the host's selected model and credential resolver to propose memories from a
+sanitized transcript. Set `autoCapture: false` to disable those extra model calls.
+Ask the agent to use `memory_remember` for an explicit save. Writes still pass the
 shared write gates; facts about project behavior may require reading the relevant
 code first.
 
@@ -109,9 +111,12 @@ fallbacks. `pullTools: []` disables contextual pulls; `pullOutputChars: 0` searc
 tool arguments without including the output. A narrowed `pullTools` list uses the
 host's actual tool names. Failed tool results never receive pulls in this adapter.
 The shared selection rules and validation are described in
-[options](options.md). Automatic capture still requires an explicit capture
-binding; setting `autoCapture: true` alone cannot supply one. Compaction capture
-remains disabled.
+[options](options.md). Automatic capture uses the session model unless
+`captureModel: "provider/model-id"` selects a model in the host's registry.
+An unavailable configured model is refused rather than silently falling back.
+Compaction capture remains disabled. The
+[oh-my-pi README](../../README.oh-my-pi.md) includes an agent-install prompt and
+an auto-capture opt-out example.
 
 This configurable entry point is tested through the installed CLI. The native
 `omp plugin config` UI is not connected to these options yet: the public extension
@@ -175,19 +180,21 @@ calls are excluded. Capture estimates are reported separately. See
 
 ## Current limits
 
-- The packaged entry point supplies tools and context. It does not supply
-  automatic capture or OpenCode UI
-  surfaces and commands.
+- The packaged entry point supplies tools, context, and automatic turn-end capture.
+  OpenCode UI surfaces and command equivalents remain incomplete.
 - Pull usage is recorded when the adapter's `context` hook observes complete
   memory rows in the matching tool result. Earlier tool-result transformations
   are accounted for. Later context/provider transformations, request cancellation,
   and provider rejection remain outside that observation; a receipt is not proof
   of model consumption. Prompt-context accounting still observes placement at
   `before_agent_start`.
-- The opt-in capture wrapper remains an SDK investigation under
-  `integration/oh-my-pi/capture-extension.ts`; it is deliberately excluded from the
-  tarball. Immediate shutdown can cancel capture. Provider registration, host cost
-  accounting, and capture during additional lifecycle transitions need more work.
+- Capture uses an isolated completion with no tools or conversation history beyond
+  the sanitized prompt. Errors, aborted/truncated responses, and tool calls are
+  refused. Generation has a 20-second abort deadline. Cooperative shutdown gives
+  pending capture up to 500 ms before cancellation and the shared bounded write
+  drain; slow or forcibly terminated captures can be lost. Runtime-registered
+  provider implementations, host cost budgets, and capture during additional
+  lifecycle transitions still need broader validation.
 - CLI installation, discovery, configuration, restart, recall/injection, project isolation,
   uninstall, and OpenCode interoperability are tested with a local scripted model.
   SDK tests check outgoing contextual pulls, clipped results, and disabled pulls.
