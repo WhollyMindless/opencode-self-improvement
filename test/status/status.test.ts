@@ -89,6 +89,7 @@ const payload = (over: Partial<StatusPayload> = {}): StatusPayload => ({
     cumChars: 11400,
     epochRequests: 11,
     invalidations: 1,
+    storeMoves: 1,
     lastInvalidation: {
       at: "2026-10-20T11:47:00.000Z",
       reason: "store_changed",
