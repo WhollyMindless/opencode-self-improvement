@@ -61,6 +61,12 @@ export function cacheLines(p: StatusPayload): string[] {
           }`,
           "                 counts memory-section byte changes, not provider cache misses",
         ];
+  const store =
+    st.storeMoves === undefined
+      ? []
+      : [
+          `  byte moves with a changed store fingerprint    ${st.storeMoves} this session`,
+        ];
   const rate = cacheRate(p.measured);
   const receipts = rate
     ? [
@@ -75,6 +81,7 @@ export function cacheLines(p: StatusPayload): string[] {
       ];
   return [
     ...inv,
+    ...store,
     ...receipts,
     `  recomputes     ${p.recomputes} block builds since server start (all sessions)`,
   ];

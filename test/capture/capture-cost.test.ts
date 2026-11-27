@@ -190,6 +190,7 @@ describe("report rendering", () => {
       cumChars: 420,
       epochRequests: 6,
       invalidations: 0,
+      storeMoves: 0,
       lastInvalidation: null,
     },
     ...over,

@@ -120,11 +120,15 @@ export function createInjectionEpochs({
   forgetUsage,
   noteHits,
 }: InjectionEpochOptions) {
-  // Per-session frozen injection epochs: the whole memory section (digest +
-  // frontier + relevance) plus the store fingerprint it was rendered from.
+  // Per-session frozen injection epochs: the STABLE CORE (standing digest +
+  // frontier + convergence), the prompt-dependent relevance block rendered
+  // beside it, and the store fingerprint both were rendered from. The core is
+  // the byte key; the block is compared as its own target, so the reason an
+  // epoch moved says which half moved. Both halves ride the same system
+  // delivery.
   // Recomputed on the first prompt of a tracked session, when injectable rows
-  // change, when a new prompt re-scores the block, or after a
-  // compaction (see the prompt/context/compaction hooks).
+  // change, or when a new prompt re-scores the block (see the
+  // prompt/context/compaction hooks).
   // The RENDERED BYTES, not the fingerprint, decide whether the epoch moved
   // (issue): a write that changes nothing the model is shown must not
   // cost the next request a full re-prefill. The same holds for a session's
@@ -137,9 +141,20 @@ export function createInjectionEpochs({
       version: string;
       /** Frozen standing digest + frontier + convergence parts, in push order. */
       parts: string[];
-      /** The budgeted relevance block the surfaces report against injectBudget. */
+      /**
+       * The turn tail: the budgeted relevance block the surfaces report
+       * against injectBudget. Frozen until (prompt, store) move, then
+       * re-derived. It is not part of the byte key — a change to it alone is
+       * accounted as a prompt move — but it is delivered bytes, and a change
+       * to it changes what the model is shown.
+       */
       block: string;
-      /** Comparison key: every byte of the memory section, joined. */
+      /**
+       * Comparison key: the STABLE CORE only — the digest parts joined. The
+       * relevance block is compared beside the key, not inside it, so a
+       * selection-set change is accounted as a prompt move rather than as a
+       * store move.
+       */
       prefix: string;
       /**
        * Rows THIS session had already authored when these bytes were rendered
@@ -167,8 +182,12 @@ export function createInjectionEpochs({
   // against it even when the change happened during a tool loop with no new
   // prompt. It is evicted together with the epoch and session ledgers.
   const latestPrompt = new Map<string, string>();
-  // Recomputes since server start: every one invalidated a prompt cache, so
-  // it is the honest cost number the surfaces show (status files / tools).
+  // Recomputes since server start: every epoch move records one, so the
+  // surfaces can show why the delivery moved. Reaching a move means delivered
+  // bytes changed; the two counts below split WHICH input moved them — the
+  // store fingerprint, or a new prompt re-scoring the block. Both are byte
+  // counts inside this plugin: the provider's prompt cache is not visible
+  // here, so neither count is a cache-miss measurement.
   let epochRecomputes = 0;
 
   // Per-session ledger, incremented at the injection decision below. Status
@@ -206,7 +225,10 @@ export function createInjectionEpochs({
       recomputes: epochRecomputes,
       block: ep.block,
       blockChars: ep.block.length,
-      sectionChars: ep.prefix.length,
+      // Every memory byte actually riding the system prompt: the stable core
+      // plus the turn tail (the relevance block).
+      sectionChars:
+        ep.parts.reduce((n, part) => n + part.length, 0) + ep.block.length,
       budget,
       store: summarizeStore(all, led, malformedCount()).counts,
       stats: statsFor(sid),
@@ -231,12 +253,16 @@ export function createInjectionEpochs({
     const mems = store.filter((m) => isInjectable(m) && isVisibleTo(m, reader));
     return { mems, store, reader };
   };
-  // Render the COMPLETE memory section for one request: the standing digest,
-  // the open-thread frontier and the convergence line (all from systemDigest),
-  // followed by this epoch's relevance block. The parts are exactly what gets
-  // pushed onto `event.system`; their join is the byte key the epoch compares
-  // against, so "did the cache-critical prefix change?" is answered by the
-  // bytes the model would actually see and never by a proxy (issue).
+  // Render the complete memory section for one request: the standing digest
+  // (static line + frontier + convergence — prompt-independent by
+  // construction) and this epoch's relevance block (prompt-dependent by
+  // design). The parts are exactly what gets pushed onto `event.system` and
+  // join into the stable-core byte key the epoch compares against, so "did
+  // the cache-critical prefix change?" is answered by the bytes the model
+  // would actually see and never by a proxy (issue). The relevance block is
+  // deliberately NOT in the key: it is compared as its own target, so a
+  // selection-set change is accounted as a prompt move rather than as a store
+  // move. Both halves are pushed, so both are delivered bytes.
   const buildMemorySection = async (
     sid: string | undefined,
     mems: Memory[],
@@ -293,7 +319,11 @@ export function createInjectionEpochs({
       },
     );
     const { block, shown: rode } = sel;
-    const prefix = [...parts, block].join("\u0000");
+    // The comparison key is the STABLE CORE alone: the digest parts joined.
+    // The relevance block is the prompt-dependent half; it is compared as its
+    // own target below, so a store move and a prompt move stay separately
+    // accounted even when both change the delivery.
+    const prefix = parts.join("\u0000");
     // Ledger terms/identities belong to the stored rows, but coverage refs
     // must describe only the text the model actually received.
     // Stage telemetry (mystery 2): split the hint channel's journey into the
@@ -344,13 +374,13 @@ export function createInjectionEpochs({
     if (!revoked && cached?.version === version && cached.prompt === prompt)
       return;
     const built = await buildMemorySection(sid, mems);
-    // The store and/or the prompt moved. A change that alters nothing
-    // RENDERED — a row that is not relevant to this prompt, supersession
-    // elsewhere, a scope the reader never sees rendered identically — must
-    // not cost this session a prompt cache. Adopt the new fingerprint and
-    // prompt, keep riding the same bytes, emit nothing: an invalidation has
-    // to mean bytes actually moved.
-    if (cached && cached.prefix === built.prefix) {
+    // When the core and relevance block both match, adopt the latest
+    // fingerprint and prompt while keeping the delivered bytes.
+    if (
+      cached &&
+      cached.prefix === built.prefix &&
+      cached.block === built.block
+    ) {
       epoch.set(sid, {
         ...cached,
         version,
@@ -403,7 +433,7 @@ export function createInjectionEpochs({
             else if (remaining.has(row)) counterfactual.push(row);
           }
           const back = await buildMemorySection(sid, counterfactual, prompt);
-          if (back.prefix === cached.prefix) {
+          if (back.prefix === cached.prefix && back.block === cached.block) {
             epoch.set(sid, {
               ...cached,
               version,
@@ -419,7 +449,7 @@ export function createInjectionEpochs({
           mems.filter((m) => !extra.has(m.ts)),
           cached.prompt,
         );
-        if (back.prefix === cached.prefix) {
+        if (back.prefix === cached.prefix && back.block === cached.block) {
           epoch.set(sid, { ...cached, version });
           return;
         }
@@ -433,8 +463,9 @@ export function createInjectionEpochs({
     const at = new Date().toISOString();
     // Which input moved decides the reason: the store outranks the prompt, so
     // a turn that did both is accounted as the (cache-critical) store change.
+    const storeMoved = !!cached && cached.version !== version;
     const reason: "first" | "store_changed" | "prompt_reveal" = cached
-      ? revoked || cached.version !== version
+      ? revoked || storeMoved
         ? "store_changed"
         : "prompt_reveal"
       : "first";
@@ -481,16 +512,18 @@ export function createInjectionEpochs({
       evidenceContext,
     );
     epochRecomputes++;
-    // Ledger: any recompute of a live epoch that MOVED the bytes is an
-    // invalidation (the first epoch of a session busts nothing; a re-score
-    // that kept the bytes never reaches this line). The epoch request count
-    // restarts with the new block.
+    // Ledger: reaching here means the delivered bytes changed, so a recompute
+    // of a live epoch is one more byte-moving epoch; the first epoch of a
+    // session has no earlier bytes to move. `storeMoves` counts the subset
+    // with a changed active-row fingerprint. Revoking a held predecessor
+    // can change delivery while that fingerprint stays the same.
     const st = statsFor(sid);
     st.epochRequests = 0;
     if (reason !== "first") {
       st.invalidations++;
       st.lastInvalidation = { at, reason };
     }
+    if (storeMoved) st.storeMoves++;
     // Status hand-off for the terminal panel (src/tui.tsx) and any
     // out-of-process surface. Best-effort; never breaks injection.
     await flushStatus(sid);
@@ -504,11 +537,8 @@ export function createInjectionEpochs({
   ): Promise<void> => {
     const rows = await loadInjectionRows(sid);
     if (typeof sid === "string") await refreshEpoch(sid, rows);
-    // Deliver the FROZEN memory section. Every byte pushed onto the system
-    // prompt comes from the epoch, so between busts the provider sees an
-    // identical prefix and serves the conversation from cache (issue).
-    // A session with no epoch yet (no prompt recorded, or evicted from the
-    // LRU) still gets the standing digest, built fresh and uncached.
+    // Deliver the frozen core followed by the relevance block on the system
+    // channel. Without a tracked epoch, build the digest for this request.
     const ep = typeof sid === "string" ? epoch.get(sid) : undefined;
     if (ep) {
       for (const text of ep.parts) push(text);

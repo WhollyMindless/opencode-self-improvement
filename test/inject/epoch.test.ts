@@ -24,7 +24,7 @@ import {
   hasGateCheck,
 } from "../../src/capture/triggers.ts";
 import { frontierBudget, injectBudget } from "../../src/core/config/budgets.ts";
-import { memoryRoot } from "../../src/core/config/paths.ts";
+import { evidenceDir, memoryRoot } from "../../src/core/config/paths.ts";
 import {
   type Fields,
   formatLine,
@@ -36,6 +36,7 @@ import { runWriteGate, type WriteCandidate } from "../../src/gate/gate.ts";
 import { rememberSessionDir } from "../../src/identity/repokey.ts";
 import { capToBudget } from "../../src/inject/budget.ts";
 import { storeVersion } from "../../src/inject/version.ts";
+import { cacheLines } from "../../src/status/report.ts";
 import { readStatus } from "../../src/status/write.ts";
 import { addBlock, removeBlock } from "../../src/store/blocklist.ts";
 import { loadAll } from "../../src/store/files/load.ts";
@@ -693,6 +694,47 @@ describe("epoch freeze (cache-safe injection)", () => {
     ]);
   });
 
+  test("a held correction survives a rephrasing and ends when another row enters the block", async () => {
+    const old = "The widget deployment uses the blue release lane for staging.";
+    const corrected =
+      "The widget deployment uses the green release lane for staging.";
+    const extra =
+      "The helm deploy renders chart templates for the production cluster.";
+    const id = seed("pattern", "deploy", old, {
+      ts: "2026-10-01T09:00:00.000Z",
+    });
+    seed("pattern", "helm", extra, { ts: "2026-10-02T09:00:00.000Z" });
+    const loaded = await loadPlugin(liveRoot);
+    const sid = "ses-held-prompt";
+    const before = await deliveredBlock(
+      loaded,
+      sid,
+      "widget deployment release lane staging",
+    );
+    expect(before).toContain(old);
+    expect(before).not.toContain(extra);
+    await updateDeployment(loaded, sid, id, corrected);
+    expect(await deliveredContextBlock(loaded, sid)).toBe(before);
+    expect(
+      await deliveredBlock(loaded, sid, "staging widget release lane"),
+    ).toBe(before);
+    expect(epochRecomputes(sid).map((e) => e.reason)).toEqual(["first"]);
+
+    const after = await deliveredBlock(
+      loaded,
+      sid,
+      "widget deployment release lane and helm chart templates",
+    );
+    expect(after).toContain(corrected);
+    expect(after).toContain(extra);
+    expect(after).not.toContain(old);
+    expect(epochRecomputes(sid).map((e) => e.reason)).toEqual([
+      "first",
+      "prompt_reveal",
+    ]);
+    expect((await readStatus(sid))?.stats?.storeMoves).toBe(0);
+  });
+
   test("a same-session update preserves the riding bytes and fresh sessions see the correction", async () => {
     const old = "The widget deployment uses the blue release lane for staging.";
     const correction =
@@ -734,6 +776,12 @@ describe("epoch freeze (cache-safe injection)", () => {
       "first",
       "store_changed",
     ]);
+    const status = (await readStatus(sid))!;
+    expect(status.stats?.invalidations).toBe(1);
+    expect(status.stats?.storeMoves).toBe(0);
+    expect(cacheLines(status)).toContain(
+      "  byte moves with a changed store fingerprint    0 this session",
+    );
   });
 
   test.each([
@@ -837,7 +885,14 @@ describe("epoch freeze (cache-safe injection)", () => {
     ]);
   });
 
-  test.each(["viewer edit", "import", "undo"] as const)(
+  test.each([
+    "viewer edit",
+    "import",
+    "undo",
+    "hand-redacted predecessor",
+    "blocked successor",
+    "convergence",
+  ] as const)(
     "%s can replace a held correction on the next request",
     async (mode) => {
       const original =
@@ -854,6 +909,17 @@ describe("epoch freeze (cache-safe injection)", () => {
         "deploy",
         mode === "undo" ? external : original,
       );
+      if (mode === "convergence") {
+        seed(
+          "pattern",
+          "router",
+          "The router cutover remains an open thread.",
+          {
+            status: "open",
+            ts: "2026-10-01T09:00:00.000Z",
+          },
+        );
+      }
       let snapshot: string | undefined;
       if (mode === "undo") {
         [snapshot] = await snapshotFiles([
@@ -903,14 +969,43 @@ describe("epoch freeze (cache-safe injection)", () => {
           expect(result.content).toStartWith("Restored ");
           break;
         }
+        case "hand-redacted predecessor":
+          rewriteContent(id, "The previous staging instruction was redacted.");
+          break;
+        case "blocked successor":
+          await addBlock(successor, "withdraw corrected content");
+          break;
+        case "convergence":
+          mkdirSync(evidenceDir(), { recursive: true });
+          appendFileSync(
+            join(evidenceDir(), "2026-10-03.logfmt"),
+            formatLine({
+              ev: "session_convergence",
+              session: "another-session",
+              turns_to_tap: 2,
+            }) + "\n",
+          );
+          await deliveredBlock(loaded, sid, "staging widget release lane");
+          break;
       }
 
       const after = await deliveredSystem(loaded, sid);
-      expect(after).toContain(external);
+      if (mode === "blocked successor") {
+        expect(after).not.toContain(corrected);
+      } else if (
+        mode === "hand-redacted predecessor" ||
+        mode === "convergence"
+      ) {
+        expect(after).toContain(corrected);
+      } else {
+        expect(after).toContain(external);
+      }
+      if (mode === "convergence")
+        expect(after).toContain("Convergence tracking:");
       expect(after).not.toContain(original);
       expect(epochRecomputes(sid).map((e) => e.reason)).toEqual([
         "first",
-        "store_changed",
+        mode === "convergence" ? "prompt_reveal" : "store_changed",
       ]);
     },
   );
