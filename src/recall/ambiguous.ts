@@ -138,7 +138,20 @@ export function ambiguousLine(members: Memory[], positions: number[]): string {
       if (j !== i) for (const tok of o) others.add(tok);
     });
     const only = [...t].filter((tok) => !others.has(tok));
-    if (only.length) sides.push(`only in ${positions[i]}: ${list(only)}`);
+    if (only.length)
+      sides.push(
+        `only in ${positions[i]}: ${list(
+          only.map((tok) =>
+            // The label answers where the reader can FIND the token, so
+            // content wins over keyword: if this row renders it, a keyword
+            // tag would hide text already on the page; if only its keywords
+            // carry it, a bare token would point at text that is not there.
+            // Folded-uniqueness already guarantees any token shared with
+            // another row — as content OR as a keyword — is absent here.
+            contentSets[i]!.has(tok) ? tok : `${tok} (keyword)`,
+          ),
+        )}`,
+      );
   });
   const rowsLabel = (idx: number[]): string =>
     idx.length === 1
