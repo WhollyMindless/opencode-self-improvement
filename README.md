@@ -17,6 +17,10 @@ opencode service restart                          # 2. restart (desktop app)
 
 Ask the agent to remember something; relevant memories come back on their own. [Other install routes](docs/reference/install.md) cover manual config entries, pinning, and checkout installs. Rerun `/repo-init force` after a refactor.
 
+An [experimental oh-my-pi adapter](docs/reference/oh-my-pi.md) is available on this
+work branch. It shares the memory store and provides tools/context, with automatic
+capture disabled; the OpenCode features described below do not all apply to it.
+
 ## What you get
 
 - **Write gates — a CI check for facts.** A memory citing `parseHeader()` in a file you deleted is refused before it is stored, not after a future session trusts it. Near-duplicates collapse; contradictions with retired memories are rejected. Every refusal lands in `memory_evidence` with its reason.

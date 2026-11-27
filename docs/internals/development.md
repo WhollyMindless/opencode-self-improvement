@@ -61,11 +61,13 @@ Store ownership remains project/global, independent of the adapter. Existing sto
 
 ## Exploratory oh-my-pi adapter
 
-`src/adapters/oh-my-pi/extension.ts` is a checkout-only extension for
+`src/adapters/oh-my-pi/extension.ts` is an experimental extension for
 `@oh-my-pi/pi-coding-agent` **19.2.1**, which requires Bun **1.4.4** or newer.
-Load that absolute source path using oh-my-pi's `--extension` option or the SDK's
-`additionalExtensionPaths`. This is an investigation entry point, with no new npm
-export or support claim for Pi or other derivatives. Host types remain inside the
+The package's `omp.extensions` manifest points to it for plugin discovery, and
+`./oh-my-pi` exports it for explicit imports. Source-path loading via `--extension`
+or the SDK's `additionalExtensionPaths` remains available. Follow the
+[installation guide](../reference/oh-my-pi.md) for checkout and packed-copy trials.
+This is not a support claim for Pi or other derivatives. Host types remain inside the
 adapter; OpenCode installs do not acquire an oh-my-pi SDK dependency.
 
 The adapter registers the fourteen shared tools with their JSON schemas, binds
@@ -135,7 +137,7 @@ or real API key. Homes, host settings, project directories, and stores are tempo
 The shared-store scenarios verify writes in both directions, real read grounding, project/global
 visibility, relevance-selected system context, corrections, deletion, and rejected
 foreign-project mutations. They cover fresh sessions with matching local project
-identity; packaged installation, interactive UI behavior, concurrent host writes,
+identity; interactive UI behavior, concurrent host writes,
 relocated checkouts, and live replacement of a frozen injection block remain outside
 this proof. The optional suite is separate from the OpenCode gate and ordinary tests.
 
@@ -151,6 +153,16 @@ and tree notifications are covered by adapter unit contracts; their actual SDK
 navigation paths still need coverage. These checks do not establish forced-exit
 durability beyond the host's shutdown deadline or confirm delivery after a later
 provider failure.
+
+`installation.test.ts` packs the repository, installs the archive and its
+dependencies into a fresh directory, and registers that installed copy using the
+published oh-my-pi CLI's `plugin install` command. CLI processes discover the
+manifest without a source-path override. A successful write survives process exit,
+is recalled and injected on restart, stays hidden from another project, and remains
+readable through OpenCode after uninstalling the oh-my-pi registration. The test
+also checks that all fourteen tools appear exactly once and that the packaged
+default never makes a capture request. All host configuration and stores are
+temporary; the packaged capture investigation wrapper is intentionally absent.
 
 The capture scenarios initialize extensions with the SDK's print/RPC runtime
 initializer, use its actual terminal events and reconstructed branch transcript,
@@ -213,4 +225,4 @@ This is the first testing layer, followed by recorded-payload adapter contracts 
 
 ## The published surface is `package.json`
 
-`exports` is the only import surface other code can reach (`.` → `index.ts`, `./tui` → `src/tui/panel.tsx`); `files` is the packaging list. `files` covers `src/`, so anything reachable from an `exports` target ships, but a new top-level file or directory — or anything the plugin reads at runtime outside those paths — must be added to `files` or it works from the checkout and vanishes from the npm artifact. The packed-artifact load in `e2e/` turns that miss red.
+`exports` defines package imports (`.` → `index.ts`, `./tui` → `src/tui/panel.tsx`, `./oh-my-pi` → `src/adapters/oh-my-pi/extension.ts`); the `omp` manifest also names the oh-my-pi discovery entry. `files` is the packaging list. `files` covers `src/`, so anything reachable from an `exports` target ships, but a new top-level file or directory — or anything the plugin reads at runtime outside those paths — must be added to `files` or it works from the checkout and vanishes from the npm artifact. The packed-artifact loads in `e2e/` and the optional oh-my-pi installation suite turn those misses red.

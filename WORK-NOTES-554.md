@@ -23,9 +23,10 @@ apply; sharing a store does not mean injecting every memory into every request.
 - Branch: `test/554-harness-contracts`.
 - Remote backup: https://github.com/WhollyMindless/opencode-self-improvement/tree/test/554-harness-contracts
 - The local branch tracks `fork/test/554-harness-contracts`.
-- Previous code checkpoint: `e68fefa8166b2962bd33e8eec776ed394cd3717e`
-  (oh-my-pi lifecycle hardening), published and verified. The current slice adds
-  opt-in capture; its final commit is the branch tip accompanying these notes.
+- Previous code checkpoint: `0297d05d1bee4c5f8c97f81a5a1089b7b1d5ffe0`
+  (opt-in isolated oh-my-pi capture), published and verified. The current slice
+  packages the tools/context adapter and verifies CLI installation; its final
+  commit is the branch tip accompanying these notes.
 - Last incorporated upstream main: `966bb7e` (merge of the host teardown probe, #551).
 - No implementation PR has been opened.
 
@@ -110,9 +111,9 @@ selection in the outgoing system request, foreign-project mutation rejection,
 corrections and deletion across subsequent host sessions. The model is scripted
 locally; no paid model or user credentials are involved.
 
-This is a source-path extension, not an advertised npm adapter release. Capture,
-contextual pulls, usage receipts, compaction anchors, interactive UI, packaged
-installation, concurrent cross-host writes, and relocated checkouts are not yet
+That first proof used a source-path extension, not an advertised npm adapter release. Capture,
+contextual pulls, usage receipts, compaction anchors, interactive UI,
+concurrent cross-host writes, and relocated checkouts are not yet
 proven. Read the precise limits and reproduction commands in
 `docs/internals/development.md`.
 
@@ -187,6 +188,29 @@ another model. Production packaging, shared SDK instance/provider registration,
 host usage/cost accounting, cancellation outside shutdown, actual branch/tree
 capture transitions, and headless teardown remain investigation work.
 
+## Packaged tools/context installation
+
+The root package now exports `./oh-my-pi` and declares `omp.extensions` pointing
+to the existing tools/context adapter. The OpenCode default and TUI entry points
+are unchanged, and no SDK dependency was added to the root. The normal package
+keeps capture disabled; the SDK capture wrapper stays outside the tarball.
+
+The new optional `installation.test.ts` packs the project, installs the archive
+and dependencies in a fresh directory outside the checkout, then uses the actual
+oh-my-pi 19.2.1 CLI to install that copy. The host discovers it from the manifest,
+without `--extension`, and all fourteen tools register exactly once. One CLI
+process reads a project file and remembers a verified fact; a second recalls
+and injects it. A third process in another project cannot see it. Uninstalling the
+oh-my-pi registration leaves the row readable through OpenCode. The fixture uses
+temporary homes, configuration, projects, and stores with a local scripted model.
+
+This establishes a usable experimental tools/context installation. It is not a
+published npm release or a test of interactive UI or real hosted providers.
+Local-directory `omp plugin install` creates a link, so the installed directory
+must remain. `docs/reference/oh-my-pi.md` documents checkout and packed-copy
+installation, store sharing, removal, and limitations. The README links that guide
+and distinguishes the adapter's features from the OpenCode feature list.
+
 ## Current validation
 
 The last code validation used Windows, Bun 1.4.4, and OpenCode 2.4.2:
@@ -194,7 +218,8 @@ The last code validation used Windows, Bun 1.4.4, and OpenCode 2.4.2:
 - oh-my-pi adapter contracts: nineteen passed (eleven lifecycle/tools and eight
   capture scenarios), included in the full unit run.
 - Pinned SDK compatibility typecheck passed; the full optional integration suite:
-  seven passed, 153 parent-test assertions plus assertions inside the SDK children.
+  eight passed, 192 parent-test assertions plus assertions inside the SDK children.
+  This includes the new installed CLI scenario.
 - Full unit suite, including simulator/shared initialization: 1,914 passed,
   34 skipped, no failures.
 - Comment policy, typecheck, lint, and formatting passed.
@@ -208,8 +233,10 @@ The capture trace does not establish whether OpenCode awaited plugin cleanup.
 The earlier targeted OpenCode 2.0.26 checks passed for loading, shared stores, and
 compaction (seven checks). That version was not rerun for the oh-my-pi checkpoints.
 Local logs, which are temporary and are not part of the remote backup, are
-`%TEMP%\osi-554-omp-capture-gate.log` and
-`%TEMP%\osi-554-omp-capture-integration.log` for this slice. The previous lifecycle
+`%TEMP%\osi-554-omp-install-gate.log` and
+`%TEMP%\osi-554-omp-install-integration.log` for this slice. The preceding capture
+logs are `%TEMP%\osi-554-omp-capture-gate.log` and
+`%TEMP%\osi-554-omp-capture-integration.log`. The previous lifecycle
 logs are `%TEMP%\osi-554-omp-lifecycle-gate.log` and
 `%TEMP%\osi-554-omp-lifecycle-integration.log`. The earlier
 adapter logs remain `%TEMP%\osi-554-omp-gate.log` and
@@ -245,8 +272,10 @@ installation, scheduling, or actual process-exit behavior.
    usage/cost accounting, and pre-compaction capture should map. The isolated
    continuing-session capture proof exists; keep it opt-in until these limits and
    packaging are addressed.
-4. Decide packaging and installation after the source-path experiment is stable.
-   An npm export is not present yet. Preserve the OpenCode installation surface.
+4. Try the documented tools/context installation interactively and collect real
+   provider feedback. Packaging and CLI restart/recall are verified; decide release
+   naming/versioning with the maintainer before any registry publication. Capture
+   SDK sharing remains separate packaging work. Preserve the OpenCode surface.
 5. Design and test a Bun worker boundary for Node-based Pi/dsh, or prove a supported
    in-process arrangement. The existing adapter interfaces do not solve runtime
    compatibility. Implement each host's own payload/lifecycle mapping and reuse

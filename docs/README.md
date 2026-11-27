@@ -12,6 +12,8 @@ is the map. A new document anywhere under `docs/` must gain a line below —
 - [Install variants and the version floor](reference/install.md) — users: the install
   paths beyond the README's three steps, how updates are resolved, and the
   supported version floor.
+- [Experimental oh-my-pi installation](reference/oh-my-pi.md) — testers: install
+  tools/context from this branch, share the OpenCode store, and understand the limits.
 - [Options and environment variables](reference/options.md) — users: every knob in one
   place, including what an invalid value does.
 - [Research flags](reference/flags.md) — users who want the why: the three flags that
