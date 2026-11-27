@@ -88,7 +88,15 @@ export class UnresolvedWriterError extends Error {
 
 // Append a durable memory. GATE-4 promotions and the viewer's edit/restore-entry
 // paths all call this single write choke point.
-export async function appendMemory(input: AppendMemoryInput): Promise<string> {
+export function appendMemory(input: AppendMemoryInput): Promise<string>;
+export function appendMemory(
+  input: AppendMemoryInput,
+  options: { receipt: true },
+): Promise<{ ts: string; line: string }>;
+export async function appendMemory(
+  input: AppendMemoryInput,
+  options?: { receipt: true },
+): Promise<string | { ts: string; line: string }> {
   // Absolute floor: every write SHOULD arrive through the gate,
   // which rejects invalid input politely; viewer writes do not, so enforce the
   // same storage rules here before anything reaches disk.
@@ -177,11 +185,9 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
     // else's whole-file rewrite is simply not there afterwards.
     const outcome = await withStoreLock(
       file,
-      async (): Promise<{
-        moved?: string;
-        bumped?: string;
-        ts?: string;
-      }> => {
+      async (): Promise<
+        { moved: string; bumped: string } | { ts: string; line: string }
+      > => {
         const since = await fileIdentity(file);
         let prior = "";
         try {
@@ -226,12 +232,12 @@ export async function appendMemory(input: AppendMemoryInput): Promise<string> {
           prior + (prior && !prior.endsWith("\n") ? "\n" : "") + line + "\n",
           since,
         );
-        return { ts };
+        return { ts, line };
       },
       LOCK_WRITE,
     );
-    if (outcome.ts !== undefined) return outcome.ts;
-    day = outcome.moved as string;
+    if ("ts" in outcome) return options?.receipt ? outcome : outcome.ts;
+    day = outcome.moved;
     carryTs = outcome.bumped;
   }
 }

@@ -5,9 +5,10 @@
 import { join } from "node:path";
 import { memoryRoot } from "../core/config/paths.ts";
 import { nonCaptureTags } from "../core/guidance.ts";
+import { parseLine } from "../core/logfmt/format.ts";
 import { record } from "../telemetry/record.ts";
 import { auditCaveat, runWriteGate, sameStrList } from "../gate/gate.ts";
-import { loadAll } from "../store/files/load.ts";
+import { loadAll, toMemory } from "../store/files/load.ts";
 import { markSuperseded } from "../store/files/supersede.ts";
 import { resolveMemoryTarget } from "../store/files/target.ts";
 import { withStoreBatch } from "../store/lock.ts";
@@ -25,6 +26,7 @@ export const register: ToolRegister = (editor, deps) => {
     ownerlessWriter,
     refuseOwnerlessWrite,
     gateContext,
+    sessions,
   } = deps;
   editor.add(
     validated(UpdateArgs, {
@@ -264,6 +266,10 @@ export const register: ToolRegister = (editor, deps) => {
                     `its write_promoted audit line was not recorded (${outcome.evidenceError})`,
                   );
                 }
+                const written =
+                  outcome.updateLine && parseLine(outcome.updateLine);
+                const successor = written && toMemory(written, "", 0);
+                if (successor) sessions.noteCorrection(sid, target, successor);
                 return {
                   content: `Updated ${args.type} in ${args.scope} (superseded ${retired})`,
                 };

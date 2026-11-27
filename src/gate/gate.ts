@@ -147,7 +147,11 @@ interface GateOutcomeFields {
 }
 
 export type GateOutcome =
-  | (GateOutcomeFields & { action: "promoted"; ts: string })
+  | (GateOutcomeFields & {
+      action: "promoted";
+      ts: string;
+      updateLine?: string;
+    })
   | (GateOutcomeFields & { action: "blocked"; reason: string })
   | (GateOutcomeFields & { action: "collapsed" });
 
@@ -1003,11 +1007,10 @@ export async function runWriteGate(
     candidate.repo === undefined && writeAt.ok
       ? { repo: writeAt.scope?.key ?? "global", repoPath: writeAt.scope?.path }
       : {};
-  const ts = await appendMemory({
-    ...candidate,
-    ...owner,
-    sessionID: ctx.sessionID,
-  });
+  const { ts, line } = await appendMemory(
+    { ...candidate, ...owner, sessionID: ctx.sessionID },
+    { receipt: true },
+  );
   // remember who made this row, so the writing session is not billed a
   // prompt-cache bust to be shown its own thought. Only promoted writes are
   // attributed — a blocked candidate created nothing.
@@ -1084,5 +1087,11 @@ export async function runWriteGate(
     evidenceError =
       err instanceof Error && err.message ? err.message : String(err);
   }
-  return { action: "promoted", ts, chain, evidenceError };
+  return {
+    action: "promoted",
+    ts,
+    chain,
+    evidenceError,
+    ...(ctx.supersedesTs ? { updateLine: line } : {}),
+  };
 }
