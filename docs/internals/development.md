@@ -41,7 +41,7 @@ The full local gate also reproduced two Windows `EBUSY` failures in the viewer E
 ### Shutdown investigation
 
 A standalone reproduction lives in
-[`e2e/repros/standalone-cleanup/`](../../e2e/repros/standalone-cleanup/README.md).
+[`e2e/repros/standalone-cleanup/`](https://github.com/WhollyMindless/opencode-self-improvement/blob/0e3c87455d291c0663f73fa449dd9604b1a90a0d/e2e/repros/standalone-cleanup/README.md).
 Copy that directory anywhere and run `bun repro.ts`; it needs only Bun and an
 OpenCode executable. Its tiny plugin returns async cleanup without subscribing to
 events or loading the memory plugin. It compares normal standalone exit against
