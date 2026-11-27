@@ -23,14 +23,17 @@ apply; sharing a store does not mean injecting every memory into every request.
 - Branch: `test/554-harness-contracts`.
 - Remote backup: https://github.com/WhollyMindless/opencode-self-improvement/tree/test/554-harness-contracts
 - The local branch tracks `fork/test/554-harness-contracts`.
-- Previous code checkpoint: `f6e5b428ac801e635ef2ccfa50c91addab379811`
-  (combined and per-harness activity statistics), published and verified.
-  The current slice connects oh-my-pi assistant usage to those statistics; its final
+- Previous code checkpoint: `fcbe55a3f5923b4c14a02470af29c7534c9944c3`
+  (persisted oh-my-pi assistant usage), published and verified.
+  The current slice fixes Windows viewer cleanup and distinguishes cooperative
+  plugin shutdown from OpenCode's forced standalone-server termination; its final
   commit is the branch tip accompanying these notes.
 - Last incorporated upstream main: `7b7d88e0` (README improvements, #556), merged
   in `fe00b8cf`. The README conflict was resolved by keeping the new upstream
   introduction/quick start and the experimental adapter notice.
-- No implementation PR has been opened.
+- The intended review venue is a public draft PR against the upstream project.
+  The fork remains the source branch and backup; upstream consideration is the
+  user's objective. This is still exploratory work without maintainer-agreed scope.
 
 The contribution offer is https://github.com/abogartz/opencode-self-improvement/issues/554.
 At the last check it was open, with our explicitly authorized
@@ -366,16 +369,37 @@ The last code validation used Windows, Bun 1.4.4, and OpenCode 2.4.2:
 - Full unit suite, including simulator/shared initialization: 1,944 passed,
   34 skipped, no failures.
 - Comment policy, typecheck, lint, and formatting passed.
-- Real-host E2E: 57 passed, three failed. The full gate is therefore still red.
+- Real-host E2E: 61 passed, one failed. The full gate is therefore still red.
+- The two new cooperative-shutdown controls also passed separately against the
+  supported OpenCode 2.0.26 baseline.
 
-The three failures were reproduced before the adapter extraction: capture returns
-a model answer but fails to persist the candidate during real-host teardown; two
-viewer tests fail during Windows cleanup with `EBUSY`. Preserve their assertions.
-The capture trace does not establish whether OpenCode awaited plugin cleanup.
+All three earlier failures were reproduced before the adapter extraction. The two
+viewer cleanup failures are fixed by awaiting child exit before deleting its
+temporary store; their HTTP and persistence assertions are unchanged.
+
+The remaining standalone capture test still returns a model answer but fails to
+persist its candidate. The independent teardown probe now records cleanup entry,
+async completion, and process exit hooks. On OpenCode 2.4.2/Windows none ran in any
+of three standalone trials, although all three received turn-end. The tagged host
+source uses `taskkill /T /F` in its Windows process-spawner termination path, even
+for SIGTERM. This is evidence of a host shutdown boundary, not an adapter-specific
+write-gate failure. See the source links in `docs/internals/development.md`.
+
+The cooperative control runs the real server with a stdin ownership lease and
+connects the CLI using `--server`. Closing that lease invokes and awaits async
+plugin cleanup, and the real capture control persists the byte-exact candidate.
+The control cannot pin whether persistence finished before or during shutdown;
+existing deterministic disposal tests cover the in-flight write ordering. No
+production write gates, capture cancellation policy, or opt-in defaults changed.
+The original failing standalone assertion remains intact. Fixing forced host
+termination requires host-side work; a delay or optimistic gate bypass is not a
+plugin fix.
 
 The earlier targeted OpenCode 2.0.26 checks passed for loading, shared stores, and
 compaction (seven checks). That version was not rerun for the oh-my-pi checkpoints.
 Local logs, which are temporary and are not part of the remote backup, are
+`%TEMP%\osi-554-shutdown-gate.log` and
+`%TEMP%\osi-554-cooperative-baseline.log` cover the current slice. The preceding
 `%TEMP%\osi-554-omp-usage-gate.log` and
 `%TEMP%\osi-554-omp-usage-integration.log` for this slice. The preceding statistics logs are
 `%TEMP%\osi-554-harness-stats-gate.log` and
@@ -415,9 +439,11 @@ installation, scheduling, or actual process-exit behavior.
 
 1. Fetch upstream main and merge any new changes into this branch before the next
    implementation slice. Keep the work incremental and publish each useful checkpoint.
-   Assistant usage now reaches both combined and per-harness totals. The next
-   reliability slice should investigate capture persistence at real-host shutdown,
-   preserving the failing assertion and opt-in oh-my-pi capture policy.
+   Assistant usage now reaches both combined and per-harness totals. Present the
+   exploratory branch upstream for feedback on the adapter boundary, shared stores,
+   and experimental oh-my-pi packaging. The shutdown diagnosis and cooperative
+   controls are ready for that discussion; the Windows standalone failure remains
+   explicit. Agree on the landing scope before marking a draft ready to merge.
    Native configuration UI and command/UI equivalents
    also remain; compaction method coverage needs expansion beyond LLM summaries.
    Keep capture opt-in while settling its shutdown and provider-accounting limits.
@@ -438,9 +464,9 @@ installation, scheduling, or actual process-exit behavior.
    compatibility. Implement each host's own payload/lifecycle mapping and reuse
    the shared-store scenarios rather than assuming Pi derivatives are identical.
 
-Investigate the existing teardown failure as a separate, evidence-backed fix. The
-simulator can reproduce a suspected ordering problem, but a fix still needs the
-real-host test. Keep the Windows viewer cleanup failures visible as well.
+Carry the standalone teardown reproduction into a separate host-side fix if that
+work is taken on. A fix still needs the original real-host assertion to pass.
+The Windows viewer cleanup failures are resolved in this checkpoint.
 
 ## Constraints to preserve
 

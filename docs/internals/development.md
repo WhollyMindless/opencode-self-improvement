@@ -37,6 +37,35 @@ Before the adapter extraction, Windows with Bun 1.4.4 reproduced the real-host c
 
 The full local gate also reproduced two Windows `EBUSY` failures in the viewer E2E cleanup, with the new shared-store suite excluded. Neither failure is an adapter regression. The shared-store scenarios pass on both host versions; they cover fresh sessions, not live replacement of a frozen injection block.
 
+### Shutdown investigation
+
+The viewer cleanup now waits for its child process to exit before removing the
+temporary store. Both previously failing Windows scenarios pass with their HTTP
+and persistence assertions unchanged.
+
+On Windows with OpenCode 2.4.2, the independent plugin in
+`e2e/support/teardown-probe-plugin/` received the turn-end event in three of three
+standalone runs, but recorded neither cleanup entry/completion nor process
+`beforeExit`/`exit` handlers. OpenCode's tagged
+[standalone server owner](https://github.com/anomalyco/opencode/blob/v2.4.2/packages/cli/src/services/standalone.ts)
+uses the
+[process spawner](https://github.com/anomalyco/opencode/blob/v2.4.2/packages/util/src/cross-spawn-spawner.ts),
+whose Windows termination path runs `taskkill /T /F` even when asked for SIGTERM.
+That matches the observed loss of asynchronous plugin work at standalone exit.
+This diagnosis is specific to that version and platform.
+
+`e2e/support/server.ts` supplies a cooperative control: start an isolated real
+server, connect the CLI with `--server`, and close the server's stdin ownership
+lease after the turn. Its watchdog fails the test if forced termination is
+needed. With this path, the probe records async cleanup completion and the
+capture test persists the exact candidate through the normal write gate. The
+real-host capture control does not pin whether the write completes before or
+during cleanup; the deterministic capture disposal tests cover that ordering.
+
+The original standalone capture assertion remains unconditional and still fails
+on this Windows host. The cooperative control does not replace it, enable capture
+for oh-my-pi by default, or guarantee persistence after a forced process kill.
+
 ## Host adapter boundary
 
 `src/host/contracts.ts` defines the current tool/identity boundary: schema-bearing memory tools, normalized per-call identity, and optional session-directory sources. `src/adapters/opencode/` translates OpenCode tool contexts and directory responses and supplies the OpenCode `codemode: false` registration option. Shared tools validate raw arguments themselves. Shared session policy still owns provisional/firm binding, lookup ordering, pending-lookup joins, and repository isolation. Missing directory sources do not invent a repository; OpenCode API errors retain the existing binding fallback behavior.
