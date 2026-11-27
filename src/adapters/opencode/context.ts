@@ -33,6 +33,11 @@ export interface PluginCtx {
   event?: {
     subscribe: (o?: { signal?: AbortSignal }) => AsyncIterable<unknown>;
   };
+  model?: {
+    default?: {
+      get?: () => { providerID: string; modelID: string } | undefined;
+    };
+  };
   generate?: {
     text: (input: unknown) => Promise<{ text?: string } | string>;
   };

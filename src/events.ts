@@ -1,5 +1,6 @@
 // Shared lifecycle policy. The host supplies normalized events and delivery
 // callbacks; setup owns the returned registration and compaction capture.
+import type { CompactCapture } from "./host/capture.ts";
 import { randomBytes } from "node:crypto";
 import type { MemoryLifecycleHost } from "./host/lifecycle.ts";
 import type { guarded as Guarded } from "./core/hooks.ts";
@@ -67,9 +68,7 @@ interface HookDependencies {
   flushStatus: (sid: string) => Promise<void>;
   /** Which tool results may carry a pull and what they search. */
   pullScope: PullScope;
-  getCompactCapture: () =>
-    | ((sid: string, messages: unknown) => void)
-    | undefined;
+  getCompactCapture: () => CompactCapture | undefined;
 }
 
 // Counts only: a lost pull names its tool and how many rows, never the rows'

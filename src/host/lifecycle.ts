@@ -1,3 +1,4 @@
+import type { CaptureTranscript } from "./capture.ts";
 import type { ToolCallContext } from "./contracts.ts";
 import type { SessionModelRef } from "../capture/session-model.ts";
 import type { SessionIdentity, SessionUsage } from "../host/observations.ts";
@@ -37,8 +38,7 @@ export interface PromptEvent {
 export interface CompactionEvent {
   sessionID?: string;
   appendSystem?: (text: string) => void;
-  /** Capture owns transcript decoding until its separate boundary is extracted. */
-  transcript: unknown;
+  transcript: CaptureTranscript | undefined;
 }
 
 export interface LifecycleHandlers {

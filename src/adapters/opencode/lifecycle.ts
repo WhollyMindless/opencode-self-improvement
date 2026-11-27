@@ -1,3 +1,4 @@
+import { decodeTranscript } from "./transcript.ts";
 import type { MemoryLifecycleHost } from "../../host/lifecycle.ts";
 import type { PluginCtx } from "./context.ts";
 import { sessionIdentityEvent, sessionUsageEvent } from "./observations.ts";
@@ -104,7 +105,7 @@ export function createOpenCodeLifecycle(ctx: PluginCtx): MemoryLifecycleHost {
             const append = appendSystem(raw);
             return handlers.compact({
               sessionID: string(raw?.sessionID),
-              transcript: raw?.messages,
+              transcript: decodeTranscript(raw?.messages),
               appendSystem: append,
             });
           }),

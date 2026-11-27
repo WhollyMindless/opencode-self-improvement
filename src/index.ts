@@ -7,6 +7,11 @@
 // OpenCode V2 session/tool API. Slash commands are installed as markdown by
 // src/command.ts. The default export `{ id, setup(ctx) }` is checked against
 // the SDK's Plugin type using a type-only import (see the note on `plugin`).
+import type { CompactCapture } from "./host/capture.ts";
+import {
+  createOpenCodeCapture,
+  CAPTURE_EVENT_TYPES,
+} from "./adapters/opencode/capture.ts";
 import { registerHooks, type RideAt } from "./events.ts";
 import { forgetUsage } from "./status/usage.ts";
 import { guarded, setGuardedFailureReporter } from "./core/hooks.ts";
@@ -50,16 +55,13 @@ import { renderProposals } from "./consolidate/render.ts";
 import { readReads } from "./telemetry/ledger.ts";
 import { formatMemory } from "./inject/format.ts";
 import { sharedTerms } from "./recall/shared-terms.ts";
-import {
-  configureAutoCapture,
-  CAPTURE_EVENT_TYPES,
-} from "./capture/runtime.ts";
+import { configureAutoCapture } from "./capture/runtime.ts";
+export { resetCaptureCooldowns } from "./capture/runtime.ts";
 export {
-  resetCaptureCooldowns,
   TURN_END_EVENTS,
   CAPTURE_EVENT_TYPES,
   captureTriggerFor,
-} from "./capture/runtime.ts";
+} from "./adapters/opencode/capture.ts";
 export { resetSessionModels } from "./capture/session-model.ts";
 import { createInjectionEpochs } from "./inject/epochs.ts";
 import { pullScopeFrom } from "./inject/pull.ts";
@@ -250,9 +252,7 @@ const impl = {
     // model that resolves — the option, the session, or the host default). The
     // compaction hook calls it fire-and-forget; undefined means "off".
     // Declared here because the hook registers before capture.
-    let onCompactCapture:
-      | ((sid: string, messages: unknown) => void)
-      | undefined;
+    let onCompactCapture: CompactCapture | undefined;
 
     const lifecycle = await registerHooks(createOpenCodeLifecycle(ctx), {
       guarded,
@@ -292,17 +292,21 @@ const impl = {
     // so decay/status — and bench/runners/capture-trigger-compare.ts — can measure
     // which trigger earns its tokens. Every failure is swallowed: capture must
     // never be able to break a session.
-    const capture = configureAutoCapture(ctx, {
-      instanceDir,
-      gateContext,
-      guarded,
-      // Fix A (FINDINGS 2026-11-08 §4b): guided promotion moves every tracked
-      // epoch, so a late guided row enters the hint lane on each session's
-      // next request instead of waiting for a request that happens to notice.
-      onGuidedPromoted: async () => {
-        await sessions.refreshAll();
+    const capture = configureAutoCapture(
+      createOpenCodeCapture(ctx),
+      ctx.options ?? {},
+      {
+        instanceDir,
+        gateContext,
+        guarded,
+        // Fix A (FINDINGS 2026-11-08 §4b): guided promotion moves every tracked
+        // epoch, so a late guided row enters the hint lane on each session's
+        // next request instead of waiting for a request that happens to notice.
+        onGuidedPromoted: async () => {
+          await sessions.refreshAll();
+        },
       },
-    });
+    );
     onCompactCapture = capture.onCompactCapture;
     const captureCleanup = capture.cleanup;
     // ---- startup heartbeat ------------------------------------------
