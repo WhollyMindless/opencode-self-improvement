@@ -30,6 +30,7 @@ const provider: ExtensionFactory = (pi) => {
       },
     ],
     streamSimple(model, context) {
+      console.log("PROVIDER-STAGE completion");
       calls++;
       assert.equal(model.id, "capture");
       assert.deepEqual(context.messages, []);
@@ -99,15 +100,19 @@ await Bun.write(
     ],
   }),
 );
+console.log("PROVIDER-STAGE opening session");
 const { session } = await openSession(cwd, agentDir, baseUrl, {
   extensions: [provider],
   extensionPath,
 });
 try {
+  console.log("PROVIDER-STAGE prompting");
   await session.prompt(
     `PROVIDER::turn We finished the archive change. Remember that ${fact} The batch importer respects the staging rate limit per key, which matters while wiring the importer tooling.`,
   );
+  console.log("PROVIDER-STAGE waiting for capture");
   await called.promise;
+  console.log("PROVIDER-STAGE disposing");
   await session.dispose();
   assert.equal(calls, 1);
   assert.deepEqual(

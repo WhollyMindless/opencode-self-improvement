@@ -68,6 +68,21 @@ independent of the passing oh-my-pi shutdown tests.
 
 ## Validation and remaining work
 
+Windows CI follow-up: eb955078 repeated the packed-install recall failure and
+hit the provider fixture's 30-second process watchdog. A local run under an
+actual 8.3 temporary-directory alias reproduced the identical recall failure.
+Bun realpathSync retained the short name; realpathSync.native expanded it, so
+the two harnesses could hash different names for one directory. Normalization
+now uses the native Windows resolver, and visibility preserves old path keys
+when the stored path identifies the same canonical directory. The regression
+also checks that a different project cannot read those rows. Packed installation
+now passes under the short alias with pinned OpenCode 2.0.26.
+
+The provider process watchdog is now 90 seconds, consistent with other SDK
+fixtures, and logs its phase on failure. This does not change the production
+20-second generation timeout or shutdown limits. Hosted CI must confirm both
+changes; the known OpenCode standalone shutdown issue is separate.
+
 Foundation integration validation: 1,958 unit tests pass with 34 skips; 57 focused
 adapter/runtime/simulator tests pass. All 32 real oh-my-pi integration tests pass.
 OpenCode 2.4.2 E2E has 61 passes and the known

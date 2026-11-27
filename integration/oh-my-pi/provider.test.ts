@@ -34,14 +34,22 @@ for (const scenario of ["success", "error"])
         stderr: "pipe",
       },
     );
-    const timer = setTimeout(() => child.kill(), 30_000);
+    // Include cold SDK startup, the agent turn and shutdown, not just capture.
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, 90_000);
     try {
       const [exit, out, err] = await Promise.all([
         child.exited,
         new Response(child.stdout).text(),
         new Response(child.stderr).text(),
       ]);
-      expect(exit, `${out}\n${err}`).toBe(0);
+      expect(
+        exit,
+        `${timedOut ? "Provider process exceeded 90s\n" : ""}${out}\n${err}`,
+      ).toBe(0);
       expect(out).toContain(`PROVIDER-PASS ${scenario}`);
     } finally {
       clearTimeout(timer);
@@ -50,4 +58,4 @@ for (const scenario of ["success", "error"])
       fake.stop();
       rmSync(guest.root, { recursive: true, force: true });
     }
-  }, 40_000);
+  }, 100_000);
