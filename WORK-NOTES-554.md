@@ -15,6 +15,10 @@ store and project identity. Relevance selection and write gates still apply.
 - Upstream draft: https://github.com/abogartz/opencode-self-improvement/pull/560
 - Contribution offer: https://github.com/abogartz/opencode-self-improvement/issues/554
 - Main incorporated through 48bdf6f7 (0.37.2), merge commit 286abb4a.
+- Foundation PR #561 is now integrated through 8f7da817. Its OpenCode host factory,
+  capability contract, simulator, and cross-host runtime tests are shared by this
+  branch. Both PRs still target main; the displayed diff will include foundation
+  work until that first landing unit is accepted.
 - There is no maintainer-agreed landing scope. No review threads or comments were
   present on PR #560 at this check. Keep the draft status while seeking feedback.
 
@@ -22,6 +26,10 @@ store and project identity. Relevance selection and write gates still apply.
 
 - Shared host interfaces separate tools, lifecycle, capture, identity, and usage
   from OpenCode payloads. The OpenCode entry point and storage format are retained.
+- OpenCode, oh-my-pi and the simulator all use MemoryHost/setupMemory. OpenCode's
+  plugin is only a host-construction/setup/disposal entry point. Attribution
+  forwards live capability reports; oh-my-pi declares split compaction and
+  best-effort shutdown under the host's two-second limit.
 - Programmable test host drives the real engine through controlled event ordering,
   missing capabilities, errors, transcript changes, and bounded shutdown.
 - oh-my-pi 19.2.1 exposes fourteen tools, prompt context, tool-result pulls,
@@ -59,6 +67,16 @@ original failing standalone E2E assertion remains enabled. This failure is
 independent of the passing oh-my-pi shutdown tests.
 
 ## Validation and remaining work
+
+Foundation integration validation: 1,958 unit tests pass with 34 skips; 57 focused
+adapter/runtime/simulator tests pass. All 32 real oh-my-pi integration tests pass.
+OpenCode 2.4.2 E2E has 61 passes and the known
+standalone shutdown failure. Packed installation passes locally with both
+OpenCode 2.4.2 and CI's pinned 2.0.26. The previous Windows CI recall failure is
+not yet considered resolved: wait for the new hosted run before claiming that.
+Foundation PR #561 separately has 1,902 passing unit tests and the same three
+Windows E2E baseline failures recorded against upstream main (shutdown plus two
+viewer cleanup failures). Its head is 8f7da817.
 
 Completion validation on Windows with Bun 1.4.4:
 

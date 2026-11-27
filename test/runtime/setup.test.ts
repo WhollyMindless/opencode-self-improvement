@@ -203,6 +203,16 @@ describe("shared runtime initialization", () => {
         );
         expect(heartbeat?.capture).toBe("no_capabilities");
         expect(heartbeat?.capabilities).toBe("[]");
+        expect(runtime.capabilities.capture).toEqual({
+          turnEnd: false,
+          transcript: false,
+          generation: false,
+          defaultModel: false,
+        });
+        expect(runtime.capabilities.context.promptDependentCache).toBe(
+          "unknown",
+        );
+        expect(runtime.capabilities.shutdown.forcedExit).toBe("no-cleanup");
         expect(warn).toHaveBeenCalled();
       } finally {
         await runtime.dispose();

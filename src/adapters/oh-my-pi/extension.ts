@@ -15,6 +15,7 @@ import { appendPull, observedToolResults, textContent } from "./delivery.ts";
 import { sessionUsage } from "./usage.ts";
 import { bindCompletion } from "./completion.ts";
 import { memoryOptions } from "./config.ts";
+import { ohMyPiCapabilities } from "./capabilities.ts";
 import type { MemoryTool } from "../../host/contracts.ts";
 
 export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
@@ -102,6 +103,7 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
       runtime = await setupMemory(
         {
           harness: "oh-my-pi",
+          capabilities: ohMyPiCapabilities,
           tools: {
             directories: {},
             async registerTools(register) {

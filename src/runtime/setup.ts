@@ -35,7 +35,12 @@ export function setupMemory(
   const harness = harnessName(host.harness);
   return withHarness(harness, async () => {
     const runtime = await setupAttributedMemory(attributedHost(host), config);
-    return { dispose: () => withHarness(harness, () => runtime.dispose()) };
+    return {
+      get capabilities() {
+        return runtime.capabilities;
+      },
+      dispose: () => withHarness(harness, () => runtime.dispose()),
+    };
   });
 }
 
@@ -191,6 +196,18 @@ async function setupAttributedMemory(
   let capture: ReturnType<typeof configureAutoCapture> | undefined;
   let cleanup: Promise<void> | undefined;
   const runtime: MemoryRuntime = {
+    get capabilities() {
+      const offered = host.capture;
+      return {
+        ...host.capabilities,
+        capture: {
+          turnEnd: typeof offered.turnEndEvents === "function",
+          transcript: typeof offered.readTranscript === "function",
+          generation: typeof offered.generateText === "function",
+          defaultModel: typeof offered.defaultModel === "function",
+        },
+      };
+    },
     dispose() {
       if (cleanup) return cleanup;
       // Start both synchronously, even if one disposer throws. Wait for both

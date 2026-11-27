@@ -7,6 +7,9 @@ export function attributedHost(host: MemoryHost): MemoryHost {
   const harness = harnessName(host.harness);
   return {
     harness,
+    get capabilities() {
+      return host.capabilities;
+    },
     tools: {
       directories: host.tools.directories,
       registerTools: (register) =>

@@ -81,6 +81,12 @@ forced process kill. oh-my-pi has its own passing shutdown and capture tests.
 
 ## Host adapter boundary
 
+The [host contract audit](host-contract.md) describes adapter obligations and
+capability declarations. OpenCode, oh-my-pi, and the simulator all supply a
+`MemoryHost` to `setupMemory`; OpenCode's complete adapter is constructed by
+`createOpenCodeMemoryHost`. Harness attribution wraps those same ports and
+forwards their live capabilities, without a separate OpenCode runtime path.
+
 `src/host/contracts.ts` defines the current tool/identity boundary: schema-bearing memory tools, normalized per-call identity, and optional session-directory sources. `src/adapters/opencode/` translates OpenCode tool contexts and directory responses and supplies the OpenCode `codemode: false` registration option. Shared tools validate raw arguments themselves. Shared session policy still owns provisional/firm binding, lookup ordering, pending-lookup joins, and repository isolation. Missing directory sources do not invent a repository; OpenCode API errors retain the existing binding fallback behavior.
 
 `test/host/tool-contract.ts` is a reusable behavioral contract. It runs the real shared tools against both the OpenCode adapter and a minimal normalized in-memory host, checking validation, write gates, project/global visibility, updates, and deletion. The in-memory fixture is not a dsh or Pi implementation. The separate real-host suite still verifies actual OpenCode loading, delivery, and lifecycle behavior.

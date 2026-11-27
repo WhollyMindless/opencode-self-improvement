@@ -87,6 +87,21 @@ export class TestHost {
     );
     this.disposal = new ControlledCall(trace, name, "disposal", () => {});
     this.host = {
+      capabilities: {
+        tools: true,
+        identityEvents: true,
+        usageReceipts: true,
+        toolEvents: true,
+        promptEvents: true,
+        context: {
+          system: true,
+          toolResults: true,
+          observedToolResults: true,
+          promptDependentCache: "unknown",
+        },
+        compaction: "combined",
+        shutdown: { cooperative: "awaited", forcedExit: "no-cleanup" },
+      },
       harness: config.harness ?? "simulator",
       tools: {
         directories: { fromSession: async (sid) => this.directories.get(sid) },
