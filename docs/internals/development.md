@@ -71,14 +71,19 @@ adapter; OpenCode installs do not acquire an oh-my-pi SDK dependency.
 The adapter registers the fourteen shared tools with their JSON schemas, binds
 each call to the host's absolute workspace and session identity, and places
 selected memory into `before_agent_start` system context. Each extension instance
-namespaces its transient session IDs; durable rows keep project/global ownership.
+namespaces its transient session IDs. Clear, switch/resume, branch, and tree
+navigation advance a transcript generation even when the host retains the same
+session ID. Grounding and frozen context from the old transcript cannot authorize
+new writes; resumed transcripts require fresh tool observations. Durable rows keep
+project/global ownership.
 Configure both hosts with the same `OPENCODE_MEMORY_DIR` and use the same local
 project directory to share project memories. Global rows remain eligible across
 projects, subject to the ordinary selection rules.
 
 Successful text tool results supply grounding observations; failed reads do not.
 Missing identity, calls after shutdown, and already-aborted calls fail closed.
-Shutdown stops admission immediately and drains admitted work. The host owns
+Shutdown stops admission immediately, waits for initialization to settle, and
+drains admitted work. The host owns
 registration removal; a failed factory leaves any partially registered callbacks
 inert. Cancellation after a write begins does not roll back a durable write.
 
@@ -103,12 +108,25 @@ This command typechecks the structural adapter against the published SDK, then
 runs actual SDK sessions and OpenCode CLI processes against the local scripted
 model server. It needs `opencode` on `PATH` (or `OPENCODE_BIN`), but no model account
 or real API key. Homes, host settings, project directories, and stores are temporary.
-The scenarios verify writes in both directions, real read grounding, project/global
+The shared-store scenarios verify writes in both directions, real read grounding, project/global
 visibility, relevance-selected system context, corrections, deletion, and rejected
 foreign-project mutations. They cover fresh sessions with matching local project
 identity; packaged installation, interactive UI behavior, concurrent host writes,
 relocated checkouts, and live replacement of a frozen injection block remain outside
 this proof. The optional suite is separate from the OpenCode gate and ordinary tests.
+
+`lifecycle.test.ts` drives actual SDK new-session, resume, clear, compaction, abort,
+and dispose operations in isolated children. A probe wraps the adapter's public
+registrations to pause prepared context or observe tool admission; a real store
+lock holds an admitted write. Handshakes establish ordering, with a watchdog only
+to fail stalls. Tests verify that clear retains the host ID but retires grounding,
+an aborted preparation sends no model request and does not contaminate the next
+unrelated turn, compaction reselects durable memory, and cancellation plus disposal
+drains a held write before cleanup finishes. SDK shutdown is idempotent. Branch
+and tree notifications are covered by adapter unit contracts; their actual SDK
+navigation paths still need coverage. These checks do not establish forced-exit
+durability beyond the host's shutdown deadline or confirm delivery after a later
+provider failure.
 
 ## Programmable test host
 

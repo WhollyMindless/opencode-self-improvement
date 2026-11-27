@@ -23,8 +23,8 @@ apply; sharing a store does not mean injecting every memory into every request.
 - Branch: `test/554-harness-contracts`.
 - Remote backup: https://github.com/WhollyMindless/opencode-self-improvement/tree/test/554-harness-contracts
 - The local branch tracks `fork/test/554-harness-contracts`.
-- Previous code checkpoint: `7c0036d8de2751aba090ed70a2e3f7dd4da2b589`;
-  notes checkpoint: `4823543`. Both were published and verified.
+- Previous code checkpoint: `b4e48944864470d4be141273bd9a2a37b5cea822`
+  (first oh-my-pi adapter and real shared-store proof), published and verified.
 - Last incorporated upstream main: `966bb7e` (merge of the host teardown probe, #551).
 - No implementation PR has been opened.
 
@@ -53,7 +53,7 @@ the shared engine through `setupMemory`. `src/adapters/opencode/` owns OpenCode
 payload decoding, registrations, model calls, and command installation. Existing
 OpenCode package entry points and store paths remain compatible. These interfaces
 are internal; we have not published an adapter SDK or implemented dsh/Pi support.
-The current slice adds a narrow oh-my-pi proof described below.
+The following slices add the narrow oh-my-pi proof and lifecycle hardening below.
 
 The new host in `test/simulator/` runs the real tools, selection, capture, storage,
 and telemetry against temporary stores. It can pause or fail calls, release model
@@ -96,9 +96,10 @@ The integration lockfile pins the exact published oh-my-pi dependency graph.
 `src/adapters/oh-my-pi/` now translates tools, identity, successful tool results,
 selected system context, and shutdown through `setupMemory`. A unique transient
 session namespace prevents colliding host IDs from sharing grounding/identity.
-There is no durable harness partition and no store migration. Four adapter unit
-tests cover schemas, gates, project/global scope, relevance, colliding IDs,
-failed reads, malformed arguments, aborts, late calls, and registration failure.
+There is no durable harness partition and no store migration. Adapter unit tests
+cover schemas, gates, project/global scope, relevance, colliding IDs, failed reads,
+malformed arguments, aborts, late calls, registration failure, and the lifecycle
+contracts below.
 
 `integration/oh-my-pi/` is an optional, pinned real SDK test package. Its typecheck
 also checks the adapter's structural subset against the actual SDK declarations.
@@ -114,14 +115,38 @@ installation, concurrent cross-host writes, and relocated checkouts are not yet
 proven. Read the precise limits and reproduction commands in
 `docs/internals/development.md`.
 
+## Lifecycle hardening
+
+Fetched upstream again before this slice; `origin/main` remains at `966bb7e`.
+Five failing contracts exposed two adapter bugs: old read grounding survived
+transcript replacement when the host reused its session ID, and shutdown could
+return while initialization was still creating registrations. Clear, switch,
+branch, and tree events now rotate a transient transcript generation; shutdown
+waits for initialization and drains admitted work. Durable ownership is unchanged.
+
+The ordinary harness-free adapter suite now has eleven tests (62 assertions),
+including compaction epoch refresh and shutdown with a held, subsequently aborted
+write. The real SDK suite adds three scenarios: new/resume/clear plus compaction,
+aborted preparation followed by recovery, and cancellation/dispose with a held
+write. The SDK emits its actual payloads; the probe wraps our public registrations
+and a real store lock supplies the pause. There are no timing-based success sleeps.
+
+The actual SDK tests show that clear keeps the session ID, durable rows remain
+available, old grounding cannot authorize a new settled write, compaction reselects
+memory, and aborting preparation sends no model request or stale memory in the
+next unrelated turn. An admitted write survives cancellation, and adapter shutdown
+finishes after the write. This does not establish forced-exit durability beyond
+the SDK's two-second shutdown handler budget. Branch/tree API navigation is still
+covered only at the adapter notification boundary. Capture remains disabled.
+
 ## Current validation
 
 The last code validation used Windows, Bun 1.4.4, and OpenCode 2.4.2:
 
-- oh-my-pi adapter contracts: four passed, 27 assertions.
-- Pinned SDK compatibility typecheck passed; real cross-harness integration:
-  two passed, 110 assertions.
-- Full unit suite, including simulator/shared initialization: 1,899 passed,
+- oh-my-pi adapter contracts: eleven passed, 62 assertions.
+- Pinned SDK compatibility typecheck passed; the full optional integration suite:
+  five passed, 119 parent-test assertions plus assertions inside the SDK children.
+- Full unit suite, including simulator/shared initialization: 1,906 passed,
   34 skipped, no failures.
 - Comment policy, typecheck, lint, and formatting passed.
 - Real-host E2E: 57 passed, three failed. The full gate is therefore still red.
@@ -132,10 +157,12 @@ viewer tests fail during Windows cleanup with `EBUSY`. Preserve their assertions
 The capture trace does not establish whether OpenCode awaited plugin cleanup.
 
 The earlier targeted OpenCode 2.0.26 checks passed for loading, shared stores, and
-compaction (seven checks). That version was not rerun for the latest test-only commit.
+compaction (seven checks). That version was not rerun for the oh-my-pi checkpoints.
 Local logs, which are temporary and are not part of the remote backup, are
-`%TEMP%\osi-554-omp-gate.log` and `%TEMP%\osi-554-omp-integration.log` for
-this slice. The earlier checkpoint logs remain
+`%TEMP%\osi-554-omp-lifecycle-gate.log` and
+`%TEMP%\osi-554-omp-lifecycle-integration.log` for this slice. The earlier
+adapter logs remain `%TEMP%\osi-554-omp-gate.log` and
+`%TEMP%\osi-554-omp-integration.log`; the simulator checkpoint logs remain
 `%TEMP%\osi-554-simulator-gate.log` and `%TEMP%\osi-554-simulator-final.log`.
 
 Useful commands:
@@ -159,10 +186,9 @@ installation, scheduling, or actual process-exit behavior.
 
 1. Fetch upstream main and merge any new changes into this branch before the next
    implementation slice. Keep the work incremental and publish each useful checkpoint.
-2. Extend the oh-my-pi proof with host lifecycle scenarios: session switches,
-   compaction, aborted preparation, and shutdown while a write is pending. The
-   simulator can establish the core behavior, then pinned SDK scenarios must
-   establish the host mapping.
+2. Add actual SDK branch/tree navigation and shutdown-deadline fault scenarios
+   when expanding the supported lifecycle surface. Current checks cover their
+   notifications and cooperative shutdown, not every host transition or process kill.
 3. Add transcript/generation access and automatic capture only after their identity,
    cursor, cancellation, and teardown contracts are clear. Keep optional features
    disabled until their real-host tests pass.

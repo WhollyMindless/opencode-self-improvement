@@ -9,6 +9,8 @@ import type { OmpAPI, OmpContext, OmpEvents } from "./context.ts";
 export default async function ohMyPiMemory(pi: OmpAPI): Promise<void> {
   const namespace = `oh-my-pi:${randomUUID()}:`;
   const pending = new Set<Promise<unknown>>();
+  const initialized = Promise.withResolvers<void>();
+  let generation = 0;
   let handlers: LifecycleHandlers | undefined;
   let runtime: MemoryRuntime | undefined;
   let closed = false;
@@ -29,7 +31,7 @@ export default async function ohMyPiMemory(pi: OmpAPI): Promise<void> {
         "oh-my-pi memory requires a session and absolute workspace identity",
       );
     }
-    const sessionID = namespace + id;
+    const sessionID = `${namespace}${generation}:${id}`;
     handlers!.identity({ sessionID, directory: ctx.cwd });
     return sessionID;
   }
@@ -51,6 +53,7 @@ export default async function ohMyPiMemory(pi: OmpAPI): Promise<void> {
 
   pi.on("session_shutdown", async () => {
     closed = true;
+    await initialized.promise;
     await runtime?.dispose();
   });
 
@@ -90,6 +93,20 @@ export default async function ohMyPiMemory(pi: OmpAPI): Promise<void> {
           async register(shared) {
             handlers = shared;
             on("session_start", async () => {});
+            for (const name of [
+              "session_switch",
+              "session_clear",
+              "session_tree",
+              "session_branch",
+            ] as const) {
+              pi.on(name, async (_event, ctx) => {
+                if (closed) return;
+                // Transcript replacement can retain the host ID. Old grounding
+                // and frozen context must not become evidence in the new view.
+                generation++;
+                identity(ctx);
+              });
+            }
             on("before_agent_start", async (event, sessionID) => {
               if (event.reason === "revive") return;
               const systemPrompt = [...event.systemPrompt];
@@ -149,5 +166,7 @@ export default async function ohMyPiMemory(pi: OmpAPI): Promise<void> {
     closed = true;
     await Promise.allSettled([...pending]);
     throw error;
+  } finally {
+    initialized.resolve();
   }
 }

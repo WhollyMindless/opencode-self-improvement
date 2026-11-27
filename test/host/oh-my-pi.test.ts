@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { loadAll } from "../../src/store/files/load.ts";
+import { withStoreLock } from "../../src/store/lock.ts";
 import extension from "../../src/adapters/oh-my-pi/extension.ts";
 import type {
   OmpAPI,
@@ -43,10 +45,15 @@ async function driver(cwd: string) {
     tools,
     context,
     emit,
-    async invoke(name: string, args: unknown, sid = "same-id") {
+    async invoke(
+      name: string,
+      args: unknown,
+      sid = "same-id",
+      signal?: AbortSignal,
+    ) {
       const result = await tools
         .get(name)!
-        .execute("call", args, undefined, undefined, context(sid));
+        .execute("call", args, signal, undefined, context(sid));
       return result.content.map((p) => p.text).join("\n");
     },
     async prompt(text: string, sid: string) {
@@ -66,6 +73,175 @@ async function driver(cwd: string) {
 }
 
 describe("oh-my-pi exploratory adapter", () => {
+  for (const boundary of [
+    "session_clear",
+    "session_switch",
+    "session_tree",
+    "session_branch",
+  ] as const) {
+    test(`${boundary} retires grounding even when the host session ID is reused`, async () => {
+      const d = await driver(store.root);
+      try {
+        await d.emit("tool_result", {
+          toolName: "read",
+          toolCallId: "old-read",
+          input: {},
+          content: [{ type: "text", text: PROJECT }],
+          isError: false,
+        });
+        expect(
+          await d.invoke("memory_remember", {
+            type: "learning",
+            scope: "azurite",
+            content: PROJECT,
+            status: "settled",
+          }),
+        ).toStartWith("Remembered:");
+        await d.emit(boundary, {});
+        expect(await d.invoke("memory_recall", { query: QUERY })).toInclude(
+          PROJECT,
+        );
+        expect(
+          await d.invoke("memory_remember", {
+            type: "learning",
+            scope: "vermilion",
+            content: GLOBAL,
+            status: "settled",
+          }),
+        ).toInclude("Write blocked at GATE");
+        expect(await d.prompt(QUERY, "same-id")).toInclude(PROJECT);
+      } finally {
+        await d.close();
+      }
+    });
+  }
+
+  test("shutdown during initialization waits until setup has settled", async () => {
+    const handlers = new Map<string, () => Promise<unknown>>();
+    const tools: OmpTool[] = [];
+    const ctx = {
+      cwd: store.root,
+      sessionManager: { getSessionId: () => "startup" },
+    };
+    const events: string[] = [];
+    const started = extension({
+      on: (name, handler) => {
+        handlers.set(name, () => handler({} as never, ctx));
+      },
+      registerTool: (tool) => {
+        tools.push(tool);
+      },
+    }).then(() => {
+      events.push("initialized");
+    });
+    const stopped = handlers.get("session_shutdown")!().then(() => {
+      events.push("shutdown");
+    });
+    await Promise.all([started, stopped]);
+    expect(events).toEqual(["initialized", "shutdown"]);
+    await expect(
+      tools[0]!.execute("late", {}, undefined, undefined, ctx),
+    ).rejects.toThrow("closed");
+  });
+
+  test("compaction rebuilds frozen context to include the session's newer durable memory", async () => {
+    const d = await driver(store.root);
+    try {
+      await d.emit("tool_result", {
+        toolName: "read",
+        toolCallId: "read",
+        input: {},
+        content: [{ type: "text", text: PROJECT }],
+        isError: false,
+      });
+      expect(
+        await d.invoke("memory_remember", {
+          type: "learning",
+          scope: "azurite",
+          content: PROJECT,
+          status: "settled",
+        }),
+      ).toStartWith("Remembered:");
+      expect(await d.prompt(QUERY, "same-id")).toInclude(PROJECT);
+      expect(
+        await d.invoke("memory_remember", {
+          type: "learning",
+          scope: "vermilion",
+          content: GLOBAL,
+          status: "settled",
+        }),
+      ).toStartWith("Remembered:");
+      expect(await d.prompt(QUERY, "same-id")).not.toInclude(GLOBAL);
+      await d.emit("session_compact", {});
+      const refreshed = await d.prompt(QUERY, "same-id");
+      expect(refreshed).toInclude(PROJECT);
+      expect(refreshed).toInclude(GLOBAL);
+    } finally {
+      await d.close();
+    }
+  });
+
+  test("shutdown drains an admitted write after cancellation and rejects new calls", async () => {
+    const d = await driver(store.root);
+    const release = Promise.withResolvers<void>();
+    let held: Promise<void> | undefined;
+    let writing: Promise<unknown> | undefined;
+    let closing: Promise<unknown> | undefined;
+    try {
+      await d.emit("tool_result", {
+        toolName: "read",
+        toolCallId: "read",
+        input: {},
+        content: [{ type: "text", text: PROJECT }],
+        isError: false,
+      });
+      await d.invoke("memory_remember", {
+        type: "learning",
+        scope: "azurite",
+        content: PROJECT,
+        status: "settled",
+      });
+      const file = (await loadAll())[0]!.file;
+      const entered = Promise.withResolvers<void>();
+      held = withStoreLock(file, async () => {
+        entered.resolve();
+        await release.promise;
+      });
+      await entered.promise;
+      const events: string[] = [];
+      const abort = new AbortController();
+      writing = d
+        .invoke(
+          "memory_remember",
+          {
+            type: "learning",
+            scope: "vermilion",
+            content: GLOBAL,
+            status: "settled",
+          },
+          "same-id",
+          abort.signal,
+        )
+        .then((result) => {
+          events.push("write");
+          expect(result).toStartWith("Remembered:");
+        });
+      abort.abort();
+      closing = d.close().then(() => {
+        events.push("shutdown");
+      });
+      await expect(d.invoke("memory_recall", {})).rejects.toThrow("closed");
+      release.resolve();
+      await Promise.all([held, writing, closing]);
+      expect(events).toEqual(["write", "shutdown"]);
+      expect((await loadAll()).some((m) => m.content === GLOBAL)).toBe(true);
+    } finally {
+      release.resolve();
+      await Promise.allSettled([held, writing, closing]);
+      await d.close();
+    }
+  });
+
   test("real tools share rows, isolate colliding host session IDs, and select visible context", async () => {
     const project = join(store.root, "project");
     const other = join(store.root, "other");

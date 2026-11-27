@@ -1,4 +1,4 @@
 {
   "extends": "../../tsconfig.json",
-  "include": ["compatibility.ts", "runner.ts", "shared-store.test.ts"]
+  "include": ["*.ts"]
 }

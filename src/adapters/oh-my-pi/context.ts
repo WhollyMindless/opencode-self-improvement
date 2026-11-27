@@ -6,6 +6,10 @@ export interface OmpContext {
 
 export interface OmpEvents {
   session_start: unknown;
+  session_switch: unknown;
+  session_clear: unknown;
+  session_tree: unknown;
+  session_branch: unknown;
   session_shutdown: unknown;
   session_compact: unknown;
   before_agent_start: {
