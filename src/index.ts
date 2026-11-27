@@ -8,9 +8,10 @@
 // src/command.ts. The default export `{ id, setup(ctx) }` is checked against
 // the SDK's Plugin type using a type-only import (see the note on `plugin`).
 import { registerHooks, type RideAt } from "./events.ts";
-import { forgetUsage } from "./identity/host-events.ts";
+import { forgetUsage } from "./status/usage.ts";
 import { guarded, setGuardedFailureReporter } from "./core/hooks.ts";
 import type { PluginCtx } from "./adapters/opencode/context.ts";
+import { createOpenCodeLifecycle } from "./adapters/opencode/lifecycle.ts";
 import { createOpenCodeHost } from "./adapters/opencode/host.ts";
 import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { basename, join } from "node:path";
@@ -253,7 +254,7 @@ const impl = {
       | ((sid: string, messages: unknown) => void)
       | undefined;
 
-    const measuredController = await registerHooks(ctx, {
+    const lifecycle = await registerHooks(createOpenCodeLifecycle(ctx), {
       guarded,
       sessions,
       instanceDir,
@@ -384,8 +385,9 @@ const impl = {
     // Single cleanup returned by setup: tears down the measured listener and,
     // when enabled, the capture subscription. Future teardowns merge in here.
     return () => {
-      measuredController.abort();
-      if (captureCleanup) return captureCleanup();
+      const hooksDone = lifecycle.dispose();
+      const captureDone = captureCleanup?.();
+      return Promise.all([hooksDone, captureDone]).then(() => {});
     };
   },
 };

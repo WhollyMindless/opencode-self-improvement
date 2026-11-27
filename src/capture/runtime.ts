@@ -11,7 +11,7 @@ import {
   USER_GUIDED_TAG,
 } from "../core/tags.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
-import { captureSessionID } from "../identity/host-events.ts";
+import { captureSessionID } from "../adapters/opencode/observations.ts";
 import { bindSessionProvisional, writeTarget } from "../identity/repokey.ts";
 import { loadAll } from "../store/files/load.ts";
 import { isInjectable } from "../store/model/predicates.ts";
