@@ -23,9 +23,9 @@ apply; sharing a store does not mean injecting every memory into every request.
 - Branch: `test/554-harness-contracts`.
 - Remote backup: https://github.com/WhollyMindless/opencode-self-improvement/tree/test/554-harness-contracts
 - The local branch tracks `fork/test/554-harness-contracts`.
-- Previous code checkpoint: `0297d05d1bee4c5f8c97f81a5a1089b7b1d5ffe0`
-  (opt-in isolated oh-my-pi capture), published and verified. The current slice
-  packages the tools/context adapter and verifies CLI installation; its final
+- Previous code checkpoint: `01af7806ae86d00dd00d0465808e4581d14c19dc`
+  (packaged oh-my-pi tools/context installation), published and verified. The current slice
+  adds contextual pulls and verifies configurable installed entry points; its final
   commit is the branch tip accompanying these notes.
 - Last incorporated upstream main: `966bb7e` (merge of the host teardown probe, #551).
 - No implementation PR has been opened.
@@ -211,16 +211,49 @@ must remain. `docs/reference/oh-my-pi.md` documents checkout and packed-copy
 installation, store sharing, removal, and limitations. The README links that guide
 and distinguishes the adapter's features from the OpenCode feature list.
 
+## Contextual delivery and configuration
+
+The adapter now runs the shared contextual-pull policy on successful tool results.
+It returns replacement content to oh-my-pi, preserving existing text/image blocks
+and appending only the shared engine's memory suffix. Grounding observes the tool's
+original text. The default scope is `read`, `grep`, and `glob`; shell results remain
+outside that default, and failed results are skipped.
+
+The public `context` event supplies actual `toolResult` messages to the shared
+receipt book. Placement alone earns no pull credit. The matching session, transcript
+generation, call, tool, unique header, and complete row must reach that observation.
+Clipping a row after placement gives it no credit; duplicate requests cannot credit
+it twice. Later context/provider hooks and provider acceptance remain outside this
+boundary. No provider-specific payload parser or shared-engine change was needed.
+
+`createOhMyPiMemory({ options })` now honors `pullTools` instead of forcibly disabling
+it. It also passes shared budgets and other engine settings through as before. The
+installation guide documents a single configured extension entry point. The packed
+CLI test disables the default registration, loads a wrapper importing the installed
+package, and proves smaller context budgets and disabled pulls while recall still
+works. Native `omp plugin config` integration remains pending: the 19.2.1 public
+extension API does not expose its plugin-settings reader. We did not duplicate host
+configuration-path discovery or add an SDK dependency to the root package.
+
+Eleven adapter delivery scenarios were added; the missing delivery cases failed
+before implementation. Four real-SDK scenarios cover kept/clipped pulls, explicit
+disable, and arguments-only retrieval. The kept SDK scenario also failed before
+implementation. The fake provider's outgoing request and the receipt ledger agree
+after a later tool-result formatter. Settings and receipts are still startup/context
+observations, not live configuration or proof of model consumption.
+
+Upstream main was fetched again and was already incorporated (`966bb7e`).
+
 ## Current validation
 
 The last code validation used Windows, Bun 1.4.4, and OpenCode 2.4.2:
 
-- oh-my-pi adapter contracts: nineteen passed (eleven lifecycle/tools and eight
-  capture scenarios), included in the full unit run.
+- oh-my-pi adapter contracts: thirty passed (eleven lifecycle/tools, eleven
+  delivery/configuration, and eight capture scenarios), included in the full unit run.
 - Pinned SDK compatibility typecheck passed; the full optional integration suite:
-  eight passed, 192 parent-test assertions plus assertions inside the SDK children.
-  This includes the new installed CLI scenario.
-- Full unit suite, including simulator/shared initialization: 1,914 passed,
+  twelve passed, 216 parent-test assertions plus assertions inside the SDK children.
+  This includes four delivery scenarios and the expanded installed CLI configuration test.
+- Full unit suite, including simulator/shared initialization: 1,925 passed,
   34 skipped, no failures.
 - Comment policy, typecheck, lint, and formatting passed.
 - Real-host E2E: 57 passed, three failed. The full gate is therefore still red.
@@ -233,8 +266,10 @@ The capture trace does not establish whether OpenCode awaited plugin cleanup.
 The earlier targeted OpenCode 2.0.26 checks passed for loading, shared stores, and
 compaction (seven checks). That version was not rerun for the oh-my-pi checkpoints.
 Local logs, which are temporary and are not part of the remote backup, are
+`%TEMP%\osi-554-omp-delivery-gate.log` and
+`%TEMP%\osi-554-omp-delivery-integration.log` for this slice. The installation logs are
 `%TEMP%\osi-554-omp-install-gate.log` and
-`%TEMP%\osi-554-omp-install-integration.log` for this slice. The preceding capture
+`%TEMP%\osi-554-omp-install-integration.log`. The preceding capture
 logs are `%TEMP%\osi-554-omp-capture-gate.log` and
 `%TEMP%\osi-554-omp-capture-integration.log`. The previous lifecycle
 logs are `%TEMP%\osi-554-omp-lifecycle-gate.log` and
@@ -264,6 +299,9 @@ installation, scheduling, or actual process-exit behavior.
 
 1. Fetch upstream main and merge any new changes into this branch before the next
    implementation slice. Keep the work incremental and publish each useful checkpoint.
+   The next parity slice should map pre-compaction memory anchors to the host's
+   summarizer input; current compaction only invalidates the injection epoch.
+   Keep capture opt-in while settling its shutdown and provider-accounting limits.
 2. Add actual SDK branch/tree navigation and shutdown-deadline fault scenarios
    when expanding the supported lifecycle surface. Current checks cover their
    notifications and cooperative shutdown, not every host transition or process kill.

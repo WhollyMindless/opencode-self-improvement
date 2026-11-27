@@ -4,6 +4,10 @@ export interface OmpContext {
   sessionManager: { getSessionId(): string };
 }
 
+export type OmpContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
 export interface OmpEvents {
   agent_end: {
     messages: readonly unknown[];
@@ -17,6 +21,7 @@ export interface OmpEvents {
   session_branch: unknown;
   session_shutdown: unknown;
   session_compact: unknown;
+  context: { messages: readonly unknown[] };
   before_agent_start: {
     reason: "prompt" | "revive";
     prompt: string;
@@ -27,11 +32,19 @@ export interface OmpEvents {
     toolName: string;
     toolCallId: string;
     input: Record<string, unknown>;
-    content: readonly { type: string; text?: string }[];
+    content: readonly OmpContent[];
     details?: unknown;
     isError: boolean;
   };
 }
+
+export type OmpEventResult<K extends keyof OmpEvents> =
+  | void
+  | (K extends "before_agent_start"
+      ? { systemPrompt: string[] }
+      : K extends "tool_result"
+        ? { content: OmpContent[] }
+        : never);
 
 export interface OmpTool<C extends OmpContext = OmpContext> {
   name: string;
@@ -52,9 +65,6 @@ export interface OmpAPI<C extends OmpContext = OmpContext> {
   registerTool(tool: OmpTool<C>): void;
   on<K extends keyof OmpEvents>(
     event: K,
-    handler: (
-      event: OmpEvents[K],
-      ctx: C,
-    ) => Promise<void | { systemPrompt: string[] }>,
+    handler: (event: OmpEvents[K], ctx: C) => Promise<OmpEventResult<K>>,
   ): void;
 }

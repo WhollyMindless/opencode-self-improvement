@@ -5,8 +5,9 @@ This branch provides memory tools and selected memory context for **oh-my-pi
 support for upstream Pi, other derivatives, or dsh. These changes are not yet in
 the published npm release; install from this work branch or a package built from it.
 
-The normal installation registers fourteen memory tools and injects relevant
-memories before an agent turn. **Automatic capture is disabled.** Ask the agent
+The normal installation registers fourteen memory tools, injects relevant
+memories before an agent turn, and appends relevant memories to successful
+`read`, `grep`, and `glob` results. **Automatic capture is disabled.** Ask the agent
 to use `memory_remember` when you want a durable memory. Writes still pass the
 shared write gates; facts about project behavior may require reading the relevant
 code first.
@@ -68,6 +69,53 @@ a verified fact. Close it, start a fresh session in the same directory, and ask
 `memory_recall` for that fact. Then recall it from OpenCode using the same store.
 Use `omp plugin list` to check registration if memory tools are absent.
 
+## Configure the adapter
+
+The default installation uses the shared memory engine's defaults. For custom
+settings, create `memory-extension.ts` in the installation directory that contains
+the `opencode-self-improvement` dependency:
+
+```ts
+import { createOhMyPiMemory } from "opencode-self-improvement/oh-my-pi";
+
+export default createOhMyPiMemory({
+  options: {
+    injectBudget: 1200,
+    frontierBudget: 3600,
+    contradictionSurface: true,
+    pullTools: ["read", "grep", "glob"],
+    pullOutputChars: 512,
+  },
+});
+```
+
+Disable the default registration and load this entry point instead:
+
+```sh
+omp plugin disable opencode-self-improvement
+omp --extension /absolute/path/to/installation/memory-extension.ts
+```
+
+Keep the configured entry point next to its installed dependency so the package
+import resolves. For a checkout trial, use an absolute import of that checkout's
+`src/adapters/oh-my-pi/extension.ts`. Load only one entry point per session.
+Restart after changing settings; this is startup configuration, not live editing.
+To return to defaults, stop passing `--extension` and re-enable the plugin.
+
+`injectBudget` caps relevance context and each pull; `frontierBudget` caps the
+separate open-thread block. Omit either to retain the shared defaults and environment
+fallbacks. `pullTools: []` disables contextual pulls; `pullOutputChars: 0` searches
+tool arguments without including the output. A narrowed `pullTools` list uses the
+host's actual tool names. Failed tool results never receive pulls in this adapter.
+The shared selection rules and validation are described in
+[options](options.md). Automatic capture still requires an explicit capture
+binding; setting `autoCapture: true` alone cannot supply one. Compaction capture
+remains disabled.
+
+This configurable entry point is tested through the installed CLI. The native
+`omp plugin config` UI is not connected to these options yet: the public extension
+API in 19.2.1 does not expose its plugin-settings reader.
+
 ## Disable or remove
 
 ```sh
@@ -82,14 +130,21 @@ registration, not the shared memory store. OpenCode can still read those memorie
 ## Current limits
 
 - The packaged entry point supplies tools and context. It does not supply
-  automatic capture, compaction anchors, contextual tool pulls, or OpenCode UI
+  automatic capture, compaction anchors, or OpenCode UI
   surfaces and commands.
+- Pull usage is recorded when the adapter's `context` hook observes complete
+  memory rows in the matching tool result. Earlier tool-result transformations
+  are accounted for. Later context/provider transformations, request cancellation,
+  and provider rejection remain outside that observation; a receipt is not proof
+  of model consumption. Prompt-context accounting still observes placement at
+  `before_agent_start`.
 - The opt-in capture wrapper remains an SDK investigation under
   `integration/oh-my-pi/capture-extension.ts`; it is deliberately excluded from the
   tarball. Immediate shutdown can cancel capture. Provider registration, host cost
   accounting, and capture during additional lifecycle transitions need more work.
-- CLI installation, discovery, restart, recall/injection, project isolation,
+- CLI installation, discovery, configuration, restart, recall/injection, project isolation,
   uninstall, and OpenCode interoperability are tested with a local scripted model.
+  SDK tests check outgoing contextual pulls, clipped results, and disabled pulls.
   Interactive UI behavior and hosted-provider behavior are not established by
   those tests.
 

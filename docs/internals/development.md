@@ -83,6 +83,19 @@ project directory to share project memories. Global rows remain eligible across
 projects, subject to the ordinary selection rules.
 
 Successful text tool results supply grounding observations; failed reads do not.
+The shared pull policy runs on successful tool results, with `read`, `grep`, and
+`glob` enabled by default. The adapter returns replacement content, preserving
+images and existing blocks, and appends only the shared engine's suffix. It does
+not feed that added memory back into the same tool's grounding observation.
+The `context` hook decodes actual `toolResult` messages and settles held receipts;
+user/assistant quotations, another call, another session, or a retired transcript
+generation cannot credit a placement. Complete rows must survive earlier result
+transformations. Later context/provider transformations are opaque, as with the
+OpenCode context-stage observation; receipts do not establish provider acceptance.
+`createOhMyPiMemory({ options })` passes shared budgets and pull settings through;
+the [configuration example](../reference/oh-my-pi.md#configure-the-adapter) uses a
+single configured extension entry point. Native plugin-settings UI integration is
+still pending because the public extension API does not expose its reader.
 Missing identity, calls after shutdown, and already-aborted calls fail closed.
 Shutdown stops admission immediately, waits for initialization to settle, and
 drains admitted work. The host owns
@@ -113,7 +126,7 @@ that differs is refused. Runtime-registered provider implementations, host cost
 budgets, usage accounting, and packaged SDK sharing are not established by this
 proof. Root dependencies and the OpenCode generation call envelope stay unchanged.
 
-Compaction capture, contextual pulls, usage receipts, and compaction anchor
+Compaction capture, model usage accounting, and compaction anchor
 delivery remain unwired. Compaction only invalidates the shared injection epoch.
 Context accounting observes placement at
 `before_agent_start`; later host retries, aborts, or transformations can discard
@@ -161,8 +174,17 @@ manifest without a source-path override. A successful write survives process exi
 is recalled and injected on restart, stays hidden from another project, and remains
 readable through OpenCode after uninstalling the oh-my-pi registration. The test
 also checks that all fourteen tools appear exactly once and that the packaged
-default never makes a capture request. All host configuration and stores are
+default never makes a capture request. A configured entry point imported from the
+installed package changes context budgets and disables pulls while leaving
+explicit recall available. All host configuration and stores are
 temporary; the packaged capture investigation wrapper is intentionally absent.
+
+`delivery.test.ts` drives real SDK reads against a project memory and inspects
+the next request at the scripted provider. Its scenarios keep or clip the pulled
+row in a later tool-result handler, disable pulls, or search arguments only. The
+receipt ledger agrees with those outgoing requests. Adapter contracts separately
+cover mixed text/images, session and call identity, transcript replacement, and
+duplicate observations without requiring a host installation.
 
 The capture scenarios initialize extensions with the SDK's print/RPC runtime
 initializer, use its actual terminal events and reconstructed branch transcript,

@@ -11,6 +11,7 @@ import {
   type Fake,
   type Guest,
 } from "../../e2e/support/harness.ts";
+import { PULL_HEADER } from "../../src/inject/pull.ts";
 
 let fake: Fake;
 const guests: Guest[] = [];
@@ -136,7 +137,11 @@ test("a packed plugin installs into a fresh oh-my-pi home and shares memory afte
       },
     }),
   );
-  const cliTurn = async (steps: unknown[], cwd = g.projDir) => {
+  const cliTurn = async (
+    steps: unknown[],
+    cwd = g.projDir,
+    extra: string[] = [],
+  ) => {
     fake.setSteps({ "INSTALL::turn": [...steps, { content: "INSTALL-DONE" }] });
     await fake.reset();
     const result = await run(
@@ -150,6 +155,7 @@ test("a packed plugin installs into a fresh oh-my-pi home and shares memory afte
         "--no-context-files",
         "--no-title",
         "--no-session",
+        ...extra,
         "--model",
         "fixture/scripted",
         "--system-prompt",
@@ -181,7 +187,7 @@ test("a packed plugin installs into a fresh oh-my-pi home and shares memory afte
         ),
       ),
     ).toBe(false);
-    return { ...result, initial };
+    return { ...result, initial, requests };
   };
   await Bun.write(join(g.projDir, "observations.txt"), FACT);
   const first = await cliTurn([
@@ -195,10 +201,49 @@ test("a packed plugin installs into a fresh oh-my-pi home and shares memory afte
   ]);
   expect(first.stdout).toInclude("Remembered: learning in azurite");
   const restarted = await cliTurn([
+    call("read", { path: join(g.projDir, "observations.txt") }),
     call("memory_recall", { query: "azurite deployment cobalt queue" }),
   ]);
   expect(restarted.stdout).toInclude(FACT);
   expect(JSON.stringify(restarted.initial.messages[0])).toInclude(FACT);
+  expect(
+    JSON.stringify(
+      restarted.requests.flatMap((r) =>
+        r.messages.filter((m: any) => m.role === "tool"),
+      ),
+    ),
+  ).toInclude(PULL_HEADER);
+
+  // Use the documented configurable entry point from the installed package.
+  const configuredExtension = join(consumer, "memory-extension.ts");
+  await Bun.write(
+    configuredExtension,
+    `import { createOhMyPiMemory } from "opencode-self-improvement/oh-my-pi";
+export default createOhMyPiMemory({ options: {
+  injectBudget: 1, frontierBudget: 1, pullTools: [], contradictionSurface: false,
+} });\n`,
+  );
+  await run(
+    [process.execPath, CLI, "plugin", "disable", "opencode-self-improvement"],
+    g.projDir,
+    env,
+  );
+  const configured = await cliTurn(
+    [
+      call("read", { path: join(g.projDir, "observations.txt") }),
+      call("memory_recall", { query: "azurite deployment cobalt queue" }),
+    ],
+    g.projDir,
+    ["--extension", configuredExtension],
+  );
+  expect(JSON.stringify(configured.initial.messages[0])).not.toInclude(FACT);
+  expect(JSON.stringify(configured.requests)).not.toInclude(PULL_HEADER);
+  expect(configured.stdout).toInclude(FACT);
+  await run(
+    [process.execPath, CLI, "plugin", "enable", "opencode-self-improvement"],
+    g.projDir,
+    env,
+  );
   const other = join(g.root, "other-project");
   mkdirSync(other);
   const foreign = await cliTurn(

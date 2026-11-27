@@ -3,8 +3,15 @@ import { isAbsolute } from "node:path";
 import type { LifecycleHandlers } from "../../host/lifecycle.ts";
 import type { MemoryRuntime } from "../../host/runtime.ts";
 import { setupMemory } from "../../runtime/setup.ts";
-import type { OmpAPI, OmpContext, OmpEvents } from "./context.ts";
+import type {
+  OmpAPI,
+  OmpContent,
+  OmpContext,
+  OmpEvents,
+  OmpEventResult,
+} from "./context.ts";
 import { createOhMyPiCapture, type OmpCaptureBinding } from "./capture.ts";
+import { appendPull, observedToolResults, textContent } from "./delivery.ts";
 
 export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
   config: {
@@ -49,7 +56,7 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
         event: OmpEvents[K],
         sessionID: string,
         ctx: C,
-      ) => Promise<void | { systemPrompt: string[] }>,
+      ) => Promise<OmpEventResult<K>>,
     ): void {
       pi.on(name, async (event, ctx) => {
         if (closed || !handlers) return;
@@ -140,13 +147,17 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
                   tool: event.toolName,
                 });
               });
+              on("context", async (event, sessionID) => {
+                await shared.context({
+                  sessionID,
+                  observedResults: observedToolResults(event.messages),
+                });
+              });
               on("tool_result", async (event, sessionID) => {
                 // A failed read must not become grounding evidence for a settled write.
                 if (event.isError) return;
-                const text = event.content
-                  .filter((p) => p.type === "text")
-                  .map((p) => p.text ?? "")
-                  .join("\n");
+                const text = textContent(event.content);
+                let content: OmpContent[] | undefined;
                 await shared.afterTool({
                   sessionID,
                   callID: event.toolCallId,
@@ -157,8 +168,12 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
                     event.details && typeof event.details === "object"
                       ? (event.details as Record<string, unknown>)
                       : {},
-                  appendResult: () => false,
+                  appendResult: (after) => {
+                    content = appendPull(event.content, text, after);
+                    return content !== undefined;
+                  },
                 });
+                if (content) return { content };
               });
               on("session_compact", async (_event, sessionID) => {
                 await shared.compact({ sessionID, transcript: undefined });
@@ -179,7 +194,6 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
             autoCapture: !!config.capture,
             ...config.options,
             captureOnCompact: false,
-            pullTools: [],
           },
         },
       );
