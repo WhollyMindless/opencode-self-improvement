@@ -59,6 +59,7 @@
   },
   "scripts": {
     "test": "bun test ./test/ --parallel=4 --timeout=20000",
+    "test:simulator": "bun test ./test/simulator/ ./test/runtime/ --timeout=20000",
     "test:e2e": "bun test ./e2e/ --parallel=4 --timeout 240000",
     "gate": "bun scripts/merge-gate.ts",
     "gate:hooks": "git config core.hooksPath .githooks",
