@@ -188,6 +188,117 @@ describe("ambiguousLine", () => {
     expect(line).toContain("neither supersedes the other");
   });
 
+  // The evidence clause is everything between the first em dash and the Action
+  // sentence, so these pins cover the clause boundaries, not just a token.
+  const clause = (line: string): string =>
+    line.slice(line.indexOf(" — "), line.indexOf(". Action"));
+
+  test("a keyword-only difference names its origin", () => {
+    // The recall renderer prints `content` and never `kw`, so a bare token that
+    // exists only as a keyword sends the reader hunting for text neither row
+    // shows. Naming the origin makes the invisible difference findable.
+    const older: Memory = {
+      ...mem("release", "the cache is invalidated on write"),
+      kw: ["python"],
+    };
+    const newer = mem("release", "the cache is invalidated on write");
+    expect(clause(ambiguousLine([older, newer], [1, 2]))).toBe(
+      " — only in 1: python (keyword)",
+    );
+  });
+
+  test("a content-only difference keeps its clause bytes", () => {
+    // The guard for the whole change: tokens the reader can see in the text are
+    // never decorated. These are the exact bytes the clause had before keyword
+    // labeling existed, same fixture as the first test of this file.
+    expect(clause(ambiguousLine([BUILD, BUILD_EXAMPLES], [1, 2]))).toBe(
+      " — only in 2: example-images, example, images",
+    );
+  });
+
+  test("a token visible as content is not labeled, whatever the other row keywords it as", () => {
+    // `hourly` is content on row 1 and a keyword on row 2, so it is shared in
+    // the folded sets and belongs in no clause: calling it unique to row 1
+    // ignores that row 2 carries it, and labeling it a keyword on row 1 hides
+    // text the reader can see. The visible content tokens carry the clause
+    // unlabeled.
+    const a = mem("release", "the cache is invalidated on write hourly");
+    const b: Memory = {
+      ...mem("release", "the cache is invalidated nightly"),
+      kw: ["hourly"],
+    };
+    const line = ambiguousLine([a, b], [1, 2]);
+    expect(clause(line)).toBe(" — only in 1: write; only in 2: nightly");
+    expect(line).not.toContain("hourly");
+    expect(line).not.toContain("(keyword)");
+  });
+
+  test("a keyword is not claimed visible because the other row carries it as content", () => {
+    // The mirror of the previous pin: the keyword sits on row 1, the visible
+    // content on row 2, and the mixed token still appears nowhere.
+    const a: Memory = {
+      ...mem("release", "the cache is invalidated nightly"),
+      kw: ["hourly"],
+    };
+    const b = mem("release", "the cache is invalidated on write hourly");
+    const line = ambiguousLine([a, b], [1, 2]);
+    expect(clause(line)).toBe(" — only in 1: nightly; only in 2: write");
+    expect(line).not.toContain("hourly");
+    expect(line).not.toContain("(keyword)");
+  });
+
+  test("keyword-only differences on both sides are each labeled", () => {
+    const older: Memory = {
+      ...mem("release", "the cache is invalidated on write"),
+      kw: ["python"],
+    };
+    const newer: Memory = {
+      ...mem("release", "the cache is invalidated on write"),
+      kw: ["ruby"],
+    };
+    expect(clause(ambiguousLine([older, newer], [1, 2]))).toBe(
+      " — only in 1: python (keyword); only in 2: ruby (keyword)",
+    );
+  });
+
+  test("the cap counts tokens, and every token it shows keeps its label", () => {
+    // The bound in the capped-content test above is computed through
+    // contentTokens, so a keyword tail must cap at MAX_MARKER_TOKENS TOKENS —
+    // labels are decoration, not budget — and the withheld tokens stay absent.
+    const base =
+      "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo";
+    const short = mem("review", base);
+    const longKw: Memory = {
+      ...mem("review", base),
+      kw: [
+        "lima",
+        "mike",
+        "november",
+        "oscar",
+        "papa",
+        "quebec",
+        "romeo",
+        "sierra",
+      ],
+    };
+    const unique = [...contentTokens(longKw)].filter(
+      (t) => !contentTokens(short).has(t),
+    );
+    expect(unique.length).toBeGreaterThan(MAX_MARKER_TOKENS);
+    const line = ambiguousLine([short, longKw], [1, 2]);
+    expect(
+      clause(line).slice(clause(line).indexOf("only in 2: ")).split(",").length,
+    ).toBe(MAX_MARKER_TOKENS);
+    expect((line.match(/\(keyword\)/g) ?? []).length).toBe(MAX_MARKER_TOKENS);
+    expect(clause(line)).toBe(
+      " — only in 2: lima (keyword), mike (keyword), november (keyword), " +
+        "oscar (keyword), papa (keyword), quebec (keyword)" +
+        ` (+${unique.length - MAX_MARKER_TOKENS} more)`,
+    );
+    for (const tok of unique.slice(MAX_MARKER_TOKENS))
+      expect(line).not.toContain(tok);
+  });
+
   test("the dropped-token list is capped and says how much was withheld", () => {
     // The drop clause shares MAX_MARKER_TOKENS with the side lists; nothing else
     // bounds it, so a wide correction would otherwise dump its whole vocabulary
