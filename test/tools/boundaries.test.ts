@@ -28,6 +28,8 @@ import { removeStore } from "../helpers/remove-store.ts";
 //   * `kw` added to memory_remember and memory_update (write-time
 //     retrieval keywords: indexed by the store, never rendered).
 //   * Optional consolidation on memory_merge_review retains retrieval aliases.
+//   * `session` added to memory_remember: a boolean flag routing the write to
+//     the volatile per-session lane; nothing durable, so nothing else moves.
 const KW_WIRE = {
   type: "array",
   items: { type: "string" },
@@ -73,6 +75,11 @@ const EXPECTED_WIRE = {
         type: "boolean",
         description:
           "Store cross-project (visible in every repo): user preferences and general tooling habits. Default false = the memory belongs to THIS repo.",
+      },
+      session: {
+        type: "boolean",
+        description:
+          "true = a statement true for the CURRENT SESSION only: nothing is stored — it rides this session's injected block until compaction or a server restart, invisible to every other session. Incompatible with global. Omitted = durable, as always.",
       },
     },
     required: ["type", "scope", "content"],

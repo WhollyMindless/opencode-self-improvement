@@ -71,6 +71,12 @@ export const RememberArgs = z.object({
       "Store cross-project (visible in every repo): user preferences and general tooling habits. Default false = the memory belongs to THIS repo.",
     )
     .optional(),
+  session: z
+    .boolean()
+    .describe(
+      "true = a statement true for the CURRENT SESSION only: nothing is stored — it rides this session's injected block until compaction or a server restart, invisible to every other session. Incompatible with global. Omitted = durable, as always.",
+    )
+    .optional(),
 });
 
 export const InitArgs = z.object({
