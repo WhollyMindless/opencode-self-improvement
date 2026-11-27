@@ -50,11 +50,12 @@ export function createInjectionEpochs({
   forgetUsage,
   noteHits,
 }: InjectionEpochOptions) {
-  // Per-session frozen injection epochs: the STATIC STABLE CORE (standing
-  // digest + frontier + convergence) plus the store fingerprint it was
-  // rendered from. The prompt-dependent relevance block rides the same
-  // delivery as the core — the turn tail — but it is NOT part of the byte
-  // key: a change to the selection set moves the tail, never the prefix.
+  // Per-session frozen injection epochs: the STABLE CORE (standing digest +
+  // frontier + convergence), the prompt-dependent relevance block rendered
+  // beside it, and the store fingerprint both were rendered from. The core is
+  // the byte key; the block is compared as its own target, so the reason an
+  // epoch moved says which half moved. Both halves ride the same system
+  // delivery.
   // Recomputed on the first prompt of a tracked session, when injectable rows
   // change, or when a new prompt re-scores the block (see the
   // prompt/context/compaction hooks).
@@ -73,14 +74,16 @@ export function createInjectionEpochs({
       /**
        * The turn tail: the budgeted relevance block the surfaces report
        * against injectBudget. Frozen until (prompt, store) move, then
-       * re-derived — it is never part of the byte key, so a change to it
-       * never busts the prefix.
+       * re-derived. It is not part of the byte key — a change to it alone is
+       * accounted as a prompt move — but it is delivered bytes, and a change
+       * to it changes what the model is shown.
        */
       block: string;
       /**
        * Comparison key: the STABLE CORE only — the digest parts joined. The
-       * relevance block is deliberately excluded; joining it would re-bill
-       * the whole prefix on every selection-set change.
+       * relevance block is compared beside the key, not inside it, so a
+       * selection-set change is accounted as a prompt move rather than as a
+       * store move.
        */
       prefix: string;
       /**
@@ -107,10 +110,11 @@ export function createInjectionEpochs({
   // prompt. It is evicted together with the epoch and session ledgers.
   const latestPrompt = new Map<string, string>();
   // Recomputes since server start: every epoch move records one, so the
-  // surfaces can show why the delivery moved. Only a store_changed move
-  // busts the cache (the stable core's bytes moved or the store moved the
-  // delivery); a prompt_reveal move re-renders the turn tail and touches
-  // nothing the provider has cached.
+  // surfaces can show why the delivery moved. Reaching a move means delivered
+  // bytes changed; the two counts below split WHICH input moved them — the
+  // store fingerprint, or a new prompt re-scoring the block. Both are byte
+  // counts inside this plugin: the provider's prompt cache is not visible
+  // here, so neither count is a cache-miss measurement.
   let epochRecomputes = 0;
 
   // Per-session ledger, incremented at the injection decision below. Status
@@ -183,9 +187,9 @@ export function createInjectionEpochs({
   // join into the stable-core byte key the epoch compares against, so "did
   // the cache-critical prefix change?" is answered by the bytes the model
   // would actually see and never by a proxy (issue). The relevance block is
-  // deliberately NOT in the key: a change to the selection set moves the
-  // turn tail, never the prefix — joining it here would re-bill the whole
-  // prefix on every set change.
+  // deliberately NOT in the key: it is compared as its own target, so a
+  // selection-set change is accounted as a prompt move rather than as a store
+  // move. Both halves are pushed, so both are delivered bytes.
   const buildMemorySection = async (
     sid: string | undefined,
     mems: Memory[],
@@ -243,9 +247,9 @@ export function createInjectionEpochs({
     );
     const { block, shown: rode } = sel;
     // The comparison key is the STABLE CORE alone: the digest parts joined.
-    // The relevance block is deliberately excluded — it is the prompt-
-    // dependent tail, and joining it would re-bill the whole prefix on
-    // every selection-set change.
+    // The relevance block is the prompt-dependent half; it is compared as its
+    // own target below, so a store move and a prompt move stay separately
+    // accounted even when both change the delivery.
     const prefix = parts.join("\u0000");
     // Ledger terms/identities belong to the stored rows, but coverage refs
     // must describe only the text the model actually received.
@@ -382,19 +386,22 @@ export function createInjectionEpochs({
       evidenceContext,
     );
     epochRecomputes++;
-    // Ledger: a recompute of a live epoch whose STABLE CORE moved is an
-    // invalidation — that is the one thing the provider caches, and the AC
-    // forbids anything else from busting it. A prompt_reveal recompute moved
-    // only the turn tail (the selection set changed): the prefix is intact
-    // and the tail is re-sent every turn as input price, not cache-read
-    // price. The first epoch of a session busts nothing either. The epoch
-    // request count restarts with the new block.
+    // Ledger: reaching here means the delivered bytes changed, so a recompute
+    // of a live epoch is one more byte-moving epoch; the first epoch of a
+    // session has no earlier bytes to move. `storeMoves` splits out the moves
+    // the store fingerprint caused — a selection set can also move on a new
+    // prompt alone, and which input moved is all the reason records. Neither
+    // count is a provider cache miss: both halves ride the system channel,
+    // and a moved byte in it relocates where a prefix cache stops matching.
+    // That cost is not measured here. The epoch request count restarts with
+    // the new block.
     const st = statsFor(sid);
     st.epochRequests = 0;
-    if (reason === "store_changed") {
+    if (reason !== "first") {
       st.invalidations++;
       st.lastInvalidation = { at, reason };
     }
+    if (reason === "store_changed") st.storeMoves++;
     // Status hand-off for the terminal panel (src/tui.tsx) and any
     // out-of-process surface. Best-effort; never breaks injection.
     await flushStatus(sid);
@@ -408,13 +415,14 @@ export function createInjectionEpochs({
   ): Promise<void> => {
     const mems = await injectableRows(sid);
     if (typeof sid === "string") await refreshEpoch(sid, mems);
-    // Deliver the FROZEN stable core (digest + frontier + convergence),
-    // then the turn tail (the relevance block). Every core byte pushed onto
-    // the system prompt comes from the epoch, so between store-caused busts
-    // the provider sees an identical prefix and serves the conversation
-    // from cache (issue). A session with no epoch yet (no prompt recorded,
-    // or evicted from the LRU) still gets the standing digest, built fresh
-    // and uncached.
+    // Deliver the FROZEN stable core (digest + frontier + convergence), then
+    // the turn tail (the relevance block), both onto the system prompt. Every
+    // core byte comes from the epoch, so between store moves the core bytes
+    // are identical — pinned by test. The block is re-scored per prompt, so
+    // the delivered bytes move with the selection set; what that costs at the
+    // provider is not measured here. A session with no epoch yet (no prompt
+    // recorded, or evicted from the LRU) still gets the standing digest,
+    // built fresh.
     const ep = typeof sid === "string" ? epoch.get(sid) : undefined;
     if (ep) {
       for (const text of ep.parts) push(text);

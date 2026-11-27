@@ -1,15 +1,17 @@
-// Contract: the stable core rides the prompt cache; only the turn tail moves.
+// Contract: a set-growth turn moves the delivered block and accounts as a
+// prompt move, and the new row still rides.
 //
-// The injected memory block busts the prompt cache when the selection SET
-// changes. The epoch's cache key is the stable core alone — the digest parts
-// (standing digest + frontier + convergence, prompt-independent by
-// construction) joined. The prompt-dependent tail (the relevance block) is
-// delivered per turn and never busts the prefix, so a set-growth turn keeps
-// the same bytes and records no invalidation.
+// The epoch's byte key is the stable core alone — the digest parts (standing
+// digest + frontier + convergence, prompt-independent by construction)
+// joined. The prompt-dependent relevance block is compared as its own target,
+// so a turn whose selection set grows moves the block without moving the
+// core. Both halves are pushed onto the system prompt, so both are bytes the
+// model is shown; what a moved block costs at the provider is not measured
+// here.
 //
-// This file pins that case: a turn whose selection set grows must NOT move
-// the stable core, the new row must still be delivered (stability is not
-// staleness), and no invalidation may fire.
+// This file pins that case: a turn whose selection set grows keeps the core
+// bytes identical, still delivers the new row (stability is not staleness),
+// and is counted as a byte-moving epoch with no store move.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -100,8 +102,8 @@ async function deliveredSystem(loaded: Loaded, sid: string): Promise<string> {
 }
 
 // The stable core: the digest section, everything before the relevance block.
-// Byte-identical prefixes are what the provider's cache keys on; the block
-// below them is the turn tail.
+// These are the bytes the epoch's comparison key holds; the block below them
+// is the turn tail, delivered on the same channel.
 function digestOf(system: string): string {
   const start = system.indexOf("## Persistent memory");
   if (start === -1) return "";
@@ -133,13 +135,15 @@ describe("the stable core does not move on a set-growth turn", () => {
     expect(blockAB).toContain(ROW_A);
     expect(blockAB).toContain(ROW_B);
 
-    // The prefix never moved: the stable core is byte-identical, only the
-    // tail (the relevance block) changed.
+    // The core bytes never moved: byte-identical, with only the relevance
+    // block changing below them.
     expect(digestOf(await deliveredSystem(loaded, sid))).toBe(coreA);
 
-    // No invalidation fired for the growth turn — only the store-changing
-    // half of the AC may.
+    // The growth turn moved delivered bytes, so it counts as one byte-moving
+    // epoch (the first epoch of a session is not one). No store write
+    // happened, so it is not a store move.
     const status = await readStatus(sid);
-    expect(status?.stats?.invalidations ?? 0).toBe(0);
+    expect(status?.stats?.invalidations ?? 0).toBe(1);
+    expect(status?.stats?.storeMoves).toBe(0);
   });
 });

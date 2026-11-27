@@ -81,6 +81,10 @@ export interface StoreCounts {
  * bytes). Cumulative fields are session-lifetime; epochRequests resets when a
  * new epoch freezes. `invalidations` counts epochs whose bytes moved (the
  * first epoch is not one), not provider cache misses or re-prefill tokens.
+ * `storeMoves` is the subset of those moves whose STORE fingerprint moved: a
+ * selection set can also move on a new prompt, so every store move is a byte
+ * move and not every byte move is a store move. Both are byte counts inside
+ * this plugin — neither is a provider cache receipt.
  */
 export interface SessionStats {
   requests: number; // provider requests that injected through session.context
@@ -88,6 +92,7 @@ export interface SessionStats {
   cumChars: number; // lifetime sum of injected block chars
   epochRequests: number; // requests the CURRENT epoch block has ridden
   invalidations: number; // epochs whose bytes moved; provider cost is separate
+  storeMoves: number; // byte-moving epochs whose store fingerprint moved
   lastInvalidation: { at: string; reason: string } | null;
 }
 
@@ -98,6 +103,7 @@ export function emptyStats(): SessionStats {
     cumChars: 0,
     epochRequests: 0,
     invalidations: 0,
+    storeMoves: 0,
     lastInvalidation: null,
   };
 }

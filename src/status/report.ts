@@ -61,6 +61,16 @@ export function cacheLines(p: StatusPayload): string[] {
           }`,
           "                 counts memory-section byte changes, not provider cache misses",
         ];
+  // The byte-moving count split by input: how many of those moves a store
+  // write caused. A move it did not cause came from a new prompt re-scoring
+  // the relevance block, which is also delivered bytes.
+  const storeMoves = st.storeMoves ?? 0;
+  const store =
+    storeMoves === 0 && st.invalidations > 0
+      ? [
+          "  epochs the store moved    0 — every byte move came from a new prompt, not a write",
+        ]
+      : [`  epochs the store moved    ${storeMoves} this session`];
   const rate = cacheRate(p.measured);
   const receipts = rate
     ? [
@@ -75,6 +85,7 @@ export function cacheLines(p: StatusPayload): string[] {
       ];
   return [
     ...inv,
+    ...store,
     ...receipts,
     `  recomputes     ${p.recomputes} block builds since server start (all sessions)`,
   ];
