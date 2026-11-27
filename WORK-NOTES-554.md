@@ -1,6 +1,6 @@
 # Temporary harness support work notes
 
-Updated 2026-11-26. This is a handoff for the current branch, not permanent
+Updated 2026-11-27. This is a handoff for the current branch, not permanent
 project documentation. Update it while the work is active, then remove it
 before an upstream merge. Keep lasting architectural guidance in
 `docs/internals/development.md` and the eventual PR description.
@@ -23,14 +23,18 @@ apply; sharing a store does not mean injecting every memory into every request.
 - Branch: `test/554-harness-contracts`.
 - Remote backup: https://github.com/WhollyMindless/opencode-self-improvement/tree/test/554-harness-contracts
 - The local branch tracks `fork/test/554-harness-contracts`.
-- Code checkpoint: `7c0036d8de2751aba090ed70a2e3f7dd4da2b589`, published and verified.
+- Previous code checkpoint: `7c0036d8de2751aba090ed70a2e3f7dd4da2b589`;
+  notes checkpoint: `4823543`. Both were published and verified.
 - Last incorporated upstream main: `966bb7e` (merge of the host teardown probe, #551).
 - No implementation PR has been opened.
 
 The contribution offer is https://github.com/abogartz/opencode-self-improvement/issues/554.
-At the last check it was open with no comments, assignee, or linked PR. There
-is no maintainer-agreed implementation scope yet. The separate scheduled watch
-reports changes; it does not post replies or claim work.
+At the last check it was open, with our explicitly authorized
+[investigation update](https://github.com/abogartz/opencode-self-improvement/issues/554#issuecomment-7208768413),
+no maintainer response, assignee, or linked PR. There is no maintainer-agreed
+implementation scope yet. The separate scheduled watch reports changes; it does
+not post replies or claim work. Its old zero-comment baseline is stale; do not
+report our existing update again as a new development.
 
 ## What is done
 
@@ -49,6 +53,7 @@ the shared engine through `setupMemory`. `src/adapters/opencode/` owns OpenCode
 payload decoding, registrations, model calls, and command installation. Existing
 OpenCode package entry points and store paths remain compatible. These interfaces
 are internal; we have not published an adapter SDK or implemented dsh/Pi support.
+The current slice adds a narrow oh-my-pi proof described below.
 
 The new host in `test/simulator/` runs the real tools, selection, capture, storage,
 and telemetry against temporary stores. It can pause or fail calls, release model
@@ -62,12 +67,62 @@ failure, and missing capabilities. Shared initialization tests also use this hos
 The intended testing sequence is simulator scenarios, adapter payload contracts,
 then pinned real-host smoke tests.
 
+## First real candidate: oh-my-pi
+
+Fetched `origin/main` before this slice; it was already incorporated at `966bb7e`.
+The candidate inspection found:
+
+- [oh-my-pi](https://github.com/can1357/oh-my-pi): published
+  `@oh-my-pi/pi-coding-agent` 19.2.1 requires Bun >=1.4.4. Its extension factory,
+  tools, session context, tool-result events, and `before_agent_start` cover the
+  first slice directly. Shutdown is bounded by the host; transcript/model
+  generation and compaction injection still need separate work.
+- [Pi](https://github.com/earendil-works/pi): the repository now resolves here
+  from badlogic/pi-mono. The current package is `@earendil-works/pi-coding-agent`
+  1.6.1, Node >=22.19.0. The old `@mariozechner/pi-coding-agent` package is 0.73.1.
+  Similar-looking extension APIs differ, including context hooks and factory
+  lifetime. Do not reuse the oh-my-pi adapter without an independent contract.
+- [dsh](https://github.com/deepseek-ai/deepseek-harness):
+  `@deepseek-ai/dsh` 0.2.2-rc.5, Node >=24.9.0. Its Cordis plugin services expose
+  tools, system prompt assembly, sessions, agent lifecycle, and tool execution
+  middleware. The default branch is `master`. It needs its own adapter and an
+  explicit runtime strategy for the Bun engine.
+
+These versions were checked on 2026-11-27. Only oh-my-pi has been installed and
+exercised in this slice. It was chosen because its native Bun runtime removes a
+worker bridge from the first feasibility proof, not because Pi/dsh are ruled out.
+The integration lockfile pins the exact published oh-my-pi dependency graph.
+
+`src/adapters/oh-my-pi/` now translates tools, identity, successful tool results,
+selected system context, and shutdown through `setupMemory`. A unique transient
+session namespace prevents colliding host IDs from sharing grounding/identity.
+There is no durable harness partition and no store migration. Four adapter unit
+tests cover schemas, gates, project/global scope, relevance, colliding IDs,
+failed reads, malformed arguments, aborts, late calls, and registration failure.
+
+`integration/oh-my-pi/` is an optional, pinned real SDK test package. Its typecheck
+also checks the adapter's structural subset against the actual SDK declarations.
+Two real-host scenarios passed with 110 assertions using OpenCode 2.4.2 and
+oh-my-pi 19.2.1: writes/read grounding in both directions, project/global scope,
+selection in the outgoing system request, foreign-project mutation rejection,
+corrections and deletion across subsequent host sessions. The model is scripted
+locally; no paid model or user credentials are involved.
+
+This is a source-path extension, not an advertised npm adapter release. Capture,
+contextual pulls, usage receipts, compaction anchors, interactive UI, packaged
+installation, concurrent cross-host writes, and relocated checkouts are not yet
+proven. Read the precise limits and reproduction commands in
+`docs/internals/development.md`.
+
 ## Current validation
 
 The last code validation used Windows, Bun 1.4.4, and OpenCode 2.4.2:
 
-- Simulator and shared initialization: 18 passed.
-- Full unit suite: 1,895 passed, 34 skipped, no failures.
+- oh-my-pi adapter contracts: four passed, 27 assertions.
+- Pinned SDK compatibility typecheck passed; real cross-harness integration:
+  two passed, 110 assertions.
+- Full unit suite, including simulator/shared initialization: 1,899 passed,
+  34 skipped, no failures.
 - Comment policy, typecheck, lint, and formatting passed.
 - Real-host E2E: 57 passed, three failed. The full gate is therefore still red.
 
@@ -79,6 +134,8 @@ The capture trace does not establish whether OpenCode awaited plugin cleanup.
 The earlier targeted OpenCode 2.0.26 checks passed for loading, shared stores, and
 compaction (seven checks). That version was not rerun for the latest test-only commit.
 Local logs, which are temporary and are not part of the remote backup, are
+`%TEMP%\osi-554-omp-gate.log` and `%TEMP%\osi-554-omp-integration.log` for
+this slice. The earlier checkpoint logs remain
 `%TEMP%\osi-554-simulator-gate.log` and `%TEMP%\osi-554-simulator-final.log`.
 
 Useful commands:
@@ -86,6 +143,8 @@ Useful commands:
 ```sh
 bun run test:simulator
 bun run test:simulator -t "dispose during a paused transcript"
+bun install --cwd integration/oh-my-pi --frozen-lockfile
+bun run test:oh-my-pi
 bun run typecheck
 bun run test
 bun run gate
@@ -100,19 +159,19 @@ installation, scheduling, or actual process-exit behavior.
 
 1. Fetch upstream main and merge any new changes into this branch before the next
    implementation slice. Keep the work incremental and publish each useful checkpoint.
-2. Inspect and pin the actual extension APIs for dsh, Pi, and oh-my-pi. Record which
-   tool, identity, context, transcript, generation, and shutdown capabilities each
-   supplies. Do not assume Pi derivatives have interchangeable extension APIs.
-3. Choose the first adapter and its runtime arrangement from that evidence. The
-   engine still requires Bun. A host using another runtime needs a tested in-process
-   arrangement or a Bun worker bridge; extracting interfaces alone has not solved it.
-4. Build one narrow adapter through the shared interfaces. Start with tools, project
-   identity, and selected context delivery; add capture as the host capabilities allow.
-   Reuse shared behavioral tests and add recorded payload tests for the actual API.
-5. Prove sharing in both directions with a real second harness: write through one,
-   read or select through the other; also check project isolation, global eligibility,
-   corrections, and deletion. Then run installation and lifecycle smoke tests against
-   pinned releases before claiming support.
+2. Extend the oh-my-pi proof with host lifecycle scenarios: session switches,
+   compaction, aborted preparation, and shutdown while a write is pending. The
+   simulator can establish the core behavior, then pinned SDK scenarios must
+   establish the host mapping.
+3. Add transcript/generation access and automatic capture only after their identity,
+   cursor, cancellation, and teardown contracts are clear. Keep optional features
+   disabled until their real-host tests pass.
+4. Decide packaging and installation after the source-path experiment is stable.
+   An npm export is not present yet. Preserve the OpenCode installation surface.
+5. Design and test a Bun worker boundary for Node-based Pi/dsh, or prove a supported
+   in-process arrangement. The existing adapter interfaces do not solve runtime
+   compatibility. Implement each host's own payload/lifecycle mapping and reuse
+   the shared-store scenarios rather than assuming Pi derivatives are identical.
 
 Investigate the existing teardown failure as a separate, evidence-backed fix. The
 simulator can reproduce a suspected ordering problem, but a fix still needs the
@@ -129,7 +188,8 @@ real-host test. Keep the Windows viewer cleanup failures visible as well.
 - Cross-session visibility is covered; updating an already frozen injection block
   in a running session is not promised.
 - Keep host-specific types and payloads inside adapters. Missing optional capabilities
-  should degrade predictably, and adapters must release their own registrations.
+  should degrade predictably. Release registrations where the host exposes disposal;
+  otherwise close admission, drain work, and let the host unload its registrations.
 
 For the detailed contracts and simulator usage, start at
 `docs/internals/development.md`, `src/host/runtime.ts`,

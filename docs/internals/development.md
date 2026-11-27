@@ -57,7 +57,58 @@ Startup diagnostics derive capture availability from the supplied methods. Adapt
 
 `test/runtime/setup.test.ts` exercises complete setup with normalized hosts: tool-mediated writes and later-instance recall, project/global visibility, relevance-selected injection, an unresolved workspace, optional command installation, partial-setup cleanup, and capture draining despite a failing lifecycle disposer. These fixtures are not dsh or Pi adapters. The initialization interfaces are internal to the package rather than a newly published adapter SDK.
 
-Store ownership remains project/global, independent of the adapter. Existing store paths and `OPENCODE_MEMORY_DIR` remain unchanged for compatibility, so hosts configured to use the same root share the same rows. Store configuration is still process-wide; independently configured roots require separate processes. OpenCode session IDs retain their existing values; future adapters sharing one process must make transient session IDs distinct without adding harness ownership to durable rows. A real candidate adapter is the next integration step. The shared engine still requires Bun, so a host using a different runtime needs an explicit in-process or worker strategy.
+Store ownership remains project/global, independent of the adapter. Existing store paths and `OPENCODE_MEMORY_DIR` remain unchanged for compatibility, so hosts configured to use the same root share the same rows. Store configuration is still process-wide; independently configured roots require separate processes. OpenCode session IDs retain their existing values; other adapters sharing one process must make transient session IDs distinct without adding harness ownership to durable rows. The shared engine still requires Bun, so a host using a different runtime needs an explicit in-process or worker strategy.
+
+## Exploratory oh-my-pi adapter
+
+`src/adapters/oh-my-pi/extension.ts` is a checkout-only extension for
+`@oh-my-pi/pi-coding-agent` **19.2.1**, which requires Bun **1.4.4** or newer.
+Load that absolute source path using oh-my-pi's `--extension` option or the SDK's
+`additionalExtensionPaths`. This is an investigation entry point, with no new npm
+export or support claim for Pi or other derivatives. Host types remain inside the
+adapter; OpenCode installs do not acquire an oh-my-pi SDK dependency.
+
+The adapter registers the fourteen shared tools with their JSON schemas, binds
+each call to the host's absolute workspace and session identity, and places
+selected memory into `before_agent_start` system context. Each extension instance
+namespaces its transient session IDs; durable rows keep project/global ownership.
+Configure both hosts with the same `OPENCODE_MEMORY_DIR` and use the same local
+project directory to share project memories. Global rows remain eligible across
+projects, subject to the ordinary selection rules.
+
+Successful text tool results supply grounding observations; failed reads do not.
+Missing identity, calls after shutdown, and already-aborted calls fail closed.
+Shutdown stops admission immediately and drains admitted work. The host owns
+registration removal; a failed factory leaves any partially registered callbacks
+inert. Cancellation after a write begins does not roll back a durable write.
+
+Automatic capture, transcript/generation access, contextual pulls, usage receipts,
+and compaction anchor delivery are intentionally unwired. Compaction only
+invalidates the shared injection epoch. Context accounting observes placement at
+`before_agent_start`; later host retries, aborts, or transformations can discard
+that prepared request. The SDK's bounded shutdown behavior does not guarantee
+completion of arbitrarily slow storage operations. These limits need real-host
+tests before expanding the supported surface.
+
+The ordinary unit suite runs `test/host/oh-my-pi.test.ts` without an installed
+harness. The separate optional integration package pins the real SDK and its
+dependency lockfile:
+
+```sh
+bun install --cwd integration/oh-my-pi --frozen-lockfile
+bun run test:oh-my-pi
+```
+
+This command typechecks the structural adapter against the published SDK, then
+runs actual SDK sessions and OpenCode CLI processes against the local scripted
+model server. It needs `opencode` on `PATH` (or `OPENCODE_BIN`), but no model account
+or real API key. Homes, host settings, project directories, and stores are temporary.
+The scenarios verify writes in both directions, real read grounding, project/global
+visibility, relevance-selected system context, corrections, deletion, and rejected
+foreign-project mutations. They cover fresh sessions with matching local project
+identity; packaged installation, interactive UI behavior, concurrent host writes,
+relocated checkouts, and live replacement of a frozen injection block remain outside
+this proof. The optional suite is separate from the OpenCode gate and ordinary tests.
 
 ## Programmable test host
 
