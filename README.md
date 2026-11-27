@@ -1,8 +1,8 @@
 # Opencode-Self-Improvement
 
-**Stop re-teaching OpenCode your project.** Give [OpenCode](https://opencode.ai) a memory for the commands, conventions, and decisions you want it to carry into the next session.
+**Durable project memory for [OpenCode](https://opencode.ai).** A fresh session can build on the commands, conventions, and decisions saved in earlier sessions.
 
-Teach it how to run your tests on Monday. On Tuesday, ask it to run them in a fresh session. The plugin brings relevant memories into context automatically. It stores them locally, scopes them to your repo by default, and gives you a way to correct or undo them.
+Save your repo’s test command once, and OpenCode can recall it the next time you ask how to run tests. The plugin brings relevant memories into context automatically and stores them locally, scoped to your repo by default. You can inspect what it recalled and correct or undo a memory as the project changes.
 
 ## Quick start
 
