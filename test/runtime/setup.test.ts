@@ -1,12 +1,10 @@
+import { TestHost } from "../simulator/host.ts";
 import { describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { setupMemory } from "../../src/runtime/setup.ts";
-import type { MemoryHost } from "../../src/host/runtime.ts";
-import type { MemoryTool } from "../../src/host/contracts.ts";
-import type { LifecycleHandlers } from "../../src/host/lifecycle.ts";
-import { withTempStore } from "../harness.ts";
+import { withTempStore } from "../helpers/temp-store.ts";
 import { readEvidenceLog } from "../helpers/logfmt.ts";
 
 const store = withTempStore({ prefix: "osi-runtime-" });
@@ -18,61 +16,7 @@ const QUERY =
   "azurite deployment stale manifest and vermilion tooling expired cache";
 
 function driver(directory?: string) {
-  const tools = new Map<string, MemoryTool>();
-  let handlers!: LifecycleHandlers;
-  const host: MemoryHost = {
-    tools: {
-      directories: {},
-      async registerTools(register) {
-        register({
-          add(tool) {
-            tools.set(tool.name, tool);
-          },
-        });
-      },
-    },
-    lifecycle: {
-      async register(value) {
-        handlers = value;
-        return { async dispose() {} };
-      },
-    },
-    capture: { subscribedEvents: [] },
-  };
-  let calls = 0;
-  return {
-    host,
-    tools,
-    start: () =>
-      setupMemory(host, { directory, options: { autoCapture: false } }),
-    invoke: (sid: string, name: string, args: unknown) =>
-      tools
-        .get(name)!
-        .execute(args, { sessionID: sid, callID: `${sid}-${++calls}` }),
-    async ground(sid: string) {
-      await handlers.afterTool({
-        sessionID: sid,
-        callID: `${sid}-read`,
-        tool: "read",
-        args: {},
-        text: "observed",
-        metadata: {},
-        appendResult: () => false,
-      });
-    },
-    async request(sid: string, text: string) {
-      const system: string[] = [];
-      await handlers.prompt({ sessionID: sid, text });
-      await handlers.context({
-        sessionID: sid,
-        observedResults: [],
-        appendSystem(part) {
-          system.push(part);
-        },
-      });
-      return system.join("\n");
-    },
-  };
+  return new TestHost("runtime", { directory });
 }
 
 describe("shared runtime initialization", () => {

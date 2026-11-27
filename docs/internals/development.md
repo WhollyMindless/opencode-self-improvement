@@ -59,6 +59,53 @@ Startup diagnostics derive capture availability from the supplied methods. Adapt
 
 Store ownership remains project/global, independent of the adapter. Existing store paths and `OPENCODE_MEMORY_DIR` remain unchanged for compatibility, so hosts configured to use the same root share the same rows. Store configuration is still process-wide; independently configured roots require separate processes. OpenCode session IDs retain their existing values; future adapters sharing one process must make transient session IDs distinct without adding harness ownership to durable rows. A real candidate adapter is the next integration step. The shared engine still requires Bun, so a host using a different runtime needs an explicit in-process or worker strategy.
 
+## Programmable test host
+
+Run `bun run test:simulator` for the scripted-host scenarios and shared-initialization contracts. It needs Bun and this repository's dependencies, with no installed OpenCode, dsh, Pi, oh-my-pi, or model service. These tests also run in the ordinary unit suite. Narrow a reproduction with `bun run test:simulator -t "dispose during a paused transcript"`.
+
+`test/simulator/host.ts` implements the normalized host ports and calls the real `setupMemory`. Tools, selection, write gates, storage, and telemetry are production code. `test/helpers/temp-store.ts` supplies isolated stores without importing the OpenCode plugin; the existing OpenCode test harness re-exports that fixture for compatibility. `test/runtime/setup.test.ts` uses the programmable host instead of its former private driver.
+
+Use `runScenario` to own hosts, collect a single ordered trace, and clean up even after an assertion or checkpoint failure. Its trace records host inputs, model prompts and replies, requested versus delivered system text, tool-result transformations, and shutdown. Failures include the last 100 entries with their original sequence numbers. Trace snapshots retain session identity and replace callback functions with a marker. Use synthetic fixture content: traces intentionally include the supplied text.
+
+The main controls are:
+
+- `generation`, `transcriptReads`, `registration`, and `disposal` each accept `pause(label)`, `reply(value)`, or `fail(error)`. Pause the next call, await its `entered` checkpoint, then `resolve(value)` or `reject(error)`. Separate calls can be released in either order.
+- `turnEnd(sessionID)` queues a capture event. Its promise settles when the capture consumer resumes after processing that event, or when shutdown drops the queued event. Queue repeated events or call lifecycle methods in the desired order to reproduce a specific interleaving.
+- `emit`, `move`, `request`, `context`, and `toolResult` drive normalized lifecycle inputs. Context and tool-result controls can omit delivery surfaces or clip text after placement. Feed returned tool results into a later context's `observedResults` to test real receipt accounting.
+- `capabilities` can omit events, transcript access, or generation. Capture is opt-in in this test host (`options: { autoCapture: true }`); its default model response is an empty candidate list. No model request leaves the process.
+- `dispose()` models shutdown. Scenario cleanup also cancels held calls and drains tracked work, including setup parked at registration, before the temporary store is removed.
+
+For example, in a test under `test/simulator/`:
+
+```ts
+import { expect, test } from "bun:test";
+import { withTempStore } from "../helpers/temp-store.ts";
+import { runScenario } from "./scenario.ts";
+
+const store = withTempStore({ prefix: "osi-reproduction-" });
+
+test("dispose while the transcript read is pending", async () => {
+  await runScenario("pending transcript", async s => {
+    const host = s.host("writer", {
+      directory: store.root,
+      options: { autoCapture: true },
+    });
+    await host.start();
+    const read = host.transcriptReads.pause("transcript");
+    const turn = host.turnEnd("session-a");
+    await read.entered;
+    const cleanup = host.dispose();
+    read.resolve([]);
+    await Promise.all([turn, cleanup]);
+    expect(host.generation.calls).toHaveLength(0);
+  });
+});
+```
+
+Checkpoints control progress; there are no sleep-based success assertions. Ten-second watchdogs report stalls rather than advancing simulated time. The engine still uses its real clock, filesystem and bounded capture drain. Run scenarios sequentially within a process because engine configuration and session ledgers are process-wide. Use distinct session IDs across hosts unless testing an intentional collision. Each scenario resets capture cooldowns and cursors before starting; the store fixture handles shared state and filesystem isolation.
+
+This is the first testing layer, followed by recorded-payload adapter contracts and pinned real-host smoke tests. It models host admission and shutdown, including rejection of late hooks; it does not prove a released host's actual scheduling, payload shape, installation, or process-exit behavior. Keep the real-host suites and their current failure assertions intact. New adapters should reuse the shared behavioral scenarios while adding their own payload and real-host checks.
+
 ## The published surface is `package.json`
 
 `exports` is the only import surface other code can reach (`.` → `index.ts`, `./tui` → `src/tui/panel.tsx`); `files` is the packaging list. `files` covers `src/`, so anything reachable from an `exports` target ships, but a new top-level file or directory — or anything the plugin reads at runtime outside those paths — must be added to `files` or it works from the checkout and vanishes from the npm artifact. The packed-artifact load in `e2e/` turns that miss red.

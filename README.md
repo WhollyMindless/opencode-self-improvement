@@ -98,6 +98,7 @@ CI runs `bun run gate` (typecheck + lint + unit tests + terminal smoke and BDD) 
 bun run gate          # full gate: typecheck + lint + tests + smoke
 bun run gate:hooks    # once per clone: run the gate on `git push`
 bun run test          # unit tests (tests/)
+bun run test:simulator # scripted host scenarios; no harness CLI or model service
 bun run test:e2e      # BDD integration (e2e/) — needs opencode on PATH or OPENCODE_BIN
 ```
 
