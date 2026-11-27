@@ -178,7 +178,7 @@ export function captureLines(c: CaptureHealth): string[] {
       ];
     case "no_capabilities":
       return [
-        "  auto-capture: no_capabilities — the host lacks event.subscribe/generate.text/session.context, so auto-capture is disabled",
+        "  auto-capture: no_capabilities — the host lacks turn-end events, model generation, or transcript access, so auto-capture is disabled",
       ];
     case "switch_mismatch":
       return [

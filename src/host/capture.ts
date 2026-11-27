@@ -22,6 +22,10 @@ export interface CaptureTurnEnd {
 export interface MemoryCaptureHost {
   /** Diagnostic names of the host events, not shared dispatch vocabulary. */
   readonly subscribedEvents: readonly string[];
+  /** Optional diagnostic labels only; capabilities come from the methods below. */
+  readonly capabilityLabels?: Partial<
+    Record<"turnEndEvents" | "generateText" | "readTranscript", string>
+  >;
   turnEndEvents?: (signal: AbortSignal) => AsyncIterable<CaptureTurnEnd>;
   readTranscript?: (
     sessionID: string,
