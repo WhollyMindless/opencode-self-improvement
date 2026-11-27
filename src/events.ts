@@ -326,8 +326,9 @@ export async function registerHooks(
         // The payload's own messages ride along so the mining sees the
         // pre-compaction transcript even if the store moves under it.
         const onCompactCapture = getCompactCapture();
-        if (onCompactCapture && sid) {
-          onCompactCapture(sid, event.transcript);
+        if (onCompactCapture && sid && event.capture !== false) {
+          const work = onCompactCapture(sid, event.transcript);
+          if (work) event.captureStarted?.(work);
         }
       }),
 

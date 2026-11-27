@@ -21,6 +21,39 @@ const FACT = "The nightly archive job keeps fourteen days of tarballs.";
 const ANSWER = JSON.stringify([
   { type: "context", scope: "batch", content: FACT, status: "settled" },
 ]);
+
+test("overlapping compaction bindings preserve each operation's model and transcript after awaits", async () => {
+  const capture = createOhMyPiCapture();
+  const release = Promise.withResolvers<void>();
+  const run = (id: string) =>
+    capture.withBinding(
+      id,
+      {
+        messages: [{ role: "user", content: id }],
+        model: { providerID: id, id: "model" },
+        generateText: async () => id,
+      },
+      async () => {
+        await release.promise;
+        expect(await capture.host.readTranscript!(id)).toEqual([
+          { role: "user", text: id },
+        ]);
+        const model = capture.host.defaultModel!(id)!;
+        expect(model.providerID).toBe(id);
+        return capture.host.generateText!({
+          sessionID: id,
+          model,
+          prompt: "capture",
+          signal: new AbortController().signal,
+        });
+      },
+    );
+  const first = run("first");
+  const second = run("second");
+  release.resolve();
+  expect(await Promise.all([first, second])).toEqual(["first", "second"]);
+  expect(capture.host.defaultModel!("first")).toBeNull();
+});
 function binding(
   generateText: OmpCaptureBinding["generateText"] = async () => ANSWER,
 ): OmpCaptureBinding {

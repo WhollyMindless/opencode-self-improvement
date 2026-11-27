@@ -259,6 +259,30 @@ export default createOhMyPiMemory({ options: {
     g.projDir,
     env,
   );
+  const settings = join(g.env.OPENCODE_MEMORY_DIR, "oh-my-pi.json");
+  await Bun.write(
+    settings,
+    JSON.stringify({ autoCapture: false, pullTools: [] }),
+  );
+  const persisted = await cliTurn([
+    call("read", { path: join(g.projDir, "observations.txt") }),
+  ]);
+  expect(persisted.captures).toHaveLength(0);
+  expect(JSON.stringify(persisted.requests)).not.toInclude(PULL_HEADER);
+  await fake.reset();
+  await run(
+    [
+      process.execPath,
+      join(import.meta.dir, "workflows-runner.ts"),
+      g.projDir,
+      agentDir,
+      `http://127.0.0.1:${fake.port}/v1`,
+      join(installed, packed.exports["./oh-my-pi"]),
+    ],
+    g.projDir,
+    env,
+  );
+  rmSync(settings);
   const other = join(g.root, "other-project");
   mkdirSync(other);
   const foreign = await cliTurn(

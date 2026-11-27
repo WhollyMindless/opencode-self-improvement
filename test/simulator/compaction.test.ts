@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { appendMemory } from "../../src/store/files/append.ts";
+import { loadAll } from "../../src/store/files/load.ts";
 import { resolveRepo } from "../../src/identity/repokey.ts";
 import { readEvidenceLog } from "../helpers/logfmt.ts";
 import { withTempStore } from "../helpers/temp-store.ts";
@@ -22,6 +23,62 @@ function project(name: string) {
   mkdirSync(dir);
   return dir;
 }
+
+test("anchor-only preparation defers capture and exposes admitted work without blocking completion", async () => {
+  await runScenario("deferred compaction capture", async (s) => {
+    const h = s.host("host", {
+      directory: project("a"),
+      options: { autoCapture: true },
+    });
+    await h.start();
+    await h.ground("reader");
+    const transcript = [
+      {
+        role: "user" as const,
+        text: `${OWN} ${GLOBAL} These verified procedures should remain available after summarization.`,
+      },
+    ];
+    await h.emit("compact", {
+      sessionID: "reader",
+      phase: "prepare",
+      transcript,
+      capture: false,
+      captureStarted: () => {
+        throw new Error("anchor preparation started capture");
+      },
+    });
+    expect(h.generation.calls).toHaveLength(0);
+    const model = h.generation.pause("compaction model");
+    let captured: Promise<void> | undefined;
+    await h.emit("compact", {
+      sessionID: "reader",
+      phase: "prepare",
+      transcript,
+      captureStarted: (work) => {
+        captured = work;
+      },
+    });
+    expect(captured).toBeDefined();
+    await model.entered;
+    await h.emit("compact", {
+      sessionID: "reader",
+      phase: "complete",
+      transcript: undefined,
+    });
+    expect(rollups()).toHaveLength(1);
+    model.resolve(
+      JSON.stringify([
+        { type: "learning", scope: "release", content: OWN, status: "settled" },
+      ]),
+    );
+    await captured;
+    expect((await loadAll()).map((row) => row.content)).toEqual([OWN]);
+    expect(h.generation.calls).toHaveLength(1);
+    expect(readEvidenceLog().some((row) => row.ev === "hook_error")).toBe(
+      false,
+    );
+  });
+});
 
 test("the programmable compaction operation supplies scoped anchors before finalizing once", async () => {
   const a = project("a");

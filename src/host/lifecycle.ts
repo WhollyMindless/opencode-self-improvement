@@ -42,6 +42,10 @@ export interface CompactionEvent {
    * before summarization, then complete bookkeeping/epoch invalidation on success.
    */
   phase?: "prepare" | "complete";
+  /** False when the host is only requesting summary anchors. */
+  capture?: boolean;
+  /** Observe admitted capture for bounded shutdown without delaying compaction. */
+  captureStarted?: (work: Promise<void>) => void;
   appendSystem?: (text: string) => void;
   transcript: CaptureTranscript | undefined;
 }

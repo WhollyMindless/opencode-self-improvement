@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type {
   CaptureTranscript,
   MemoryCaptureHost,
@@ -20,11 +21,14 @@ interface Snapshot {
 }
 
 export function createOhMyPiCapture() {
+  const scoped = new AsyncLocalStorage<Omit<Snapshot, "done">>();
   const queue: Snapshot[] = [];
+  const compactions = new Set<Promise<void>>();
   let active: Snapshot | undefined;
   let wake = Promise.withResolvers<void>();
   let closed = false;
   let subscribed = false;
+  const current = () => scoped.getStore() ?? active;
   const close = () => {
     closed = true;
     active?.done.resolve();
@@ -61,13 +65,19 @@ export function createOhMyPiCapture() {
         close();
       }
     },
-    readTranscript: async (sid) =>
-      active?.sessionID === sid ? active.transcript : undefined,
-    defaultModel: (sid) =>
-      active && active.sessionID === sid ? { ...active.model } : null,
+    readTranscript: async (sid) => {
+      const snapshot = current();
+      return snapshot?.sessionID === sid ? snapshot.transcript : undefined;
+    },
+    defaultModel: (sid) => {
+      const snapshot = current();
+      return snapshot && snapshot.sessionID === sid
+        ? { ...snapshot.model }
+        : null;
+    },
     async generateText({ sessionID, model, prompt, signal }) {
       signal.throwIfAborted();
-      const snapshot = active;
+      const snapshot = current();
       if (!snapshot || snapshot.sessionID !== sessionID)
         throw new Error("oh-my-pi capture snapshot is unavailable");
       if (
@@ -83,13 +93,41 @@ export function createOhMyPiCapture() {
   return {
     host,
     close,
+    track(work: Promise<void>): void {
+      compactions.add(work);
+      work.then(
+        () => compactions.delete(work),
+        () => compactions.delete(work),
+      );
+    },
+    withBinding<T>(
+      sessionID: string,
+      binding: OmpCaptureBinding,
+      run: (transcript: CaptureTranscript) => T,
+    ): T {
+      const transcript = decodeTranscript(binding.messages);
+      return scoped.run(
+        {
+          sessionID,
+          transcript,
+          model: { ...binding.model },
+          generateText: binding.generateText,
+        },
+        () => run(transcript),
+      );
+    },
     async settle(timeoutMs: number): Promise<void> {
-      const pending = [...(active ? [active] : []), ...queue];
+      const pending = [
+        ...[...(active ? [active] : []), ...queue].map(
+          (item) => item.done.promise,
+        ),
+        ...compactions,
+      ];
       if (!pending.length) return;
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
-          Promise.all(pending.map((item) => item.done.promise)),
+          Promise.allSettled(pending),
           new Promise<void>((resolve) => {
             timer = setTimeout(resolve, timeoutMs);
           }),

@@ -9,7 +9,7 @@
     "./oh-my-pi": "./src/adapters/oh-my-pi/extension.ts"
   },
   "omp": {
-    "description": "Experimental shared memory, context, and automatic turn-end capture.",
+    "description": "Shared memory, context, native commands, and automatic turn-end and compaction capture.",
     "extensions": ["./src/adapters/oh-my-pi/extension.ts"]
   },
   "module": "index.ts",

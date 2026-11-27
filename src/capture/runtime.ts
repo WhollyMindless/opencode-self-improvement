@@ -1262,7 +1262,7 @@ export function configureAutoCapture(
           // Tracked, not just fired: cleanup must be able to drain this pass
           //, which is the only reason the seam keeps the promise.
           const phase = newPhase();
-          void track(
+          return track(
             // The predicate, not just the checks inside the pass: a rejection
             // from the awaited model call skips every abort check that follows
             // it and lands in the generic reporter, which would append

@@ -74,8 +74,10 @@ real-host capture control does not pin whether the write completes before or
 during cleanup; the deterministic capture disposal tests cover that ordering.
 
 The original standalone capture assertion remains unconditional and still fails
-on this Windows host. The cooperative control does not replace it, enable capture
-for oh-my-pi by default, or guarantee persistence after a forced process kill.
+on this Windows host. It is reported as
+[OpenCode #66868](https://github.com/anomalyco/opencode/issues/66868).
+The cooperative control does not replace it or guarantee persistence after a
+forced process kill. oh-my-pi has its own passing shutdown and capture tests.
 
 ## Host adapter boundary
 
@@ -92,6 +94,11 @@ injection epoch. Completion never appends context or starts another capture.
 Omitting the phase retains the combined contract used by OpenCode. An abandoned
 preparation does not finalize or invalidate the session; preparation-time capture,
 when enabled by a host, remains an independent pre-compaction operation.
+`capture: false` suppresses capture for an anchor-only preparation. A host may
+retain its pre-compaction snapshot and submit capture separately after commit.
+`captureStarted` observes the admitted task without joining it in the compaction
+hook. Hosts can include it in bounded shutdown grace; the shared runtime still
+owns cancellation and the write drain.
 
 A missing system-context callback skips injection and request accounting. Cleanup stops new callbacks synchronously, aborts the observation subscription, and attempts every registered hook disposer once; setup failure also releases hooks already registered. Already-started handlers finish against their captured delivery surfaces rather than silently dropping text while recording it as delivered. Capture keeps its separate bounded teardown policy. Tests cover normalized handlers without OpenCode envelopes, plus adapter ordering, concurrent receipt settlement, missing capabilities, registration rollback, and late callbacks after disposal.
 
@@ -181,10 +188,12 @@ user/assistant quotations, another call, another session, or a retired transcrip
 generation cannot credit a placement. Complete rows must survive earlier result
 transformations. Later context/provider transformations are opaque, as with the
 OpenCode context-stage observation; receipts do not establish provider acceptance.
-`createOhMyPiMemory({ options })` passes shared budgets and pull settings through;
-the [configuration example](../reference/oh-my-pi.md#configure-the-adapter) uses a
-single configured extension entry point. Native plugin-settings UI integration is
-still pending because the public extension API does not expose its reader.
+The normal entry point reads shared options from `<memory-root>/oh-my-pi.json`,
+or the file named by `OMP_MEMORY_CONFIG`. `createOhMyPiMemory({ options })`
+overrides those settings. See the [configuration reference](../reference/oh-my-pi.md#configure-the-adapter).
+The public extension API does not expose its plugin-settings UI reader.
+Native `/repo-init`, `/memory-report`, and `/memory` commands invoke the same
+shared tools directly and display their results without a model turn.
 Missing identity, calls after shutdown, and already-aborted calls fail closed.
 Shutdown stops admission immediately, waits for initialization to settle, and
 drains admitted work. The host owns
@@ -216,8 +225,9 @@ then cancels unanswered generation and invokes the shared bounded write drain.
 This leaves room within the host's two-second shutdown handler budget. Explicit
 custom capture bindings retain immediate cancellation at disposal. Slow storage
 or a forced process kill can still exceed those guarantees. Runtime-registered
-provider implementations, host cost budgets, and capture spend accounting remain
-outside the integration proof. OpenCode's generation envelope is unchanged.
+provider implementations are tested through the running host's registry. Host cost
+budgets and live hosted-provider behavior remain outside the integration proof.
+Capture spend remains an estimate. OpenCode's generation envelope is unchanged.
 
 The adapter maps `session.compacting` to the shared preparation phase and returns
 the anchor as `{ context }`, leaving messages and the default summary prompt
@@ -225,8 +235,14 @@ untouched. A mismatched event/context session ID cannot supply an anchor. The
 `session_compact` notification completes bookkeeping and invalidates the epoch,
 including paths where another extension provided the entire summary. The native
 19.2.1 runner keeps the last returned compaction-hook result; it does not merge
-context, prompt, or preserved data across extensions. Compaction capture remains
-unwired.
+context, prompt, or preserved data across extensions.
+`session_before_compact` snapshots the transcript being summarized and binds the
+model and credential resolver. Successful `session_compact` then starts shared
+capture against that snapshot, including extension-supplied summaries. Aborted
+preparations start no capture. Async-local bindings keep overlapping operations'
+transcripts and models separate. Disabling compaction capture omits the snapshot
+hook; enabling it makes 19.2.1 select paths that honor pre-compaction hooks instead
+of some background optimizations. Anchors do not start duplicate capture.
 Context accounting observes placement at
 `before_agent_start`; later host retries, aborts, or transformations can discard
 that prepared request. The SDK's bounded shutdown behavior does not guarantee
@@ -272,7 +288,7 @@ foreign-project mutations. They cover fresh sessions with matching local project
 identity; interactive UI behavior, concurrent host writes,
 relocated checkouts, and live replacement of a frozen injection block remain outside
 this proof. The SDK suite is separate from the OpenCode gate and ordinary tests;
-the `oh-my-pi` CI job installs its pinned dependencies and runs it on pull requests.
+the `oh-my-pi` CI matrix installs its pinned dependencies and runs it on Linux and Windows.
 
 `lifecycle.test.ts` drives actual SDK new-session, resume, clear, compaction, abort,
 and dispose operations in isolated children. A probe wraps the adapter's public
@@ -281,9 +297,9 @@ lock holds an admitted write. Handshakes establish ordering, with a watchdog onl
 to fail stalls. Tests verify that clear retains the host ID but retires grounding,
 an aborted preparation sends no model request and does not contaminate the next
 unrelated turn, compaction reselects durable memory, and cancellation plus disposal
-drains a held write before cleanup finishes. SDK shutdown is idempotent. Branch
-and tree notifications are covered by adapter unit contracts; their actual SDK
-navigation paths still need coverage. These checks do not establish forced-exit
+drains a held write before cleanup finishes. SDK shutdown is idempotent. Actual
+branch, tree, and switch operations are exercised by `capture-boundaries.test.ts`.
+These checks do not establish forced-exit
 durability beyond the host's shutdown deadline or confirm delivery after a later
 provider failure.
 
@@ -297,7 +313,9 @@ also checks that all fourteen tools appear exactly once, the packaged default
 captures a grounded memory that survives immediate CLI exit, and a fresh process
 recalls it. A configured entry point imported from the installed package disables
 capture, changes context budgets, and disables pulls while leaving
-explicit recall available. All host configuration and stores are
+explicit recall available. The normal registration also honors a persistent JSON
+file, and the installed package runs native commands without model calls.
+All host configuration and stores are
 temporary; no investigation wrapper is required or packaged.
 
 `delivery.test.ts` drives real SDK reads against a project memory and inspects
@@ -329,8 +347,17 @@ handler registration with an explicit completion handshake to keep the session
 open. The separate packed CLI scenario covers immediate exit without that
 handshake. `capture-shutdown.test.ts` holds a real provider response while SDK
 disposal begins: a quick answer persists, while an unanswered request is cancelled
-within the shutdown budget and cannot write after disposal. Capture during actual
-branch/tree navigation and compaction still needs broader real-host coverage.
+within the shutdown budget and cannot write after disposal.
+
+`capture-boundaries.test.ts` holds a capture response across actual branch/tree/
+switch operations and verifies the saved fact plus fresh grounding requirements.
+It also checks capture from the pre-compaction transcript after ordinary and
+extension-supplied summaries, cancellation, opt-out, and immediate shutdown with
+quick or unanswered compaction capture. `provider.test.ts` uses
+the running host's custom provider registry and configured capture model; valid
+answers persist while provider errors do not. `workflows.test.ts` checks native
+commands and JSON configuration through the SDK. These are deterministic provider
+contracts, not a live paid-provider trial.
 
 ## Programmable test host
 

@@ -1,9 +1,9 @@
 # Memory for oh-my-pi
 
 An experimental oh-my-pi adapter for this project's memory engine. It provides
-fourteen memory tools, relevant context, automatic turn-end capture, compaction
-anchors, and per-harness statistics. Memories can be shared with OpenCode using
-the same store and project directory.
+fourteen memory tools, relevant context, automatic turn-end and compaction capture,
+native memory commands, and per-harness statistics. Memories can be shared with
+OpenCode using the same store and project directory.
 
 Tested with **oh-my-pi 19.2.1 and Bun 1.4.4**. Upstream Pi and dsh are not supported
 by this adapter. The implementation is under consideration in
@@ -63,7 +63,8 @@ across projects. Relevance selection still determines what reaches each request.
 
 ## Verify it
 
-1. Ask the agent to call `memory_status` and confirm that the memory tools loaded.
+1. Run `/memory-report` (or `/memory`) to check status and per-harness statistics.
+   Run `/repo-init` to derive build/test command memories; `/repo-init force` refreshes them.
 2. Have it read a project file and use `memory_remember` to save a verified fact.
 3. Start a fresh session in the same project and recall that fact with `memory_recall`.
 4. To exercise auto-capture, discuss a durable, verified project fact and finish the
@@ -76,32 +77,26 @@ is broken. `memory_remember` remains the direct way to request a save.
 
 ## Configure or disable auto-capture
 
-Create a file such as `memory-extension.ts` at this checkout's root:
+Create `oh-my-pi.json` in your memory directory (`OPENCODE_MEMORY_DIR`, or
+`~/.config/opencode/memory` by default):
 
-```ts
-import { createOhMyPiMemory } from "./src/adapters/oh-my-pi/extension.ts";
-
-export default createOhMyPiMemory({
-  options: {
-    autoCapture: false,
-    // captureModel: "provider/model-id", // Must exist in the host's model registry.
-    injectBudget: 1200,
-  },
-});
+```json
+{
+  "autoCapture": false,
+  "injectBudget": 1200
+}
 ```
 
-Disable the default registration and launch with the configured entry point:
+Restart oh-my-pi after editing. The normal plugin registration reads this file;
+no wrapper is needed. Set `OMP_MEMORY_CONFIG` to an absolute JSON file path to use
+a different location. An explicitly selected missing or invalid file is an error.
+Use JSON booleans, not quoted strings.
 
-```sh
-omp plugin disable opencode-self-improvement
-omp --extension /absolute/path/to/opencode-memory/memory-extension.ts
-```
-
-Quote paths containing spaces. Load only one registration. To restore defaults,
-stop passing `--extension`, run `omp plugin enable opencode-self-improvement`,
-and restart. For an installed package, import from
-`opencode-self-improvement/oh-my-pi` instead. The native plugin configuration UI
-is not connected to these options yet.
+To retain turn-end capture but disable capture during compaction, set
+`"captureOnCompact": false`. Set `"captureModel": "provider/model-id"` to select
+a model from the host registry. Omit these settings to use automatic capture with
+the session's model. See the [configuration reference](docs/reference/oh-my-pi.md#configure-the-adapter)
+for more options and programmatic overrides.
 
 ## Ask an agent to install it
 
@@ -126,8 +121,11 @@ Normal capture calls have a 20-second abort deadline. On cooperative shutdown th
 adapter allows up to 500 ms for pending capture to settle, then cancels unanswered
 generation and uses the shared bounded write drain. Slow captures can therefore
 be lost on immediate exit; forced process termination cannot guarantee persistence.
-Capture during compaction remains disabled. Hosted-provider and interactive UI
-coverage is still limited; the tests use real hosts with a scripted local provider.
+Compaction capture uses a snapshot taken before summarization and starts only
+after successful compaction. Cancelled attempts do not start capture. The native
+commands run without a model turn; OpenCode's interactive memory panel is specific
+to OpenCode. Hosted-provider and interactive UI coverage is still limited; tests
+use the real SDK and CLI with scripted local and runtime-registered providers.
 
 ```sh
 omp plugin uninstall opencode-self-improvement

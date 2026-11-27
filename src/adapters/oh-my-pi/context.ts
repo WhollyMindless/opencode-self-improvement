@@ -34,6 +34,13 @@ export interface OmpEvents {
   session_branch: unknown;
   session_shutdown: unknown;
   session_compact: unknown;
+  session_before_compact: {
+    preparation: {
+      messagesToSummarize: readonly unknown[];
+      turnPrefixMessages: readonly unknown[];
+    };
+    signal: AbortSignal;
+  };
   "session.compacting": { sessionId: string; messages: readonly unknown[] };
   context: { messages: readonly unknown[] };
   before_agent_start: {
@@ -78,6 +85,17 @@ export interface OmpTool<C extends OmpContext = OmpContext> {
 }
 
 export interface OmpAPI<C extends OmpContext = OmpContext> {
+  registerCommand?(
+    name: string,
+    options: {
+      description: string;
+      handler(args: string, ctx: C): Promise<void>;
+    },
+  ): void;
+  sendMessage?(
+    message: { customType: string; content: string; display: boolean },
+    options?: { triggerTurn?: boolean },
+  ): void;
   registerTool(tool: OmpTool<C>): void;
   on<K extends keyof OmpEvents>(
     event: K,

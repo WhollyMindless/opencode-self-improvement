@@ -8,8 +8,8 @@ the published npm release; install from this work branch or a package built from
 The normal installation registers fourteen memory tools, injects relevant
 memories before an agent turn, and appends relevant memories to successful
 `read`, `grep`, and `glob` results. It also supplies durable-memory anchors to the
-host's compaction summarizer. **Automatic turn-end capture is enabled.** It uses
-the host's selected model and credential resolver to propose memories from a
+host's compaction summarizer. **Automatic turn-end and compaction capture are
+enabled.** They use the host's selected model and credential resolver to propose memories from a
 sanitized transcript. Set `autoCapture: false` to disable those extra model calls.
 Ask the agent to use `memory_remember` for an explicit save. Writes still pass the
 shared write gates; facts about project behavior may require reading the relevant
@@ -74,9 +74,29 @@ Use `omp plugin list` to check registration if memory tools are absent.
 
 ## Configure the adapter
 
-The default installation uses the shared memory engine's defaults. For custom
-settings, create `memory-extension.ts` in the installation directory that contains
-the `opencode-self-improvement` dependency:
+The normal entry point reads `oh-my-pi.json` from the shared memory directory:
+`OPENCODE_MEMORY_DIR`, or `~/.config/opencode/memory` by default. For example:
+
+```json
+{
+  "autoCapture": true,
+  "captureOnCompact": true,
+  "injectBudget": 1200,
+  "frontierBudget": 3600,
+  "pullTools": ["read", "grep", "glob"],
+  "pullOutputChars": 512
+}
+```
+
+Set `OMP_MEMORY_CONFIG` to an absolute path to select a different JSON file.
+An absent default file uses shared defaults. An explicitly selected missing file,
+invalid JSON, non-object value, or string in place of a boolean fails loading with
+a configuration error. Restart after editing; settings are read at startup.
+These options apply to oh-my-pi even when OpenCode shares the memory directory.
+
+For a programmatic configuration, create `memory-extension.ts` next to the
+installed `opencode-self-improvement` dependency. Explicit `options` override the
+JSON settings:
 
 ```ts
 import { createOhMyPiMemory } from "opencode-self-improvement/oh-my-pi";
@@ -114,13 +134,26 @@ The shared selection rules and validation are described in
 [options](options.md). Automatic capture uses the session model unless
 `captureModel: "provider/model-id"` selects a model in the host's registry.
 An unavailable configured model is refused rather than silently falling back.
-Compaction capture remains disabled. The
+Set `autoCapture: false` to disable all automatic capture, or
+`captureOnCompact: false` to retain turn-end capture only. The
 [oh-my-pi README](../../README.oh-my-pi.md) includes an agent-install prompt and
 an auto-capture opt-out example.
 
-This configurable entry point is tested through the installed CLI. The native
+Both JSON configuration and this configurable entry point are tested through the
+installed CLI. The native
 `omp plugin config` UI is not connected to these options yet: the public extension
 API in 19.2.1 does not expose its plugin-settings reader.
+
+## Native commands
+
+- `/repo-init` derives build, lint, test, and typecheck memories from the current
+  repository. `/repo-init force` refreshes the initialization stamp.
+- `/memory-report` shows the shared memory status and combined/per-harness activity.
+- `/memory` is a short alias for the same report.
+
+These commands invoke the shared memory tools directly and display the result
+without starting a model turn. All fourteen tools remain available to the agent.
+OpenCode's interactive memory panel remains specific to OpenCode.
 
 ## Disable or remove
 
@@ -146,10 +179,17 @@ Delivery is verified for ordinary LLM summarization. Snapcompact, handoff, and
 provider-native compaction paths are outside this integration proof; some host
 paths bypass the hook's context.
 
-Preparation supplies the anchor. The completion notification performs bookkeeping
-and refreshes the memory context for the next turn. Cancelling after preparation
-does not finalize the compaction or invalidate the frozen context; a retry remains
-usable. Automatic capture during compaction is still disabled.
+Preparation supplies the anchor and snapshots the transcript, model, and credential
+resolver. After the host commits compaction, automatic capture mines that snapshot
+through the shared gates; it never mines the replacement summary as if it were the
+original conversation. This also works when another extension supplies the summary.
+The completion notification performs bookkeeping and refreshes memory context for
+the next turn. Cancelling after preparation starts no capture and leaves a retry
+usable. The capture model call runs independently of the summarizer.
+
+In 19.2.1, registering a pre-compaction hook makes the host use compaction paths
+that honor extension hooks instead of some background optimizations. Setting
+`captureOnCompact: false` omits that snapshot hook while retaining memory anchors.
 
 In oh-my-pi 19.2.1, compaction-hook results are **not merged**: the last returned
 result wins. Multiple extensions customizing compaction can replace each other's
@@ -159,8 +199,8 @@ retry, empty stores, a replacement summary, and a later hook replacing our resul
 
 ## Statistics across harnesses
 
-Ask the agent to call `memory_status` for combined activity and separate harness
-totals from the shared store. OpenCode's `/memory-report` reads the same records.
+Run `/memory-report` or ask the agent to call `memory_status` for combined activity
+and separate harness totals. OpenCode's `/memory-report` reads the same records.
 Retrieval credits and capture activity carry `oh-my-pi` attribution; the memory
 inventory remains shared. Historical records without attribution count as
 OpenCode. The adapter snapshots usage from finalized assistant records at session
@@ -180,8 +220,8 @@ calls are excluded. Capture estimates are reported separately. See
 
 ## Current limits
 
-- The packaged entry point supplies tools, context, and automatic turn-end capture.
-  OpenCode UI surfaces and command equivalents remain incomplete.
+- The packaged entry point supplies tools, context, native commands, and automatic
+  turn-end and compaction capture. It does not port OpenCode's interactive panel.
 - Pull usage is recorded when the adapter's `context` hook observes complete
   memory rows in the matching tool result. Earlier tool-result transformations
   are accounted for. Later context/provider transformations, request cancellation,
@@ -193,8 +233,8 @@ calls are excluded. Capture estimates are reported separately. See
   refused. Generation has a 20-second abort deadline. Cooperative shutdown gives
   pending capture up to 500 ms before cancellation and the shared bounded write
   drain; slow or forcibly terminated captures can be lost. Runtime-registered
-  provider implementations, host cost budgets, and capture during additional
-  lifecycle transitions still need broader validation.
+  providers and session branch/tree/switch transitions are covered by real SDK
+  tests. Host cost budgets and live hosted-provider behavior remain unverified.
 - CLI installation, discovery, configuration, restart, recall/injection, project isolation,
   uninstall, and OpenCode interoperability are tested with a local scripted model.
   SDK tests check outgoing contextual pulls, clipped results, and disabled pulls.

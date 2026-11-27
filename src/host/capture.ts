@@ -12,7 +12,7 @@ export type CaptureTranscript = readonly CaptureMessage[];
 export type CompactCapture = (
   sessionID: string,
   transcript: CaptureTranscript | undefined,
-) => void;
+) => Promise<void> | undefined;
 
 export interface CaptureTurnEnd {
   /** Missing identity is observable, but must never start capture. */

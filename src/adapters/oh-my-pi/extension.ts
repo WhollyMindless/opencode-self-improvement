@@ -14,6 +14,8 @@ import { createOhMyPiCapture, type OmpCaptureBinding } from "./capture.ts";
 import { appendPull, observedToolResults, textContent } from "./delivery.ts";
 import { sessionUsage } from "./usage.ts";
 import { bindCompletion } from "./completion.ts";
+import { memoryOptions } from "./config.ts";
+import type { MemoryTool } from "../../host/contracts.ts";
 
 export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
   config: {
@@ -22,7 +24,13 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
   } = {},
 ) {
   return async function ohMyPiMemory(pi: OmpAPI<C>): Promise<void> {
+    const options = memoryOptions(config.options);
+    const tools = new Map<string, MemoryTool>();
     const capture = createOhMyPiCapture();
+    const compactions = new Map<
+      string,
+      { binding: OmpCaptureBinding; signal: AbortSignal }
+    >();
     const namespace = `oh-my-pi:${randomUUID()}:`;
     const pending = new Set<Promise<unknown>>();
     const initialized = Promise.withResolvers<void>();
@@ -83,6 +91,7 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
         }
       }
       closed = true;
+      compactions.clear();
       await initialized.promise;
       // Leave room for the shared write drain within the host's two-second cap.
       if (!config.capture) await capture.settle(500);
@@ -98,6 +107,7 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
             async registerTools(register) {
               register({
                 add(tool) {
+                  tools.set(tool.name, tool);
                   pi.registerTool({
                     name: tool.name,
                     label: tool.name,
@@ -132,13 +142,13 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
                 const binding =
                   !event.willContinue &&
                   !event.awaitingAsyncWork &&
-                  config.options?.autoCapture !== false
+                  options.autoCapture !== false
                     ? config.capture
                       ? config.capture(ctx)
                       : bindCompletion(
                           ctx,
                           event.messages,
-                          config.options?.captureModel,
+                          options.captureModel,
                         )
                     : undefined;
                 const captured = binding
@@ -158,11 +168,13 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
                   // Transcript replacement can retain the host ID. Old grounding
                   // and frozen context must not become evidence in the new view.
                   generation++;
+                  compactions.clear();
                   await track(reportUsage(identity(ctx), ctx));
                 });
               }
               on("before_agent_start", async (event, sessionID) => {
                 if (event.reason === "revive") return;
+                compactions.clear();
                 const systemPrompt = [...event.systemPrompt];
                 await shared.prompt({ sessionID, text: event.prompt });
                 await shared.context({
@@ -207,6 +219,26 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
                 });
                 if (content) return { content };
               });
+              if (
+                options.autoCapture !== false &&
+                options.captureOnCompact !== false
+              )
+                on("session_before_compact", async (event, sessionID, ctx) => {
+                  compactions.clear();
+                  if (event.signal.aborted) return;
+                  const messages = [
+                    ...event.preparation.messagesToSummarize,
+                    ...event.preparation.turnPrefixMessages,
+                  ];
+                  const binding = config.capture
+                    ? config.capture(ctx)
+                    : bindCompletion(ctx, messages, options.captureModel);
+                  if (binding)
+                    compactions.set(sessionID, {
+                      binding,
+                      signal: event.signal,
+                    });
+                });
               on("session.compacting", async (event, sessionID, ctx) => {
                 if (event.sessionId !== ctx.sessionManager.getSessionId())
                   return;
@@ -214,12 +246,29 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
                 await shared.compact({
                   sessionID,
                   phase: "prepare",
+                  capture: false,
                   transcript: undefined,
                   appendSystem: (text) => context.push(text),
                 });
                 if (context.length) return { context };
               });
               on("session_compact", async (_event, sessionID) => {
+                const snapshot = compactions.get(sessionID);
+                compactions.delete(sessionID);
+                // Mine the saved pre-compaction text only after the host commits;
+                // cancelled preparations must not start model work.
+                if (snapshot && !snapshot.signal.aborted)
+                  await capture.withBinding(
+                    sessionID,
+                    snapshot.binding,
+                    (transcript) =>
+                      shared.compact({
+                        sessionID,
+                        phase: "prepare",
+                        transcript,
+                        captureStarted: capture.track,
+                      }),
+                  );
                 await shared.compact({
                   sessionID,
                   phase: "complete",
@@ -240,11 +289,52 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
         {
           options: {
             autoCapture: true,
-            ...config.options,
-            captureOnCompact: false,
+            ...options,
           },
         },
       );
+      if (pi.registerCommand && pi.sendMessage) {
+        for (const [name, toolName, description] of [
+          [
+            "repo-init",
+            "memory_init",
+            "Initialize this project's build and test memories",
+          ],
+          [
+            "memory-report",
+            "memory_status",
+            "Show memory status and harness statistics",
+          ],
+          [
+            "memory",
+            "memory_status",
+            "Show memory status and harness statistics",
+          ],
+        ]) {
+          pi.registerCommand(name, {
+            description,
+            async handler(args, ctx) {
+              if (closed || !handlers)
+                throw new Error("oh-my-pi memory is closed");
+              const sessionID = identity(ctx);
+              const tool = tools.get(toolName);
+              if (!tool) throw new Error("Memory command is unavailable");
+              const result = await track(
+                tool.execute(
+                  toolName === "memory_init"
+                    ? { force: /\bforce\b/i.test(args) }
+                    : {},
+                  { sessionID, callID: randomUUID() },
+                ),
+              );
+              pi.sendMessage?.(
+                { customType: name, content: result.content, display: true },
+                { triggerTurn: false },
+              );
+            },
+          });
+        }
+      }
       // Shutdown may arrive while startup diagnostics are still being written.
       if (closed) await runtime.dispose();
     } catch (error) {
