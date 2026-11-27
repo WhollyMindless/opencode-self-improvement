@@ -31,9 +31,11 @@ apply; sharing a store does not mean injecting every memory into every request.
 - Last incorporated upstream main: `7b7d88e0` (README improvements, #556), merged
   in `fe00b8cf`. The README conflict was resolved by keeping the new upstream
   introduction/quick start and the experimental adapter notice.
-- The intended review venue is a public draft PR against the upstream project.
-  The fork remains the source branch and backup; upstream consideration is the
-  user's objective. This is still exploratory work without maintainer-agreed scope.
+- Upstream draft PR: https://github.com/abogartz/opencode-self-improvement/pull/560.
+  It targets upstream main from the fork's feature branch; the fork remains the
+  source and backup. The draft includes validation, the remaining host failure,
+  and a suggested review order. This is still exploratory work without
+  maintainer-agreed scope. CI was pending when the draft was opened.
 
 The contribution offer is https://github.com/abogartz/opencode-self-improvement/issues/554.
 At the last check it was open, with our explicitly authorized
