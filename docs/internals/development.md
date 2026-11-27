@@ -28,9 +28,10 @@ same interface with controlled failures and event ordering. Run
 `bun run test:simulator` without installing another harness or using a model
 service. These tests also run in the ordinary unit suite.
 
-Production adapter extraction is separate from this reference implementation.
-The existing OpenCode entry point and translation modules remain available while
-the shared engine is isolated. The package has no second harness export here.
+The production OpenCode adapter lives in `src/adapters/opencode/`, including
+its terminal UI. Its plugin supplies the same host interface as the reference
+implementation. Adapter conformance tests run the real engine with both hosts;
+the package keeps its existing OpenCode entry points.
 
 ## What the smoke suite boots
 
