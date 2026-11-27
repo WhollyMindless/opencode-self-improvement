@@ -25,6 +25,7 @@ import {
 import { writeStatus } from "../status/write.ts";
 import { callsFor } from "../capture/triggers.ts";
 import { authoredFor } from "../core/state.ts";
+import { currentHarness } from "../telemetry/harness.ts";
 
 interface InjectionEpochOptions {
   budget: number;
@@ -146,6 +147,7 @@ export function createInjectionEpochs({
     const all = await loadAll();
     const led = await readLedger();
     return {
+      harness: currentHarness(),
       at: ep.at,
       sessionID: sid,
       reason: ep.reason,
