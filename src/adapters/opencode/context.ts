@@ -1,5 +1,5 @@
 // Structural subset of the OpenCode host used by setup and hook wiring.
-interface ToolDef {
+export interface OpenCodeTool {
   name: string;
   description: string;
   input: Record<string, unknown>;
@@ -7,7 +7,7 @@ interface ToolDef {
   execute: (args: any, context: any) => Promise<{ content: string }>;
 }
 interface ToolEditorLike {
-  add: (tool: ToolDef) => void;
+  add: (tool: OpenCodeTool) => void;
 }
 interface HookReg {
   dispose?: () => Promise<void> | void;

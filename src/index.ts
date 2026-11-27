@@ -10,7 +10,8 @@
 import { registerHooks, type RideAt } from "./events.ts";
 import { forgetUsage } from "./identity/host-events.ts";
 import { guarded, setGuardedFailureReporter } from "./core/hooks.ts";
-import type { PluginCtx } from "./core/host.ts";
+import type { PluginCtx } from "./adapters/opencode/context.ts";
+import { createOpenCodeHost } from "./adapters/opencode/host.ts";
 import type { Cleanup, Plugin } from "@opencode/plugin/promise/plugin";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -174,6 +175,7 @@ const impl = {
     await ensureInitCommand();
     await ensureMemoryReportCommand();
 
+    const host = createOpenCodeHost(ctx);
     const {
       gateContext,
       ownerlessWriter,
@@ -181,7 +183,7 @@ const impl = {
       toolIds,
       bindSessionFromApi,
       bindSessionIdentity,
-    } = createSessionContext(ctx, { instanceDir, liveRoot });
+    } = createSessionContext(host.directories, { instanceDir, liveRoot });
 
     // ---- tools --------------------------------------------------------------
     // Use ledger. `query` is what retrieval was asked with; what gets
@@ -230,7 +232,7 @@ const impl = {
     });
     const flushStatus = sessions.flushStatus;
 
-    await ctx.tool?.transform((editor) =>
+    await host.registerTools((editor) =>
       registerMemoryTools(editor, {
         toolIds,
         bindSessionIdentity,
@@ -239,7 +241,6 @@ const impl = {
         gateContext,
         sessions,
         noteHits,
-        direct: { codemode: false } as const,
       }),
     );
     // ---- hooks (all fail-closed) -------------------------------------------

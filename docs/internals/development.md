@@ -31,6 +31,14 @@ supported host and announce how long the existing coverage will remain.
 
 `e2e/shared-store.test.ts` runs independent OpenCode instances against one memory root. It checks project isolation, global visibility, prompt-based selection, and corrections/deletions observed in subsequent sessions. Rows enter through the public tools and assertions inspect both recall results and the initial model request. These are contracts for future harness adapters to preserve; the suite currently exercises OpenCode only, with the same local project directory for same-project readers. It does not promise that a running session's frozen injection block changes after another process edits the store.
 
+## Host adapter boundary
+
+`src/host/contracts.ts` defines the current tool/identity boundary: schema-bearing memory tools, normalized per-call identity, and optional session-directory sources. `src/adapters/opencode/` translates OpenCode tool contexts and directory responses and supplies the OpenCode `codemode: false` registration option. Shared tools validate raw arguments themselves. Shared session policy still owns provisional/firm binding, lookup ordering, pending-lookup joins, and repository isolation. Missing directory sources do not invent a repository; OpenCode API errors retain the existing binding fallback behavior.
+
+`test/host/tool-contract.ts` is a reusable behavioral contract. It runs the real shared tools against both the OpenCode adapter and a minimal normalized in-memory host, checking validation, write gates, project/global visibility, updates, and deletion. The in-memory fixture is not a dsh or Pi implementation. The separate real-host suite still verifies actual OpenCode loading, delivery, and lifecycle behavior.
+
+This extraction does not yet generalize hook delivery, transcript decoding, model generation, command installation, or capture teardown. Those require their own ports and capability checks before a second harness can initialize the complete plugin. Store ownership remains project/global, independent of the adapter. OpenCode session IDs retain their existing values; any future adapters sharing one process must make transient session IDs distinct without adding harness ownership to durable rows. The shared runtime still requires Bun, so an adapter for a different runtime must explicitly choose an in-process runtime or a worker boundary.
+
 ## The published surface is `package.json`
 
 `exports` is the only import surface other code can reach (`.` → `index.ts`, `./tui` → `src/tui/panel.tsx`); `files` is the packaging list. `files` covers `src/`, so anything reachable from an `exports` target ships, but a new top-level file or directory — or anything the plugin reads at runtime outside those paths — must be added to `files` or it works from the checkout and vanishes from the npm artifact. The packed-artifact load in `e2e/` turns that miss red.
