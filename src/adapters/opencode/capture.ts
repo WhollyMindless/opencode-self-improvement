@@ -41,6 +41,11 @@ export function createOpenCodeCapture(ctx: PluginCtx): MemoryCaptureHost {
   const generateApi = ctx.generate;
   return {
     subscribedEvents: CAPTURE_EVENT_TYPES,
+    capabilityLabels: {
+      turnEndEvents: "event.subscribe",
+      generateText: "generate.text",
+      readTranscript: "session.context",
+    },
     turnEndEvents: eventApi?.subscribe
       ? async function* (signal) {
           for await (const raw of eventApi.subscribe({ signal })) {
