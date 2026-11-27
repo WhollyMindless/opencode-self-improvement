@@ -298,7 +298,10 @@ describe("auto-capture on the real host", () => {
       await Bun.sleep(100);
     }
     const ev = evidenceLines(g);
-    expect(rows.length).toBe(1);
+    expect(
+      rows.length,
+      `capture did not persist exactly one row; final evidence:\n${ev.slice(-12).join("\n")}`,
+    ).toBe(1);
     // Byte-for-byte: a pass that stored a paraphrase would still be "one row".
     expect(rows[0]).toContain(CANDIDATE.content);
     // The pass ran to completion, not just to the store: the completion receipt is

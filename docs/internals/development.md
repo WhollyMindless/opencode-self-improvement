@@ -31,6 +31,12 @@ supported host and announce how long the existing coverage will remain.
 
 `e2e/shared-store.test.ts` runs independent OpenCode instances against one memory root. It checks project isolation, global visibility, prompt-based selection, and corrections/deletions observed in subsequent sessions. Rows enter through the public tools and assertions inspect both recall results and the initial model request. These are contracts for future harness adapters to preserve; the suite currently exercises OpenCode only, with the same local project directory for same-project readers. It does not promise that a running session's frozen injection block changes after another process edits the store.
 
+## Adapter extraction baseline
+
+Before the adapter extraction, Windows with Bun 1.4.4 reproduced the real-host capture persistence failure on OpenCode 2.0.26 and 2.4.2. The retained 2.4.2 trace reached `auto_capture_seen`, `auto_capture_start`, and `capture_cost` (including returned text), then ended without `capture_lag`, a stored row, or `auto_capture_dispose`. This local observation narrows the gap to after the model answer; it does not establish whether the host awaited cleanup. The deterministic capture disposal and hook suites passed all 27 tests. Keep those contracts and the failing real-host assertion intact when extracting lifecycle handling.
+
+The full local gate also reproduced two Windows `EBUSY` failures in the viewer E2E cleanup, with the new shared-store suite excluded. Neither failure is an adapter regression. The shared-store scenarios pass on both host versions; they cover fresh sessions, not live replacement of a frozen injection block.
+
 ## The published surface is `package.json`
 
 `exports` is the only import surface other code can reach (`.` → `index.ts`, `./tui` → `src/tui/panel.tsx`); `files` is the packaging list. `files` covers `src/`, so anything reachable from an `exports` target ships, but a new top-level file or directory — or anything the plugin reads at runtime outside those paths — must be added to `files` or it works from the checkout and vanishes from the npm artifact. The packed-artifact load in `e2e/` turns that miss red.
