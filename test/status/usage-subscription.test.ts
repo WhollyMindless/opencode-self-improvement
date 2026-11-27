@@ -1,4 +1,4 @@
-import { createOpenCodeLifecycle } from "../../src/events.ts";
+import { createOpenCodeLifecycle } from "../../src/adapters/opencode/lifecycle.ts";
 import { expect, spyOn, test } from "bun:test";
 import { setImmediate } from "node:timers/promises";
 import { guarded } from "../../src/core/hooks.ts";

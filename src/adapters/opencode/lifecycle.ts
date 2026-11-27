@@ -1,16 +1,13 @@
-import { decodeTranscript } from "./capture/transcript.ts";
-import type { MemoryLifecycleHost } from "./host/lifecycle.ts";
-import type { PluginCtx } from "./core/host.ts";
-import {
-  sessionIdentityEvent,
-  sessionUsageEvent,
-} from "./identity/host-events.ts";
+import { decodeTranscript } from "./transcript.ts";
+import type { MemoryLifecycleHost } from "../../host/lifecycle.ts";
+import type { PluginCtx } from "./context.ts";
+import { sessionIdentityEvent, sessionUsageEvent } from "./observations.ts";
 import {
   observedToolResults,
   resultText,
   resultMeta,
   writePullIntoResult,
-} from "./inject/host-delivery.ts";
+} from "./delivery.ts";
 
 const string = (value: unknown) =>
   typeof value === "string" ? value : undefined;

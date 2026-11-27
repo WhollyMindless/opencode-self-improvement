@@ -3,13 +3,13 @@ import {
   captureSessionID,
   sessionIdentityEvent,
   sessionUsageEvent,
-} from "../../src/identity/host-events.ts";
+} from "../../src/adapters/opencode/observations.ts";
 import { foldUsage, forgetUsage } from "../../src/status/usage.ts";
 import {
   toolIdentity,
   sessionDirectoryFromMessages,
   sessionDirectoryFromRow,
-} from "../../src/core/host.ts";
+} from "../../src/adapters/opencode/identity.ts";
 
 describe("host compatibility adapters", () => {
   test("tool context uses id, with missing fields left to the caller's synchronous fallback", () => {

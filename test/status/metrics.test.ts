@@ -1,4 +1,4 @@
-import { decodeTranscript } from "../../src/capture/transcript.ts";
+import { decodeTranscript } from "../../src/adapters/opencode/transcript.ts";
 //— the store's own numbers: what a row costs, how fast the store grows,
 // how stale a capture is, and how much of the store never gets retrieved.
 // These are reported, never acted on; the tests pin the math and the wording.

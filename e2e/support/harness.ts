@@ -256,6 +256,7 @@ export async function turn(
   guest: Guest,
   prompt: string,
   timeoutMs = 180_000,
+  server?: string,
 ): Promise<Run> {
   await fake.reset(); // per-run episode: clean counters + clean request log
   // Native spawn, not node:child_process: on Windows the resolved CLI is
@@ -266,7 +267,7 @@ export async function turn(
     [
       resolveOpencode(),
       "run",
-      "--standalone",
+      ...(server ? ["--server", server] : ["--standalone"]),
       "--format",
       "json",
       "-m",

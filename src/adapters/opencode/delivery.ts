@@ -1,4 +1,4 @@
-import type { ObservedToolResult } from "../host/lifecycle.ts";
+import type { ObservedToolResult } from "../../host/lifecycle.ts";
 
 // Put the pull onto the host's tool result so the model actually reads it.
 // WHICH field the host forwards is measured, not assumed. On opencode v2.3.0

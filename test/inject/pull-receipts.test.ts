@@ -1,4 +1,4 @@
-import { observedToolResults } from "../../src/inject/host-delivery.ts";
+import { observedToolResults } from "../../src/adapters/opencode/delivery.ts";
 // A pull is credited when the request carries it, not when it is placed.
 // The receipt book is pure state, so its contract is pinned here without a
 // host: which rows a request's tool-result proves, and what is reported

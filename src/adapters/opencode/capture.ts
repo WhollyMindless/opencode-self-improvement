@@ -1,6 +1,6 @@
-import type { MemoryCaptureHost } from "../host/capture.ts";
-import type { PluginCtx } from "../core/host.ts";
-import { captureSessionID } from "../identity/host-events.ts";
+import type { MemoryCaptureHost } from "../../host/capture.ts";
+import type { PluginCtx } from "./context.ts";
+import { captureSessionID } from "./observations.ts";
 import { decodeTranscript } from "./transcript.ts";
 
 // ---- capture trigger vocabulary -------------------------------------

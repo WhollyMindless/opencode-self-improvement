@@ -1,4 +1,4 @@
-import type { CaptureMessage, CaptureTranscript } from "../host/capture.ts";
+import type { CaptureMessage, CaptureTranscript } from "../../host/capture.ts";
 
 function roleOf(
   m: Record<string, unknown>,

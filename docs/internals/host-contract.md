@@ -5,13 +5,12 @@
 capture policy, receipts and disposal. The programmable host in `test/simulator/`
 is the reference implementation: it runs that real engine without a vendor SDK.
 
-The existing OpenCode entry point and translators remain in `src/index.ts`,
-`src/core/host.ts`, `src/events.ts`, `src/capture/runtime.ts`,
-`src/capture/transcript.ts`, `src/identity/host-events.ts`, `src/init/ensure.ts`
-and `src/inject/host-delivery.ts`, with the terminal surface in `src/tui/`.
-Their extraction into a production adapter
-is a separate change. There is no second harness, SDK dependency, package export
-or harness-specific extension in this foundation.
+The OpenCode implementation lives in `src/adapters/opencode/`, including its
+terminal surface. `createOpenCodeMemoryHost` supplies the same interface as the
+reference host. Its plugin calls shared setup and returns shared cleanup;
+`src/index.ts` retains the existing entry point and compatibility exports.
+Vendor payload decoding, registration, transcript/model calls and native command
+installation belong to the adapter. Shared policy remains in `src/runtime/`.
 
 ## Required semantics
 
@@ -111,8 +110,12 @@ durability. Its tests belong with this interface, not with a production adapter.
 `test/host/tool-contract.ts` checks the shared validator, write gates, ownership,
 correction and deletion. `test/runtime/setup.test.ts` checks complete initialization,
 shared project/global storage, selected injection and cleanup. Existing OpenCode
-E2E checks remain the compatibility check for its retained entry point; production
-adapter-specific conformance tests accompany the separate extraction.
+E2E checks remain the compatibility check for its retained entry point.
+`test/runtime/opencode-conformance.test.ts` runs the shared engine with both the
+OpenCode adapter and the reference host, checking gated writes, selected recall
+and injection in both directions, and cleanup. `test/adapters/` verifies payload
+translation and registration independently. The OpenCode E2E suite also checks
+shared stores, packed entry points and cooperative teardown on the real host.
 
 The known Windows standalone cleanup assertion remains enabled; the independent
 reproduction is filed as [OpenCode #66868](https://github.com/anomalyco/opencode/issues/66868).

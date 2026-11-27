@@ -1,4 +1,4 @@
-import type { SessionIdentity, SessionUsage } from "../host/observations.ts";
+import type { SessionIdentity, SessionUsage } from "../../host/observations.ts";
 
 function fields(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object"

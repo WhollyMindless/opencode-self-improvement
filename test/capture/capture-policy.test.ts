@@ -1,4 +1,4 @@
-import { decodeTranscript } from "../../src/capture/transcript.ts";
+import { decodeTranscript } from "../../src/adapters/opencode/transcript.ts";
 // Capture policy: when is a capture worth paying for?
 //
 // The unit altitude — the signal verdicts and the cursor arithmetic. The e2e

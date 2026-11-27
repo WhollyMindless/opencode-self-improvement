@@ -1,4 +1,4 @@
-import { decodeTranscript } from "../../src/capture/transcript.ts";
+import { decodeTranscript } from "../../src/adapters/opencode/transcript.ts";
 // Contract (medium severity): auto-capture redacts
 // BEFORE it crops. captureSession used to mine `transcript.slice(-8000)` and
 // let buildCapturePrompt scrub the WINDOW — but a credential straddling the

@@ -20,6 +20,7 @@ const PKG_COMMANDS = join(
   dirname(fileURLToPath(import.meta.url)),
   "..",
   "..",
+  "..",
   "command",
 );
 

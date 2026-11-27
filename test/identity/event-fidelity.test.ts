@@ -16,7 +16,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SessionEvent } from "@opencode/schema/session-event";
 import { Schema } from "effect";
-import { IDENTITY_EVENT_TYPES } from "../../src/identity/host-events.ts";
+import { IDENTITY_EVENT_TYPES } from "../../src/adapters/opencode/observations.ts";
 import { CAPTURE_EVENT_TYPES } from "../../src/index.ts";
 import moveRecording from "../fixtures/host-session-move.json";
 
