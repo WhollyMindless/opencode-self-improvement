@@ -8,21 +8,6 @@ function fields(value: unknown): Record<string, unknown> {
     : {};
 }
 
-export interface ToolIdentity {
-  sessionID?: string;
-  callID?: string;
-}
-
-/** V2 ToolContext uses `id` for the call; absent/empty fields need a fallback. */
-export function toolIdentity(context: unknown): ToolIdentity {
-  const { sessionID, id } = fields(context);
-  return {
-    sessionID:
-      typeof sessionID === "string" && sessionID ? sessionID : undefined,
-    callID: typeof id === "string" && id ? id : undefined,
-  };
-}
-
 export interface SessionIdentity {
   sessionID: string;
   directory?: string;
@@ -59,29 +44,6 @@ export function sessionIdentityEvent(
     sessionID,
     directory: typeof directory === "string" ? directory : undefined,
   };
-}
-
-/** Legacy context messages sometimes carry location directly or inside info. */
-export function sessionDirectoryFromMessages(
-  messages: unknown,
-): string | undefined {
-  if (!Array.isArray(messages)) return undefined;
-  for (const message of messages) {
-    const row = fields(message);
-    const directory =
-      fields(row.location).directory ??
-      fields(fields(row.info).location).directory;
-    if (typeof directory === "string" && directory) return directory;
-  }
-  return undefined;
-}
-
-/** session.get returns either a row or a {data: row} response. */
-export function sessionDirectoryFromRow(result: unknown): string | undefined {
-  const response = fields(result);
-  const row = fields(response.data ?? response);
-  const directory = fields(row.location).directory ?? row.directory;
-  return typeof directory === "string" && directory ? directory : undefined;
 }
 
 export interface SessionUsage {

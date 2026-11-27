@@ -1,7 +1,7 @@
 // Host hook registration and measured-usage listener. Setup owns the
 // returned controller and supplies the live compaction-capture callback.
 import { randomBytes } from "node:crypto";
-import type { PluginCtx } from "./core/host.ts";
+import type { PluginCtx } from "./adapters/opencode/context.ts";
 import type { guarded as Guarded } from "./core/hooks.ts";
 import type { createInjectionEpochs } from "./inject/epochs.ts";
 import type { Measured } from "./status/payload.ts";

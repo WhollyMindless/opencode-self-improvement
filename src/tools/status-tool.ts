@@ -32,13 +32,12 @@ import { summarizeStore } from "../status/store-summary.ts";
 import { droppedEvidenceWrites } from "../telemetry/record.ts";
 
 export const register: ToolRegister = (editor, deps) => {
-  const { toolIds, sessions, direct } = deps;
+  const { toolIds, sessions } = deps;
   editor.add(
     validated(EmptyArgs, {
       name: "memory_status",
       description:
         "Plain-text memory report for chat clients (desktop/web/IDE), same sections as the terminal /memory panel: CONTEXT (this session's injected block, budget use, cumulative ride and abstentions), CACHE (epochs whose bytes moved, plus provider-reported cache receipts; byte changes are not a cache-miss estimate), the block verbatim, recent blocked writes with gate reasons (filtered to this reader's evidence visibility, #306), and store stats. Aggregate STORE counts are machine-wide — they count every repository's rows by decision (#213 B), not this reader's. Reads only — no model call.",
-      options: direct,
       async execute(_args, context): Promise<{ content: string }> {
         // In-process truth: the live epoch + ledger, fresher than any file.
         const sid = toolIds(context).sid;
