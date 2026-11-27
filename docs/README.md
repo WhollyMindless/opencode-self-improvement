@@ -9,6 +9,8 @@ is the map. A new document anywhere under `docs/` must gain a line below —
 
 ## Using the plugin
 
+- [oh-my-pi adapter](reference/oh-my-pi.md) — users: installation, shared stores,
+  automatic capture, native commands, settings and tested limits.
 - [Install variants and the version floor](reference/install.md) — users: the install
   paths beyond the README's three steps, how updates are resolved, and the
   supported version floor.

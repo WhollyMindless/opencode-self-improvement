@@ -12,6 +12,7 @@ rule stay in the README.
 | `bun run lint` | `lint` | yes |
 | `bun run test` | `test`, re-run in `test-windows` | `test` yes; `test-windows` reports only |
 | `bun run test:e2e` | `smoke`, `smoke-stable` | `smoke` only |
+| `bun run test:oh-my-pi` | `oh-my-pi` on Linux and Windows | reports separately |
 
 `tsc --noEmit` has no check of its own in CI — it runs inside `lint`, so a green `lint` silently implies a green typecheck.
 
@@ -33,6 +34,14 @@ its terminal UI. Its plugin supplies the same host interface as the reference
 implementation. Adapter conformance tests run the real engine with both hosts;
 the package keeps its existing OpenCode entry points.
 
+The oh-my-pi consumer lives in `src/adapters/oh-my-pi/`. Install its pinned
+integration dependencies with
+`bun install --cwd integration/oh-my-pi --frozen-lockfile`, then run
+`bun run test:oh-my-pi` for SDK contracts, capture, native commands, packed
+installation and cross-host storage tests. These checks use real hosts with local
+scripted providers; no provider API key is needed. The shared reference harness
+remains independent of both vendor SDKs.
+
 ## What the smoke suite boots
 
 Both smoke jobs run the same suite and print the exact OpenCode CLI version.
@@ -45,4 +54,4 @@ supported host and announce how long the existing coverage will remain.
 
 ## The published surface is `package.json`
 
-`exports` is the only import surface other code can reach (`.` → `index.ts`, `./tui` → `src/adapters/opencode/tui/panel.tsx`); `files` is the packaging list. `files` covers `src/`, so anything reachable from an `exports` target ships, but a new top-level file or directory — or anything the plugin reads at runtime outside those paths — must be added to `files` or it works from the checkout and vanishes from the npm artifact. The packed-artifact load in `e2e/` turns that miss red.
+`exports` is the only import surface other code can reach (`.` → `index.ts`, `./tui` → `src/adapters/opencode/tui/panel.tsx`, `./oh-my-pi` → `src/adapters/oh-my-pi/extension.ts`); `files` is the packaging list. `files` covers `src/`, so anything reachable from an `exports` target ships, but a new top-level file or directory — or anything the plugin reads at runtime outside those paths — must be added to `files` or it works from the checkout and vanishes from the npm artifact. The packed-artifact load in `e2e/` turns that miss red.
