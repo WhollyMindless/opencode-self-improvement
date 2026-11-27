@@ -1,6 +1,10 @@
 // Opt-in capture configuration and dispatch. Cooldowns remain process-wide;
 // subscriptions and dispatch closures belong to one setup instance.
-import type { Cleanup } from "@opencode/plugin/promise/plugin";
+import type {
+  CompactCapture,
+  CaptureTranscript,
+  MemoryCaptureHost,
+} from "../host/capture.ts";
 import { existsSync } from "node:fs";
 import { cmpTs } from "../core/cmp-ts.ts";
 import { evidenceDir } from "../core/config/paths.ts";
@@ -11,7 +15,6 @@ import {
   USER_GUIDED_TAG,
 } from "../core/tags.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
-import { captureSessionID } from "../adapters/opencode/observations.ts";
 import { bindSessionProvisional, writeTarget } from "../identity/repokey.ts";
 import { loadAll } from "../store/files/load.ts";
 import { isInjectable } from "../store/model/predicates.ts";
@@ -51,28 +54,12 @@ import {
   transcriptReplaced,
 } from "./policy.ts";
 import { buildCapturePrompt } from "./prompt.ts";
-import { type SessionModelRef, sessionModel } from "./session-model.ts";
+import { sessionModel } from "./session-model.ts";
 import {
   flattenTranscript,
   splitTranscript,
   userTurnText,
 } from "./transcript.ts";
-
-interface CaptureHost {
-  options?: Record<string, unknown>;
-  event?: {
-    subscribe: (o?: { signal?: AbortSignal }) => AsyncIterable<unknown>;
-  };
-  generate?: { text: (input: unknown) => Promise<{ text?: string } | string> };
-  session?: { context?: (input: { sessionID: string }) => Promise<unknown> };
-  // Host default model: the last-resort source for an omitted
-  // captureModel. Optional-call everywhere: older/fake hosts expose none.
-  model?: {
-    default?: {
-      get?: () => { providerID: string; modelID: string } | undefined;
-    };
-  };
-}
 
 interface CaptureDependencies {
   instanceDir: string | undefined;
@@ -158,46 +145,13 @@ export function resetCaptureCooldowns(): void {
   lastCaptureRun.clear();
 }
 
-// ---- capture trigger vocabulary -------------------------------------
-// Single source of truth for capture subscriptions. Both turn-end events were
-// observed on the desktop service (test/fixtures/host-events.jsonl).
-// test/identity/event-fidelity.test.ts requires every trigger to appear in both that
-// recording and the installed @opencode/schema manifest: a declared event
-// alone is insufficient evidence that the host emits it.
-// Identity triggers have a separate observed check in that test, combining
-// this recording with the 2.2.2 move extract in host-session-move.json.
-export const TURN_END_EVENTS = [
-  "session.execution.succeeded",
-  "session.execution.interrupted",
-] as const;
-
-/** Every event type the capture subscription reacts to (fidelity-tested). */
-export const CAPTURE_EVENT_TYPES: readonly string[] = [...TURN_END_EVENTS];
-
-// `session.idle`, `session.status`, and `session.execution.failed` are declared
-// but absent from that recording, so they deliberately do not trigger capture.
-// Adding a trigger requires a recording; status would also need idle filtering.
-
-/**
- * True when a host event means "this session just went quiet". The internal
- * trigger name stays "idle" (cooldown keys, `auto_capture_*` evidence lines and
- * the historical idle-vs-compaction bench all use it).
- */
-export function captureTriggerFor(event: unknown): boolean {
-  const type = (event as { type?: unknown } | null)?.type;
-  return (
-    typeof type === "string" &&
-    (TURN_END_EVENTS as readonly string[]).includes(type)
-  );
-}
-
 export function configureAutoCapture(
-  ctx: CaptureHost,
+  host: MemoryCaptureHost,
+  options: Record<string, unknown>,
   { instanceDir, gateContext, guarded, onGuidedPromoted }: CaptureDependencies,
 ) {
-  let onCompactCapture: ((sid: string, messages: unknown) => void) | undefined;
-  let captureCleanup: Cleanup | undefined;
-  const options = ctx.options ?? {};
+  let onCompactCapture: CompactCapture | undefined;
+  let captureCleanup: (() => Promise<void>) | undefined;
   if (options.autoCapture !== false) {
     const captureModelOpt = options.captureModel;
     // an OMITTED captureModel does not disable the subscription. It
@@ -228,12 +182,12 @@ export function configureAutoCapture(
         `[opencode-self-improvement] autoCapture is on but captureModel ${JSON.stringify(captureModelOpt)} is invalid (expected "provider/id"); auto-capture disabled.`,
       );
     } else if (
-      !ctx.event?.subscribe ||
-      !ctx.generate?.text ||
-      !ctx.session?.context
+      !host.turnEndEvents ||
+      !host.generateText ||
+      !host.readTranscript
     ) {
       console.warn(
-        "[opencode-self-improvement] autoCapture is on but this OpenCode context lacks event.subscribe/generate.text/session.context; auto-capture disabled.",
+        "[opencode-self-improvement] autoCapture is on but this host lacks turn-end events, model generation, or transcript access; auto-capture disabled.",
       );
     } else {
       const controller = new AbortController();
@@ -349,34 +303,15 @@ export function configureAutoCapture(
         // function of how many candidates the model returned.
         if (timedOut) for (const phase of passPhases) phase.abandoned = true;
       }
-      const eventApi = ctx.event;
-      const generateApi = ctx.generate;
-      // Arrow wrapper: keep the receiver bound. The harness fakes are closures,
-      // but a real client method that reads `this` would break if detached —
-      // and the fail-closed catch below would hide it. Optional call: the
-      // setup guard proves it exists, but property narrowing does not survive
-      // into the closure, and undefined degrades safely (empty transcript).
-      const contextFn = (input: { sessionID: string }) =>
-        ctx.session?.context?.(input);
+      const turnEndEvents = host.turnEndEvents;
+      const generateText = host.generateText;
+      const readTranscript = host.readTranscript;
 
       // model resolution: explicit option (captured above) wins; else the
       // ref this session's context hook last carried; else the host default.
       // Warn-once per setup when even the last resort is empty — a per-event
       // warn would spam the log for every turn of a model-less session.
       let warnedNoModel = false;
-      const hostDefault = (): SessionModelRef | null => {
-        const d = ctx.model?.default?.get?.();
-        if (
-          d &&
-          typeof d.providerID === "string" &&
-          d.providerID &&
-          typeof d.modelID === "string" &&
-          d.modelID
-        )
-          return { providerID: d.providerID, id: d.modelID };
-        return null;
-      };
-
       // Bind the capturing session and freeze its evidence context in ONE sync
       // step, before the capture's first await. Binding is not enough on its
       // own: record() resolves a session's repository at CALL time, so a
@@ -412,7 +347,7 @@ export function configureAutoCapture(
         sid: string,
         seeded: string,
         trigger: "idle" | "compaction",
-        seededMsgs?: unknown,
+        seededMsgs?: CaptureTranscript,
         // Frozen by the trigger before its first await, so a session move
         // cannot re-stamp this operation's receipts. Optional for direct
         // callers, which bind here instead.
@@ -432,7 +367,7 @@ export function configureAutoCapture(
         // line below can carry model= (cost attributable to a named model —
         // the real answer to the cost-surprise concern that justified the
         // required captureModel). Resolution itself is token-free.
-        const model = modelRef ?? sessionModel(sid) ?? hostDefault();
+        const model = modelRef ?? sessionModel(sid) ?? host.defaultModel?.();
         const modelTag = model ? `${model.providerID}/${model.id}` : undefined;
         // an instance with no workspace cannot say which repository the
         // mined rows belong to, and rows with no owner are exactly what the
@@ -453,7 +388,7 @@ export function configureAutoCapture(
           if (!warnedNoModel) {
             warnedNoModel = true;
             console.warn(
-              "[opencode-self-improvement] autoCapture is on but captureModel is omitted and neither session.context nor the host default names a model; capture skipped (warned once).",
+              "[opencode-self-improvement] autoCapture is on but captureModel is omitted and neither the session nor the host default names a model; capture skipped (warned once).",
             );
           }
           await recordBestEffort(
@@ -493,7 +428,7 @@ export function configureAutoCapture(
         // the window below is the whole context, mined from the beginning.
         let deltaRestart = false;
         if (transcript.length < 200) {
-          msgs = await contextFn({ sessionID: sid });
+          msgs = await readTranscript(sid);
           // disposed while the host was answering. The drain in cleanup()
           // waits a bound, not forever, so this is the normal outcome of a
           // teardown during a slow context read — and everything below writes:
@@ -659,7 +594,7 @@ export function configureAutoCapture(
           sid,
           captureGate.evidenceContext,
         );
-        const out = await generateApi.text({
+        const text = await generateText({
           model,
           prompt: capturePrompt,
         });
@@ -667,7 +602,6 @@ export function configureAutoCapture(
         // abandoning this pass and drains it instead. Set before the next
         // await, so a disposal during anything below cannot be missed.
         phase.pastModel = true;
-        const text = typeof out === "string" ? out : (out?.text ?? "");
         // abandoned while the model call was in flight. Stop here — the
         // gate, the rows and the receipts below all write to a store the
         // caller may already have removed. Silent on purpose: a receipt here
@@ -1158,9 +1092,7 @@ export function configureAutoCapture(
 
       void (async () => {
         try {
-          for await (const raw of eventApi.subscribe({
-            signal: controller.signal,
-          })) {
+          for await (const event of turnEndEvents(controller.signal)) {
             // The iterator may still yield an event queued before abort.
             if (controller.signal.aborted) break;
             // One event's failure stays that event's failure. The guard covers
@@ -1179,7 +1111,6 @@ export function configureAutoCapture(
             // receipt of repo A's capture as repo B's evidence.
             let opGate: GateContext | undefined;
             try {
-              if (!captureTriggerFor(raw)) continue;
               // The turn-end event reached this subscription. Counted before
               // the session-id and cooldown checks so a delivered-but-cooled event
               // still proves the event arrived — only a zero here means no turn-end
@@ -1197,7 +1128,7 @@ export function configureAutoCapture(
               // must not cost a pass its model call. The session rides as
               // the context argument so the stamp resolves inside this
               // synchronous stretch, not after an await.
-              sid = captureSessionID(raw);
+              sid = event.sessionID;
               if (sid === undefined) {
                 recordSyncBestEffort("auto_capture_seen", {
                   discard: "no_sid",
@@ -1305,7 +1236,7 @@ export function configureAutoCapture(
                 turn_end_events: 0,
                 passes: 0,
                 reason: "no_turn_end_observed",
-                subscribed: `[${CAPTURE_EVENT_TYPES.join(",")}]`,
+                subscribed: `[${host.subscribedEvents.join(",")}]`,
               },
               false,
             );

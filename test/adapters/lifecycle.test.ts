@@ -289,3 +289,34 @@ test("hooks register before observations and usage handlers retain stream order"
   expect(seen).toEqual(["identity:/new", "usage:2", "usage:3"]);
   await registration.dispose();
 });
+
+test("compaction snapshots normalized public transcript before asynchronous handlers", async () => {
+  const f = fixture();
+  const resumed = Promise.withResolvers<void>();
+  const raw = {
+    sessionID: "s",
+    messages: [
+      { type: "user", text: "remember this" },
+      { type: "assistant", content: [{ type: "reasoning", text: "private" }] },
+    ],
+  };
+  const registration = await createOpenCodeLifecycle(f.ctx).register(
+    handlers({
+      async compact(event) {
+        await resumed.promise;
+        expect(event.transcript).toEqual([
+          { role: "user", text: "remember this" },
+          { role: "assistant", text: "" },
+        ]);
+      },
+    }),
+  );
+  try {
+    const pending = f.hooks.get("compaction")!(raw);
+    raw.messages[0]!.text = "changed while waiting";
+    resumed.resolve();
+    await pending;
+  } finally {
+    await registration.dispose();
+  }
+});
