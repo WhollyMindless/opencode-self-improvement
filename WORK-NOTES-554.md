@@ -5,6 +5,25 @@ project documentation. Update it while the work is active, then remove it
 before an upstream merge. Keep lasting architectural guidance in
 `docs/internals/development.md` and the eventual PR description.
 
+## Latest: standalone OpenCode cleanup reproduction
+
+`e2e/repros/standalone-cleanup/` is a self-contained upstream-report attachment:
+the 16-line plugin records setup and returns async cleanup, and the runner supplies
+a fixed loopback model response and fresh host directories. It imports no project
+code or external dependencies. The README credits discovery during this project
+and documents the commands, expected behavior, observed receipts, and exit codes.
+
+Verified the ZIP after extraction outside this checkout with Bun 1.4.4 and both
+OpenCode 2.4.2 and 2.0.26 on Windows. Both CLI turns returned `done` with exit zero;
+standalone recorded only setup, while the stdin-lease control completed cleanup.
+The runner returned 1 for both reproductions. A deliberately broken cleanup in a
+separate copy returned 2 (inconclusive), rather than misreporting the failure.
+Typecheck, lint, and formatting passed; this slice changes no production code.
+The original broader host tests and failing capture assertion remain unchanged.
+
+The upstream OpenCode issue has not been filed. The next reporting step is to use
+this small bundle in `anomalyco/opencode`, with this project as discovery context.
+
 ## What we are trying to do
 
 Make the memory engine usable from other harnesses while keeping their API

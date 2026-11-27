@@ -40,6 +40,16 @@ The full local gate also reproduced two Windows `EBUSY` failures in the viewer E
 
 ### Shutdown investigation
 
+A standalone reproduction lives in
+[`e2e/repros/standalone-cleanup/`](../../e2e/repros/standalone-cleanup/README.md).
+Copy that directory anywhere and run `bun repro.ts`; it needs only Bun and an
+OpenCode executable. Its tiny plugin returns async cleanup without subscribing to
+events or loading the memory plugin. It compares normal standalone exit against
+closing an explicit server's stdin ownership lease, retaining receipts and logs.
+Exit code 1 means missing standalone cleanup with a passing cooperative control;
+exit code 2 means an inconclusive run. The README records the project's role in
+discovering the issue and the exact reproduction steps.
+
 The viewer cleanup now waits for its child process to exit before removing the
 temporary store. Both previously failing Windows scenarios pass with their HTTP
 and persistence assertions unchanged.
