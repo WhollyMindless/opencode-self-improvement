@@ -146,15 +146,22 @@ async function updateDeployment(
 }
 
 describe("session-scoped facts in the delivered block", () => {
-  test("the reply says plainly that nothing was stored", async () => {
+  test("the reply states the fact's true retention and visibility", async () => {
     const loaded = await loadPlugin(liveRoot);
     const reply = await sessionFact(
       loaded,
       "ses-reply",
       "Keep the soak timer at ninety seconds for this run.",
     );
-    expect(reply).toMatch(/nothing was stored/i);
-    expect(reply).toMatch(/session/i);
+    // The two promises the reply may truthfully make, asserted as words:
+    // no row was created, and the injection is scoped to this session.
+    expect(reply).toMatch(/no durable memory row/i);
+    expect(reply).toMatch(/this session/i);
+    // And the promise it once broke, now stated: the evidence line keeps
+    // the text, survives the process, and is readable in this repository.
+    expect(reply).toMatch(/evidence log retains/i);
+    expect(reply).toMatch(/outlives the process/i);
+    expect(reply).toMatch(/memory_evidence/);
     expect(await loadAll()).toHaveLength(0);
     const schema = (
       loaded.tools.memory_remember as unknown as {
@@ -162,6 +169,29 @@ describe("session-scoped facts in the delivered block", () => {
       }
     ).input;
     expect(schema.properties.session?.type).toBe("boolean");
+    // The durable path keeps its plain row reply and stays silent about
+    // evidence: the volatile lane's retention promise is not its business.
+    const call = "dur-reply";
+    await afterTool(
+      {
+        tool: "grep",
+        sessionID: "ses-reply",
+        callID: call,
+        args: { pattern: "run" },
+      },
+      { output: "1 match" },
+    );
+    const durable = await loaded.tools.memory_remember.execute(
+      {
+        type: "context",
+        scope: "run",
+        content: "Durable rows keep their plain reply.",
+      },
+      { sessionID: "ses-reply", id: call },
+    );
+    expect(durable.content).toContain("Remembered");
+    expect(durable.content).not.toMatch(/evidence/i);
+    expect(await loadAll()).toHaveLength(1);
   });
 
   test("the fact rides its author's block, never a fresh session's", async () => {

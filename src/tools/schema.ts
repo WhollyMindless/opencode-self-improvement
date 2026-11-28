@@ -74,7 +74,7 @@ export const RememberArgs = z.object({
   session: z
     .boolean()
     .describe(
-      "true = a statement true for the CURRENT SESSION only: nothing is stored — it rides this session's injected block until compaction or a server restart, invisible to every other session. Incompatible with global. Omitted = durable, as always.",
+      "true = a statement true for the CURRENT SESSION only: no durable memory row is created — it is injected into this session's context until compaction or a server restart, and the repository evidence log retains its text. Incompatible with global. Omitted = durable, as always.",
     )
     .optional(),
 });

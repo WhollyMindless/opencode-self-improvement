@@ -56,10 +56,13 @@ export const register: ToolRegister = (editor, deps) => {
         if (outcome.action === "session_scoped")
           return {
             content:
-              `Kept for this session only: ${args.type}/${args.scope}. Nothing was stored — ` +
-              `this fact rides only this session's context until compaction or a server restart, ` +
-              `and no other session will see it. Evidence recorded; inspect with ` +
-              `memory_evidence ev=session_scoped.`,
+              `Kept for this session only: ${args.type}/${args.scope}. ` +
+              `No durable memory row was created — this fact is injected ` +
+              `into this session's context only, until compaction or a ` +
+              `server restart. The repository's evidence log retains its ` +
+              `text and outlives the process: any session in this ` +
+              `repository can read it with memory_evidence ` +
+              `ev=session_scoped.`,
           };
         // A durable row whose audit line fell is NOT a clean success
         // the reply says what is missing where it is

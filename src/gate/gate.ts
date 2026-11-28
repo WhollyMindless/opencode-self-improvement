@@ -163,8 +163,9 @@ export type GateOutcome =
     })
   | (GateOutcomeFields & { action: "blocked"; reason: string })
   | (GateOutcomeFields & { action: "collapsed" })
-  // Nothing was stored and nothing needs to be: the fact rides the authoring
-  // session's volatile block only. Deliberately carries no ts — an unaddressed
+  // No durable row is written and none is needed: the fact renders in the
+  // authoring session's volatile block only (the evidence line is the durable
+  // half). Deliberately carries no ts — an unaddressed
   // fact has no row to name, which is what keeps it out of recall, the ledger,
   // and every retirement pointer.
   | (GateOutcomeFields & { action: "session_scoped" });
