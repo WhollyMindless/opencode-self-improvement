@@ -16,7 +16,15 @@ import { readEvidenceLog } from "../helpers/logfmt.ts";
 export interface RuntimeDriver {
   tools: TestHost["tools"];
   transcripts: TestHost["transcripts"];
-  generation: TestHost["generation"];
+  generation: {
+    readonly calls: readonly { prompt: string }[];
+    reply(value: string): void;
+    pause(label: string): {
+      entered: Promise<unknown>;
+      resolve(value: string): void;
+      reject(error: Error): void;
+    };
+  };
   invoke: TestHost["invoke"];
   request: TestHost["request"];
   context: TestHost["context"];
