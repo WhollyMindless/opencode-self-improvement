@@ -66,3 +66,18 @@ supported host and announce how long the existing coverage will remain.
 ## The published surface is `package.json`
 
 `exports` is the only import surface other code can reach (`.` → `index.ts`, `./tui` → `src/adapters/opencode/tui/panel.tsx`, `./oh-my-pi` → `src/adapters/oh-my-pi/extension.ts`); `files` is the packaging list. `files` covers `src/`, so anything reachable from an `exports` target ships, but a new top-level file or directory — or anything the plugin reads at runtime outside those paths — must be added to `files` or it works from the checkout and vanishes from the npm artifact. The packed-artifact load in `e2e/` turns that miss red.
+
+## Upstream Pi adapter
+
+The Pi binding is `src/adapters/pi/`, tested against upstream Pi 1.7.0 under
+Bun 1.4.4. `src/adapters/pi-family/` holds the capture queue, text decoder,
+delivery, usage and configuration mechanics shared with oh-my-pi. Native
+lifecycle and model/compaction bindings remain in each adapter.
+
+`test/runtime/pi-runtime-contract.test.ts` runs the same eight shared scenarios.
+It uses controlled capture and summary bindings, requiring no live host.
+`integration/pi/` separately compiles against the pinned SDK and exercises actual
+Pi sessions, commands, provider routing, usage, shutdown, compaction, installation,
+and cross-host storage. Run `bun install --cwd integration/pi --frozen-lockfile`
+and install `integration/oh-my-pi` dependencies, then `bun run test:pi`. The cross-host cases require OpenCode; `OPENCODE_BIN` can
+select its executable. See [installation and limits](../../README.pi.md).
