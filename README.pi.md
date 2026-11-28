@@ -146,7 +146,7 @@ image blocks survive appended memory context.
 
 ## Validation and limits
 
-The same eight runtime contract scenarios run against the reference harness,
+The same nine runtime contract scenarios run against the reference harness,
 OpenCode, oh-my-pi and Pi. Unit tests need no running host. The pinned integration
 suite exercises Pi's actual loader, dispatcher, provider registry, lifecycle,
 compaction and CLI against a local scripted model:
