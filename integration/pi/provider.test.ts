@@ -1,14 +1,17 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { makeGuest, REPO, startFake } from "../../e2e/support/harness.ts";
 
 for (const scenario of [
   "success",
   "error",
+  "throw",
   "continuation",
   "aborted",
   "two-turns",
+  "long-session",
+  "long-session-delta",
 ])
   test(`host-registered provider completion: ${scenario}`, async () => {
     const fake = await startFake();
@@ -57,9 +60,22 @@ for (const scenario of [
         `${timedOut ? "Provider process exceeded 90s\n" : ""}${out}\n${err}`,
       ).toBe(0);
       expect(out).toContain(`PROVIDER-PASS ${scenario}`);
-      if (scenario === "error") {
-        expect(err).toContain("Capture provider rejected the request");
-        expect(err).not.toContain("sk-abcdefghijklmnopqrstuvwxyz1234567890");
+      if (scenario === "error" || scenario === "throw") {
+        const dir = join(guest.memoryDir, "evidence");
+        const evidence = readdirSync(dir)
+          .map((file) => readFileSync(join(dir, file), "utf8"))
+          .join("\n");
+        for (const output of [err, evidence]) {
+          expect(output).toMatch(
+            /Capture completion failed \((provider_error|request_failed)\)/,
+          );
+          expect(output).not.toContain(
+            "opaqueFixtureCredential7f35a19cd2b64801",
+          );
+          expect(output).not.toContain("Capture provider rejected");
+          expect(output).not.toContain("Provider transport rejected");
+        }
+        expect(out).not.toContain("opaqueFixtureCredential7f35a19cd2b64801");
       }
     } finally {
       clearTimeout(timer);

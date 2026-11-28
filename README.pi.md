@@ -96,6 +96,12 @@ tool results are excluded. Normal provider charges apply. Set `autoCapture` to
 only. `captureModel: "provider/model-id"` selects a registered capture model;
 an unavailable selection is refused. See [shared options](docs/reference/options.md).
 
+Capture renders the most recent 40 user turns in the selected window, retaining
+source-message positions for delta capture. Earlier branch history kept by Pi
+after compaction does not prevent new facts from reaching capture. Provider failures
+report fixed diagnostic categories; raw provider error messages are never included
+in the adapter's console warnings or evidence because they may echo credentials.
+
 For programmatic configuration, an extension next to the installed package can
 export `createPiMemory({ options: { autoCapture: false } })`, imported from
 `opencode-self-improvement/pi`. Remove the default registration before loading

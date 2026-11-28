@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { safeErrorMessage } from "../../telemetry/record.ts";
+import { completionFailure, providerRequest } from "../completion-error.ts";
 import type { PiCaptureBinding } from "../pi-family/capture.ts";
 
 /** Freeze model, history and provider routing before yielding to another session. */
@@ -14,10 +14,14 @@ export function bindCompletion(
   if (typeof configuredModel === "string") {
     const slash = configuredModel.indexOf("/");
     if (slash <= 0 || slash === configuredModel.length - 1) return;
-    selected = registry.find(
-      configuredModel.slice(0, slash),
-      configuredModel.slice(slash + 1),
-    );
+    try {
+      selected = registry.find(
+        configuredModel.slice(0, slash),
+        configuredModel.slice(slash + 1),
+      );
+    } catch {
+      throw completionFailure();
+    }
     if (!selected) throw new Error("Pi capture model is unavailable");
   }
   if (!selected) return;
@@ -28,31 +32,32 @@ export function bindCompletion(
     async generateText(prompt, signal) {
       signal.throwIfAborted();
       // The host registry retains custom providers and resolves auth at request time.
-      const answer = await registry
-        .streamSimple(
-          model,
-          {
-            messages: [
-              { role: "user", content: prompt, timestamp: Date.now() },
-            ],
-            tools: [],
-          },
-          {
-            signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
-            sessionId: `memory-capture:${randomUUID()}`,
-            maxTokens: 2048,
-          },
-        )
-        .result();
+      const answer = await providerRequest(() =>
+        registry
+          .streamSimple(
+            model,
+            {
+              messages: [
+                { role: "user", content: prompt, timestamp: Date.now() },
+              ],
+              tools: [],
+            },
+            {
+              signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
+              sessionId: `memory-capture:${randomUUID()}`,
+              maxTokens: 2048,
+            },
+          )
+          .result(),
+      );
       signal.throwIfAborted();
       if (
         answer.stopReason !== "stop" ||
         answer.content.some((part) => part.type === "toolCall")
       )
-        throw new Error(
-          safeErrorMessage(
-            `Pi capture completion failed: ${answer.errorMessage || (answer.stopReason === "stop" ? "unexpected tool call" : answer.stopReason)}`,
-          ),
+        throw completionFailure(
+          answer.stopReason,
+          answer.content.some((part) => part.type === "toolCall"),
         );
       return answer.content
         .filter((part) => part.type === "text")

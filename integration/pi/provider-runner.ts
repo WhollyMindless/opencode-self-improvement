@@ -7,11 +7,16 @@ import {
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { openSession } from "./session.ts";
 import { loadAll } from "../../src/store/files/load.ts";
+import { readEvidenceLog } from "../../test/helpers/logfmt.ts";
 
 const [cwd, agentDir, baseUrl, stepsFile, extensionPath, scenario] =
   process.argv.slice(2);
 const fact = "The nightly archive job keeps fourteen days of tarballs.";
+const secret = "opaqueFixtureCredential7f35a19cd2b64801";
 const realNow = Date.now;
+const longSession =
+  scenario === "long-session" || scenario === "long-session-delta";
+const twoCaptures = scenario === "two-turns" || longSession;
 let called = Promise.withResolvers<void>();
 const secondFact =
   "The batch importer stops after two retries when the queue returns a rate limit.";
@@ -42,7 +47,7 @@ const provider: ExtensionFactory = (pi) => {
     });
   pi.registerProvider("capture-fixture", {
     baseUrl: "https://unused.invalid",
-    apiKey: "fixture-key",
+    apiKey: secret,
     api: "capture-fixture-api",
     models: [
       {
@@ -64,9 +69,15 @@ const provider: ExtensionFactory = (pi) => {
       assert.ok(JSON.stringify(context.messages[0]).includes(expectedFact));
       if (scenario === "two-turns" && calls === 2)
         assert.ok(!JSON.stringify(context).includes("PROVIDER::turn"));
+      if (longSession)
+        assert.ok(!JSON.stringify(context).includes("ARCHIVE-EARLY-0 "));
       assert.ok(!JSON.stringify(context).includes("toolsAdded"));
       if (scenario === "continuation")
         assert.ok(JSON.stringify(context).includes("FINAL-PHASE"));
+      if (scenario === "throw") {
+        called.resolve();
+        throw new Error(`Provider transport rejected ${secret}`);
+      }
       const stream = createAssistantMessageEventStream();
       const message: AssistantMessage = {
         role: "assistant",
@@ -90,7 +101,7 @@ const provider: ExtensionFactory = (pi) => {
         stopReason: scenario === "error" ? "error" : "stop",
         errorMessage:
           scenario === "error"
-            ? "Capture provider rejected the request; token sk-abcdefghijklmnopqrstuvwxyz1234567890"
+            ? `Capture provider rejected ${secret}`
             : undefined,
         usage: {
           input: 1,
@@ -115,7 +126,10 @@ await Bun.write(
   process.env.PI_MEMORY_CONFIG!,
   JSON.stringify({
     captureModel: "capture-fixture/capture",
-    captureDelta: scenario === "two-turns",
+    captureDelta:
+      scenario === "two-turns" || scenario === "long-session-delta"
+        ? true
+        : undefined,
   }),
 );
 await Bun.write(join(cwd, "archive.txt"), fact);
@@ -156,13 +170,45 @@ const { session, runtime } = await openSession(cwd, agentDir, baseUrl, {
   extensionPath,
 });
 try {
+  if (longSession) {
+    // A resumed native session retains older branch entries even after compaction.
+    // Seed through the host's public session API, then run ordinary native turns.
+    for (let i = 0; i < 45; i++) {
+      session.sessionManager.appendMessage({
+        role: "user",
+        content: `ARCHIVE-EARLY-${i} Discuss the completed checkpoint.`,
+        timestamp: realNow(),
+      });
+      session.sessionManager.appendMessage({
+        role: "assistant",
+        content: [
+          { type: "text", text: `Checkpoint ${i} has been discussed.` },
+        ],
+        api: "openai-completions",
+        provider: "fixture",
+        model: "scripted",
+        stopReason: "stop",
+        timestamp: realNow(),
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+      });
+    }
+    session.agent.state.messages =
+      session.sessionManager.buildSessionContext().messages;
+  }
   console.log("PROVIDER-STAGE prompting");
   await session.prompt(
     `PROVIDER::turn We finished the archive change. Remember that ${fact} The batch importer respects the staging rate limit per key, which matters while wiring the importer tooling.`,
   );
   if (scenario !== "aborted") {
     await called.promise;
-    if (scenario === "two-turns") {
+    if (twoCaptures) {
       const deadline = Date.now() + 5000;
       while (
         !(await loadAll()).some((row) => row.content === fact) &&
@@ -170,6 +216,32 @@ try {
       )
         await Bun.sleep(10);
       assert.ok((await loadAll()).some((row) => row.content === fact));
+      if (longSession) {
+        const completed = () =>
+          readEvidenceLog().filter((row) => row.ev === "capture_lag").length;
+        const firstDeadline = realNow() + 5000;
+        while (completed() < 1 && realNow() < firstDeadline)
+          await Bun.sleep(10);
+        assert.equal(completed(), 1);
+        await session.compact("Summarize the completed archive work.");
+        const compactDeadline = realNow() + 5000;
+        while (completed() < 2 && realNow() < compactDeadline)
+          await Bun.sleep(10);
+        assert.equal(completed(), 2);
+        assert.ok(
+          session.sessionManager
+            .getBranch()
+            .some((entry) => entry.type === "compaction"),
+        );
+        assert.ok(
+          session.sessionManager
+            .getBranch()
+            .filter(
+              (entry) =>
+                entry.type === "message" && entry.message.role === "user",
+            ).length > 40,
+        );
+      }
       // Advance past the shared five-minute capture cooldown without delaying
       // the native host test or resetting its transcript/cursor state.
       Date.now = () => realNow() + 6 * 60_000;
@@ -196,14 +268,14 @@ try {
   await runtime.dispose();
   assert.equal(
     calls,
-    scenario === "aborted" ? 0 : scenario === "two-turns" ? 2 : 1,
+    scenario === "aborted" ? 0 : longSession ? 3 : twoCaptures ? 2 : 1,
   );
   if (scenario === "continuation") assert.equal(ends, 2);
   assert.deepEqual(
     (await loadAll()).map((row) => row.content).sort(),
-    scenario === "error" || scenario === "aborted"
+    scenario === "error" || scenario === "throw" || scenario === "aborted"
       ? []
-      : scenario === "two-turns"
+      : twoCaptures
         ? [fact, secondFact].sort()
         : [fact],
   );
