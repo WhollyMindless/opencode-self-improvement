@@ -196,7 +196,6 @@ export function runtimeHostContract(
     expect(await loadAll()).toEqual([]);
     await writer.emit("compact", {
       sessionID: "writer",
-      phase: "complete",
       transcript: undefined,
     });
     expect(await writer.request("writer", QUERY)).not.toInclude(FACT);
