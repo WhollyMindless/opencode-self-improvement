@@ -226,7 +226,7 @@ shared project/global storage. It uses the shared engine's policy and gates.
 
 | Behavior | Verification |
 | --- | --- |
-| Tools, validation, grounding, visibility and selected injection | The same eight runtime conformance scenarios run for the reference host, OpenCode and oh-my-pi. |
+| Tools, validation, grounding, visibility, selected injection and session-only facts | The same nine runtime conformance scenarios run for the reference host, OpenCode and oh-my-pi. |
 | Prompt/context delivery | The native combined prompt hook returns system context; the observation hook carries no system sink. Clipped and duplicate tool-result copies cannot invent credit. |
 | Failed tests and recovery | Numeric nonzero shell exits reach shared failure/recovery tracking. Unit regressions and the real SDK dispatcher verify error flags and receipts. Errors without an attested exit and failed reads cannot invent successful evidence. |
 | Capture and credentials | Real SDK local and registered providers; isolated scrubbed completion; malformed, aborted and tool-call answers refused. |
