@@ -125,8 +125,8 @@ The reference host is the local development and maintenance substitute for every
 supported adapter. It covers the union of shared ports and their supported
 variants without installing any production harness. Its capability profiles can
 remove surfaces; command/tool/lifecycle registration, both directory lookups,
-transcript reads, generation and disposal can be paused, failed or answered out
-of order. Model resolution is replaceable per session, and all lifecycle handlers,
+transcript reads, default-model resolution, generation and disposal can be paused,
+failed or answered out of order. Model resolution is replaceable per session, and all lifecycle handlers,
 including errors, are reachable. Late model answers remain controllable after
 abort so the engine's abandonment protection is tested independently of a
 cooperative provider.

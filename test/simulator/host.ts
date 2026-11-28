@@ -64,6 +64,10 @@ export class TestHost {
   resolveModel: (sessionID?: string) => SessionModelRef | null = () =>
     this.model;
   readonly modelLookups: Array<string | undefined> = [];
+  readonly modelReads: ControlledCall<
+    string | undefined,
+    SessionModelRef | null
+  >;
   readonly requests: RequestCopy[] = [];
   readonly generation: ControlledCall<
     { sessionID: string; model: SessionModelRef; prompt: string },
@@ -114,6 +118,9 @@ export class TestHost {
       () => {},
     );
     this.disposal = new ControlledCall(trace, name, "disposal", () => {});
+    this.modelReads = new ControlledCall(trace, name, "model", (sid) =>
+      this.resolveModel(sid),
+    );
     this.toolRegistration = new ControlledCall(
       trace,
       name,
@@ -212,7 +219,7 @@ export class TestHost {
           ? (sid) => {
               this.modelLookups.push(sid);
               trace.add(name, "model.lookup", sid);
-              return this.resolveModel(sid);
+              return this.modelReads.call(sid);
             }
           : undefined,
       },
@@ -432,6 +439,7 @@ export class TestHost {
     const cleanup = this.dispose();
     void cleanup.catch(() => {});
     this.generation.close();
+    this.modelReads.close();
     this.transcriptReads.close();
     this.registration.close();
     this.toolRegistration.close();

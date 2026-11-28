@@ -37,5 +37,8 @@ export interface MemoryCaptureHost {
     prompt: string;
     signal: AbortSignal;
   }) => Promise<string>;
-  defaultModel?: (sessionID?: string) => SessionModelRef | null;
+  /** Token-free lookup; some hosts resolve their configured default asynchronously. */
+  defaultModel?: (
+    sessionID?: string,
+  ) => SessionModelRef | null | Promise<SessionModelRef | null>;
 }
