@@ -15,7 +15,7 @@ import {
 let fake: Fake;
 const guests: Guest[] = [];
 beforeAll(async () => {
-  fake = await startFake();
+  fake = await startFake({ requireUserMessage: true });
 });
 afterEach(() => {
   for (const g of guests.splice(0))
@@ -334,7 +334,7 @@ test("corrections and deletions cross real harnesses while retaining project/glo
   }
 }, 240_000);
 
-test("real oh-my-pi captures through an isolated sanitized completion and OpenCode recalls the project row", async () => {
+test("real oh-my-pi captures through a strict provider and OpenCode recalls the project row", async () => {
   const { writer, peer, outsider } = sharedGuests();
   const fact = "The nightly archive job keeps fourteen days of tarballs.";
   const secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890";
@@ -359,11 +359,7 @@ test("real oh-my-pi captures through an isolated sanitized completion and OpenCo
   const request = captures[0];
   expect(request.model).toBe("scripted");
   expect(request.tools ?? []).toHaveLength(0);
-  expect(
-    request.messages.every((m: any) =>
-      ["system", "developer"].includes(m.role),
-    ),
-  ).toBe(true);
+  expect(request.messages.some((m: any) => m.role === "user")).toBe(true);
   expect(JSON.stringify(request)).not.toInclude(secret);
   expect(JSON.stringify(request)).not.toInclude(privateTool);
   expect(JSON.stringify(request)).toInclude(
