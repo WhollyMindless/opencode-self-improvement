@@ -3,6 +3,7 @@ import type { Model } from "@oh-my-pi/pi-ai";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import { bindCompletion } from "../../src/adapters/oh-my-pi/completion.ts";
 import type { OmpContext } from "../../src/adapters/oh-my-pi/context.ts";
+import { captureProvider } from "../support/capture-provider.ts";
 
 function context() {
   const model = buildModel({
@@ -83,4 +84,48 @@ test("missing model capabilities do not attempt credential resolution", () => {
   expect(resolved).toHaveLength(0);
   ctx.modelRegistry = undefined;
   expect(bindCompletion(ctx, [], "fixture/override")).toBeUndefined();
+});
+
+test("capture completes against a provider that requires a user message", async () => {
+  const provider = captureProvider();
+  try {
+    const { ctx, model } = context();
+    model.baseUrl = provider.baseUrl;
+    const prompt = "Extract durable memories from this public conversation.";
+    const result = await bindCompletion(ctx, [])!.generateText(
+      prompt,
+      AbortSignal.timeout(5000),
+    );
+    expect(result).toBe("CAPTURE-OK");
+    expect(provider.requests).toHaveLength(1);
+    expect(provider.requests[0].messages).toContainEqual({
+      role: "user",
+      content: prompt,
+    });
+    expect(provider.requests[0].tools ?? []).toEqual([]);
+  } finally {
+    await provider.server.stop(true);
+  }
+});
+
+test("capture preserves a scrubbed provider error instead of hiding its cause", async () => {
+  const secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890";
+  const provider = captureProvider(
+    `Unsupported capture request; token ${secret}`,
+  );
+  try {
+    const { ctx, model } = context();
+    model.baseUrl = provider.baseUrl;
+    const error = await bindCompletion(ctx, [])!
+      .generateText("Extract durable memories.", AbortSignal.timeout(5000))
+      .then(
+        () => undefined,
+        (failure: Error) => failure,
+      );
+    expect(error).toBeInstanceOf(Error);
+    expect(error!.message).toContain("Unsupported capture request");
+    expect(error!.message).not.toContain(secret);
+  } finally {
+    await provider.server.stop(true);
+  }
 });

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { safeErrorMessage } from "../../telemetry/record.ts";
 import type { OmpContext } from "./context.ts";
 import type { OmpCaptureBinding } from "./capture.ts";
 
@@ -32,7 +33,10 @@ export function bindCompletion(
       signal.throwIfAborted();
       const answer = await completeSimple(
         model,
-        { systemPrompt: [prompt], messages: [], tools: [] },
+        {
+          messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+          tools: [],
+        },
         {
           apiKey,
           signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
@@ -45,7 +49,11 @@ export function bindCompletion(
         answer.stopReason !== "stop" ||
         answer.content.some((part) => part.type === "toolCall")
       )
-        throw new Error("oh-my-pi capture completion failed");
+        throw new Error(
+          safeErrorMessage(
+            `oh-my-pi capture completion failed: ${answer.errorMessage || (answer.stopReason === "stop" ? "unexpected tool call" : answer.stopReason)}`,
+          ),
+        );
       return answer.content
         .filter((part) => part.type === "text")
         .map((part) => part.text)

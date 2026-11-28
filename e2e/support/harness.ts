@@ -87,13 +87,20 @@ export interface Fake {
   stop(): void;
 }
 
-export async function startFake(): Promise<Fake> {
+export async function startFake(
+  options: { requireUserMessage?: boolean } = {},
+): Promise<Fake> {
   const dir = mkdtempSync(join(tmpdir(), "psi-e2e-fake-"));
   const child = spawn(
     process.execPath,
     [join(import.meta.dir, "fake-model.ts")],
     {
-      env: { ...process.env, SMOKE_DIR: dir, FAKE_PORT: "0" },
+      env: {
+        ...process.env,
+        SMOKE_DIR: dir,
+        FAKE_PORT: "0",
+        FAKE_REQUIRE_USER_MESSAGE: options.requireUserMessage ? "1" : "0",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );

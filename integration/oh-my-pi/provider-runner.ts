@@ -33,9 +33,10 @@ const provider: ExtensionFactory = (pi) => {
       console.log("PROVIDER-STAGE completion");
       calls++;
       assert.equal(model.id, "capture");
-      assert.deepEqual(context.messages, []);
+      assert.equal(context.messages.length, 1);
+      assert.equal(context.messages[0].role, "user");
       assert.deepEqual(context.tools, []);
-      assert.ok(JSON.stringify(context.systemPrompt).includes(fact));
+      assert.ok(JSON.stringify(context.messages[0]).includes(fact));
       const stream = createAssistantMessageEventStream();
       const message: AssistantMessage = {
         role: "assistant",
@@ -57,6 +58,10 @@ const provider: ExtensionFactory = (pi) => {
         model: model.id,
         timestamp: Date.now(),
         stopReason: scenario === "error" ? "error" : "stop",
+        errorMessage:
+          scenario === "error"
+            ? "Capture provider rejected the request"
+            : undefined,
         usage: {
           input: 1,
           output: 1,
