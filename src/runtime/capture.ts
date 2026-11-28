@@ -15,7 +15,11 @@ import {
   USER_GUIDED_TAG,
 } from "../core/tags.ts";
 import { type GateContext, runWriteGate } from "../gate/gate.ts";
-import { bindSessionProvisional, writeTarget } from "../identity/repokey.ts";
+import {
+  bindSessionProvisional,
+  sessionBindingToken,
+  writeTarget,
+} from "../identity/repokey.ts";
 import { loadAll } from "../store/files/load.ts";
 import { isInjectable } from "../store/model/predicates.ts";
 import {
@@ -365,6 +369,18 @@ export function configureAutoCapture(
         phase: PassPhase = { pastModel: true, abandoned: false },
       ): Promise<void> {
         const captureGate = gate ?? bindCapture(sid);
+        const binding = sessionBindingToken(sid);
+        const bindingChanged = () => {
+          if (sessionBindingToken(sid) === binding) return false;
+          recordSyncBestEffort(
+            "auto_capture_skipped",
+            { session: sid, trigger, reason: "session_moved" },
+            true,
+            sid,
+            captureGate.evidenceContext,
+          );
+          return true;
+        };
         const captureReader = captureGate.reader ?? readerFromSid(sid);
         // Completion advances only to the turn this pass describes, even when
         // default-model lookup or generation allows later turns to arrive.
@@ -376,6 +392,8 @@ export function configureAutoCapture(
         const model =
           modelRef ?? sessionModel(sid) ?? (await host.defaultModel?.(sid));
         if (controller.signal.aborted) return;
+        // Ownership is frozen, but the transcript has not been read yet.
+        if (bindingChanged()) return;
         const modelTag = model ? `${model.providerID}/${model.id}` : undefined;
         // an instance with no workspace cannot say which repository the
         // mined rows belong to, and rows with no owner are exactly what the
@@ -438,6 +456,7 @@ export function configureAutoCapture(
           // the thin-transcript receipt below, then the model call. Silent, for
           // the same reason the post-model check is.
           if (controller.signal.aborted) return;
+          if (bindingChanged()) return;
           readMsgs = msgs;
           transcript = flattenTranscript(msgs);
           // Told in BOTH modes. With the delta off the pass mines the whole
