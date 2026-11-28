@@ -179,6 +179,29 @@ export function runtimeHostContract(
     expect(recalled).toInclude(GLOBAL);
   });
 
+  test("session-only facts reach their author's context and expire at compaction", async () => {
+    const writer = await seat();
+    await writer.ground("writer");
+    const result = await writer.invoke("writer", "memory_remember", {
+      type: "learning",
+      scope: "azurite",
+      content: FACT,
+      session: true,
+    });
+    expect(result.content).toStartWith("Kept for this session only:");
+    expect(await writer.request("writer", QUERY)).toInclude(FACT);
+    expect(await writer.request("other-session", QUERY)).not.toInclude(FACT);
+    const peer = await seat();
+    expect(await peer.request("writer", QUERY)).not.toInclude(FACT);
+    expect(await loadAll()).toEqual([]);
+    await writer.emit("compact", {
+      sessionID: "writer",
+      phase: "complete",
+      transcript: undefined,
+    });
+    expect(await writer.request("writer", QUERY)).not.toInclude(FACT);
+  });
+
   test("missing context sinks do not deliver and compaction supplies a memory anchor", async () => {
     const d = await seat();
     await seed(d);

@@ -65,6 +65,10 @@ export interface WriteCandidate {
   // appendMemory against the live repo scope.
   repo?: string;
   repoPath?: string;
+  // True when the writer declared the statement true for THIS session only.
+  // Only memory_remember sets it, and only through the session lane: nothing
+  // on this path is persisted, so no other field's durable meaning attaches.
+  session?: boolean;
 }
 
 // Metadata-list equality (retrieval keywords, tags): pairwise, undefined and
@@ -104,6 +108,11 @@ export interface GateContext {
   // Repo-stamp resolution prefers it over the mutable global current, which
   // a capture's model-call await can outlive into another session.
   sessionID?: string;
+  // The volatile holder for session-scoped writes, supplied only by an entry
+  // point that reaches the injection controller. A session-flagged write
+  // without it FAILS CLOSED: the author asked for nothing durable, so
+  // silently promoting would be the opposite of the request.
+  sessionFacts?: { addSessionFact(sid: string, content: string): void };
   // True when the session exercised the code (read/grep/edit/bash results
   // recorded). Empirical engagement substitutes for hand-copied refs (gate
   // injection): the write encodes behavior that actually happened here, so the
@@ -153,7 +162,13 @@ export type GateOutcome =
       updateLine?: string;
     })
   | (GateOutcomeFields & { action: "blocked"; reason: string })
-  | (GateOutcomeFields & { action: "collapsed" });
+  | (GateOutcomeFields & { action: "collapsed" })
+  // No durable row is written and none is needed: the fact renders in the
+  // authoring session's volatile block only (the evidence line is the durable
+  // half). Deliberately carries no ts — an unaddressed
+  // fact has no row to name, which is what keeps it out of recall, the ledger,
+  // and every retirement pointer.
+  | (GateOutcomeFields & { action: "session_scoped" });
 
 // STOPWORDS, tokens, rawTokens and jaccard now live in tokenize.ts so the
 // rejection sketch scores similarity with the same definition GATE-3
@@ -605,7 +620,11 @@ export async function runWriteGate(
       },
     });
   }
-  if (driftPlan.length > 0) {
+  if (driftPlan.length > 0 && candidate.session !== true) {
+    // A statement held only for this session may not retire rows that outlive
+    // it: the batch's pointer names this write's outcome, and the write leaves
+    // no durable successor behind. The scan and its audit lines above stay —
+    // what the run-scoped write refuses is the retirement, not the reading.
     const { marked } = await markManySupersededReport(
       driftPlan.map((p) => ({ ts: p.s.memory.ts, fields: p.fields })),
       ctx.durable,
@@ -663,36 +682,41 @@ export async function runWriteGate(
       canonPlan.push({ ts: m.ts, from });
     }
     // One batch publish for the whole neutralization set; rows marked
-    // out-of-band since the scan are skipped by the batch (re-read under lock).
-    const { marked: canonMarked } = await markManySupersededReport(
-      canonPlan.map((p) => ({
-        ts: p.ts,
-        fields: {
-          superseded_by: target,
+    // out-of-band since the scan are skipped by the batch (re-read under
+    // lock). A session-scoped write skips the batch for the same reason the
+    // drift batch skips it: a fact that dies with its session cannot be the
+    // authority that retires a row living past it.
+    if (canonPlan.length > 0 && candidate.session !== true) {
+      const { marked: canonMarked } = await markManySupersededReport(
+        canonPlan.map((p) => ({
+          ts: p.ts,
+          fields: {
+            superseded_by: target,
+            reason: "canonical",
+            entity: canon.entry.entity,
+            from: p.from,
+            to: canon.entry.value,
+          },
+        })),
+        ctx.durable,
+      );
+      // same attribution rule as the drift batch above — evidence and
+      // promoted.supersedes name only the rows this call actually retired.
+      const canonRetired = new Set(canonMarked);
+      for (const p of canonPlan) {
+        if (!canonRetired.has(p.ts)) continue;
+        if (!supersededTs) supersededTs = p.ts;
+        await rec("superseded_by", {
+          gate: 2,
+          mem: p.ts,
+          target,
           reason: "canonical",
           entity: canon.entry.entity,
           from: p.from,
           to: canon.entry.value,
-        },
-      })),
-      ctx.durable,
-    );
-    // same attribution rule as the drift batch above — evidence and
-    // promoted.supersedes name only the rows this call actually retired.
-    const canonRetired = new Set(canonMarked);
-    for (const p of canonPlan) {
-      if (!canonRetired.has(p.ts)) continue;
-      if (!supersededTs) supersededTs = p.ts;
-      await rec("superseded_by", {
-        gate: 2,
-        mem: p.ts,
-        target,
-        reason: "canonical",
-        entity: canon.entry.entity,
-        from: p.from,
-        to: canon.entry.value,
-        chain,
-      });
+          chain,
+        });
+      }
     }
   }
 
@@ -963,6 +987,61 @@ export async function runWriteGate(
 
   if (collapseMatch) {
     return { action: "collapsed", chain, collapsedWith: collapseMatch.ts };
+  }
+
+  // The volatile lane for a statement the author scoped to this session only.
+  // Its position is load-bearing: after the collapse checks, so a fact the
+  // store already holds collapses as the durable row it is and a re-sent copy
+  // meets its previous entry inside the session map rather than duplicating;
+  // before the conflict plan, because a fact that ends at compaction must not
+  // retire a row that outlives it — the lane can never be a supersession's
+  // successor, having written nothing to point at.
+  if (candidate.session === true) {
+    // global promises a durable row visible in every repo; this lane stores no
+    // row at all. The two flags contradict, and guessing which one the author
+    // meant is worse than asking.
+    if (candidate.repo === "global") {
+      await recBlocked(4, "session_scoped_global", [], chain);
+      return {
+        action: "blocked",
+        reason: "session_scoped_global",
+        chain,
+        hint:
+          "global promises a durable row visible in every repo; a " +
+          "session-scoped write stores nothing. Drop one of the two flags.",
+      };
+    }
+    // No controller to hand the fact to, or no session to hold it for: fail
+    // closed. Promoting instead would be exactly the durable write the author
+    // refused, and dropping it silently would be the other failure.
+    const laneSid =
+      typeof ctx.sessionID === "string" && ctx.sessionID !== "?"
+        ? ctx.sessionID
+        : undefined;
+    if (!laneSid || !ctx.sessionFacts) {
+      await recBlocked(4, "session_lane_unavailable", [], chain);
+      return {
+        action: "blocked",
+        reason: "session_lane_unavailable",
+        chain,
+        hint:
+          "A session-scoped write needs a live session held by the injection " +
+          "controller. Retry without the session flag to store the fact " +
+          "durably.",
+      };
+    }
+    // The fact dies; its recording does not. This line is the durable half:
+    // the incoming text, addressed by nothing, visible to memory_evidence.
+    await rec("session_scoped", {
+      gate: 4,
+      scope: candidate.scope,
+      type: candidate.type,
+      ch,
+      content: flattenMemoryText(candidate.content),
+      chain,
+    });
+    ctx.sessionFacts.addSessionFact(laneSid, candidate.content);
+    return { action: "session_scoped", chain };
   }
 
   // live rows the incoming row CORRECTS, computed before the append
