@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { safeErrorMessage } from "../../telemetry/record.ts";
 import type { PiCaptureBinding } from "../pi-family/capture.ts";
 
 /** Freeze model, history and provider routing before yielding to another session. */
@@ -30,7 +31,12 @@ export function bindCompletion(
       const answer = await registry
         .streamSimple(
           model,
-          { systemPrompt: prompt, messages: [], tools: [] },
+          {
+            messages: [
+              { role: "user", content: prompt, timestamp: Date.now() },
+            ],
+            tools: [],
+          },
           {
             signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
             sessionId: `memory-capture:${randomUUID()}`,
@@ -43,7 +49,11 @@ export function bindCompletion(
         answer.stopReason !== "stop" ||
         answer.content.some((part) => part.type === "toolCall")
       )
-        throw new Error("Pi capture completion failed");
+        throw new Error(
+          safeErrorMessage(
+            `Pi capture completion failed: ${answer.errorMessage || (answer.stopReason === "stop" ? "unexpected tool call" : answer.stopReason)}`,
+          ),
+        );
       return answer.content
         .filter((part) => part.type === "text")
         .map((part) => part.text)

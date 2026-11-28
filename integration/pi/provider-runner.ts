@@ -60,7 +60,7 @@ const provider: ExtensionFactory = (pi) => {
       calls++;
       assert.equal(model.id, "capture");
       assert.equal(context.messages.length, 1);
-      assert.equal(context.messages[0].role, "system");
+      assert.equal(context.messages[0].role, "user");
       assert.ok(JSON.stringify(context.messages[0]).includes(expectedFact));
       if (scenario === "two-turns" && calls === 2)
         assert.ok(!JSON.stringify(context).includes("PROVIDER::turn"));
@@ -88,6 +88,10 @@ const provider: ExtensionFactory = (pi) => {
         model: model.id,
         timestamp: Date.now(),
         stopReason: scenario === "error" ? "error" : "stop",
+        errorMessage:
+          scenario === "error"
+            ? "Capture provider rejected the request; token sk-abcdefghijklmnopqrstuvwxyz1234567890"
+            : undefined,
         usage: {
           input: 1,
           output: 1,

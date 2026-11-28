@@ -57,6 +57,10 @@ for (const scenario of [
         `${timedOut ? "Provider process exceeded 90s\n" : ""}${out}\n${err}`,
       ).toBe(0);
       expect(out).toContain(`PROVIDER-PASS ${scenario}`);
+      if (scenario === "error") {
+        expect(err).toContain("Capture provider rejected the request");
+        expect(err).not.toContain("sk-abcdefghijklmnopqrstuvwxyz1234567890");
+      }
     } finally {
       clearTimeout(timer);
       child.kill();
