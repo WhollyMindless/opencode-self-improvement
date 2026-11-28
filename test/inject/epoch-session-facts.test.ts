@@ -257,7 +257,11 @@ describe("session-scoped facts in the delivered block", () => {
   });
 
   test("adopting new epoch bytes keeps the session's facts", async () => {
-    seed("pattern", "deploy", "Widget releases run from the trunk branch.");
+    const riding = seed(
+      "pattern",
+      "deploy",
+      "Widget releases run from the trunk branch.",
+    );
     const loaded = await loadPlugin(liveRoot);
     const sid = "ses-adopt";
     const before = await deliveredBlock(loaded, sid, "widget releases trunk");
@@ -281,6 +285,13 @@ describe("session-scoped facts in the delivered block", () => {
     const afterAdopt = await deliveredContextBlock(loaded, sid);
     expect(afterAdopt).toContain("Freeze the trunk merge queue");
     expect(afterAdopt).toBe(withFact);
+    // The adopting render cannot prove survival on its own: it builds its
+    // bytes while the map is still intact, and its epoch record carries
+    // those bytes even if the adoption clears the map behind it. Only a
+    // LATER request decides — one that changes nothing and must be served
+    // from whatever the map holds now. A regression that ties the facts to
+    // the epoch record loses the fact exactly one turn after the adoption.
+    expect(await deliveredContextBlock(loaded, sid)).toBe(withFact);
     const reasons = epochRecomputes(sid).map((e) => e.reason);
     expect(reasons).toEqual(["first", "prompt_reveal"]);
     const status = await readStatus(sid);
@@ -289,6 +300,22 @@ describe("session-scoped facts in the delivered block", () => {
     expect(
       readEvidenceLog().filter((l) => l.ev === "session_scoped"),
     ).toHaveLength(1);
+    // The same two-turn shape across an adoption that moves the CORE: the
+    // riding row is revoked, the delivered bytes are rebuilt around the
+    // fact, and a further unchanged request still carries it. A map reset
+    // conditioned on the core or the block moving hides behind the
+    // adopting render exactly as well as an unconditional one — the
+    // rebuilt bytes shown at the move were built before the map was
+    // cleared, so only the request after the move can see the difference.
+    await addBlock(riding, "plan withdrawn");
+    const afterRevoke = await deliveredContextBlock(loaded, sid);
+    expect(afterRevoke).not.toContain(
+      "Widget releases run from the trunk branch.",
+    );
+    expect(afterRevoke).toContain("Freeze the trunk merge queue");
+    expect(await deliveredContextBlock(loaded, sid)).toContain(
+      "Freeze the trunk merge queue",
+    );
   });
 
   test("compaction ends the session's facts", async () => {
