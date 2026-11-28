@@ -20,6 +20,7 @@ export function gateOutcomeTypeChecks(outcome: GateOutcome): void {
     hint: "Supply text.",
   });
   acceptOutcome({ action: "collapsed", chain: "write-chain" });
+  acceptOutcome({ action: "session_scoped", chain: "write-chain" });
 
   // @ts-expect-error A promoted write must identify the persisted row.
   acceptOutcome({ action: "promoted", chain: "write-chain" });
@@ -46,6 +47,10 @@ export function gateOutcomeTypeChecks(outcome: GateOutcome): void {
       break;
     case "collapsed":
       // @ts-expect-error A collapse does not promise a newly persisted row.
+      acceptString(outcome.ts);
+      break;
+    case "session_scoped":
+      // @ts-expect-error A session-scoped fact has no row to name.
       acceptString(outcome.ts);
       break;
     default: {
