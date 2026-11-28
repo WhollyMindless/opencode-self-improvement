@@ -230,6 +230,11 @@ export async function installPiMemory(pi: PiAPI, config: PiMemoryConfig) {
         text,
         metadata,
         appendResult: (after) => {
+          if (
+            event.isError ||
+            (typeof metadata.exitCode === "number" && metadata.exitCode !== 0)
+          )
+            return false;
           content = appendPull(event.content, text, after);
           return content !== undefined;
         },

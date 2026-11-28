@@ -137,7 +137,7 @@ configuration parsing. Their native event wiring and model calls stay separate:
 | Session replacement | Teardown and rebuild; `session_start` | Switch/clear/branch callbacks |
 | Shell exits | `structuredContent.exit_code`; bash and PowerShell | `details.exitCode` |
 | Capture model | Host registry `streamSimple`, request-time authentication | Host SDK `completeSimple`, bound credential resolver |
-| Compaction anchors | Native `compact()` result via pre-compaction hook | `session.compacting` extra context |
+| Compaction anchors | Prepared summary context, native summarization | `session.compacting` extra context |
 | Reasoning usage | `usage.reasoning` | `usage.reasoningTokens` |
 
 Pi's `find` maps to the shared engine's `glob` operation; `powershell` maps to
@@ -162,14 +162,13 @@ Cross-host checks also require the OpenCode executable (select it with
 local scripted-provider behavior; live hosted-provider billing and interactive
 terminal rendering are not covered.
 
-Pi does not have oh-my-pi's extra-context compaction hook. When memory anchors
-exist, this adapter calls Pi's exported compaction algorithm with the caller's
-instructions plus the anchors, retaining its file tracking and summary format.
-A later extension can replace that result or cancel compaction; it may do so
-after the summarization call has already run. Capture starts only after a
-successful compaction and mines the original snapshot. Empty stores leave Pi's
-ordinary compaction path in place. Do not combine competing custom summarizers
-without checking their order and behavior.
+Pi does not have oh-my-pi's extra-context compaction hook. The adapter adds memory
+anchors as summary-only context in the preparation payload, then leaves Pi's
+native summarizer in control of model/auth routing, retry policy and file tracking.
+It carries forward standard file details from older extension-generated summaries.
+A later extension can replace or cancel summarization before Pi makes its request.
+Capture starts only after successful compaction and mines the original snapshot,
+excluding the added memory context. No synthetic entry is added to session history.
 
 Turn-end capture starts at Pi's `agent_settled` boundary, after retries and queued
 continuations finish. It reads the active branch's original message entries,

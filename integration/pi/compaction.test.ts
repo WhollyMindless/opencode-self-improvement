@@ -28,6 +28,9 @@ for (const scenario of [
   "capture",
   "capture-disabled",
   "capture-cancelled",
+  "repeated",
+  "retry",
+  "routing",
 ]) {
   test(`real pi compaction: ${scenario}`, async () => {
     const g = makeGuest(fake, REPO);

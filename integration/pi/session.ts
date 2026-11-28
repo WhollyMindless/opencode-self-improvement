@@ -17,6 +17,7 @@ export async function openSession(
     extensions?: ExtensionFactory[];
     persistent?: boolean;
     sessionFile?: string;
+    retry?: boolean;
   } = {},
 ) {
   await Bun.write(
@@ -49,7 +50,11 @@ export async function openSession(
         agentDir,
         settingsManager: SettingsManager.inMemory({
           compaction: { enabled: false, keepRecentTokens: 0 },
-          retry: { enabled: false },
+          retry: {
+            enabled: options.retry ?? false,
+            maxRetries: 1,
+            baseDelayMs: 1,
+          },
         }),
         resourceLoaderOptions: {
           noExtensions: true,
