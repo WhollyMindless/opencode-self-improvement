@@ -53,9 +53,12 @@ OpenCode's combined hook cannot emulate.
   the installed SDK's asynchronous API while retaining its older getter shape.
   Ownership and turn boundaries freeze before that await, and disposal during
   lookup prevents subsequent capture work.
-- Generation forwards the capture abort signal through the SDK request options.
-  This is request cancellation, not proof of stopped provider billing. Late-answer
-  protection still applies when a host ignores cancellation.
+- The adapter supplies the capture abort signal as a request option, but the
+  pinned `@opencode/plugin` 2.0.32 Promise adapter drops that second argument.
+  In-flight generation is therefore not cancelled by this SDK path. The shared
+  runtime's abandonment checks prevent late answers from writing after disposal;
+  they do not stop provider execution or billing. Already-aborted requests are
+  rejected locally before calling the SDK.
 - Viewer test teardown awaits the child process before removing its temporary
   files, eliminating the observed Windows `EBUSY` fixture races.
 

@@ -3,11 +3,25 @@ import type { ExtensionFactory } from "@oh-my-pi/pi-coding-agent";
 import { createOhMyPiMemory } from "../../src/adapters/oh-my-pi/extension.ts";
 import { readEvidenceLog } from "../../test/helpers/logfmt.ts";
 import { openSession } from "./session.ts";
+import { appendMemory } from "../../src/store/files/append.ts";
+import { resolveRepo } from "../../src/identity/repokey.ts";
+import { PULL_HEADER } from "../../src/inject/pull.ts";
 
 const [cwd, agentDir, baseUrl, stepsFile] = process.argv.slice(2);
 const observed: Array<{ isError: boolean; details: unknown }> = [];
+const fact =
+  "When azurite deployment reports a stale manifest: rebuild the project manifest using the cobalt queue before retrying the release.";
+await appendMemory({
+  type: "learning",
+  scope: "azurite",
+  content: fact,
+  repo: resolveRepo(cwd).key,
+});
+const pulled: boolean[] = [];
 const fixture: ExtensionFactory = async (pi) => {
-  await createOhMyPiMemory({ options: { autoCapture: false } })(pi);
+  await createOhMyPiMemory({
+    options: { autoCapture: false, pullTools: ["bash"] },
+  })(pi);
   // Exercise the real tool dispatcher without depending on an installed shell.
   // These are the exit/error fields produced by the pinned native bash tool.
   pi.registerTool({
@@ -24,15 +38,22 @@ const fixture: ExtensionFactory = async (pi) => {
         throw new Error("Missing scripted exit");
       const code = Number(args.exitCode);
       return {
-        content: [{ type: "text", text: "test runner finished" }],
+        content: [
+          {
+            type: "text",
+            text: "azurite deployment stale manifest cobalt queue",
+          },
+        ],
         details: { exitCode: code },
         isError: code !== 0,
       };
     },
   });
   pi.on("tool_result", async (event) => {
-    if (event.toolName === "bash")
+    if (event.toolName === "bash") {
       observed.push({ isError: event.isError, details: event.details });
+      pulled.push(JSON.stringify(event.content).includes(PULL_HEADER));
+    }
   });
 };
 const { session } = await openSession(cwd, agentDir, baseUrl, {
@@ -65,6 +86,11 @@ try {
     { isError: false, details: { exitCode: 0 } },
   ]);
   const log = readEvidenceLog();
+  assert.deepEqual(
+    pulled,
+    [false, true],
+    "only successful shell results receive pulls",
+  );
   assert.deepEqual(
     log.filter((e) => e.ev === "gate_check").map((e) => e.status),
     ["FAIL", "PASS"],

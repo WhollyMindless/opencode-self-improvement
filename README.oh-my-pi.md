@@ -63,7 +63,8 @@ across projects. Relevance selection still determines what reaches each request.
 
 ## Verify it
 
-1. Run `/memory-report` (or `/memory`) to check status and per-harness statistics.
+1. Run `/memory-report` to check status and per-harness statistics. `/memory`
+   belongs to oh-my-pi's built-in memory backend, not this plugin.
    Run `/repo-init` to derive build/test command memories; `/repo-init force` refreshes them.
 2. Have it read a project file and use `memory_remember` to save a verified fact.
 3. Start a fresh session in the same project and recall that fact with `memory_recall`.

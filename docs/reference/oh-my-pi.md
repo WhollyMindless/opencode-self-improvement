@@ -149,7 +149,8 @@ API in 19.2.1 does not expose its plugin-settings reader.
 - `/repo-init` derives build, lint, test, and typecheck memories from the current
   repository. `/repo-init force` refreshes the initialization stamp.
 - `/memory-report` shows the shared memory status and combined/per-harness activity.
-- `/memory` is a short alias for the same report.
+- `/memory` remains reserved for oh-my-pi's built-in memory backend; this plugin
+  does not register an alias that would conflict with interactive dispatch.
 
 These commands invoke the shared memory tools directly and display the result
 without starting a model turn. All fourteen tools remain available to the agent.

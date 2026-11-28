@@ -227,6 +227,7 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
                   text,
                   metadata,
                   appendResult: (after) => {
+                    if (event.isError || failedCommand) return false;
                     content = appendPull(event.content, text, after);
                     return content !== undefined;
                   },
@@ -316,11 +317,6 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
           ],
           [
             "memory-report",
-            "memory_status",
-            "Show memory status and harness statistics",
-          ],
-          [
-            "memory",
             "memory_status",
             "Show memory status and harness statistics",
           ],

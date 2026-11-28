@@ -23,6 +23,53 @@ const answer = JSON.stringify([
   { type: "context", scope: "archive", content: FACT, status: "settled" },
 ]);
 
+test("capture cancels when ownership changes during model lookup", async () => {
+  await runScenario("move before transcript", async (s) => {
+    const h = s.host("host", {
+      directory: project("a"),
+      options: { autoCapture: true },
+    });
+    h.transcripts.set("writer", messages);
+    await h.start();
+    await h.ground("writer");
+    const lookup = h.modelReads.pause("model lookup");
+    const capture = h.turnEnd("writer");
+    await lookup.entered;
+    await h.move("writer", project("b"));
+    h.transcripts.set("writer", [
+      { role: "user", text: "Project B private facts. ".repeat(20) },
+    ]);
+    lookup.resolve({ providerID: "fake", id: "model" });
+    await capture;
+    expect(h.generation.calls).toHaveLength(0);
+    expect(await loadAll()).toEqual([]);
+  });
+});
+
+test("usage emitted before identity resolves stays private to its session", async () => {
+  await runScenario("unresolved usage", async (s) => {
+    const h = s.host("host", {});
+    await h.start();
+    await h.emit("usage", {
+      sessionID: "private-writer",
+      input: 123,
+      read: 0,
+      write: 0,
+      output: 9,
+    });
+    const args = {
+      date: new Date().toISOString().slice(0, 10),
+      ev: "session_usage",
+    };
+    expect((await h.invoke("other", "memory_evidence", args)).content).toBe(
+      "No evidence",
+    );
+    expect(
+      (await h.invoke("private-writer", "memory_evidence", args)).content,
+    ).toContain("input=123");
+  });
+});
+
 function project(name: string) {
   const dir = join(store.root, name);
   mkdirSync(dir);

@@ -172,7 +172,7 @@ function buildEvidenceLine(
     // metadata as requested, but never turn an explicit private owner global.
     ...(includeContext
       ? { sid, call }
-      : context && !scope && sid && sid !== "?"
+      : (context || sessionID !== undefined) && !scope && sid && sid !== "?"
         ? { sid }
         : {}),
     ...(scope ? { repo: scope.key, repoPath: scope.path } : {}),

@@ -156,8 +156,8 @@ test("disposal during asynchronous model resolution prevents transcript reads an
   });
 });
 
-test("asynchronous model resolution retains capture ownership across a session move", async () => {
-  await runScenario("move during model lookup", async (s) => {
+test("capture cancels when a session moves away and back during transcript lookup", async () => {
+  await runScenario("move during transcript lookup", async (s) => {
     const a = join(store.root, "a");
     const b = join(store.root, "b");
     mkdirSync(a);
@@ -172,19 +172,16 @@ test("asynchronous model resolution retains capture ownership across a session m
     ]);
     await h.start();
     await h.ground("writer");
-    const model = h.modelReads.pause("default model");
-    h.generation.reply(
-      JSON.stringify([
-        { type: "context", scope: "archive", content: fact, status: "settled" },
-      ]),
-    );
+    const transcript = h.transcriptReads.pause("transcript lookup");
     const turn = h.turnEnd("writer");
-    await model.entered;
+    await transcript.entered;
     await h.move("writer", b);
-    model.resolve({ providerID: "fixture", id: "capture" });
+    await h.move("writer", a);
+    transcript.resolve([
+      { role: "user", text: "Private project B facts. ".repeat(20) },
+    ]);
     await turn;
-    const rows = await loadAll();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.repo).toBe(resolveRepo(a).key);
+    expect(h.generation.calls).toHaveLength(0);
+    expect(await loadAll()).toEqual([]);
   });
 });

@@ -99,7 +99,7 @@ test("the current SDK default-model API is awaited with the instance location", 
   expect(await host.defaultModel!()).toBeNull();
 });
 
-test("generation forwards request cancellation and refuses an already aborted request", async () => {
+test("generation offers cancellation to a supporting host and refuses an already aborted request", async () => {
   const controller = new AbortController();
   const entered = Promise.withResolvers<void>();
   let calls = 0;
