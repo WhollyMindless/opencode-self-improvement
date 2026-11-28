@@ -7,7 +7,7 @@ import { setupMemory } from "../../runtime/setup.ts";
 const plugin: Plugin = {
   id: "opencode-self-improvement",
   async setup(raw) {
-    const ctx = raw as unknown as PluginCtx;
+    const ctx: PluginCtx = raw;
     const runtime = await setupMemory(createOpenCodeMemoryHost(ctx), {
       directory: ctx.location?.directory,
       options: ctx.options,

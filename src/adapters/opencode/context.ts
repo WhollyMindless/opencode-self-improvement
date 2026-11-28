@@ -18,13 +18,13 @@ export interface PluginCtx {
   tool?: {
     transform: (cb: (editor: ToolEditorLike) => void) => Promise<unknown>;
     hook: (
-      name: string,
+      name: "execute.before" | "execute.after",
       cb: (event: any) => Promise<void> | void,
     ) => Promise<HookReg | void>;
   };
   session?: {
     hook: (
-      name: string,
+      name: "context" | "prompt" | "compaction",
       cb: (event: any) => Promise<void> | void,
     ) => Promise<HookReg | void>;
     context?: (input: { sessionID: string }) => Promise<unknown>;
@@ -34,11 +34,18 @@ export interface PluginCtx {
     subscribe: (o?: { signal?: AbortSignal }) => AsyncIterable<unknown>;
   };
   model?: {
-    default?: {
-      get?: () => { providerID: string; modelID: string } | undefined;
-    };
+    default?:
+      | {
+          get?: () => { providerID: string; modelID: string } | undefined;
+        }
+      | ((input?: { location?: { directory?: string } }) => Promise<{
+          data: { providerID: string; modelID: string } | null;
+        }>);
   };
   generate?: {
-    text: (input: unknown) => Promise<{ text?: string } | string>;
+    text: (
+      input: { prompt: string; model: { providerID: string; id: string } },
+      options?: { signal?: AbortSignal },
+    ) => Promise<{ text?: string } | string>;
   };
 }

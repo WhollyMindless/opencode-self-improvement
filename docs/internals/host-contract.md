@@ -78,7 +78,7 @@ availability comes from actual optional methods, not diagnostic labels. Method
 availability does not establish credentials, a selected model or successful
 delivery. Each callback still checks its actual sink.
 
-The legacy OpenCode integration declares system text ahead of conversation text:
+The OpenCode adapter declares system text ahead of conversation text:
 changing it changes that prefix. Its cooperative shutdown is best-effort and
 forced exit offers no cleanup guarantee. The simulator declares cache placement
 unknown because it has no provider; cooperative disposal is awaited. These
@@ -137,6 +137,9 @@ the assertions and shared engine are unchanged. The reference binding lives in
 validation of all fourteen tools, grounding, project/global visibility, automatic
 selection, identity moves, absent delivery sinks, compaction anchors, cumulative
 usage revisions, pull-delivery receipts, capture and late-answer cleanup.
+`test/runtime/opencode-runtime-contract.test.ts` binds those same assertions to
+the production OpenCode adapter. Its driver feeds native hook/event payloads and
+observes native result mutations; it does not call normalized handlers directly.
 
 CI must run the shared tests through every supported adapter, plus real-host
 integration checks for registration, actual request delivery and packaged loading.
@@ -161,6 +164,8 @@ OpenCode adapter and the reference host, checking gated writes, selected recall
 and injection in both directions, and cleanup. `test/adapters/` verifies payload
 translation and registration independently. The OpenCode E2E suite also checks
 shared stores, packed entry points and cooperative teardown on the real host.
+See [OpenCode parity review](opencode-parity.md) for the boundary map, intentional
+behavior changes and acceptance evidence.
 
 The known Windows standalone cleanup assertion remains enabled; the independent
 reproduction is filed as [OpenCode #66868](https://github.com/anomalyco/opencode/issues/66868).
