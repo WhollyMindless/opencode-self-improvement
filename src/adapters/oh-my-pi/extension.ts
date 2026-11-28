@@ -1,3 +1,8 @@
+// Developed and integration-tested against oh-my-pi 19.2.1 with Bun 1.4.4.
+// The matching pi-coding-agent, pi-ai and pi-catalog releases are pinned in
+// integration/oh-my-pi/package.json and its lockfile. Re-run test:oh-my-pi
+// when changing that baseline; other releases and upstream Pi require their
+// own compatibility verification.
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import type { LifecycleHandlers } from "../../host/lifecycle.ts";
