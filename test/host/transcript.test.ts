@@ -19,7 +19,11 @@ test("normalized transcripts apply the turn cap per window and keep user provena
   }));
   const text = flattenTranscript(messages);
   expect(text.split("\n")).toHaveLength(40);
-  expect(text).not.toInclude("rule 40");
+  expect(text).not.toInclude("rule 4 must hold");
+  expect(text).toInclude("rule 44 must hold");
+  expect(userTurnText(messages)).toInclude("rule 44 must hold");
+  expect(splitTranscript(messages).user).toInclude("rule 44 must hold");
+  expect(messages).toHaveLength(45);
   expect(
     flattenTranscript(deltaMessages(messages, 40)).split("\n"),
   ).toHaveLength(5);

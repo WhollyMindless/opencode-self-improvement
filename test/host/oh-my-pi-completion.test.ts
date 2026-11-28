@@ -108,8 +108,8 @@ test("capture completes against a provider that requires a user message", async 
   }
 });
 
-test("capture preserves a scrubbed provider error instead of hiding its cause", async () => {
-  const secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890";
+test("capture errors never repeat opaque credentials or provider text", async () => {
+  const secret = "opaqueFixtureCredential7f35a19cd2b64801";
   const provider = captureProvider(
     `Unsupported capture request; token ${secret}`,
   );
@@ -123,8 +123,9 @@ test("capture preserves a scrubbed provider error instead of hiding its cause", 
         (failure: Error) => failure,
       );
     expect(error).toBeInstanceOf(Error);
-    expect(error!.message).toContain("Unsupported capture request");
+    expect(error!.message).toBe("Capture completion failed (provider_error)");
     expect(error!.message).not.toContain(secret);
+    expect(error!.cause).toBeUndefined();
   } finally {
     await provider.server.stop(true);
   }
