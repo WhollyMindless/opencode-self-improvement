@@ -195,8 +195,8 @@ export function configureAutoCapture(
     } else {
       const controller = new AbortController();
       // passes in flight, tracked so teardown can stop them.
-      // Aborting the subscription is not enough on its own: `generate.text`
-      // does not take the signal, so a pass parked mid-model-call when the
+      // Aborting the subscription is not enough on its own: some hosts cannot
+      // cancel generation, so a pass parked mid-model-call when the
       // host disposes this instance wakes up afterwards and used to run the
       // whole write gate against a store its caller had already torn down —
       // gate receipts, promoted rows, supersession. The contract is bounded
@@ -278,8 +278,8 @@ export function configureAutoCapture(
        * break it in all four of that contract's cases — `appendLog` calls
        * `ensureDir`, so the receipt resurrects a directory the caller deleted.
        * An abandoned pass is instead identified by the gap it leaves: a
-       * `capture_cost` line with no later `capture_lag` for the same session is
-       * a pass that was cut, and both lines are already written.
+       * `capture_cost` line with no later `capture_lag` is an unresolved outcome.
+       * It does not prove loss: a store write can precede its completion receipt.
        */
       async function drainInFlight(): Promise<void> {
         for (const phase of passPhases) {
@@ -366,11 +366,16 @@ export function configureAutoCapture(
       ): Promise<void> {
         const captureGate = gate ?? bindCapture(sid);
         const captureReader = captureGate.reader ?? readerFromSid(sid);
+        // Completion advances only to the turn this pass describes, even when
+        // default-model lookup or generation allows later turns to arrive.
+        const turnAtStart = session(sid).turns;
         // resolve the model BEFORE any skip so every capture evidence
         // line below can carry model= (cost attributable to a named model —
         // the real answer to the cost-surprise concern that justified the
         // required captureModel). Resolution itself is token-free.
-        const model = modelRef ?? sessionModel(sid) ?? host.defaultModel?.(sid);
+        const model =
+          modelRef ?? sessionModel(sid) ?? (await host.defaultModel?.(sid));
+        if (controller.signal.aborted) return;
         const modelTag = model ? `${model.providerID}/${model.id}` : undefined;
         // an instance with no workspace cannot say which repository the
         // mined rows belong to, and rows with no owner are exactly what the
@@ -410,11 +415,6 @@ export function configureAutoCapture(
         // the expensive artifact the gate saves — the capture model call —
         // is still saved.
         const cursor = captureCursor(sid);
-        // The turn this pass DESCRIBES. Completion must advance to this number,
-        // not to whatever the session has reached by then: a turn delivered
-        // while the model call is in flight was never in the prompt, and
-        // consuming it leaves that work unmined with nothing left to ask for it.
-        const turnAtStart = session(sid).turns;
         let transcript = seeded;
         let msgs = seededMsgs;
         // The array AS READ, before any delta slice: the cursor's fingerprint

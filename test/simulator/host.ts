@@ -15,9 +15,10 @@ import type {
   ContextEvent,
 } from "../../src/host/lifecycle.ts";
 import type { SessionModelRef } from "../../src/capture/session-model.ts";
+import type { HostCapabilities } from "../../src/host/capabilities.ts";
 import { ControlledCall, Trace, checkpoint } from "./control.ts";
 
-type EventName = Exclude<keyof LifecycleHandlers, "error">;
+type EventName = keyof LifecycleHandlers;
 type QueuedTurn = {
   event: CaptureTurnEnd;
   done: ReturnType<typeof Promise.withResolvers<void>>;
@@ -25,8 +26,26 @@ type QueuedTurn = {
 export interface HostOptions extends MemorySetupOptions {
   harness?: string;
   capabilities?: Partial<
-    Record<"events" | "transcript" | "generation", boolean>
+    Record<
+      | "events"
+      | "transcript"
+      | "generation"
+      | "defaultModel"
+      | "tools"
+      | "commands"
+      | "transcriptDirectory"
+      | "sessionDirectory"
+      | "identityEvents"
+      | "usageReceipts"
+      | "toolEvents"
+      | "promptEvents"
+      | "system"
+      | "toolResults"
+      | "observedToolResults",
+      boolean
+    >
   >;
+  compaction?: HostCapabilities["compaction"];
 }
 export interface RequestCopy {
   sessionID: string;
@@ -40,6 +59,15 @@ export class TestHost {
   readonly tools = new Map<string, MemoryTool>();
   readonly transcripts = new Map<string, CaptureTranscript>();
   readonly directories = new Map<string, string>();
+  readonly transcriptDirectories = new Map<string, string>();
+  model: SessionModelRef | null = { providerID: "simulator", id: "scripted" };
+  resolveModel: (sessionID?: string) => SessionModelRef | null = () =>
+    this.model;
+  readonly modelLookups: Array<string | undefined> = [];
+  readonly modelReads: ControlledCall<
+    string | undefined,
+    SessionModelRef | null
+  >;
   readonly requests: RequestCopy[] = [];
   readonly generation: ControlledCall<
     { sessionID: string; model: SessionModelRef; prompt: string },
@@ -51,6 +79,10 @@ export class TestHost {
     CaptureTranscript | undefined
   >;
   readonly registration: ControlledCall<void, void>;
+  readonly toolRegistration: ControlledCall<void, void>;
+  readonly commands: ControlledCall<void, void>;
+  readonly sessionDirectoryReads: ControlledCall<string, string | undefined>;
+  readonly transcriptDirectoryReads: ControlledCall<string, string | undefined>;
   readonly disposal: ControlledCall<void, void>;
   readonly host: MemoryHost;
   private handlers?: LifecycleHandlers;
@@ -86,26 +118,62 @@ export class TestHost {
       () => {},
     );
     this.disposal = new ControlledCall(trace, name, "disposal", () => {});
+    this.modelReads = new ControlledCall(trace, name, "model", (sid) =>
+      this.resolveModel(sid),
+    );
+    this.toolRegistration = new ControlledCall(
+      trace,
+      name,
+      "toolRegistration",
+      () => {},
+    );
+    this.commands = new ControlledCall(trace, name, "commands", () => {});
+    this.sessionDirectoryReads = new ControlledCall(
+      trace,
+      name,
+      "sessionDirectory",
+      (sid) => this.directories.get(sid),
+    );
+    this.transcriptDirectoryReads = new ControlledCall(
+      trace,
+      name,
+      "transcriptDirectory",
+      (sid) => this.transcriptDirectories.get(sid),
+    );
+    const available = (key: keyof NonNullable<HostOptions["capabilities"]>) =>
+      config.capabilities?.[key] !== false;
     this.host = {
       capabilities: {
-        tools: true,
-        identityEvents: true,
-        usageReceipts: true,
-        toolEvents: true,
-        promptEvents: true,
+        tools: available("tools"),
+        identityEvents: available("identityEvents"),
+        usageReceipts: available("usageReceipts"),
+        toolEvents: available("toolEvents"),
+        promptEvents: available("promptEvents"),
         context: {
-          system: true,
-          toolResults: true,
-          observedToolResults: true,
-          promptDependentCache: "unknown",
+          system: available("system"),
+          toolResults: available("toolResults"),
+          observedToolResults: available("observedToolResults"),
+          promptDependentCache: available("system") ? "unknown" : "unavailable",
         },
-        compaction: "combined",
+        compaction: config.compaction ?? "combined",
         shutdown: { cooperative: "awaited", forcedExit: "no-cleanup" },
       },
       harness: config.harness ?? "simulator",
+      installCommands: available("commands")
+        ? () => this.commands.call()
+        : undefined,
       tools: {
-        directories: { fromSession: async (sid) => this.directories.get(sid) },
+        directories: {
+          fromSession: available("sessionDirectory")
+            ? (sid) => this.sessionDirectoryReads.call(sid)
+            : undefined,
+          fromTranscript: available("transcriptDirectory")
+            ? (sid) => this.transcriptDirectoryReads.call(sid)
+            : undefined,
+        },
         registerTools: async (register) => {
+          if (!available("tools")) return;
+          await this.toolRegistration.call();
           register({
             add: (tool) => {
               this.tools.set(tool.name, tool);
@@ -147,7 +215,13 @@ export class TestHost {
                 this.generationSignals.push(signal);
                 return this.generation.call(input);
               },
-        defaultModel: () => ({ providerID: "simulator", id: "scripted" }),
+        defaultModel: available("defaultModel")
+          ? (sid) => {
+              this.modelLookups.push(sid);
+              trace.add(name, "model.lookup", sid);
+              return this.modelReads.call(sid);
+            }
+          : undefined,
       },
     };
   }
@@ -187,7 +261,18 @@ export class TestHost {
     name: K,
     event: Parameters<LifecycleHandlers[K]>[0],
   ): Promise<void> {
-    if (!this.active || !this.handlers) {
+    const capabilities = this.host.capabilities;
+    const enabled = {
+      beforeTool: capabilities.toolEvents,
+      afterTool: capabilities.toolEvents,
+      context: true,
+      prompt: capabilities.promptEvents,
+      compact: capabilities.compaction !== "unavailable",
+      identity: capabilities.identityEvents,
+      usage: capabilities.usageReceipts,
+      error: true,
+    } satisfies Record<EventName, boolean>;
+    if (!this.active || !this.handlers || !enabled[name]) {
       this.trace.add(this.name, `${name}.dropped`);
       return;
     }
@@ -236,7 +321,11 @@ export class TestHost {
       text,
       metadata: {},
       appendResult: (after) => {
-        if (options.writeback === false) return false;
+        if (
+          options.writeback === false ||
+          !this.host.capabilities.context.toolResults
+        )
+          return false;
         result.text = after;
         this.trace.add(this.name, "tool.placed", after);
         return true;
@@ -259,7 +348,9 @@ export class TestHost {
   ): Promise<RequestCopy> {
     const request: RequestCopy = {
       sessionID: sid,
-      observedResults: structuredClone([...(options.observedResults ?? [])]),
+      observedResults: this.host.capabilities.context.observedToolResults
+        ? structuredClone([...(options.observedResults ?? [])])
+        : [],
       attemptedSystem: [],
       system: [],
     };
@@ -269,7 +360,7 @@ export class TestHost {
       observedResults: request.observedResults,
       model: options.model,
       appendSystem:
-        options.system === false
+        options.system === false || !this.host.capabilities.context.system
           ? undefined
           : (text) => {
               request.attemptedSystem.push(text);
@@ -348,8 +439,13 @@ export class TestHost {
     const cleanup = this.dispose();
     void cleanup.catch(() => {});
     this.generation.close();
+    this.modelReads.close();
     this.transcriptReads.close();
     this.registration.close();
+    this.toolRegistration.close();
+    this.commands.close();
+    this.sessionDirectoryReads.close();
+    this.transcriptDirectoryReads.close();
     this.disposal.close();
     await this.starting?.catch(() => {});
     const results = await Promise.allSettled([
