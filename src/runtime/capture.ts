@@ -366,6 +366,8 @@ export function configureAutoCapture(
       ): Promise<void> {
         const captureGate = gate ?? bindCapture(sid);
         const captureReader = captureGate.reader ?? readerFromSid(sid);
+        // Completion advances only to the turn this pass describes, even when
+        // default-model lookup or generation allows later turns to arrive.
         const turnAtStart = session(sid).turns;
         // resolve the model BEFORE any skip so every capture evidence
         // line below can carry model= (cost attributable to a named model —
@@ -413,10 +415,6 @@ export function configureAutoCapture(
         // the expensive artifact the gate saves — the capture model call —
         // is still saved.
         const cursor = captureCursor(sid);
-        // The turn this pass DESCRIBES. Completion must advance to this number,
-        // not to whatever the session has reached by then: a turn delivered
-        // while the model call is in flight was never in the prompt, and
-        // consuming it leaves that work unmined with nothing left to ask for it.
         let transcript = seeded;
         let msgs = seededMsgs;
         // The array AS READ, before any delta slice: the cursor's fingerprint
