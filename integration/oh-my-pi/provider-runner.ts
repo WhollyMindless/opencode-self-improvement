@@ -11,12 +11,13 @@ import { loadAll } from "../../src/store/files/load.ts";
 const [cwd, agentDir, baseUrl, stepsFile, extensionPath, scenario] =
   process.argv.slice(2);
 const fact = "The nightly archive job keeps fourteen days of tarballs.";
+const secret = "opaqueFixtureCredential7f35a19cd2b64801";
 const called = Promise.withResolvers<void>();
 let calls = 0;
 const provider: ExtensionFactory = (pi) => {
   pi.registerProvider("capture-fixture", {
     baseUrl: "https://unused.invalid",
-    apiKey: "fixture-key",
+    apiKey: secret,
     api: "capture-fixture-api",
     models: [
       {
@@ -37,6 +38,10 @@ const provider: ExtensionFactory = (pi) => {
       assert.equal(context.messages[0].role, "user");
       assert.deepEqual(context.tools, []);
       assert.ok(JSON.stringify(context.messages[0]).includes(fact));
+      if (scenario === "throw") {
+        called.resolve();
+        throw new Error(`Provider transport rejected ${secret}`);
+      }
       const stream = createAssistantMessageEventStream();
       const message: AssistantMessage = {
         role: "assistant",
@@ -60,7 +65,7 @@ const provider: ExtensionFactory = (pi) => {
         stopReason: scenario === "error" ? "error" : "stop",
         errorMessage:
           scenario === "error"
-            ? "Capture provider rejected the request"
+            ? `Capture provider rejected ${secret}`
             : undefined,
         usage: {
           input: 1,
@@ -122,7 +127,7 @@ try {
   assert.equal(calls, 1);
   assert.deepEqual(
     (await loadAll()).map((row) => row.content),
-    scenario === "error" ? [] : [fact],
+    scenario === "error" || scenario === "throw" ? [] : [fact],
   );
   console.log(`PROVIDER-PASS ${scenario}`);
 } finally {
