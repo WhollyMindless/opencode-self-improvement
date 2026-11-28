@@ -1,6 +1,6 @@
-// The memory_remember tool, extracted from index.ts. Schema, description
-// and handler are byte-identical to the pre-split source; closure access arrives
-// through ToolDeps.
+// The memory_remember tool. Closure access arrives through ToolDeps; the
+// volatile session lane is the injection controller's map, handed to the gate
+// only for writes the author marked session-scoped.
 import type { ToolRegister } from "./deps.ts";
 import { auditCaveat, runWriteGate } from "../gate/gate.ts";
 import type { WriteCandidate } from "../gate/gate.ts";
@@ -14,6 +14,7 @@ export const register: ToolRegister = (editor, deps) => {
     ownerlessWriter,
     refuseOwnerlessWrite,
     gateContext,
+    sessions,
     direct,
   } = deps;
   editor.add(
@@ -33,6 +34,7 @@ export const register: ToolRegister = (editor, deps) => {
           kw: args.kw,
           status: args.status,
           repo: args.global ? "global" : undefined,
+          session: args.session,
         };
         await bindSessionIdentity(sid);
         // An explicit global write needs no repository owner; anything else
@@ -42,7 +44,26 @@ export const register: ToolRegister = (editor, deps) => {
           if (ownerless)
             return await refuseOwnerlessWrite(ownerless, "remember");
         }
-        const outcome = await runWriteGate(candidate, gateContext(sid));
+        const outcome = await runWriteGate(candidate, {
+          ...gateContext(sid),
+          // Only this entry point holds the volatile map; a session-flagged
+          // write from any other gate caller fails closed without it.
+          sessionFacts: sessions,
+        });
+        // A session-scoped fact is NOT a durable row: the reply must say so
+        // plainly, or the model believes it stored something that survives.
+        // The evidence line is the only durable half.
+        if (outcome.action === "session_scoped")
+          return {
+            content:
+              `Kept for this session only: ${args.type}/${args.scope}. ` +
+              `No durable memory row was created — this fact is injected ` +
+              `into this session's context only, until compaction or a ` +
+              `server restart. The repository's evidence log retains its ` +
+              `text and outlives the process: any session in this ` +
+              `repository can read it with memory_evidence ` +
+              `ev=session_scoped.`,
+          };
         // A durable row whose audit line fell is NOT a clean success
         // the reply says what is missing where it is
         // missing, and the row itself stands.
