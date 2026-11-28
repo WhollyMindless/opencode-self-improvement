@@ -38,7 +38,7 @@ test("overlapping compaction bindings preserve each operation's model and transc
         expect(await capture.host.readTranscript!(id)).toEqual([
           { role: "user", text: id },
         ]);
-        const model = capture.host.defaultModel!(id)!;
+        const model = (await capture.host.defaultModel!(id))!;
         expect(model.providerID).toBe(id);
         return capture.host.generateText!({
           sessionID: id,
@@ -52,7 +52,7 @@ test("overlapping compaction bindings preserve each operation's model and transc
   const second = run("second");
   release.resolve();
   expect(await Promise.all([first, second])).toEqual(["first", "second"]);
-  expect(capture.host.defaultModel!("first")).toBeNull();
+  expect(await capture.host.defaultModel!("first")).toBeNull();
 });
 function binding(
   generateText: OmpCaptureBinding["generateText"] = async () => ANSWER,
