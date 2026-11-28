@@ -69,6 +69,7 @@ const TOOLS = [
 export function runtimeHostContract(
   create: RuntimeDriverFactory,
   store: { root: string },
+  options: { promptDelivery?: "separate" | "combined" } = {},
 ) {
   const drivers: RuntimeDriver[] = [];
   beforeEach(() => {
@@ -181,11 +182,18 @@ export function runtimeHostContract(
   test("missing context sinks do not deliver and compaction supplies a memory anchor", async () => {
     const d = await seat();
     await seed(d);
-    await d.emit("prompt", { sessionID: "reader", text: QUERY });
+    // Some hosts deliver system context in the prompt hook itself. Their
+    // observation-only context hook cannot accept a pending system digest.
+    if (options.promptDelivery !== "combined")
+      await d.emit("prompt", { sessionID: "reader", text: QUERY });
     const missing = await d.context("reader", { system: false });
     expect(missing.system).toEqual([]);
     expect(missing.attemptedSystem).toEqual([]);
-    expect((await d.context("reader")).system.join("\n")).toInclude(FACT);
+    const delivered =
+      options.promptDelivery === "combined"
+        ? await d.request("reader", QUERY)
+        : (await d.context("reader")).system.join("\n");
+    expect(delivered).toInclude(FACT);
     const anchor: string[] = [];
     await d.emit("compact", {
       sessionID: "reader",
@@ -299,6 +307,9 @@ export function runtimeHostContract(
     const turn = d.turnEnd("capture");
     await model.entered;
     const cleanup = d.dispose();
+    // A cooperative host may allow a bounded grace period. The answer here is
+    // late even for that host: it arrives only after disposal has completed.
+    await cleanup;
     model.resolve(
       JSON.stringify([
         {
