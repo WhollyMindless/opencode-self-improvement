@@ -268,7 +268,16 @@ describe("the session-scoped lane", () => {
       },
     );
     expect(out.action).toBe("blocked");
-    if (out.action === "blocked") expect(out.reason).toContain("session");
+    if (out.action === "blocked") {
+      // The reason codes and the model-facing hint are the whole verdict
+      // this path returns: equality on each, so no clause of the refusal
+      // can be added, dropped, or reworded without a failing test.
+      expect(out.reason).toBe("session_scoped_global");
+      expect(out.hint).toBe(
+        "global promises a durable row visible in every repo; a " +
+          "session-scoped write stores nothing. Drop one of the two flags.",
+      );
+    }
     expect(lane.adds).toHaveLength(0);
     expect(await loadAll()).toHaveLength(0);
   });
@@ -302,6 +311,14 @@ describe("the session-scoped lane", () => {
       },
     );
     expect(out.action).toBe("blocked");
+    if (out.action === "blocked") {
+      expect(out.reason).toBe("session_lane_unavailable");
+      expect(out.hint).toBe(
+        "A session-scoped write needs a live session held by the injection " +
+          "controller. Retry without the session flag to store the fact " +
+          "durably.",
+      );
+    }
     expect(await loadAll()).toHaveLength(0);
   });
 
