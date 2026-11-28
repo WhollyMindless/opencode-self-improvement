@@ -193,6 +193,11 @@ export function resolveRepo(startDir: string): RepoScope {
 const byDir = new Map<string, RepoScope>();
 const bySession = new Map<string, { dir: string; scope: RepoScope }>();
 
+/** Opaque binding identity, replaced even when a session moves away and back. */
+export function sessionBindingToken(sid: string): object | undefined {
+  return bySession.get(sid);
+}
+
 function scopeForDir(dir: string): RepoScope {
   let s = byDir.get(dir);
   if (!s) {
