@@ -10,6 +10,8 @@ import { withTempStore } from "../helpers/temp-store.ts";
 import { loadAll } from "../../src/store/files/load.ts";
 import { resolveRepo } from "../../src/identity/repokey.ts";
 import { readEvidenceLog } from "../helpers/logfmt.ts";
+import { captureCursor } from "../../src/capture/policy.ts";
+import { resetCaptureCooldowns } from "../../src/runtime/capture.ts";
 
 const store = withTempStore({ prefix: "osi-simulator-" });
 const FACT = "The nightly archive job keeps fourteen days of tarballs.";
@@ -22,6 +24,46 @@ const messages = [
 const answer = JSON.stringify([
   { type: "context", scope: "archive", content: FACT, status: "settled" },
 ]);
+
+for (const captureDelta of [false, true])
+  test(`recent capture keeps source cursors with captureDelta=${captureDelta}`, async () => {
+    await runScenario("long transcript", async (s) => {
+      const h = s.host("host", {
+        directory: project("a"),
+        options: { autoCapture: true, captureDelta, captureOnSignal: true },
+      });
+      const history = Array.from({ length: 45 }, (_, i) => [
+        {
+          role: "user" as const,
+          text:
+            `Remember that ARCHIVE-TURN-${i} is the deployment checkpoint. ` +
+            "Details of the completed archive operation. ".repeat(6),
+        },
+        { text: "" },
+        { role: "assistant" as const, text: `Confirmed checkpoint ${i}.` },
+      ]).flat();
+      h.transcripts.set("writer", history);
+      await h.start();
+      await h.turnEnd("writer");
+      expect(h.generation.calls[0]?.prompt).toInclude("ARCHIVE-TURN-44");
+      expect(h.generation.calls[0]?.prompt).not.toInclude("ARCHIVE-TURN-0 ");
+      expect(captureCursor("writer").msgs).toBe(history.length);
+      resetCaptureCooldowns();
+      h.transcripts.set("writer", [...history, ...messages]);
+      await h.turnEnd("writer");
+      expect(h.generation.calls[1]?.prompt).toInclude(FACT);
+      if (captureDelta)
+        expect(h.generation.calls[1]?.prompt).not.toInclude("ARCHIVE-TURN-");
+      expect(captureCursor("writer").msgs).toBe(
+        history.length + messages.length,
+      );
+      resetCaptureCooldowns();
+      h.transcripts.set("writer", messages);
+      await h.turnEnd("writer");
+      expect(h.generation.calls[2]?.prompt).toInclude(FACT);
+      expect(captureCursor("writer").msgs).toBe(messages.length);
+    });
+  });
 
 test("capture cancels when ownership changes during model lookup", async () => {
   await runScenario("move before transcript", async (s) => {

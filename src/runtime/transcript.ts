@@ -7,13 +7,25 @@ interface ParsedTurn {
   text: string;
 }
 
-/** Apply the shared render limit to this window, after any delta slicing. */
+/** Render recent turns after delta slicing, without changing source cursor slots. */
 function parseTurns(msgs: CaptureTranscript | undefined): ParsedTurn[] {
   const out: ParsedTurn[] = [];
+  const source = msgs ?? [];
+  let start = 0;
   let userTurns = 0;
-  for (const msg of msgs ?? []) {
+  for (let i = source.length - 1; i >= 0; i--) {
+    const msg = source[i];
+    if (
+      msg.role === "user" &&
+      msg.text.trim() &&
+      ++userTurns === TRANSCRIPT_USER_TURN_CAP
+    ) {
+      start = i;
+      break;
+    }
+  }
+  for (const msg of source.slice(start)) {
     if (!msg.role || !msg.text.trim()) continue;
-    if (msg.role === "user" && ++userTurns > TRANSCRIPT_USER_TURN_CAP) break;
     out.push({ role: msg.role, text: msg.text.trim() });
   }
   return out;
