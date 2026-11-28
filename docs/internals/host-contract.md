@@ -43,7 +43,11 @@ or harness-specific extension in this foundation.
   user/assistant provenance; exclude thinking and synthetic/tool content. Bind
   model and credentials to the original session before awaits. Generate from
   only the supplied scrubbed prompt, without ambient tools or conversation.
-  Honor cancellation and reject unsuccessful completions. Shared policy owns
+  Forward cancellation through the host's supported request API and reject
+  unsuccessful completions. Request cancellation does not prove that the remote
+  provider stopped generating or billing. The shared runtime must also reject
+  abandoned late answers when a host cannot cancel the underlying operation.
+  Shared policy owns
   cooldowns, model selection, redaction, write gates and bounded abandonment.
 - **Usage:** distinguish cumulative versus incremental receipts and update the
   same message instead of double-counting streaming revisions. Unknown reasoning
@@ -53,6 +57,21 @@ or harness-specific extension in this foundation.
   unanswered work can be abandoned. Forced exit may bypass every callback.
 
 ## Capabilities and attribution
+
+The useful baseline is tools, resolved ownership, prompt observations and
+automatic relevance-selected context delivery. A host providing only manual
+memory tools is degraded, not a complete integration. The current engine uses
+the system sink for its automatic digest; tool-result pulls additionally need
+tool events, a writable result and independent outgoing-result observations.
+An alternative context surface needs an explicit contract extension and tests;
+declaring a capability alone cannot supply one.
+
+Transcript/session directory lookups are alternative identity sources. Combined
+and split compaction are alternative lifecycle mechanisms. Capture, usage receipts
+and native commands are extensions: an adapter may declare them unavailable,
+but implementing them entails every corresponding obligation above. For OpenCode,
+completion includes all currently supported features, including automatic capture,
+compaction, usage, commands and its native terminal surface.
 
 `MemoryRuntime.capabilities` reports optional event, tool, context and usage
 surfaces, compaction shape, cache placement and shutdown semantics. Capture
@@ -101,6 +120,32 @@ retain OpenCode names for compatibility. This is not a public adapter SDK or
 proof that an arbitrary harness satisfies the protocol.
 
 ## Reference host and verification
+
+The reference host is the local development and maintenance substitute for every
+supported adapter. It covers the union of shared ports and their supported
+variants without installing any production harness. Its capability profiles can
+remove surfaces; command/tool/lifecycle registration, both directory lookups,
+transcript reads, generation and disposal can be paused, failed or answered out
+of order. Model resolution is replaceable per session, and all lifecycle handlers,
+including errors, are reachable. Late model answers remain controllable after
+abort so the engine's abandonment protection is tested independently of a
+cooperative provider.
+
+`test/host/runtime-contract.ts` is the reusable behavioral suite. Each production
+adapter supplies a stimulus driver that translates inputs to its native payloads;
+the assertions and shared engine are unchanged. The reference binding lives in
+`test/runtime/reference-conformance.test.ts`. The suite covers registration and
+validation of all fourteen tools, grounding, project/global visibility, automatic
+selection, identity moves, absent delivery sinks, compaction anchors, cumulative
+usage revisions, pull-delivery receipts, capture and late-answer cleanup.
+
+CI must run the shared tests through every supported adapter, plus real-host
+integration checks for registration, actual request delivery and packaged loading.
+The reference suite makes local development independent of those installations;
+it does not replace their CI checks. Pin host versions and record the tested
+versions when investigating drift. Keep existing behavioral assertions when
+adapting test calling methods. Native UI and provider/transport behavior remain
+host-specific acceptance checks.
 
 Run `bun run test:simulator` for controlled event ordering, missing capabilities,
 held/failed generation, clipped delivery, concurrent identities, split compaction,
