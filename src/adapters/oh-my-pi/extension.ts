@@ -200,8 +200,18 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
                 });
               });
               on("tool_result", async (event, sessionID) => {
-                // A failed read must not become grounding evidence for a settled write.
-                if (event.isError) return;
+                const metadata =
+                  event.details && typeof event.details === "object"
+                    ? (event.details as Record<string, unknown>)
+                    : {};
+                // A reported nonzero shell exit is real gate evidence. Other
+                // errors may mean the tool never ran and cannot ground a write.
+                const failedCommand =
+                  (event.toolName === "bash" || event.toolName === "shell") &&
+                  typeof metadata.exitCode === "number" &&
+                  Number.isFinite(metadata.exitCode) &&
+                  metadata.exitCode !== 0;
+                if (event.isError && !failedCommand) return;
                 const text = textContent(event.content);
                 let content: OmpContent[] | undefined;
                 await shared.afterTool({
@@ -210,10 +220,7 @@ export function createOhMyPiMemory<C extends OmpContext = OmpContext>(
                   tool: event.toolName,
                   args: event.input,
                   text,
-                  metadata:
-                    event.details && typeof event.details === "object"
-                      ? (event.details as Record<string, unknown>)
-                      : {},
+                  metadata,
                   appendResult: (after) => {
                     content = appendPull(event.content, text, after);
                     return content !== undefined;

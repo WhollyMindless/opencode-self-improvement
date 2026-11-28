@@ -34,7 +34,18 @@ its terminal UI. Its plugin supplies the same host interface as the reference
 implementation. Adapter conformance tests run the real engine with both hosts;
 the package keeps its existing OpenCode entry points.
 
-The oh-my-pi consumer lives in `src/adapters/oh-my-pi/`. Install its pinned
+## oh-my-pi adapter
+
+The oh-my-pi consumer lives in `src/adapters/oh-my-pi/`. Its native-callback driver
+in `test/adapters/oh-my-pi-runtime-driver.ts` runs the reusable runtime assertions
+in `test/host/runtime-contract.ts`, alongside the OpenCode and reference bindings.
+The combined prompt/system hook uses the suite's combined-delivery profile;
+OpenCode retains its separate-hook assertions. Every binding checks late answers
+after disposal, including a host's bounded grace period. The fixture supplies
+the capture transcript/model binding and scripted generation; SDK tests exercise
+the normal packaged completion and credential-resolution path.
+
+Install its pinned
 integration dependencies with
 `bun install --cwd integration/oh-my-pi --frozen-lockfile`, then run
 `bun run test:oh-my-pi` for SDK contracts, capture, native commands, packed

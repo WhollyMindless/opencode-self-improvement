@@ -11,6 +11,7 @@ import type {
   OmpTool,
 } from "../../src/adapters/oh-my-pi/context.ts";
 import { withTempStore } from "../helpers/temp-store.ts";
+import { readEvidenceLog } from "../helpers/logfmt.ts";
 
 const store = withTempStore({ prefix: "osi-omp-" });
 const PROJECT =
@@ -72,7 +73,62 @@ async function driver(cwd: string) {
   };
 }
 
-describe("oh-my-pi exploratory adapter", () => {
+describe("oh-my-pi adapter", () => {
+  test("failed shell exits retain gate failure and recovery evidence", async () => {
+    const d = await driver(store.root);
+    try {
+      for (const [callID, exitCode, isError] of [
+        ["failed", 1, true],
+        ["passed", 0, false],
+      ] as const) {
+        await d.emit("tool_result", {
+          toolName: "bash",
+          toolCallId: callID,
+          input: { command: "bun test" },
+          content: [{ type: "text", text: "test runner finished" }],
+          details: { exitCode },
+          isError,
+        });
+      }
+      const log = readEvidenceLog();
+      expect(
+        log.filter((e) => e.ev === "gate_check").map((e) => e.status),
+      ).toEqual(["FAIL", "PASS"]);
+      expect(log.find((e) => e.ev === "t4_learning")).toMatchObject({
+        from: "FAIL",
+        to: "PASS",
+        gate: "bash:test",
+      });
+    } finally {
+      await d.close();
+    }
+  });
+
+  test("shell errors without a trustworthy failing exit cannot become passing gates", async () => {
+    const d = await driver(store.root);
+    try {
+      for (const details of [
+        {},
+        { exitCode: 0 },
+        { exitCode: "1" },
+        { exitCode: Number.NaN },
+      ]) {
+        await d.emit("tool_result", {
+          toolName: "bash",
+          toolCallId: "unexecuted",
+          input: { command: "bun test" },
+          content: [{ type: "text", text: "interrupted" }],
+          details,
+          isError: true,
+        });
+      }
+      expect(readEvidenceLog().filter((e) => e.ev === "gate_check")).toEqual(
+        [],
+      );
+    } finally {
+      await d.close();
+    }
+  });
   for (const boundary of [
     "session_clear",
     "session_switch",

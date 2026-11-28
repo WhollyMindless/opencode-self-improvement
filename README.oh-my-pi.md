@@ -1,13 +1,13 @@
 # Memory for oh-my-pi
 
-An experimental oh-my-pi adapter for this project's memory engine. It provides
+An oh-my-pi adapter for this project's memory engine. It provides
 fourteen memory tools, relevant context, automatic turn-end and compaction capture,
 native memory commands, and per-harness statistics. Memories can be shared with
 OpenCode using the same store and project directory.
 
 Tested with **oh-my-pi 19.2.1 and Bun 1.4.4**. Upstream Pi and dsh are not supported
 by this adapter. The implementation is under consideration in
-[draft PR #561](https://github.com/abogartz/opencode-self-improvement/pull/561);
+[PR #561](https://github.com/abogartz/opencode-self-improvement/pull/561);
 it is not yet in the published npm release.
 
 **Auto-capture is enabled by default.** It can make an additional call to your
@@ -30,7 +30,7 @@ installing or updating the plugin. Launch it in the project whose memories you
 want to use. No separate capture wrapper or memory-specific API key is required;
 the host supplies its model SDK and credential resolver.
 
-For a fresh checkout of the draft:
+For a fresh checkout of the review branch:
 
 ```sh
 git clone https://github.com/abogartz/opencode-self-improvement.git opencode-memory
@@ -74,6 +74,12 @@ across projects. Relevance selection still determines what reaches each request.
 Capture is selective: short conversations, cooldowns, duplicate facts, and the
 write gates can produce no new memory. Absence of a row alone does not mean capture
 is broken. `memory_remember` remains the direct way to request a save.
+
+The adapter runs the same behavioral conformance suite as OpenCode and the
+reference harness. Real SDK/CLI checks additionally cover installation, model
+completion, compaction, shutdown, commands and sharing. See the
+[acceptance coverage](docs/reference/oh-my-pi.md#acceptance-coverage) for the
+supported scope and the distinction between fixture and real-host evidence.
 
 ## Configure or disable auto-capture
 

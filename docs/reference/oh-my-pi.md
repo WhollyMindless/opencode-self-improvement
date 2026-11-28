@@ -1,7 +1,7 @@
 # Experimental oh-my-pi installation
 
 This branch provides memory tools and selected memory context for **oh-my-pi
-19.2.1**, tested with **Bun 1.4.4**. It is an experimental adapter, not a claim of
+19.2.1**, tested with **Bun 1.4.4**. It is an unreleased adapter, not a claim of
 support for upstream Pi, other derivatives, or dsh. These changes are not yet in
 the published npm release; install from this work branch or a package built from it.
 
@@ -218,6 +218,30 @@ Auxiliary `model_usage` records, subagent tool totals, and separate memory-captu
 calls are excluded. Capture estimates are reported separately. See
 [report coverage and retention limits](surfaces.md#combined-and-per-harness-activity).
 
+## Acceptance coverage
+
+The supported integration includes all fourteen tools, automatic context,
+turn-end capture, ordinary LLM compaction, native commands, usage snapshots and
+shared project/global storage. It uses the shared engine's policy and gates.
+
+| Behavior | Verification |
+| --- | --- |
+| Tools, validation, grounding, visibility and selected injection | The same eight runtime conformance scenarios run for the reference host, OpenCode and oh-my-pi. |
+| Prompt/context delivery | The native combined prompt hook returns system context; the observation hook carries no system sink. Clipped and duplicate tool-result copies cannot invent credit. |
+| Failed tests and recovery | Numeric nonzero shell exits reach shared failure/recovery tracking. Unit regressions and the real SDK dispatcher verify error flags and receipts. Errors without an attested exit and failed reads cannot invent successful evidence. |
+| Capture and credentials | Real SDK local and registered providers; isolated scrubbed completion; malformed, aborted and tool-call answers refused. |
+| Compaction and session changes | Real SDK ordinary/custom/cancelled summaries, original-transcript capture, branch/tree/switch/clear identity retirement. |
+| Shutdown | Bounded answered/unanswered capture and pending writes; common conformance rejects answers arriving after completed disposal. |
+| Installation and sharing | Packed CLI installation, restart, automatic capture, commands, per-harness usage, and bidirectional OpenCode sharing with project/global isolation. |
+
+Run `bun run test:simulator` for the common contracts without installing a host.
+Run `bun run test:oh-my-pi` after installing the pinned integration dependencies
+for real SDK/CLI checks. CI runs both unit and SDK suites on Linux and Windows.
+The shell-dispatch fixture returns native exit metadata without executing a real
+shell; it verifies host event transport, while the pinned bash implementation is
+the source of that metadata shape. These tests establish the supported scope;
+the limitations below remain explicit.
+
 ## Current limits
 
 - The packaged entry point supplies tools, context, native commands, and automatic
@@ -243,4 +267,4 @@ calls are excluded. Capture estimates are reported separately. See
   those tests.
 
 For the SDK contracts and testing instructions, see
-[development notes](../internals/development.md#exploratory-oh-my-pi-adapter).
+[development notes](../internals/development.md#oh-my-pi-adapter).
